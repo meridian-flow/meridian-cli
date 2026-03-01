@@ -34,7 +34,7 @@ def test_run_child_env_sets_parent_run_id(monkeypatch) -> None:
     monkeypatch.setenv("MERIDIAN_DEPTH", "2")
     monkeypatch.setenv("MERIDIAN_PARENT_RUN_ID", "ancestor")
 
-    env = _run_child_env("s9", (), "r34")
+    env = _run_child_env("s9", "r34")
 
     assert env["MERIDIAN_DEPTH"] == "3"
     assert env["MERIDIAN_SPACE_ID"] == "s9"

@@ -36,7 +36,6 @@ def _detail_from_status(
         report_summary=None,
         report=None,
         files_touched=None,
-        skills=(),
     )
 
 
@@ -61,7 +60,7 @@ def test_run_wait_sync_waits_for_all_runs_and_returns_ordered_summary(
         ],
     }
 
-    def fake_read_run_row(_: Path, run_id: str) -> SimpleNamespace:
+    def fake_read_run_row(_: Path, run_id: str, _space: str | None = None) -> SimpleNamespace:
         sequence = rows_by_id[run_id]
         if len(sequence) > 1:
             return sequence.pop(0)
@@ -71,7 +70,7 @@ def test_run_wait_sync_waits_for_all_runs_and_returns_ordered_summary(
     monkeypatch.setattr(
         run_ops,
         "_detail_from_row",
-        lambda repo_root, row, report, include_files: _detail_from_status(
+        lambda repo_root, row, report, include_files, space_id=None: _detail_from_status(
             run_id=str(row.id),
             status=str(row.status),
             duration_secs=cast("float | None", row.duration_secs),
@@ -120,7 +119,7 @@ def test_run_wait_sync_timeout_is_global_across_all_runs(
     monkeypatch.setattr(
         run_ops,
         "_read_run_row",
-        lambda _repo_root, run_id: SimpleNamespace(
+        lambda _repo_root, run_id, _space=None: SimpleNamespace(
             id=run_id, status="running", duration_secs=None, exit_code=None
         ),
     )
@@ -146,14 +145,14 @@ def test_run_wait_sync_accepts_legacy_run_id_alias_for_single_run(
     monkeypatch.setattr(
         run_ops,
         "_read_run_row",
-        lambda _repo_root, run_id: SimpleNamespace(
+        lambda _repo_root, run_id, _space=None: SimpleNamespace(
             id=run_id, status="succeeded", duration_secs=1.0, exit_code=0
         ),
     )
     monkeypatch.setattr(
         run_ops,
         "_detail_from_row",
-        lambda repo_root, row, report, include_files: _detail_from_status(
+        lambda repo_root, row, report, include_files, space_id=None: _detail_from_status(
             run_id=str(row.id),
             status=str(row.status),
             duration_secs=cast("float | None", row.duration_secs),

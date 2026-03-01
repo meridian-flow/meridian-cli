@@ -48,6 +48,17 @@ def _run_create(
         str,
         Parameter(name=["--prompt", "-p"], help="Prompt text for the run."),
     ] = "",
+    template_vars: Annotated[
+        tuple[str, ...],
+        Parameter(
+            name="--prompt-var",
+            help=(
+                "Prompt template variables in KEY=VALUE form (repeatable). "
+                "Replaces {{KEY}} during prompt assembly."
+            ),
+            negative_iterable=(),
+        ),
+    ] = (),
     model: Annotated[
         str,
         Parameter(name=["--model", "-m"], help="Model id or alias to use."),
@@ -57,14 +68,6 @@ def _run_create(
         Parameter(
             name=["--file", "-f"],
             help="Reference files to include in prompt context (repeatable).",
-            negative_iterable=(),
-        ),
-    ] = (),
-    template_vars: Annotated[
-        tuple[str, ...],
-        Parameter(
-            name="--var",
-            help="Template variables in KEY=VALUE form (repeatable).",
             negative_iterable=(),
         ),
     ] = (),
@@ -112,46 +115,7 @@ def _run_create(
         str | None,
         Parameter(name="--permission", help="Permission tier for harness execution."),
     ] = None,
-    unsafe: Annotated[
-        bool,
-        Parameter(name="--unsafe", help="Allow unsafe execution mode.", show=_HUMAN_ONLY),
-    ] = False,
-    budget_per_run_usd: Annotated[
-        float | None,
-        Parameter(name="--budget-per-run-usd", help="Per-run budget cap in USD."),
-    ] = None,
-    budget_per_space_usd: Annotated[
-        float | None,
-        Parameter(name="--budget-per-space-usd", help="Space budget cap in USD."),
-    ] = None,
-    budget_usd: Annotated[
-        float | None,
-        Parameter(
-            name="--budget-usd",
-            help="Legacy alias for per-run budget in USD.",
-            show=_HUMAN_ONLY,
-        ),
-    ] = None,
-    guardrails: Annotated[
-        tuple[str, ...],
-        Parameter(
-            name="--guardrail",
-            help="Guardrail identifiers to enforce (repeatable).",
-            negative_iterable=(),
-        ),
-    ] = (),
-    secrets: Annotated[
-        tuple[str, ...],
-        Parameter(
-            name="--secret",
-            help="Secret keys to expose to the harness (repeatable).",
-            negative_iterable=(),
-        ),
-    ] = (),
 ) -> None:
-    resolved_budget_per_run = budget_per_run_usd
-    if resolved_budget_per_run is None:
-        resolved_budget_per_run = budget_usd
     result = run_create_sync(
         RunCreateInput(
             prompt=prompt,
@@ -168,11 +132,6 @@ def _run_create(
             space=space,
             timeout_secs=timeout_secs,
             permission_tier=permission_tier,
-            unsafe=unsafe,
-            budget_per_run_usd=resolved_budget_per_run,
-            budget_per_space_usd=budget_per_space_usd,
-            guardrails=guardrails,
-            secrets=secrets,
         )
     )
     emit(result)
@@ -239,6 +198,10 @@ def _run_show(
         bool,
         Parameter(name="--include-files", help="Include run file metadata in output."),
     ] = False,
+    space: Annotated[
+        str | None,
+        Parameter(name=["--space-id", "--space"], help="Space id containing the run."),
+    ] = None,
 ) -> None:
     emit(
         run_show_sync(
@@ -246,6 +209,7 @@ def _run_show(
                 run_id=run_id,
                 report=report,
                 include_files=include_files,
+                space=space,
             )
         )
     )
@@ -291,6 +255,10 @@ def _run_continue(
         float | None,
         Parameter(name="--timeout-secs", help="Maximum runtime before timeout."),
     ] = None,
+    space: Annotated[
+        str | None,
+        Parameter(name=["--space-id", "--space"], help="Space id containing the source run."),
+    ] = None,
 ) -> None:
     emit(
         run_continue_sync(
@@ -300,6 +268,7 @@ def _run_continue(
                 model=model,
                 fork=fork,
                 timeout_secs=timeout_secs,
+                space=space,
             )
         )
     )
@@ -323,6 +292,10 @@ def _run_wait(
         bool,
         Parameter(name="--include-files", help="Include run file metadata in output."),
     ] = False,
+    space: Annotated[
+        str | None,
+        Parameter(name=["--space-id", "--space"], help="Space id containing the runs."),
+    ] = None,
 ) -> None:
     result = run_wait_sync(
         RunWaitInput(
@@ -330,6 +303,7 @@ def _run_wait(
             timeout_secs=timeout_secs,
             report=report,
             include_files=include_files,
+            space=space,
         )
     )
     emit(result)

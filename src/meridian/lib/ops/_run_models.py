@@ -32,11 +32,6 @@ class RunCreateInput:
     repo_root: str | None = None
     timeout_secs: float | None = None
     permission_tier: str | None = None
-    unsafe: bool = False
-    budget_per_run_usd: float | None = None
-    budget_per_space_usd: float | None = None
-    guardrails: tuple[str, ...] = ()
-    secrets: tuple[str, ...] = ()
     continue_harness_session_id: str | None = None
     continue_harness: str | None = None
     continue_fork: bool = False
@@ -55,7 +50,6 @@ class RunActionOutput:
     harness_id: str | None = None
     warning: str | None = None
     agent: str | None = None
-    skills: tuple[str, ...] = ()
     reference_files: tuple[str, ...] = ()
     template_vars: dict[str, str] = field(default_factory=_empty_template_vars)
     report_path: str | None = None
@@ -79,8 +73,6 @@ class RunActionOutput:
             parts.append(f"model={self.model}")
         if self.harness_id is not None:
             parts.append(f"harness={self.harness_id}")
-        if self.skills:
-            parts.append(f"skills={','.join(self.skills)}")
         if self.duration_secs is not None:
             parts.append(f"{self.duration_secs:.1f}s")
         if self.exit_code is not None:
@@ -187,6 +179,7 @@ class RunShowInput:
     run_id: str
     report: bool = False
     include_files: bool = False
+    space: str | None = None
     repo_root: str | None = None
 
 
@@ -209,7 +202,6 @@ class RunDetailOutput:
     report_summary: str | None
     report: str | None
     files_touched: tuple[str, ...] | None
-    skills: tuple[str, ...]
 
     def format_text(self, ctx: FormatContext | None = None) -> str:
         """Key-value detail view for text output mode. Omits None/empty fields."""
@@ -241,7 +233,6 @@ class RunDetailOutput:
             ("Model", f"{self.model} ({self.harness})"),
             ("Duration", duration_value),
             ("Space", self.space_id),
-            ("Skills", ", ".join(self.skills) if self.skills else None),
             ("Failure", self.failure_reason),
             ("Cost", cost_value),
             ("Report", self.report_path),
@@ -256,6 +247,7 @@ class RunContinueInput:
     model: str = ""
     fork: bool = False
     timeout_secs: float | None = None
+    space: str | None = None
     repo_root: str | None = None
 
 
@@ -268,6 +260,7 @@ class RunWaitInput:
     poll_interval_secs: float | None = None
     report: bool = False
     include_files: bool = False
+    space: str | None = None
     repo_root: str | None = None
 
 

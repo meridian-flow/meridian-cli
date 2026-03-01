@@ -31,13 +31,11 @@ from meridian.lib.ops._runtime import (
     build_runtime,
     resolve_space_id,
 )
-from meridian.lib.safety.budget import Budget
 from meridian.lib.safety.permissions import (
     PermissionConfig,
     build_permission_resolver,
     parse_permission_tier,
 )
-from meridian.lib.safety.redaction import SecretSpec, secrets_env_overrides
 from meridian.lib.space.session_store import (
     start_session,
     stop_session,
@@ -56,7 +54,6 @@ _BACKGROUND_SUBMIT_MESSAGE = "Background run submitted."
 _BACKGROUND_PID_FILENAME = "background.pid"
 _BACKGROUND_STDOUT_FILENAME = "background-launcher.stdout.log"
 _BACKGROUND_STDERR_FILENAME = "background-launcher.stderr.log"
-_SECRET_ENV_PREFIX = "MERIDIAN_SECRET_"
 
 
 class _PreparedCreateLike(Protocol):
@@ -77,9 +74,6 @@ class _PreparedCreateLike(Protocol):
     permission_config: PermissionConfig
     permission_resolver: PermissionResolver
     allowed_tools: tuple[str, ...]
-    budget: Budget | None
-    guardrails: tuple[str, ...]
-    secrets: tuple[SecretSpec, ...]
     continue_harness_session_id: str | None
     continue_fork: bool
 
@@ -128,7 +122,6 @@ def _depth_exceeded_output(current_depth: int, max_depth: int) -> RunActionOutpu
 
 def _run_child_env(
     space_id: str | None,
-    secrets: tuple[SecretSpec, ...],
     parent_run_id: str | None = None,
 ) -> dict[str, str]:
     # Preserve Meridian run context across nesting without forwarding unrelated
@@ -146,7 +139,6 @@ def _run_child_env(
             child_env["MERIDIAN_PARENT_RUN_ID"] = normalized_parent
         else:
             child_env.pop("MERIDIAN_PARENT_RUN_ID", None)
-    child_env.update(secrets_env_overrides(secrets))
     return child_env
 
 
@@ -250,18 +242,6 @@ def _cleanup_session_materialized(*, harness_id: str, repo_root: Path, chat_id: 
         )
 
 
-def _secrets_from_env() -> tuple[SecretSpec, ...]:
-    parsed: list[SecretSpec] = []
-    for key in sorted(os.environ):
-        if not key.startswith(_SECRET_ENV_PREFIX):
-            continue
-        secret_key = key[len(_SECRET_ENV_PREFIX) :].strip()
-        if not secret_key:
-            continue
-        parsed.append(SecretSpec(key=secret_key, value=os.environ[key]))
-    return tuple(parsed)
-
-
 def _resolve_chat_id() -> str:
     chat_id = os.getenv("MERIDIAN_CHAT_ID", "").strip()
     if chat_id:
@@ -274,14 +254,6 @@ def _resolve_space(repo_root: Path, payload_space: str | None) -> tuple[SpaceId,
     if resolved is None:
         raise ValueError(SPACE_REQUIRED_ERROR)
     return resolved, resolve_space_dir(repo_root, resolved)
-
-
-def _space_spend_usd(space_dir: Path) -> float:
-    total = 0.0
-    for run in run_store.list_runs(space_dir):
-        if run.total_cost_usd is not None:
-            total += run.total_cost_usd
-    return total
 
 
 def _stdout_is_tty() -> bool:
@@ -302,9 +274,6 @@ async def _execute_existing_run(
     permission_config: PermissionConfig,
     allowed_tools: tuple[str, ...] = (),
     cli_permission_override: bool = False,
-    budget: Budget | None = None,
-    guardrails: tuple[str, ...] = (),
-    secrets: tuple[SecretSpec, ...] = (),
     continue_harness_session_id: str | None = None,
     continue_fork: bool = False,
     space_id_hint: str | None = None,
@@ -378,16 +347,10 @@ async def _execute_existing_run(
             mcp_tools=mcp_tools,
             env_overrides=_run_child_env(
                 space_id_text,
-                secrets,
                 str(run.run_id),
             ),
-            budget=budget,
-            space_spent_usd=_space_spend_usd(space_dir),
             max_retries=runtime.config.max_retries,
             retry_backoff_seconds=runtime.config.retry_backoff_seconds,
-            guardrails=tuple(Path(item) for item in guardrails),
-            guardrail_timeout_seconds=runtime.config.guardrail_timeout_seconds,
-            secrets=secrets,
             continue_harness_session_id=continue_harness_session_id,
             continue_fork=continue_fork,
             harness_session_id_observer=lambda session_id: update_session_harness_id(
@@ -419,8 +382,6 @@ def _build_background_worker_command(
     permission_config: PermissionConfig,
     allowed_tools: tuple[str, ...],
     cli_permission_override: bool,
-    budget: Budget | None,
-    guardrails: tuple[str, ...],
     continue_harness_session_id: str | None,
     continue_fork: bool,
     session_agent: str,
@@ -442,15 +403,6 @@ def _build_background_worker_command(
         command.extend(["--space-id", space_id])
     if timeout_secs is not None:
         command.extend(["--timeout-secs", str(timeout_secs)])
-    if permission_config.unsafe:
-        command.append("--unsafe")
-    if budget is not None:
-        if budget.per_run_usd is not None:
-            command.extend(["--budget-per-run-usd", str(budget.per_run_usd)])
-        if budget.per_space_usd is not None:
-            command.extend(
-                ["--budget-per-space-usd", str(budget.per_space_usd)]
-            )
     if agent_name is not None:
         command.extend(["--agent", agent_name])
     for skill in skills:
@@ -461,8 +413,6 @@ def _build_background_worker_command(
         command.extend(["--allowed-tool", tool])
     if cli_permission_override:
         command.append("--cli-permission-override")
-    for guardrail in guardrails:
-        command.extend(["--guardrail", guardrail])
     if continue_harness_session_id is not None and continue_harness_session_id.strip():
         command.extend(["--continue-harness-session-id", continue_harness_session_id.strip()])
     if continue_fork:
@@ -526,8 +476,6 @@ def _execute_run_background(
         permission_config=prepared.permission_config,
         allowed_tools=prepared.allowed_tools,
         cli_permission_override=payload.permission_tier is not None,
-        budget=prepared.budget,
-        guardrails=prepared.guardrails,
         continue_harness_session_id=prepared.continue_harness_session_id,
         continue_fork=prepared.continue_fork,
         session_agent=prepared.session_agent,
@@ -540,7 +488,6 @@ def _execute_run_background(
     stderr_path = log_dir / _BACKGROUND_STDERR_FILENAME
 
     launch_env = dict(os.environ)
-    launch_env.update(secrets_env_overrides(prepared.secrets))
     try:
         with (
             stdout_path.open("ab") as stdout_handle,
@@ -700,16 +647,10 @@ def _execute_run_blocking(
                 mcp_tools=prepared.mcp_tools,
                 env_overrides=_run_child_env(
                     space_id_str,
-                    prepared.secrets,
                     str(run.run_id),
                 ),
-                budget=prepared.budget,
-                space_spent_usd=_space_spend_usd(space_dir),
                 max_retries=runtime.config.max_retries,
                 retry_backoff_seconds=runtime.config.retry_backoff_seconds,
-                guardrails=tuple(Path(item) for item in prepared.guardrails),
-                guardrail_timeout_seconds=runtime.config.guardrail_timeout_seconds,
-                secrets=prepared.secrets,
                 continue_harness_session_id=prepared.continue_harness_session_id,
                 continue_fork=prepared.continue_fork,
                 event_observer=event_observer,
@@ -733,7 +674,7 @@ def _execute_run_blocking(
             )
     duration = time.monotonic() - started
 
-    row = _read_run_row(runtime.repo_root, str(run.run_id))
+    row = _read_run_row(runtime.repo_root, str(run.run_id), space=space_id_str)
     status = "failed"
     if row is not None:
         status = row.status
@@ -786,11 +727,8 @@ async def _execute_run_non_blocking(
     permission_config: PermissionConfig,
     allowed_tools: tuple[str, ...] = (),
     cli_permission_override: bool = False,
-    budget: Budget | None,
-    guardrails: tuple[str, ...],
-    secrets: tuple[SecretSpec, ...],
-    continue_harness_session_id: str | None,
-    continue_fork: bool,
+    continue_harness_session_id: str | None = None,
+    continue_fork: bool = False,
     session_agent: str = "",
     session_agent_path: str = "",
     session_skill_paths: tuple[str, ...] = (),
@@ -805,9 +743,6 @@ async def _execute_run_non_blocking(
         permission_config=permission_config,
         allowed_tools=allowed_tools,
         cli_permission_override=cli_permission_override,
-        budget=budget,
-        guardrails=guardrails,
-        secrets=secrets,
         continue_harness_session_id=continue_harness_session_id,
         continue_fork=continue_fork,
         session_agent=session_agent,
@@ -843,10 +778,6 @@ def _build_background_worker_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mcp-tool", action="append", default=[])
     parser.add_argument("--allowed-tool", action="append", default=[])
     parser.add_argument("--permission-tier", required=True)
-    parser.add_argument("--unsafe", action="store_true")
-    parser.add_argument("--budget-per-run-usd", type=float, default=None)
-    parser.add_argument("--budget-per-space-usd", type=float, default=None)
-    parser.add_argument("--guardrail", action="append", default=[])
     parser.add_argument("--cli-permission-override", action="store_true")
     parser.add_argument("--continue-harness-session-id", default=None)
     parser.add_argument("--continue-fork", action="store_true")
@@ -860,17 +791,10 @@ def _background_worker_main(argv: Sequence[str] | None = None) -> int:
     parser = _build_background_worker_parser()
     parsed = parser.parse_args(list(argv) if argv is not None else None)
 
-    budget: Budget | None = None
-    if parsed.budget_per_run_usd is not None or parsed.budget_per_space_usd is not None:
-        budget = Budget(
-            per_run_usd=parsed.budget_per_run_usd,
-            per_space_usd=parsed.budget_per_space_usd,
-        )
     permission_config = PermissionConfig(
         tier=parse_permission_tier(parsed.permission_tier),
-        unsafe=parsed.unsafe,
+        unsafe=False,
     )
-    secrets = _secrets_from_env()
     allowed_tools = tuple(str(item) for item in parsed.allowed_tool)
     return asyncio.run(
         _execute_existing_run(
@@ -884,9 +808,6 @@ def _background_worker_main(argv: Sequence[str] | None = None) -> int:
             permission_config=permission_config,
             allowed_tools=allowed_tools,
             cli_permission_override=bool(parsed.cli_permission_override),
-            budget=budget,
-            guardrails=tuple(str(item) for item in parsed.guardrail),
-            secrets=secrets,
             continue_harness_session_id=cast("str | None", parsed.continue_harness_session_id),
             continue_fork=bool(parsed.continue_fork),
             session_agent=str(parsed.session_agent),

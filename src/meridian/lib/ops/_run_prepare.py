@@ -26,8 +26,6 @@ from meridian.lib.prompt import (
     parse_template_assignments,
     resolve_run_defaults,
 )
-from meridian.lib.safety.budget import Budget, normalize_budget
-from meridian.lib.safety.guardrails import normalize_guardrail_paths
 from meridian.lib.harness.adapter import PermissionResolver
 from meridian.lib.safety.permissions import (
     PermissionConfig,
@@ -36,7 +34,6 @@ from meridian.lib.safety.permissions import (
     build_permission_resolver,
     validate_permission_config_for_harness,
 )
-from meridian.lib.safety.redaction import SecretSpec, parse_secret_specs
 from meridian.lib.types import ModelId
 
 from ._run_models import RunCreateInput
@@ -67,9 +64,6 @@ class _PreparedCreate:
     permission_config: PermissionConfig
     permission_resolver: PermissionResolver
     allowed_tools: tuple[str, ...]
-    budget: Budget | None
-    guardrails: tuple[str, ...]
-    secrets: tuple[SecretSpec, ...]
     continue_harness_session_id: str | None
     continue_fork: bool
 
@@ -335,7 +329,7 @@ def _build_create_payload(
         )
     permission_config = build_permission_config(
         payload.permission_tier or inferred_tier,
-        unsafe=payload.unsafe,
+        unsafe=False,
         default_tier=runtime_view.config.default_permission_tier,
     )
     warning = _merge_warnings(
@@ -345,13 +339,6 @@ def _build_create_payload(
             config=permission_config,
         ),
     )
-    budget = normalize_budget(
-        per_run_usd=payload.budget_per_run_usd,
-        per_space_usd=payload.budget_per_space_usd,
-    )
-    guardrails = normalize_guardrail_paths(payload.guardrails, repo_root=runtime_view.repo_root)
-    secrets = parse_secret_specs(payload.secrets)
-
     resolver = build_permission_resolver(
         allowed_tools=profile.allowed_tools if profile is not None else (),
         permission_config=permission_config,
@@ -409,9 +396,6 @@ def _build_create_payload(
         permission_config=permission_config,
         permission_resolver=resolver,
         allowed_tools=profile.allowed_tools if profile is not None else (),
-        budget=budget,
-        guardrails=tuple(path.as_posix() for path in guardrails),
-        secrets=secrets,
         continue_harness_session_id=resolved_continue_harness_session_id,
         continue_fork=resolved_continue_fork,
     )

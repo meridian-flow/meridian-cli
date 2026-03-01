@@ -27,7 +27,6 @@ def _detail(run_id: str, status: str, exit_code: int | None) -> RunDetailOutput:
         report_summary=None,
         report=None,
         files_touched=None,
-        skills=(),
     )
 
 

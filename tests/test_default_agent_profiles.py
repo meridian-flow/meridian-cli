@@ -103,7 +103,6 @@ def test_run_uses_default_agent_profile_and_profile_skills(tmp_path: Path) -> No
     assert result.status == "dry-run"
     assert result.model == "gpt-5.3-codex"
     assert result.agent == "reviewer"
-    assert result.skills == ("reviewing",)
 
 
 def test_run_falls_back_to_bundled_agent_when_configured_profile_missing(
@@ -127,7 +126,6 @@ def test_run_falls_back_to_bundled_agent_when_configured_profile_missing(
 
     assert result.status == "dry-run"
     assert result.agent == "agent"
-    assert result.skills == ()
 
 
 def test_space_primary_profile_controls_model_skills_and_sandbox(tmp_path: Path) -> None:

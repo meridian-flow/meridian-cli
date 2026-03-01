@@ -97,7 +97,7 @@ def test_run_create_dry_run_outputs_composed_prompt_and_command(
             "reviewer",
             "-f",
             str(reference_file),
-            "--var",
+            "--prompt-var",
             "VALUE=ok",
             "-p",
             "Implement the task.",

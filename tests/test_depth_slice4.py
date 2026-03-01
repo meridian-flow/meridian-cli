@@ -12,7 +12,6 @@ import pytest
 
 from meridian.lib.ops._run_execute import _run_child_env
 from meridian.lib.ops.run import RunCreateInput, run_create, run_create_sync
-from meridian.lib.safety.redaction import SecretSpec
 from meridian.server.main import mcp
 
 
@@ -105,7 +104,7 @@ async def test_mcp_run_spawn_refuses_when_depth_limit_reached(
 
 def test_run_child_env_increments_depth(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MERIDIAN_DEPTH", "2")
-    env = _run_child_env("s9", (SecretSpec(key="API_TOKEN", value="token"),))
+    env = _run_child_env("s9")
     assert env["MERIDIAN_DEPTH"] == "3"
     assert env["MERIDIAN_SPACE_ID"] == "s9"
 

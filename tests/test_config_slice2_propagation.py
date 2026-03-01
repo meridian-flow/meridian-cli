@@ -3,15 +3,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import meridian.lib.ops.run as run_ops
+import pytest
 from meridian.lib.ops.run import RunCreateInput
 from meridian.lib.safety.permissions import PermissionConfig, PermissionTier
 from meridian.lib.space.space_file import create_space
-
-if TYPE_CHECKING:
-    import pytest
 
 
 def _write_config(repo_root: Path, content: str) -> None:
@@ -136,40 +133,18 @@ def test_custom_kill_grace_seconds_flows_to_execute_with_finalization(
     assert captured["kill_grace_seconds"] == 4.5
 
 
-def test_opencode_danger_warning_is_surfaced_during_run_config_validation(
+def test_run_spawn_rejects_danger_permission_tier_without_unsafe_override(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     _clear_config_env(monkeypatch)
-    captured: dict[str, object] = {}
-
-    def fake_validate_permission_config_for_harness(
-        *,
-        harness_id: str,
-        config: PermissionConfig,
-    ) -> str | None:
-        captured["harness_id"] = harness_id
-        captured["tier"] = config.tier.value
-        return "OpenCode has no danger-bypass flag; DANGER falls back to FULL_ACCESS."
-
-    monkeypatch.setattr(
-        run_ops,
-        "validate_permission_config_for_harness",
-        fake_validate_permission_config_for_harness,
-    )
-
-    result = run_ops.run_create_sync(
-        RunCreateInput(
-            prompt="opencode danger warning",
-            model="opencode-gpt-5.3-codex",
-            permission_tier="danger",
-            unsafe=True,
-            repo_root=tmp_path.as_posix(),
-            dry_run=True,
+    with pytest.raises(ValueError, match="requires explicit --unsafe"):
+        run_ops.run_create_sync(
+            RunCreateInput(
+                prompt="opencode danger warning",
+                model="opencode-gpt-5.3-codex",
+                permission_tier="danger",
+                repo_root=tmp_path.as_posix(),
+                dry_run=True,
+            )
         )
-    )
-
-    assert captured["harness_id"] == "opencode"
-    assert captured["tier"] == "danger"
-    assert result.warning is not None
-    assert "OpenCode has no danger-bypass flag; DANGER falls back to FULL_ACCESS." in result.warning

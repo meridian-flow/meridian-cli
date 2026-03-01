@@ -10,7 +10,6 @@ from pathlib import Path
 from meridian.lib.exec.spawn import execute_with_finalization
 from meridian.lib.ops._runtime import (
     build_runtime_from_root_and_config,
-    require_space_id,
     resolve_runtime_root_and_config,
     resolve_space_id,
 )
@@ -47,12 +46,18 @@ from ._run_models import (
     RunWaitMultiOutput,
 )
 from ._run_prepare import _build_create_payload, _validate_create_input
-from ._run_query import _detail_from_row, _read_run_row, resolve_run_reference, resolve_run_references
+from ._run_query import (
+    _detail_from_row,
+    _read_run_row,
+    _resolve_space_id,
+    resolve_run_reference,
+    resolve_run_references,
+)
 
 
-def _require_space_dir(repo_root: Path) -> tuple[str, Path]:
-    space_id = require_space_id(None)
-    return str(space_id), resolve_space_dir(repo_root, space_id)
+def _resolve_space_dir(repo_root: Path, space: str | None = None) -> tuple[str, Path]:
+    space_id = _resolve_space_id(space)
+    return space_id, resolve_space_dir(repo_root, space_id)
 
 
 def _merge_warnings(*warnings: str | None) -> str | None:
@@ -60,6 +65,15 @@ def _merge_warnings(*warnings: str | None) -> str | None:
     if not parts:
         return None
     return "; ".join(parts)
+
+
+def _non_empty_space(space: str | None) -> str | None:
+    if space is None:
+        return None
+    normalized = space.strip()
+    if not normalized:
+        return None
+    return normalized
 
 
 def _ensure_space_for_spawn(payload: RunCreateInput) -> tuple[RunCreateInput, str | None]:
@@ -106,7 +120,6 @@ def run_create_sync(payload: RunCreateInput) -> RunActionOutput:
             harness_id=prepared.harness_id,
             warning=prepared.warning,
             agent=prepared.agent_name,
-            skills=prepared.skills,
             reference_files=prepared.reference_files,
             template_vars=prepared.template_vars,
             report_path=prepared.report_path,
@@ -127,13 +140,11 @@ async def run_create(payload: RunCreateInput) -> RunActionOutput:
 
 
 def run_list_sync(payload: RunListInput) -> RunListOutput:
-    repo_root, _ = resolve_runtime_root_and_config(payload.repo_root)
-    current_space_id, space_dir = _require_space_dir(repo_root)
-
     if payload.no_space:
         return RunListOutput(runs=())
-    if payload.space is not None and payload.space.strip() and payload.space.strip() != current_space_id:
-        return RunListOutput(runs=())
+
+    repo_root, _ = resolve_runtime_root_and_config(payload.repo_root)
+    current_space_id, space_dir = _resolve_space_dir(repo_root, payload.space)
 
     runs = list(reversed(run_store.list_runs(space_dir)))
     if payload.status is not None:
@@ -166,19 +177,7 @@ async def run_list(payload: RunListInput) -> RunListOutput:
 
 def run_stats_sync(payload: RunStatsInput) -> RunStatsOutput:
     repo_root, _ = resolve_runtime_root_and_config(payload.repo_root)
-    current_space_id, space_dir = _require_space_dir(repo_root)
-
-    if payload.space is not None and payload.space.strip() and payload.space.strip() != current_space_id:
-        return RunStatsOutput(
-            total_runs=0,
-            succeeded=0,
-            failed=0,
-            cancelled=0,
-            running=0,
-            total_duration_secs=0.0,
-            total_cost_usd=0.0,
-            models={},
-        )
+    current_space_id, space_dir = _resolve_space_dir(repo_root, payload.space)
 
     runs = run_store.list_runs(space_dir)
     if payload.session is not None and payload.session.strip():
@@ -228,8 +227,9 @@ async def run_stats(payload: RunStatsInput) -> RunStatsOutput:
 
 def run_show_sync(payload: RunShowInput) -> RunDetailOutput:
     repo_root, _ = resolve_runtime_root_and_config(payload.repo_root)
-    run_id = resolve_run_reference(repo_root, payload.run_id)
-    row = _read_run_row(repo_root, run_id)
+    resolved_space = _non_empty_space(payload.space)
+    run_id = resolve_run_reference(repo_root, payload.run_id, resolved_space)
+    row = _read_run_row(repo_root, run_id, resolved_space)
     if row is None:
         raise ValueError(f"Run '{run_id}' not found")
     return _detail_from_row(
@@ -237,6 +237,7 @@ def run_show_sync(payload: RunShowInput) -> RunDetailOutput:
         row=row,
         report=payload.report,
         include_files=payload.include_files,
+        space_id=resolved_space,
     )
 
 
@@ -294,7 +295,8 @@ def _build_wait_multi_output(results: tuple[RunDetailOutput, ...]) -> RunWaitMul
 
 def run_wait_sync(payload: RunWaitInput) -> RunWaitMultiOutput:
     repo_root, config = resolve_runtime_root_and_config(payload.repo_root)
-    run_ids = resolve_run_references(repo_root, _normalize_wait_run_ids(payload))
+    resolved_space = _non_empty_space(payload.space)
+    run_ids = resolve_run_references(repo_root, _normalize_wait_run_ids(payload), resolved_space)
     timeout_secs = (
         payload.timeout_secs if payload.timeout_secs is not None else config.wait_timeout_seconds
     )
@@ -312,7 +314,7 @@ def run_wait_sync(payload: RunWaitInput) -> RunWaitMultiOutput:
 
     while True:
         for run_id in tuple(pending):
-            row = _read_run_row(repo_root, run_id)
+            row = _read_run_row(repo_root, run_id, resolved_space)
             if row is None:
                 raise ValueError(f"Run '{run_id}' not found")
 
@@ -327,6 +329,7 @@ def run_wait_sync(payload: RunWaitInput) -> RunWaitMultiOutput:
                     row=completed_rows[run_id],
                     report=payload.report,
                     include_files=payload.include_files,
+                    space_id=resolved_space,
                 )
                 for run_id in run_ids
             )
@@ -342,9 +345,14 @@ async def run_wait(payload: RunWaitInput) -> RunWaitMultiOutput:
     return await asyncio.to_thread(run_wait_sync, payload)
 
 
-def _source_run_for_follow_up(payload_run_id: str, repo_root: Path) -> tuple[str, run_store.RunRecord]:
-    resolved_run_id = resolve_run_reference(repo_root, payload_run_id)
-    row = _read_run_row(repo_root, resolved_run_id)
+def _source_run_for_follow_up(
+    payload_run_id: str,
+    repo_root: Path,
+    space: str | None = None,
+) -> tuple[str, run_store.RunRecord]:
+    resolved_space = _non_empty_space(space)
+    resolved_run_id = resolve_run_reference(repo_root, payload_run_id, resolved_space)
+    row = _read_run_row(repo_root, resolved_run_id, resolved_space)
     if row is None:
         raise ValueError(f"Run '{resolved_run_id}' not found")
     return resolved_run_id, row
@@ -372,7 +380,11 @@ def _with_command(result: RunActionOutput, command: str) -> RunActionOutput:
 
 def run_continue_sync(payload: RunContinueInput) -> RunActionOutput:
     repo_root, _ = resolve_runtime_root_and_config(payload.repo_root)
-    resolved_run_id, source_run = _source_run_for_follow_up(payload.run_id, repo_root)
+    resolved_run_id, source_run = _source_run_for_follow_up(
+        payload.run_id,
+        repo_root,
+        payload.space,
+    )
     derived_prompt = _prompt_for_follow_up(source_run, resolved_run_id, payload.prompt)
     source_harness = (source_run.harness or "").strip() or None
     source_session_id = (source_run.harness_session_id or "").strip() or None
@@ -381,6 +393,7 @@ def run_continue_sync(payload: RunContinueInput) -> RunActionOutput:
         model=_model_for_follow_up(source_run, payload.model),
         repo_root=payload.repo_root,
         timeout_secs=payload.timeout_secs,
+        space=payload.space,
         continue_harness_session_id=source_session_id,
         continue_harness=source_harness,
         continue_fork=payload.fork,

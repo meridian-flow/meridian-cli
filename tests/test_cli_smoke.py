@@ -157,12 +157,16 @@ def test_run_spawn_help_hides_human_flags_in_agent_mode(package_root, cli_env) -
     assert "--agent" in completed.stdout
     assert "--background" in completed.stdout
     assert "--permission" in completed.stdout
-    assert "--budget-per-run-usd" in completed.stdout
+    assert "--timeout-secs" in completed.stdout
     # Human-only flags should be hidden
     assert "--verbose" not in completed.stdout
     assert "--quiet" not in completed.stdout
     assert "--report-path" not in completed.stdout
     assert "--budget-usd" not in completed.stdout
+    assert "--budget-per-run-usd" not in completed.stdout
+    assert "--budget-per-space-usd" not in completed.stdout
+    assert "--guardrail" not in completed.stdout
+    assert "--secret" not in completed.stdout
     assert "--unsafe" not in completed.stdout
     assert "--stream" not in completed.stdout
 
@@ -182,4 +186,9 @@ def test_run_spawn_help_shows_all_flags_in_human_mode(package_root, cli_env) -> 
     assert "--verbose" in completed.stdout
     assert "--quiet" in completed.stdout
     assert "--report-path" in completed.stdout
-    assert "--unsafe" in completed.stdout
+    assert "--unsafe" not in completed.stdout
+    assert "--budget-per-run-usd" not in completed.stdout
+    assert "--budget-per-space-usd" not in completed.stdout
+    assert "--budget-usd" not in completed.stdout
+    assert "--guardrail" not in completed.stdout
+    assert "--secret" not in completed.stdout

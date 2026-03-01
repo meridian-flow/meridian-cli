@@ -18,23 +18,29 @@ _RUN_REFERENCE_STATUS_FILTERS: dict[str, tuple[str, ...] | None] = {
 }
 
 
-def _require_space_id() -> str:
+def _resolve_space_id(space: str | None = None) -> str:
+    if space is not None:
+        resolved = space.strip()
+        if resolved:
+            return resolved
+
     resolved = os.getenv("MERIDIAN_SPACE_ID", "").strip()
     if not resolved:
         raise ValueError(SPACE_REQUIRED_ERROR)
     return resolved
 
 
-def _space_dir(repo_root: Path) -> Path:
-    return resolve_space_dir(repo_root, _require_space_id())
+def _space_dir(repo_root: Path, space: str | None = None) -> Path:
+    return resolve_space_dir(repo_root, _resolve_space_id(space))
 
 
 def _select_latest_run_id(
     repo_root: Path,
     *,
     statuses: tuple[str, ...] | None,
+    space: str | None = None,
 ) -> str | None:
-    runs = run_store.list_runs(_space_dir(repo_root))
+    runs = run_store.list_runs(_space_dir(repo_root, space))
     if statuses is not None:
         wanted = set(statuses)
         runs = [item for item in runs if item.status in wanted]
@@ -43,7 +49,7 @@ def _select_latest_run_id(
     return runs[-1].id
 
 
-def resolve_run_reference(repo_root: Path, ref: str) -> str:
+def resolve_run_reference(repo_root: Path, ref: str, space: str | None = None) -> str:
     normalized = ref.strip()
     if not normalized:
         raise ValueError("run_id is required")
@@ -55,29 +61,45 @@ def resolve_run_reference(repo_root: Path, ref: str) -> str:
         supported = ", ".join(sorted(_RUN_REFERENCE_STATUS_FILTERS))
         raise ValueError(f"Unknown run reference '{normalized}'. Supported references: {supported}")
 
-    resolved = _select_latest_run_id(repo_root, statuses=status_filter)
+    resolved = _select_latest_run_id(repo_root, statuses=status_filter, space=space)
     if resolved is None:
         raise ValueError(f"No runs found for reference '{normalized}'")
     return resolved
 
 
-def resolve_run_references(repo_root: Path, refs: tuple[str, ...]) -> tuple[str, ...]:
-    return tuple(dict.fromkeys(resolve_run_reference(repo_root, ref) for ref in refs))
+def resolve_run_references(
+    repo_root: Path,
+    refs: tuple[str, ...],
+    space: str | None = None,
+) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(resolve_run_reference(repo_root, ref, space) for ref in refs))
 
 
-def _read_run_row(repo_root: Path, run_id: str) -> run_store.RunRecord | None:
-    return run_store.get_run(_space_dir(repo_root), run_id)
+def _read_run_row(
+    repo_root: Path,
+    run_id: str,
+    space: str | None = None,
+) -> run_store.RunRecord | None:
+    return run_store.get_run(_space_dir(repo_root, space), run_id)
 
 
-def _read_report_text(repo_root: Path, run_id: str) -> tuple[str | None, str | None]:
-    report_path = _space_dir(repo_root) / "runs" / run_id / "report.md"
+def _read_report_text(
+    repo_root: Path,
+    run_id: str,
+    space: str | None = None,
+) -> tuple[str | None, str | None]:
+    report_path = _space_dir(repo_root, space) / "runs" / run_id / "report.md"
     if not report_path.is_file():
         return None, None
     text = report_path.read_text(encoding="utf-8", errors="ignore").strip() or None
     return report_path.as_posix(), text
 
 
-def _read_files_touched(repo_root: Path, run_id: str) -> tuple[str, ...]:
+def _read_files_touched(
+    repo_root: Path,
+    run_id: str,
+    space: str | None = None,
+) -> tuple[str, ...]:
     from meridian.lib.extract.files_touched import extract_files_touched
     from meridian.lib.state.artifact_store import LocalStore
     from meridian.lib.types import RunId
@@ -92,20 +114,22 @@ def _detail_from_row(
     row: run_store.RunRecord,
     report: bool,
     include_files: bool,
+    space_id: str | None = None,
 ) -> RunDetailOutput:
-    report_path, report_text = _read_report_text(repo_root, row.id)
+    resolved_space_id = _resolve_space_id(space_id)
+    report_path, report_text = _read_report_text(repo_root, row.id, resolved_space_id)
     report_summary = report_text[:500] if report_text else None
 
     files_touched: tuple[str, ...] | None = None
     if include_files:
-        files_touched = _read_files_touched(repo_root, row.id)
+        files_touched = _read_files_touched(repo_root, row.id, resolved_space_id)
 
     return RunDetailOutput(
         run_id=row.id,
         status=row.status,
         model=row.model or "",
         harness=row.harness or "",
-        space_id=_require_space_id(),
+        space_id=resolved_space_id,
         started_at=row.started_at or "",
         finished_at=row.finished_at,
         duration_secs=row.duration_secs,
@@ -118,5 +142,4 @@ def _detail_from_row(
         report_summary=report_summary,
         report=report_text if report else None,
         files_touched=files_touched,
-        skills=(),
     )
