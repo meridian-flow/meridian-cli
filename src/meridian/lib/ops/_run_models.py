@@ -68,6 +68,7 @@ class RunActionOutput:
 
     def format_text(self, ctx: FormatContext | None = None) -> str:
         """Compact single-line summary for text output mode."""
+        # Intentionally omit composed_prompt/cli_command from text output.
         # Background submissions print only the run ID so callers can capture
         # it via R1=$(meridian run spawn --background ...).
         if self.background and self.run_id is not None and self.status == "running":

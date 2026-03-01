@@ -456,7 +456,6 @@ def _execute_run_background(
             reference_files=prepared.reference_files,
             template_vars=prepared.template_vars,
             report_path=prepared.report_path,
-            cli_command=prepared.cli_command,
             exit_code=1,
         )
 
@@ -477,7 +476,6 @@ def _execute_run_background(
         reference_files=prepared.reference_files,
         template_vars=prepared.template_vars,
         report_path=prepared.report_path,
-        cli_command=prepared.cli_command,
         background=True,
     )
 
@@ -624,7 +622,6 @@ def _execute_run_blocking(
         reference_files=prepared.reference_files,
         template_vars=prepared.template_vars,
         report_path=prepared.report_path,
-        cli_command=prepared.cli_command,
         exit_code=exit_code,
         duration_secs=duration,
     )
