@@ -39,23 +39,17 @@ Common flags:
 | Flag | Notes |
 |---|---|
 | `--prompt, -p` | Prompt text |
+| `--prompt-var` | Repeatable `KEY=VALUE` prompt template vars (replaces `{{KEY}}`) |
 | `--model, -m` | Model id or alias |
 | `--skills, -s` | Repeatable skill names |
 | `--file, -f` | Repeatable reference files |
-| `--var` | Repeatable `KEY=VALUE` template vars |
 | `--agent, -a` | Agent profile name |
 | `--report-path` | Relative report path (default `report.md`) |
 | `--dry-run` | Compose only, do not execute harness |
 | `--background` | Return immediately with run ID |
 | `--space-id`, `--space` | Explicit space scope |
 | `--timeout-secs` | Runtime limit |
-| `--permission` | `read-only`, `workspace-write`, `full-access`, `danger` |
-| `--unsafe` | Required with `--permission danger` |
-| `--budget-per-run-usd` | Per-run budget cap |
-| `--budget-per-space-usd` | Per-space budget cap |
-| `--budget-usd` | Legacy alias for per-run budget |
-| `--guardrail` | Repeatable guardrail identifiers |
-| `--secret` | Repeatable secret keys |
+| `--permission` | `read-only`, `workspace-write`, `full-access`, `danger` (`danger` currently rejected for `run spawn`) |
 
 Notes:
 
