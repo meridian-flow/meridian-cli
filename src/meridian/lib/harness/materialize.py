@@ -291,6 +291,11 @@ def _copy_missing_skills(
         if target_dir.exists():
             shutil.rmtree(target_dir)
         shutil.copytree(skill_sources[skill_name], target_dir, symlinks=True)
+        skill_file = target_dir / "SKILL.md"
+        if skill_file.is_file():
+            raw_skill = skill_file.read_text(encoding="utf-8")
+            rewritten_skill = _rewrite_frontmatter_name(raw_skill, materialized_name)
+            skill_file.write_text(rewritten_skill, encoding="utf-8")
         materialized.append(materialized_name)
 
     return tuple(materialized)

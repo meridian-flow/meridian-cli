@@ -206,6 +206,32 @@ def test_materialize_for_harness_mixed_rewrites_agent_and_copies_missing(tmp_pat
     assert "skills: [alpha, _meridian-c1-beta]" in rewritten
 
 
+def test_materialize_for_harness_rewrites_skill_name_in_frontmatter(
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path / "repo"
+    source_skill_dir = repo_root / "source-skills" / "meridian-run"
+    _write(
+        source_skill_dir / "SKILL.md",
+        "---\nname: meridian-run\ndescription: test skill\n---\nBody\n",
+    )
+
+    result = materialize_for_harness(
+        agent_profile=None,
+        skill_sources={"meridian-run": source_skill_dir},
+        harness_id="codex",
+        repo_root=repo_root,
+        chat_id="c1",
+    )
+
+    assert result.materialized_skills == ("_meridian-c1-meridian-run",)
+    materialized_skill = repo_root / ".agents" / "skills" / "_meridian-c1-meridian-run" / "SKILL.md"
+    frontmatter, body = split_markdown_frontmatter(materialized_skill.read_text(encoding="utf-8"))
+    assert frontmatter["name"] == "_meridian-c1-meridian-run"
+    assert frontmatter["description"] == "test skill"
+    assert body == "Body\n"
+
+
 def test_materialize_for_harness_all_missing_materializes_all(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     sources_root = repo_root / "source-skills"
