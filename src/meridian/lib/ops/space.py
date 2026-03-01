@@ -71,7 +71,24 @@ class SpaceActionOutput:
 
     def format_text(self, ctx: FormatContext | None = None) -> str:
         """Single-line action summary for text output mode."""
-        return f"Space {self.space_id} {self.state} ({self.message.rstrip('.')})"
+        summary = f"Space {self.space_id} {self.state} ({self.message.rstrip('.')})"
+        if not self.command:
+            return summary
+        # Show the command for dry-run, but abbreviate long prompt args.
+        abbreviated: list[str] = []
+        skip_next = False
+        for i, token in enumerate(self.command):
+            if skip_next:
+                skip_next = False
+                continue
+            if token in ("--system-prompt", "--append-system-prompt") and i + 1 < len(self.command):
+                prompt_len = len(self.command[i + 1])
+                abbreviated.append(token)
+                abbreviated.append(f"<{prompt_len} chars>")
+                skip_next = True
+            else:
+                abbreviated.append(token)
+        return f"{summary}\n{' '.join(abbreviated)}"
 
 
 @dataclass(frozen=True, slots=True)

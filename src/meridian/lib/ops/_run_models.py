@@ -92,7 +92,27 @@ class RunActionOutput:
             parts.append(f"error={self.error}")
         if self.warning is not None:
             parts.append(f"warning={self.warning}")
-        return "  ".join(parts)
+        summary = "  ".join(parts)
+        # For dry-run, append the command that would be executed.
+        if self.status == "dry-run" and self.cli_command:
+            abbreviated: list[str] = []
+            skip_next = False
+            prompt_flags = ("-p", "--prompt", "--system-prompt", "--append-system-prompt")
+            for i, token in enumerate(self.cli_command):
+                if skip_next:
+                    skip_next = False
+                    continue
+                if token in prompt_flags and i + 1 < len(self.cli_command):
+                    abbreviated.append(token)
+                    abbreviated.append(f"<{len(self.cli_command[i + 1])} chars>")
+                    skip_next = True
+                elif len(token) > 200:
+                    # Long positional arg (e.g. codex prompt) — abbreviate.
+                    abbreviated.append(f"<{len(token)} chars>")
+                else:
+                    abbreviated.append(token)
+            summary = f"{summary}\n{' '.join(abbreviated)}"
+        return summary
 
 
 @dataclass(frozen=True, slots=True)
