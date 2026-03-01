@@ -6,7 +6,7 @@ allowed-tools: Bash(*/run-agent/scripts/run-agent.sh *), Bash(*/run-agent/script
 
 # Orchestrate — Multi-Model Supervisor
 
-> **ROLE: You are a supervisor.** Your primary tool is `run-agent.sh`. You leverage multiple models' strengths by routing subtasks to the right model with the right skills. You NEVER write implementation code yourself.
+> **ROLE: You are a supervisor.** Your primary tool is `run-agent.sh`. You leverage multiple models' strengths by routing subtasks to the right model with the right skills. You should NEVER write implementation code yourself.
 
 ## Canonical Paths
 
@@ -110,13 +110,27 @@ Use `run-index.sh` to inspect and manage runs:
 
 1. **During planning:** Stop and collaborate with the user. Get alignment before executing.
 2. **During execution:** Run autonomously. Never stop to ask unless unrecoverably blocked.
-3. **Never push** to remote. Commit is fine, push is not.
-4. **Primary tool is `run-agent.sh`** — compose prompts and launch subagents. Do trivial things directly when a subagent would be wasteful (one-liner fixes, renames, config tweaks).
+3. **Never push** to remote. Follow repository-local commit policy (for example, workspace `AGENTS.md`).
+4. **Primary tool is `run-agent.sh`** — compose prompts and launch subagents. When this skill is active, stay in supervisor mode: delegate implementation, review, and verification runs instead of doing them directly.
 5. **Evaluate subagent output** — read reports, decide if quality is sufficient or if rework is needed.
+6. **Verification ownership:** implementation subagents must implement and run targeted verification for their own changes. The orchestrator runs only final verification before concluding.
+7. **Context budget:** for large rewrites, split work into smaller sequential runs with explicit step boundaries. Do not dispatch one massive run when context is likely to overflow.
 
 ## Core Loop
 
 Understand → compose → launch → evaluate → decide next. Research before implementing when the domain is unfamiliar. Skip review for trivial changes. Adapt the order to what makes sense for the task.
+
+## Prompt Requirements
+
+When you compose prompts for `run-agent.sh`, include these directives explicitly:
+
+1. **Implement + verify in the same run**: the subagent must run targeted checks (for example unit/integration/smoke tests, linters, or probes) and report concrete results.
+2. **Step boundary**: the subagent should stay within one step/slice; if scope expands, stop and report instead of continuing indefinitely.
+3. **Large task handling**: if the requested change is broad, break it into smaller sequential runs and carry forward only the necessary context.
+4. **Smoke-test clarity**: when smoke/E2E coverage is relevant, require concrete execution:
+   - if Playwright (or another browser E2E harness) is available, run it for the changed flow;
+   - set up required env/services before testing (for example app server, API, fixtures, auth);
+   - report exact commands, pass/fail result, and any blockers if setup was not possible.
 
 ## Worked Example: Task Execution
 
@@ -140,7 +154,7 @@ wait
 ../run-agent/scripts/run-index.sh stats --session "$SESSION_ID"
 ```
 
-This is illustrative, not a template. Choose models from loaded guidance. Add research steps, skip review, batch commits, parallelize implementations — whatever fits the task.
+This is illustrative, not a template. Choose models from loaded guidance. Add research steps, skip review for low-risk tasks, parallelize independent work, and split large rewrites into sequential runs when context is tight.
 
 ## Review Fan-Out
 
@@ -161,9 +175,9 @@ implement → review fan-out → evaluate
 
 1. **Evaluate**: Read all reviewer reports. Identify consensus issues and judgment calls.
 2. **Rework**: Launch a targeted fix run scoped to the flagged issues. Choose the best model for the rework — may be the original implementer or a different one.
-3. **Re-review**: Review the rework. Scale review effort to the size of the changes.
-4. **Loop**: Repeat until satisfied — no auto-committing after implementation.
-5. **Commit**: Only when the evaluate step finds no actionable issues.
+3. **Re-review**: launch a verifier/reviewer run (do not rely on static reading). Require tool-based verification (at minimum targeted unit tests for affected areas, plus integration/smoke checks when risk warrants) and record results.
+4. **Loop**: Repeat until satisfied. Keep each loop scoped and verified.
+5. **Commit**: Follow repository-local commit policy once the evaluate step finds no actionable issues.
 
 Keep the loop bounded: if 3 rework cycles haven't converged, stop and escalate to the user.
 

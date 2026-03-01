@@ -395,8 +395,6 @@ do_dry_run() {
   echo "── Model: $MODEL ($(route_model "$MODEL" 2>/dev/null || echo "fallback"))"
   echo "── Variant: $VARIANT"
   echo "── Report: $DETAIL"
-  echo "── Timeout (min): ${TIMEOUT_MINUTES:-30}"
-  echo "── Idle timeout (s): ${IDLE_TIMEOUT_SECONDS:-300}"
   if [[ ${#SKILLS[@]} -gt 0 ]]; then echo "── Skills: ${SKILLS[*]}"; else echo "── Skills: none"; fi
   if [[ -n "${AGENT_TOOLS:-}" ]]; then echo "── Tools: $AGENT_TOOLS"; else echo "── Tools: unrestricted"; fi
   if [[ -n "${AGENT_SANDBOX:-}" ]]; then echo "── Sandbox: $AGENT_SANDBOX"; else echo "── Sandbox: none (unrestricted)"; fi
@@ -490,13 +488,19 @@ detect_opencode_error_event() {
 }
 
 do_execute() {
-  local cli_display output_log
+  local cli_display output_log run_index_base_cmd show_cmd report_cmd files_cmd logs_cmd
   cli_display="$(format_cli_cmd)"
 
   # Set up logging and write start index row for crash visibility
   setup_logging
+  export ORCHESTRATE_RUN_ID="$RUN_ID"
   output_log="$LOG_DIR/output.jsonl"
   write_log_params "$cli_display"
+  run_index_base_cmd="$SCRIPT_DIR/run-index.sh --repo \"$REPO_ROOT\""
+  show_cmd="$run_index_base_cmd show \"$RUN_ID\""
+  report_cmd="$run_index_base_cmd report \"$RUN_ID\""
+  files_cmd="$run_index_base_cmd files \"$RUN_ID\""
+  logs_cmd="$run_index_base_cmd logs \"$RUN_ID\""
 
   # Capture git HEAD before execution (best-effort)
   HEAD_BEFORE=""
@@ -514,13 +518,23 @@ do_execute() {
   # Record start time for duration tracking
   _run_start_epoch="$(date +%s)"
 
-  # Append report instruction now that LOG_DIR is known
+  # Save composed prompt before run-time instructions are appended.
+  # This is used by retry to avoid duplicating generated sections.
+  echo "$COMPOSED_PROMPT" > "$LOG_DIR/prompt.raw.md"
+
+  # Append output directory and report instruction now that LOG_DIR is known.
+  COMPOSED_PROMPT+="$(build_output_dir_instruction "$LOG_DIR")"
   COMPOSED_PROMPT+="$(build_report_instruction "$LOG_DIR/report.md" "$DETAIL")"
 
   # Save composed prompt
   echo "$COMPOSED_PROMPT" > "$LOG_DIR/input.md"
 
-  echo "[run-agent] Model: $MODEL | Variant: $VARIANT | Log: $LOG_DIR" >&2
+  echo "[run-agent] Run: $RUN_ID | Model: $MODEL | Variant: $VARIANT" >&2
+  echo "[run-agent] run-index commands:" >&2
+  echo "[run-agent]   show: $show_cmd" >&2
+  echo "[run-agent]   report: $report_cmd" >&2
+  echo "[run-agent]   files: $files_cmd" >&2
+  echo "[run-agent]   logs: $logs_cmd" >&2
 
   # Execute via argv array — no eval needed.
   cd "$WORK_DIR"
@@ -533,60 +547,23 @@ do_execute() {
     runner=(timeout --signal=TERM --kill-after=10s "${timeout_seconds}s")
     timeout_used=true
   fi
-  local idle_timeout_seconds="${IDLE_TIMEOUT_SECONDS:-0}"
-  local idle_timeout_triggered=false
   local harness_exit=0
-  local harness_pid=""
-  : > "$LOG_DIR/stderr.log"
   set +e
   if [[ "${CLI_PROMPT_MODE:-stdin}" == "arg" ]]; then
     "${runner[@]}" "${CLI_CMD_ARGV[@]}" "$COMPOSED_PROMPT" \
       > "$output_log" \
-      2> >(tee "$LOG_DIR/stderr.log" >&2) &
+      2> >(tee "$LOG_DIR/stderr.log" >&2)
   else
     "${runner[@]}" "${CLI_CMD_ARGV[@]}" <<< "$COMPOSED_PROMPT" \
       > "$output_log" \
-      2> >(tee "$LOG_DIR/stderr.log" >&2) &
+      2> >(tee "$LOG_DIR/stderr.log" >&2)
   fi
-  harness_pid="$!"
-  if [[ "$idle_timeout_seconds" -gt 0 ]]; then
-    local last_output_change_epoch now_epoch idle_for_seconds
-    local output_size stderr_size current_output_size current_stderr_size
-    output_size="$(wc -c < "$output_log" 2>/dev/null || echo 0)"
-    stderr_size="$(wc -c < "$LOG_DIR/stderr.log" 2>/dev/null || echo 0)"
-    last_output_change_epoch="$(date +%s)"
-
-    while kill -0 "$harness_pid" 2>/dev/null; do
-      sleep 1
-      current_output_size="$(wc -c < "$output_log" 2>/dev/null || echo 0)"
-      current_stderr_size="$(wc -c < "$LOG_DIR/stderr.log" 2>/dev/null || echo 0)"
-      if [[ "$current_output_size" != "$output_size" ]] || [[ "$current_stderr_size" != "$stderr_size" ]]; then
-        output_size="$current_output_size"
-        stderr_size="$current_stderr_size"
-        last_output_change_epoch="$(date +%s)"
-      fi
-      now_epoch="$(date +%s)"
-      idle_for_seconds=$((now_epoch - last_output_change_epoch))
-      if [[ "$idle_for_seconds" -ge "$idle_timeout_seconds" ]]; then
-        idle_timeout_triggered=true
-        echo "[run-agent] WARNING: No harness output activity for ${idle_timeout_seconds}s; terminating." >&2
-        kill -TERM "$harness_pid" 2>/dev/null || true
-        sleep 2
-        kill -KILL "$harness_pid" 2>/dev/null || true
-        break
-      fi
-    done
-  fi
-  wait "$harness_pid"
   harness_exit=$?
   set -e
 
   # Map harness exit to structured exit code
   local exit_code="$harness_exit"
-  if [[ "$idle_timeout_triggered" == true ]]; then
-    exit_code=3
-    write_failfast_report "$exit_code" "Timed out (idle output)" "Harness produced no stdout/stderr activity for ${idle_timeout_seconds} seconds."
-  elif [[ "$timeout_used" == true ]] && { [[ "$harness_exit" -eq 124 ]] || [[ "$harness_exit" -eq 137 ]]; }; then
+  if [[ "$timeout_used" == true ]] && { [[ "$harness_exit" -eq 124 ]] || [[ "$harness_exit" -eq 137 ]]; }; then
     exit_code=3
     write_failfast_report "$exit_code" "Timed out" "Harness exceeded ${TIMEOUT_MINUTES} minutes."
   fi
@@ -663,6 +640,7 @@ do_execute() {
     echo "---" >&2
   fi
 
-  echo "[run-agent] Done (exit=$exit_code, duration=${duration_seconds}s). Log: $LOG_DIR" >&2
+  echo "[run-agent] Done (exit=$exit_code, duration=${duration_seconds}s). Run: $RUN_ID" >&2
+  echo "[run-agent] Report: $report_cmd" >&2
   exit "$exit_code"
 }

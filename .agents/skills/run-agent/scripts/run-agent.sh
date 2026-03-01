@@ -4,9 +4,9 @@
 #
 # Usage:
 #   run-agent.sh [OPTIONS]
-#   run-agent.sh --model claude-sonnet-4-6 --skills review -p "Review the changes"
+#   run-agent.sh --model claude-sonnet-4-6 --skills reviewing -p "Review the changes"
 #   run-agent.sh --model gpt-5.3-codex -p "Implement feature" --label ticket=PAY-123
-#   run-agent.sh --dry-run --model claude-sonnet-4-6 --skills review -p "test"
+#   run-agent.sh --dry-run --model claude-sonnet-4-6 --skills reviewing -p "test"
 #
 # A run is model + skills + prompt. No "agent" abstraction.
 
@@ -48,6 +48,7 @@ refresh_orchestrate_paths_from_workdir() {
 
 FALLBACK_CLI="codex"
 FALLBACK_MODEL="gpt-5.3-codex"
+DEFAULT_TIMEOUT_MINUTES=30
 
 MODEL=""
 VARIANT="high"
@@ -56,12 +57,13 @@ AGENT_BODY=""                    # markdown body (frontmatter stripped), used fo
 AGENT_TOOLS=""                   # comma-separated tool allowlist from agent profile
 AGENT_SANDBOX=""                 # Codex sandbox: read-only, workspace-write, danger-full-access (or empty)
 # Kill hung harness invocations (default: 30 minutes).
-TIMEOUT_MINUTES=30
+TIMEOUT_MINUTES="$DEFAULT_TIMEOUT_MINUTES"
 SKILLS=()
 PROMPT=""
 CLI_PROMPT=""
 DRY_RUN=false
 DETAIL="standard"
+STRICT_SKILLS=false
 WORK_DIR="$REPO_ROOT"
 SESSION_ID=""               # explicit session grouping (--session)
 CONTINUE_RUN_REF=""         # continuation target (--continue-run)
@@ -114,6 +116,21 @@ init_dirs() {
   mkdir -p "$ORCHESTRATE_ROOT"
   mkdir -p "$ORCHESTRATE_ROOT/runs/agent-runs"
   mkdir -p "$ORCHESTRATE_ROOT/index"
+
+  local config_file="$ORCHESTRATE_ROOT/config.toml"
+  if [[ ! -f "$config_file" ]]; then
+    cat > "$config_file" <<'EOF'
+# Orchestrate runtime configuration.
+#
+# Skills to auto-load on each run-agent invocation.
+# [skills]
+# pinned = ["orchestrate", "run-agent", "mermaid"]
+#
+# Additional runtime sections can be added over time.
+# [runtime]
+# example_option = "value"
+EOF
+  fi
 }
 
 # ─── Main ────────────────────────────────────────────────────────────────────
@@ -126,6 +143,7 @@ init_work_dir
 if [[ -n "$AGENT_NAME" ]]; then
   load_agent_profile
 fi
+load_pinned_skills_from_config
 
 validate_args
 prepare_continuation

@@ -33,6 +33,182 @@ load_skill() {
   ' "$skill_file"
 }
 
+append_skill_if_missing() {
+  local candidate="$1"
+  [[ -z "$candidate" ]] && return 0
+
+  local existing
+  for existing in "${SKILLS[@]}"; do
+    if [[ "$existing" == "$candidate" ]]; then
+      return 0
+    fi
+  done
+  SKILLS+=("$candidate")
+}
+
+load_pinned_skills_from_config() {
+  local config_file="$ORCHESTRATE_ROOT/config.toml"
+  [[ -f "$config_file" ]] || return 0
+
+  local skill
+  while IFS= read -r skill; do
+    append_skill_if_missing "$skill"
+  done < <(
+    awk '
+      function ltrim(s) { sub(/^[[:space:]]+/, "", s); return s }
+      function rtrim(s) { sub(/[[:space:]]+$/, "", s); return s }
+      function trim(s)  { return rtrim(ltrim(s)) }
+      function strip_comment(s,   i, c, out, in_dq, esc) {
+        out = ""
+        in_dq = 0
+        esc = 0
+        for (i = 1; i <= length(s); i++) {
+          c = substr(s, i, 1)
+          if (esc) {
+            out = out c
+            esc = 0
+            continue
+          }
+          if (c == "\\" && in_dq) {
+            out = out c
+            esc = 1
+            continue
+          }
+          if (c == "\"") {
+            in_dq = !in_dq
+            out = out c
+            continue
+          }
+          if (c == "#" && !in_dq) {
+            break
+          }
+          out = out c
+        }
+        return out
+      }
+      function warn(msg) {
+        print "[run-agent] WARNING: " msg > "/dev/stderr"
+      }
+      function emit_token(token,   t, first, last) {
+        t = trim(token)
+        if (t == "") return 0
+        first = substr(t, 1, 1)
+        last = substr(t, length(t), 1)
+        if ((first == "\"" && last == "\"") || (first == "\047" && last == "\047")) {
+          t = substr(t, 2, length(t) - 2)
+        }
+        if (t == "") return 0
+        print t
+        return 1
+      }
+      function parse_array(array_text,   inner, i, c, token, in_quote, quote_char, esc, emitted) {
+        array_text = trim(array_text)
+        if (substr(array_text, 1, 1) != "[" || substr(array_text, length(array_text), 1) != "]") {
+          return -1
+        }
+        inner = substr(array_text, 2, length(array_text) - 2)
+        token = ""
+        in_quote = 0
+        quote_char = ""
+        esc = 0
+        emitted = 0
+
+        for (i = 1; i <= length(inner); i++) {
+          c = substr(inner, i, 1)
+          if (in_quote) {
+            token = token c
+            if (esc) {
+              esc = 0
+              continue
+            }
+            if (c == "\\" && quote_char == "\"") {
+              esc = 1
+              continue
+            }
+            if (c == quote_char) {
+              in_quote = 0
+              quote_char = ""
+            }
+            continue
+          }
+
+          if (c == "\"" || c == "\047") {
+            in_quote = 1
+            quote_char = c
+            token = token c
+            continue
+          }
+          if (c == ",") {
+            emitted += emit_token(token)
+            token = ""
+            continue
+          }
+          token = token c
+        }
+
+        if (in_quote) return -1
+        emitted += emit_token(token)
+        return emitted
+      }
+      BEGIN { section = "" }
+      {
+        line = strip_comment($0)
+        line = trim(line)
+        if (line == "") next
+
+        if (line ~ /^\[[^]]+\]$/) {
+          section = substr(line, 2, length(line) - 2)
+          next
+        }
+
+        if (section == "skills" && line ~ /^pinned[[:space:]]*=/ && !in_pinned_array) {
+          value = line
+          sub(/^pinned[[:space:]]*=[[:space:]]*/, "", value)
+          value = trim(value)
+          saw_pinned = 1
+          pinned_start_line = NR
+
+          if (value !~ /^\[/) {
+            warn("Invalid [skills].pinned in " FILENAME ":" NR " (expected array)")
+            next
+          }
+
+          pinned_value = value
+          if (index(value, "]") > 0) {
+            parsed_count = parse_array(pinned_value)
+            if (parsed_count < 0) {
+              warn("Invalid [skills].pinned array in " FILENAME ":" pinned_start_line)
+            }
+            pinned_value = ""
+          } else {
+            in_pinned_array = 1
+          }
+          next
+        }
+
+        if (in_pinned_array) {
+          pinned_value = pinned_value " " line
+          if (index(line, "]") > 0) {
+            parsed_count = parse_array(pinned_value)
+            if (parsed_count < 0) {
+              warn("Invalid multiline [skills].pinned array in " FILENAME ":" pinned_start_line)
+            }
+            pinned_value = ""
+            in_pinned_array = 0
+          }
+        }
+      }
+      END {
+        if (in_pinned_array) {
+          warn("Unclosed multiline [skills].pinned array in " FILENAME ":" pinned_start_line)
+        } else if (saw_pinned && parsed_count < 0) {
+          warn("Failed to parse [skills].pinned in " FILENAME)
+        }
+      }
+    ' "$config_file"
+  )
+}
+
 # ─── Agent Loading ──────────────────────────────────────────────────────────
 # Searches discovery dirs in order, returns path to first <name>.md found.
 
@@ -102,12 +278,7 @@ load_agent_profile() {
 
   # Parse skills: merge with CLI --skills
   while IFS= read -r s; do
-    [[ -z "$s" ]] && continue
-    local already=false
-    for existing in "${SKILLS[@]}"; do
-      [[ "$existing" == "$s" ]] && { already=true; break; }
-    done
-    [[ "$already" == false ]] && SKILLS+=("$s")
+    append_skill_if_missing "$s"
   done < <(_parse_yaml_list "skills" "$frontmatter")
 
   # Parse sandbox: (orchestrate extension, used for Codex only)
@@ -295,6 +466,16 @@ compose_prompt() {
 
 # ─── Report Instruction ─────────────────────────────────────────────────────
 # Appended to prompt so the subagent writes a report file the orchestrator can read.
+
+build_output_dir_instruction() {
+  local log_dir="$1"
+  cat <<EOF
+
+# Output Directory
+
+Write any output files to: \`$log_dir/\`
+EOF
+}
 
 build_report_instruction() {
   local report_path="$1"

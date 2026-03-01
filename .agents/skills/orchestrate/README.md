@@ -1,6 +1,6 @@
 # Orchestrate Skill
 
-Multi-model supervisor that discovers available skills, picks the right model for each subtask, and composes runs dynamically via `run-agent.sh`.
+Multi-model primary agent that discovers available skills, picks the right model for each subtask, and composes runs dynamically via `run-agent.sh`.
 
 ## How It Works
 
@@ -59,4 +59,4 @@ scripts/load-skill-policy.sh --mode skills
 
 ## Details
 
-See `SKILL.md` for the full supervisor loop documentation.
+See `SKILL.md` for the full primary-agent loop documentation.

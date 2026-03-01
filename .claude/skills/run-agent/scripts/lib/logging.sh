@@ -13,31 +13,12 @@ resolve_repo_path() {
   fi
 }
 
-# Sanitize model name for run ID: replace / with -, lowercase.
-sanitize_model_for_id() {
-  local model="$1"
-  echo "$model" | tr '/' '-' | tr '[:upper:]' '[:lower:]'
-}
-
-# Sanitize a value for use in run IDs: lowercase, replace non-[a-z0-9-] with -, collapse.
-sanitize_for_id() {
-  local val="$1"
-  val="$(echo "$val" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g; s/--*/-/g; s/^-//; s/-$//')"
-  [[ -z "$val" ]] && val="unknown"
-  echo "$val"
-}
-
 build_run_id() {
-  local ts agent model
+  local ts suffix
   ts="$(date -u +"%Y%m%dT%H%M%SZ")"
-  # Agent name when set, otherwise "run-agent" as the default identity.
-  if [[ -n "${AGENT_NAME:-}" ]]; then
-    agent="$(sanitize_for_id "$AGENT_NAME")"
-  else
-    agent="run-agent"
-  fi
-  model="$(sanitize_model_for_id "$MODEL")"
-  echo "${ts}__${agent}__${model}__$$"
+  # Keep run IDs compact; agent/model stay in params.json + index metadata.
+  suffix="$(printf '%s%04x' "$$" "$RANDOM")"
+  echo "${ts}__${suffix}"
 }
 
 # ─── Log Setup ────────────────────────────────────────────────────────────────
@@ -60,13 +41,12 @@ setup_logging() {
 
 write_log_params() {
   local cli_cmd="$1"
-  local skills_json labels_json now_utc session_id timeout_minutes idle_timeout_seconds
+  local skills_json labels_json now_utc session_id timeout_minutes
   skills_json="$(build_skills_json)"
   labels_json="$(build_labels_json)"
   now_utc="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
   session_id="${SESSION_ID:-$RUN_ID}"
-  timeout_minutes="${TIMEOUT_MINUTES:-30}"
-  idle_timeout_seconds="${IDLE_TIMEOUT_SECONDS:-300}"
+  timeout_minutes="${TIMEOUT_MINUTES:-${DEFAULT_TIMEOUT_MINUTES:-30}}"
 
   cat > "$LOG_DIR/params.json" <<EOF
 {
@@ -75,7 +55,6 @@ write_log_params() {
   "model": "$(json_escape "$MODEL")",
   "variant": "$(json_escape "$VARIANT")",
   "timeout_minutes": $timeout_minutes,
-  "idle_timeout_seconds": $idle_timeout_seconds,
   "agent": "$(json_escape "${AGENT_NAME:-}")",
   "tools": "$(json_escape "${AGENT_TOOLS:-}")",
   "sandbox": "$(json_escape "${AGENT_SANDBOX:-}")",

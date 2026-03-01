@@ -5,7 +5,9 @@
 # ─── Usage ───────────────────────────────────────────────────────────────────
 
 usage() {
-  cat <<'EOF'
+  local exit_code="${1:-1}"
+  local timeout_default="${DEFAULT_TIMEOUT_MINUTES:-30}"
+  cat <<EOF
 Usage: run-agent.sh [OPTIONS]
 
 Options:
@@ -13,8 +15,9 @@ Options:
   -V, --variant VARIANT    Model variant passed to harness (default: high)
                            Presets: low, medium, high, xhigh, max
                            Not all variants apply to all models.
-      --timeout M          Kill hung harness runs after M minutes (default: 15). Supports fractional minutes.
+      --timeout M          Kill hung harness runs after M minutes (default: ${timeout_default}). Supports fractional minutes.
       --agent NAME         Agent profile (passed to harness natively where supported)
+      --strict-skills      Error on unknown skills (default: warn only)
   -s, --skills LIST        Comma-separated skill names to load
   -p, --prompt TEXT        Prompt text (can also pipe via stdin)
       --session ID         Session ID for grouping related runs
@@ -29,7 +32,7 @@ Options:
   -C, --cd DIR             Working directory for subprocess
   -h, --help               Show this help
 EOF
-  exit 1
+  exit "$exit_code"
 }
 
 require_option_value() {
@@ -118,6 +121,10 @@ parse_args() {
         AGENT_NAME="$2"
         shift 2
         ;;
+      --strict-skills)
+        STRICT_SKILLS=true
+        shift
+        ;;
       -s|--skills)
         require_option_value "$1" "$#"
         IFS=',' read -ra _skills <<< "$2"
@@ -184,7 +191,7 @@ parse_args() {
         # Already handled by preparse; skip here.
         shift 2
         ;;
-      -h|--help)    usage ;;
+      -h|--help)    usage 0 ;;
       *)
         echo "ERROR: Unknown argument: $1" >&2
         usage
@@ -219,6 +226,29 @@ validate_args() {
   routed_cli="$(route_model "$MODEL" 2>/dev/null || echo "")"
   if [[ -n "$routed_cli" ]] && ! command -v "$routed_cli" >/dev/null 2>&1; then
     echo "[run-agent] WARNING: '$routed_cli' not installed for model '$MODEL'; will fall back to $FALLBACK_MODEL ($FALLBACK_CLI)" >&2
+  fi
+
+  # Skill validation (source of truth: orchestrate/skills/<name>/SKILL.md).
+  if [[ ${#SKILLS[@]} -gt 0 ]]; then
+    local missing_skills=()
+    local skill
+    for skill in "${SKILLS[@]}"; do
+      if [[ ! -f "$SKILLS_DIR/$skill/SKILL.md" ]]; then
+        missing_skills+=("$skill")
+      fi
+    done
+
+    if [[ ${#missing_skills[@]} -gt 0 ]]; then
+      local joined
+      joined="$(IFS=,; echo "${missing_skills[*]}")"
+      if [[ "${STRICT_SKILLS:-false}" == true ]]; then
+        echo "ERROR: Unknown skill(s): $joined" >&2
+        echo "  Expected files under: $SKILLS_DIR/<skill>/SKILL.md" >&2
+        exit 1
+      fi
+      echo "[run-agent] WARNING: Unknown skill(s): $joined" >&2
+      echo "[run-agent] WARNING: Expected files under: $SKILLS_DIR/<skill>/SKILL.md" >&2
+    fi
   fi
 
   if [[ -z "$PROMPT" ]] && [[ ${#SKILLS[@]} -eq 0 ]] && [[ -z "${CONTINUE_RUN_REF:-}" ]]; then

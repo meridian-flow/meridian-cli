@@ -1,11 +1,11 @@
 ---
 name: run-agent
-description: Agent execution engine — composes prompts, routes models, and writes run artifacts.
+description: Agent execution engine that composes prompts, routes models, and writes run artifacts. Use when launching subagent runs.
 ---
 
 # Run-Agent — Execution Engine
 
-Single entry point for agent execution. A run is `model + skills + prompt`, optionally fronted by an agent profile for convenience defaults and permissions. Routes to the correct CLI (`claude`, `codex`, `opencode`), logs everything, and writes structured index entries.
+Single entry point for agent execution. A run is `model + agent (opt) + skills (opt) + prompt`. Routes to the correct CLI (`claude`, `codex`, `opencode`) based on the model, logs everything, and writes structured index entries.
 
 Skills source: sibling skills (`../`). Runtime artifacts: `.orchestrate/`.
 
@@ -44,6 +44,7 @@ scripts/run-agent.sh --model MODEL --skills SKILLS --dry-run -p "PROMPT"
 | `--model MODEL` / `-m` | Model to use (auto-routes to correct CLI) |
 | `--agent NAME` | Agent profile for defaults + permissions |
 | `--skills a,b,c` | Skills to compose into the prompt |
+| `--strict-skills` | Fail fast when any listed skill is unknown |
 | `-p "prompt"` | Task prompt |
 | `-f path/to/file` | Reference file appended to prompt |
 | `-v KEY=VALUE` | Template variable substitution (repeatable) |
@@ -56,12 +57,28 @@ scripts/run-agent.sh --model MODEL --skills SKILLS --dry-run -p "PROMPT"
 | `--dry-run` | Show composed prompt without executing |
 | `-C DIR` | Working directory for subprocess |
 
+## Runtime Config (`.orchestrate/config.toml`)
+
+On first run in a workspace, `run-agent.sh` auto-creates `.orchestrate/config.toml` with commented examples.
+
+Use this file to pin skills that should be auto-added on every run:
+
+```toml
+[skills]
+pinned = ["orchestrate", "run-agent", "mermaid"]
+```
+
+Notes:
+- Pinned skills are merged with agent-profile skills and CLI `--skills` (deduplicated by name).
+- Default template is fully commented; uncomment/edit to enable.
+
 ## Output Artifacts
 
 Each run writes to `.orchestrate/runs/agent-runs/<run-id>/`:
 
 - `params.json` — run parameters and metadata
 - `input.md` — composed prompt
+- `prompt.raw.md` — composed prompt before runtime-generated output/report sections
 - `output.jsonl` — raw CLI output (stream-json or JSONL)
 - `stderr.log` — CLI diagnostics (also streamed to terminal)
 - `report.md` — written by the subagent (or extracted as fallback)

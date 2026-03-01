@@ -17,7 +17,7 @@ INDEX=scripts/run-index.sh
 
 ```bash
 # Model + skills + prompt
-"$RUNNER" --model gpt-5.3-codex --skills review -p "Review these changes"
+"$RUNNER" --model gpt-5.3-codex --skills reviewing -p "Review these changes"
 
 # Kill a hung harness run (default: 15 minutes)
 "$RUNNER" --model claude-sonnet-4-6 --timeout 15 -p "Review these changes"
@@ -26,12 +26,12 @@ INDEX=scripts/run-index.sh
 "$RUNNER" --agent reviewer -p "Review these changes"
 
 # With labels and session grouping
-"$RUNNER" --model gpt-5.3-codex --skills smoke-test \
+"$RUNNER" --model gpt-5.3-codex --skills scratchpad \
     --session my-session --label ticket=PAY-123 \
     -p "Implement the feature"
 
 # Dry run — see composed prompt without executing
-"$RUNNER" --model gpt-5.3-codex --skills review --dry-run -p "Review auth"
+"$RUNNER" --model gpt-5.3-codex --skills reviewing --dry-run -p "Review auth"
 
 # Inspect runs
 "$INDEX" list
