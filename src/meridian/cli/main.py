@@ -460,13 +460,6 @@ def _start_space_record(
     return space_file.create_space(repo_root)
 
 
-def _summary_text(path: str) -> str:
-    summary_path = Path(path)
-    if not summary_path.is_file():
-        return ""
-    return summary_path.read_text(encoding="utf-8")
-
-
 @app.command(name="start")
 def start(
     new: Annotated[
@@ -530,7 +523,6 @@ def start(
             autocompact=autocompact,
             passthrough_args=harness_args,
             fresh=True,
-            summary_text=_summary_text(summary_path.as_posix()),
             pinned_context="",
             dry_run=dry_run,
         ),
@@ -686,7 +678,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 for space_dir in sorted(spaces_dir.iterdir()):
                     if not space_dir.is_dir():
                         continue
-                    cleanup_stale_sessions(space_dir)
+                    cleanup_stale_sessions(space_dir, repo_root=repo_root)
         except Exception:
             logger.debug("orphaned lock cleanup failed", exc_info=True)
 

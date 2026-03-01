@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from meridian.lib.ops._runtime import build_runtime
@@ -126,13 +125,6 @@ class SpaceDetailOutput:
         return kv_block(pairs)
 
 
-def _summary_text(path: str) -> str:
-    summary_path = Path(path)
-    if not summary_path.is_file():
-        return ""
-    return summary_path.read_text(encoding="utf-8")
-
-
 def space_start_sync(payload: SpaceStartInput) -> SpaceActionOutput:
     runtime = build_runtime(payload.repo_root)
     space = space_file.create_space(runtime.repo_root, name=payload.name)
@@ -150,7 +142,6 @@ def space_start_sync(payload: SpaceStartInput) -> SpaceActionOutput:
             autocompact=payload.autocompact,
             passthrough_args=payload.harness_args,
             fresh=True,
-            summary_text=_summary_text(summary_path.as_posix()),
             pinned_context="",
             dry_run=payload.dry_run,
         ),
@@ -197,7 +188,6 @@ def space_resume_sync(payload: SpaceResumeInput) -> SpaceActionOutput:
             autocompact=payload.autocompact,
             passthrough_args=payload.harness_args,
             fresh=payload.fresh,
-            summary_text=_summary_text(summary_path.as_posix()),
             pinned_context="",
         ),
     )

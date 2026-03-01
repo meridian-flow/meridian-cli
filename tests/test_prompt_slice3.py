@@ -85,6 +85,7 @@ def test_run_defaults_merge_agent_profile_defaults() -> None:
         variant_models=(),
         body="Profile body",
         path=Path("/tmp/reviewer.md"),
+        raw_content="",
     )
 
     defaults = resolve_run_defaults(

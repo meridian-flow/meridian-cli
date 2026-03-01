@@ -150,12 +150,13 @@ def test_space_primary_profile_controls_model_skills_and_sandbox(tmp_path: Path)
         request=request,
         prompt="space prompt",
         passthrough_args=(),
+        chat_id="c1",
     )
 
     assert command[command.index("--model") + 1] == "claude-sonnet-4-6"
     assert "--allowedTools" in command
     assert "--agent" in command
-    assert command[command.index("--agent") + 1] == "lead-primary"
+    assert command[command.index("--agent") + 1] == "_meridian-c1-lead-primary"
     assert "--append-system-prompt" in command
     assert command[command.index("--append-system-prompt") + 1] == "space prompt"
     assert "--system-prompt" not in command
@@ -208,6 +209,7 @@ def test_space_primary_profile_missing_sandbox_uses_default_permission_tier(
         request=SpaceLaunchRequest(space_id=SpaceId("w1")),
         prompt="space prompt",
         passthrough_args=(),
+        chat_id="c1",
     )
 
     assert "--allowedTools" in command
@@ -257,6 +259,7 @@ def test_space_primary_profile_unknown_sandbox_uses_default_permission_tier_with
         request=SpaceLaunchRequest(space_id=SpaceId("w1")),
         prompt="space prompt",
         passthrough_args=(),
+        chat_id="c1",
     )
 
     assert "--allowedTools" in command
@@ -298,6 +301,7 @@ def test_space_primary_profile_non_claude_model_raises_clear_error(tmp_path: Pat
             request=SpaceLaunchRequest(space_id=SpaceId("w1")),
             prompt="space prompt",
             passthrough_args=(),
+            chat_id="c1",
         )
 
 

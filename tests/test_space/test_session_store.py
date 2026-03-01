@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from meridian.lib.space.session_store import (
     cleanup_stale_sessions,
@@ -19,6 +20,11 @@ def _space_dir(tmp_path):
     space_dir = tmp_path / ".meridian" / ".spaces" / "s1"
     space_dir.mkdir(parents=True, exist_ok=True)
     return space_dir
+
+
+def _write(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
 
 
 def test_start_session_creates_start_event_and_lock_file(tmp_path):
@@ -323,5 +329,53 @@ def test_cleanup_stale_sessions_removes_dead_locks_and_writes_stop_events(tmp_pa
     assert len(stop_rows) == 1
     assert stop_rows[0]["v"] == 1
     assert isinstance(stop_rows[0]["stopped_at"], str)
+
+    stop_session(space_dir, live)
+
+
+def test_cleanup_stale_sessions_removes_materialized_scope_for_stale_chat(tmp_path):
+    space_dir = _space_dir(tmp_path)
+    live = start_session(
+        space_dir,
+        harness="codex",
+        harness_session_id="live-thread",
+        model="gpt-5.3-codex",
+    )
+
+    stale_lock = space_dir / "sessions" / "c2.lock"
+    stale_lock.parent.mkdir(parents=True, exist_ok=True)
+    stale_lock.touch()
+
+    with (space_dir / "sessions.jsonl").open("a", encoding="utf-8") as handle:
+        handle.write(
+            json.dumps(
+                {
+                    "v": 1,
+                    "event": "start",
+                    "chat_id": "c2",
+                    "harness": "claude",
+                    "harness_session_id": "stale-thread",
+                    "model": "claude-opus-4-6",
+                    "params": [],
+                    "started_at": "2026-03-01T00:00:00Z",
+                },
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+            + "\n"
+        )
+
+    _write(tmp_path / ".claude" / "agents" / "_meridian-c2-primary.md", "x")
+    _write(tmp_path / ".claude" / "agents" / "_meridian-c3-primary.md", "x")
+    _write(tmp_path / ".claude" / "skills" / "_meridian-c2-alpha" / "SKILL.md", "x")
+    _write(tmp_path / ".claude" / "skills" / "_meridian-c3-alpha" / "SKILL.md", "x")
+
+    cleaned = cleanup_stale_sessions(space_dir, repo_root=tmp_path)
+
+    assert cleaned == ["c2"]
+    assert not (tmp_path / ".claude" / "agents" / "_meridian-c2-primary.md").exists()
+    assert (tmp_path / ".claude" / "agents" / "_meridian-c3-primary.md").is_file()
+    assert not (tmp_path / ".claude" / "skills" / "_meridian-c2-alpha").exists()
+    assert (tmp_path / ".claude" / "skills" / "_meridian-c3-alpha").is_dir()
 
     stop_session(space_dir, live)

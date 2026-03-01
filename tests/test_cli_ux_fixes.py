@@ -308,7 +308,11 @@ def test_dx3_help_uses_descriptions_and_hides_empty_flags(
 def test_dx5_timeout_error_returns_exit_code_124(monkeypatch, capsys) -> None:
     monkeypatch.setattr(cli_logging, "configure_logging", lambda json_mode, verbosity: None)
     monkeypatch.setattr(cli_main, "cleanup_orphaned_locks", lambda repo_root: None)
-    monkeypatch.setattr(cli_main, "cleanup_stale_sessions", lambda space_dir: [])
+    monkeypatch.setattr(
+        cli_main,
+        "cleanup_stale_sessions",
+        lambda space_dir, repo_root=None: [],
+    )
     monkeypatch.setattr(cli_main, "resolve_repo_root", lambda: Path.cwd())
     monkeypatch.setattr(cli_main, "resolve_all_spaces_dir", lambda repo_root: Path.cwd() / ".missing")
 

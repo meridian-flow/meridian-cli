@@ -43,6 +43,7 @@ class AgentProfile:
     variant_models: tuple[str, ...]
     body: str
     path: Path
+    raw_content: str
 
 
 def _normalize_string_list(value: object) -> tuple[str, ...]:
@@ -128,6 +129,7 @@ def parse_agent_profile(path: Path) -> AgentProfile:
         variant_models=_normalize_string_list(frontmatter.get("variant-models")),
         body=body,
         path=path.resolve(),
+        raw_content=markdown,
     )
 
 
@@ -146,6 +148,7 @@ def _builtin_profiles() -> dict[str, AgentProfile]:
             variant_models=(),
             body="",
             path=_BUILTIN_PATH,
+            raw_content="",
         ),
         "primary": AgentProfile(
             name="primary",
@@ -166,6 +169,7 @@ def _builtin_profiles() -> dict[str, AgentProfile]:
             variant_models=(),
             body="",
             path=_BUILTIN_PATH,
+            raw_content="",
         ),
     }
 

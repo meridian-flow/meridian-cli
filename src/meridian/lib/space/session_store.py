@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import fcntl
 import json
+import logging
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import BinaryIO
 
+from meridian.lib.harness.materialize import cleanup_materialized
 from meridian.lib.state.id_gen import next_chat_id
 from meridian.lib.state.paths import SpacePaths
 
@@ -18,6 +20,7 @@ type JSONValue = JSONScalar | list["JSONValue"] | dict[str, "JSONValue"]
 type JSONRow = dict[str, JSONValue]
 
 _SESSION_LOCK_HANDLES: dict[tuple[Path, str], BinaryIO] = {}
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -345,7 +348,17 @@ def get_session_harness_id(space_dir: Path, chat_id: str) -> str | None:
     return record.harness_session_id
 
 
-def cleanup_stale_sessions(space_dir: Path) -> list[str]:
+def _infer_repo_root_from_space_dir(space_dir: Path) -> Path | None:
+    resolved = space_dir.expanduser().resolve()
+    if resolved.parent.name != ".spaces":
+        return None
+    state_root = resolved.parent.parent
+    if state_root.name != ".meridian":
+        return None
+    return state_root.parent
+
+
+def cleanup_stale_sessions(space_dir: Path, repo_root: Path | None = None) -> list[str]:
     """Stop and remove dead session locks left behind by crashed harnesses."""
 
     paths = SpacePaths.from_space_dir(space_dir)
@@ -367,6 +380,7 @@ def cleanup_stale_sessions(space_dir: Path) -> list[str]:
         return []
 
     cleaned_ids = sorted((chat_id for chat_id, _, _ in stale), key=_session_sort_key)
+    stale_cleanup_scopes: list[tuple[str, str]] = []
     with _lock_file(paths.sessions_lock):
         records = _records_by_session(space_dir)
         stopped_at = _utc_now_iso()
@@ -382,11 +396,30 @@ def cleanup_stale_sessions(space_dir: Path) -> list[str]:
                         "stopped_at": stopped_at,
                     },
                 )
+            if existing is not None and existing.harness.strip():
+                stale_cleanup_scopes.append((existing.harness.strip(), chat_id))
             lock_path.unlink(missing_ok=True)
 
     for chat_id, _, handle in stale:
         fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
         handle.close()
         _SESSION_LOCK_HANDLES.pop(_session_lock_key(space_dir, chat_id), None)
+
+    cleanup_root = (
+        repo_root.expanduser().resolve()
+        if repo_root is not None
+        else _infer_repo_root_from_space_dir(space_dir)
+    )
+    if cleanup_root is not None:
+        for harness_id, chat_id in sorted(set(stale_cleanup_scopes)):
+            try:
+                cleanup_materialized(harness_id, cleanup_root, chat_id)
+            except Exception:
+                logger.warning(
+                    "Failed to cleanup stale-session materialized resources.",
+                    harness_id=harness_id,
+                    chat_id=chat_id,
+                    exc_info=True,
+                )
 
     return cleaned_ids

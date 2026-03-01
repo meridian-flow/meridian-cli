@@ -84,7 +84,7 @@ def _repair_stale_session_locks(repo_root: Path) -> int:
     for space_dir in _space_dirs(repo_root):
         if space_file.get_space(repo_root, space_dir.name) is None:
             continue
-        repaired += len(cleanup_stale_sessions(space_dir))
+        repaired += len(cleanup_stale_sessions(space_dir, repo_root=repo_root))
     return repaired
 
 

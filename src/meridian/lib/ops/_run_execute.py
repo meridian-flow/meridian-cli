@@ -15,10 +15,16 @@ from typing import Any, Protocol, cast
 
 import structlog
 
+from meridian.lib.config.agent import (
+    AgentProfile,
+    load_agent_profile,
+    parse_agent_profile,
+)
 from meridian.lib.domain import Run
 from meridian.lib.exec.spawn import execute_with_finalization
 from meridian.lib.exec.terminal import TerminalEventFilter, resolve_visible_categories
 from meridian.lib.harness.adapter import PermissionResolver
+from meridian.lib.harness.materialize import cleanup_materialized, materialize_for_harness
 from meridian.lib.ops._runtime import (
     SPACE_REQUIRED_ERROR,
     OperationRuntime,
@@ -144,6 +150,106 @@ def _run_child_env(
     return child_env
 
 
+def _skill_sources_from_session(
+    *,
+    skills: tuple[str, ...],
+    session_skill_paths: tuple[str, ...],
+) -> dict[str, Path]:
+    skill_sources: dict[str, Path] = {}
+    for skill_name, skill_path in zip(skills, session_skill_paths):
+        normalized_path = skill_path.strip()
+        if not normalized_path:
+            continue
+        skill_sources[skill_name] = Path(normalized_path).expanduser().resolve().parent
+    return skill_sources
+
+
+def _load_session_agent_profile(
+    *,
+    repo_root: Path,
+    session_agent: str,
+    session_agent_path: str,
+    run_agent_name: str | None,
+) -> AgentProfile | None:
+    normalized_agent = session_agent.strip() or (run_agent_name or "").strip()
+    if not normalized_agent:
+        return None
+
+    normalized_path = session_agent_path.strip()
+    if normalized_path:
+        candidate = Path(normalized_path).expanduser().resolve()
+        if candidate.is_file():
+            try:
+                return parse_agent_profile(candidate)
+            except OSError:
+                logger.warning(
+                    "Failed to parse session agent profile from path; trying registry lookup.",
+                    agent=normalized_agent,
+                    agent_path=normalized_path,
+                    exc_info=True,
+                )
+    try:
+        return load_agent_profile(normalized_agent, repo_root=repo_root)
+    except FileNotFoundError:
+        logger.warning(
+            "Session agent profile not found for harness materialization.",
+            agent=normalized_agent,
+            agent_path=normalized_path,
+        )
+        return None
+
+
+def _materialize_session_agent_name(
+    *,
+    repo_root: Path,
+    harness_id: str,
+    chat_id: str,
+    session_agent: str,
+    session_agent_path: str,
+    run_agent_name: str | None,
+    skills: tuple[str, ...],
+    session_skill_paths: tuple[str, ...],
+) -> str | None:
+    normalized_harness = harness_id.strip()
+    if not normalized_harness:
+        return None
+
+    skill_sources = _skill_sources_from_session(
+        skills=skills,
+        session_skill_paths=session_skill_paths,
+    )
+    profile = _load_session_agent_profile(
+        repo_root=repo_root,
+        session_agent=session_agent,
+        session_agent_path=session_agent_path,
+        run_agent_name=run_agent_name,
+    )
+    materialized = materialize_for_harness(
+        profile,
+        skill_sources,
+        normalized_harness,
+        repo_root,
+        chat_id,
+    )
+    resolved_agent = materialized.agent_name.strip()
+    return resolved_agent or None
+
+
+def _cleanup_session_materialized(*, harness_id: str, repo_root: Path, chat_id: str) -> None:
+    normalized_harness = harness_id.strip()
+    if not normalized_harness:
+        return
+    try:
+        cleanup_materialized(normalized_harness, repo_root, chat_id)
+    except Exception:
+        logger.warning(
+            "Failed to cleanup materialized harness resources.",
+            harness_id=normalized_harness,
+            chat_id=chat_id,
+            exc_info=True,
+        )
+
+
 def _secrets_from_env() -> tuple[SecretSpec, ...]:
     parsed: list[SecretSpec] = []
     for key in sorted(os.environ):
@@ -241,7 +347,21 @@ async def _execute_existing_run(
         skills=skills,
         skill_paths=session_skill_paths,
     )
+    resolved_agent_name = agent_name
     try:
+        materialized_agent_name = _materialize_session_agent_name(
+            repo_root=runtime.repo_root,
+            harness_id=run_record.harness or "",
+            chat_id=chat_id,
+            session_agent=session_agent,
+            session_agent_path=session_agent_path,
+            run_agent_name=agent_name,
+            skills=skills,
+            session_skill_paths=session_skill_paths,
+        )
+        if materialized_agent_name is not None and materialized_agent_name != resolved_agent_name:
+            resolved_agent_name = materialized_agent_name
+
         return await execute_with_finalization(
             run,
             repo_root=runtime.repo_root,
@@ -254,7 +374,7 @@ async def _execute_existing_run(
             timeout_seconds=timeout_secs,
             kill_grace_seconds=runtime.config.kill_grace_seconds,
             skills=skills,
-            agent=agent_name,
+            agent=resolved_agent_name,
             mcp_tools=mcp_tools,
             env_overrides=_run_child_env(
                 space_id_text,
@@ -277,7 +397,14 @@ async def _execute_existing_run(
             ),
         )
     finally:
-        stop_session(space_dir, chat_id)
+        try:
+            stop_session(space_dir, chat_id)
+        finally:
+            _cleanup_session_materialized(
+                harness_id=run_record.harness or "",
+                repo_root=runtime.repo_root,
+                chat_id=chat_id,
+            )
 
 
 def _build_background_worker_command(
@@ -540,7 +667,21 @@ def _execute_run_blocking(
         skills=prepared.skills,
         skill_paths=prepared.skill_paths,
     )
+    resolved_agent_name = prepared.agent_name
     try:
+        materialized_agent_name = _materialize_session_agent_name(
+            repo_root=runtime.repo_root,
+            harness_id=prepared.harness_id,
+            chat_id=chat_id,
+            session_agent=prepared.session_agent,
+            session_agent_path=prepared.session_agent_path,
+            run_agent_name=prepared.agent_name,
+            skills=prepared.skills,
+            session_skill_paths=prepared.skill_paths,
+        )
+        if materialized_agent_name is not None and materialized_agent_name != resolved_agent_name:
+            resolved_agent_name = materialized_agent_name
+
         exit_code = asyncio.run(
             execute_with_finalization(
                 run,
@@ -554,7 +695,7 @@ def _execute_run_blocking(
                 timeout_seconds=payload.timeout_secs,
                 kill_grace_seconds=runtime.config.kill_grace_seconds,
                 skills=prepared.skills,
-                agent=prepared.agent_name,
+                agent=resolved_agent_name,
                 mcp_tools=prepared.mcp_tools,
                 env_overrides=_run_child_env(
                     space_id_str,
@@ -581,7 +722,14 @@ def _execute_run_blocking(
             )
         )
     finally:
-        stop_session(space_dir, chat_id)
+        try:
+            stop_session(space_dir, chat_id)
+        finally:
+            _cleanup_session_materialized(
+                harness_id=prepared.harness_id,
+                repo_root=runtime.repo_root,
+                chat_id=chat_id,
+            )
     duration = time.monotonic() - started
 
     row = _read_run_row(runtime.repo_root, str(run.run_id))
@@ -617,7 +765,7 @@ def _execute_run_blocking(
         model=prepared.model,
         harness_id=prepared.harness_id,
         warning=prepared.warning,
-        agent=prepared.agent_name,
+        agent=resolved_agent_name,
         skills=prepared.skills,
         reference_files=prepared.reference_files,
         template_vars=prepared.template_vars,

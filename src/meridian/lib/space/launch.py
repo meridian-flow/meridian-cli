@@ -13,13 +13,16 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
+from uuid import uuid4
 
-from meridian.lib.config._paths import bundled_agents_root, resolve_repo_root
-from meridian.lib.config.agent import AgentProfile, _BUILTIN_PATH, load_agent_profile
+from meridian.lib.config._paths import resolve_repo_root
+from meridian.lib.config.agent import AgentProfile, load_agent_profile
+from meridian.lib.config.skill_registry import SkillRegistry
 from meridian.lib.config.routing import route_model
 from meridian.lib.config.settings import MeridianConfig, load_config
 from meridian.lib.domain import SpaceState
 from meridian.lib.exec.spawn import HARNESS_ENV_PASS_THROUGH, sanitize_child_env
+from meridian.lib.harness.materialize import cleanup_materialized, materialize_for_harness
 from meridian.lib.prompt.assembly import load_skill_contents, resolve_run_defaults
 from meridian.lib.safety.permissions import (
     permission_tier_from_profile,
@@ -49,7 +52,6 @@ class SpaceLaunchRequest:
     fresh: bool = False
     autocompact: int | None = None
     passthrough_args: tuple[str, ...] = ()
-    summary_text: str = ""
     pinned_context: str = ""
     dry_run: bool = False
 
@@ -87,8 +89,6 @@ def build_primary_prompt(request: SpaceLaunchRequest) -> str:
         "# Meridian Space Session",
         f"Space: {request.space_id}",
     ]
-    if request.summary_text.strip():
-        sections.extend(["", "# Space Summary", "", request.summary_text.strip()])
 
     if request.fresh:
         sections.extend(
@@ -132,6 +132,7 @@ def _build_interactive_command(
     request: SpaceLaunchRequest,
     prompt: str,
     passthrough_args: tuple[str, ...],
+    chat_id: str = "",
     config: MeridianConfig | None = None,
 ) -> tuple[str, ...]:
     """Build interactive CLI command for space sessions."""
@@ -172,59 +173,44 @@ def _build_interactive_command(
     )
     model = ModelId(defaults.model)
     harness = _resolve_harness(model=model)
-    bundled_root = bundled_agents_root()
-    profile_is_native = (
-        profile is not None
-        and profile.path != _BUILTIN_PATH
-        and profile.path.exists()
-        and harness == HarnessId("claude")
-        and (
-            bundled_root is None
-            or not str(profile.path.resolve()).startswith(str(bundled_root.resolve()))
+    resolved_skill_sources: dict[str, Path] = {}
+    if defaults.skills:
+        registry = SkillRegistry(
+            repo_root=resolved_root,
+            search_paths=resolved_config.search_paths,
+            readonly=True,
         )
+        manifests = registry.list()
+        available_skills = {item.name for item in manifests}
+        resolved_skills = tuple(
+            skill_name for skill_name in defaults.skills if skill_name in available_skills
+        )
+        loaded_skills = load_skill_contents(registry, resolved_skills)
+        resolved_skill_sources = {
+            skill.name: Path(skill.path).expanduser().resolve().parent for skill in loaded_skills
+        }
+
+    materialization_chat_id = chat_id.strip() or f"tmp-{uuid4().hex[:8]}"
+    materialized = materialize_for_harness(
+        profile,
+        resolved_skill_sources,
+        str(harness),
+        resolved_root,
+        materialization_chat_id,
+        dry_run=request.dry_run,
     )
 
-    is_claude = harness == HarnessId("claude")
-
-    if profile_is_native:
-        # On-disk profile Claude can find natively.
-        command: list[str] = [
-            "claude",
-            "--agent",
-            profile.name,
+    command: list[str] = ["claude"]
+    if materialized.agent_name:
+        command.extend(["--agent", materialized.agent_name])
+    command.extend(
+        [
             "--append-system-prompt",
             prompt,
             "--model",
             str(model),
         ]
-    elif is_claude and profile is not None:
-        # Bundled or non-native profile — pass as ad-hoc agent so Claude
-        # loads it natively (survives context compaction) instead of
-        # jamming everything into --system-prompt.
-        adhoc_agent: dict[str, Any] = {"prompt": profile.body.strip()}
-        if defaults.skills:
-            adhoc_agent["skills"] = list(defaults.skills)
-        adhoc_json = json.dumps({"meridian-primary": adhoc_agent})
-        command = [
-            "claude",
-            "--agents",
-            adhoc_json,
-            "--agent",
-            "meridian-primary",
-            "--append-system-prompt",
-            prompt,
-            "--model",
-            str(model),
-        ]
-    else:
-        # No profile or non-Claude harness — fall back to system prompt.
-        command = [
-            "claude",
-            "--append-system-prompt",
-            prompt,
-            "--model",
-            str(model),
-        ]
+    )
     primary_default_tier = resolved_config.primary.permission_tier
     resolved_tier = _resolve_permission_tier_for_profile(
         profile=profile,
@@ -258,6 +244,7 @@ def _build_harness_command(
     repo_root: Path,
     request: SpaceLaunchRequest,
     prompt: str,
+    chat_id: str = "",
     config: MeridianConfig | None = None,
 ) -> tuple[str, ...]:
     resolved_config = config if config is not None else load_config(repo_root)
@@ -266,6 +253,7 @@ def _build_harness_command(
         request=request,
         prompt=prompt,
         passthrough_args=request.passthrough_args,
+        chat_id=chat_id,
         config=resolved_config,
     )
 
@@ -307,8 +295,6 @@ def _resolve_primary_session_metadata(
     skill_names: tuple[str, ...] = ()
     skill_paths: tuple[str, ...] = ()
     if defaults.skills:
-        from meridian.lib.config.skill_registry import SkillRegistry
-
         registry = SkillRegistry(
             repo_root=repo_root,
             search_paths=config.search_paths,
@@ -474,6 +460,20 @@ def _build_space_env(
     )
 
 
+def _cleanup_launch_materialized(*, repo_root: Path, harness_id: str, chat_id: str) -> None:
+    if not harness_id.strip():
+        return
+    try:
+        cleanup_materialized(harness_id, repo_root, chat_id)
+    except Exception:
+        logger.warning(
+            "Failed to cleanup primary-session materialized harness resources.",
+            harness_id=harness_id,
+            chat_id=chat_id,
+            exc_info=True,
+        )
+
+
 def launch_primary(
     *,
     repo_root: Path,
@@ -483,12 +483,6 @@ def launch_primary(
 
     config = load_config(repo_root)
     prompt = build_primary_prompt(request)
-    command = _build_harness_command(
-        repo_root=repo_root,
-        request=request,
-        prompt=prompt,
-        config=config,
-    )
     session_metadata = _resolve_primary_session_metadata(
         repo_root=repo_root,
         request=request,
@@ -504,12 +498,22 @@ def launch_primary(
     )
 
     if request.dry_run:
+        command = _build_harness_command(
+            repo_root=repo_root,
+            request=request,
+            prompt=prompt,
+            chat_id="dry-run",
+            config=config,
+        )
         return SpaceLaunchResult(
             command=command,
             exit_code=0,
             final_state="active",
             lock_path=lock_path,
         )
+
+    command: tuple[str, ...] = ()
+    chat_id: str | None = None
 
     if sys.stdin.isatty():
         # execvp replaces this process entirely on success, so:
@@ -528,7 +532,13 @@ def launch_primary(
             agent_path=session_metadata.agent_path,
             skills=session_metadata.skills,
             skill_paths=session_metadata.skill_paths,
-            params=command,
+        )
+        command = _build_harness_command(
+            repo_root=repo_root,
+            request=request,
+            prompt=prompt,
+            chat_id=chat_id,
+            config=config,
         )
         saved_cwd = os.getcwd()
         try:
@@ -552,6 +562,11 @@ def launch_primary(
             os.chdir(saved_cwd)
             lock_path.unlink(missing_ok=True)
             stop_session(space_dir, chat_id)
+            _cleanup_launch_materialized(
+                repo_root=repo_root,
+                harness_id=session_metadata.harness,
+                chat_id=chat_id,
+            )
             return SpaceLaunchResult(
                 command=command,
                 exit_code=2,
@@ -561,7 +576,6 @@ def launch_primary(
 
     exit_code = 2
     process: subprocess.Popen[str] | None = None
-    chat_id: str | None = None
     try:
         chat_id = start_session(
             space_dir,
@@ -572,7 +586,13 @@ def launch_primary(
             agent_path=session_metadata.agent_path,
             skills=session_metadata.skills,
             skill_paths=session_metadata.skill_paths,
-            params=command,
+        )
+        command = _build_harness_command(
+            repo_root=repo_root,
+            request=request,
+            prompt=prompt,
+            chat_id=chat_id,
+            config=config,
         )
         _write_lock(
             path=lock_path,
@@ -605,7 +625,14 @@ def launch_primary(
         exit_code = 2
     finally:
         if chat_id is not None:
-            stop_session(space_dir, chat_id)
+            try:
+                stop_session(space_dir, chat_id)
+            finally:
+                _cleanup_launch_materialized(
+                    repo_root=repo_root,
+                    harness_id=session_metadata.harness,
+                    chat_id=chat_id,
+                )
         if lock_path.exists():
             lock_path.unlink()
 
