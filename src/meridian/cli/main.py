@@ -478,6 +478,46 @@ def start(
         str,
         Parameter(name="--model", help="Model id or alias for primary harness."),
     ] = "",
+    agent: Annotated[
+        str | None,
+        Parameter(name=["--agent", "-a"], help="Agent profile name for the primary agent."),
+    ] = None,
+    permission_tier: Annotated[
+        str | None,
+        Parameter(name="--permission", help="Permission tier for harness execution."),
+    ] = None,
+    unsafe: Annotated[
+        bool,
+        Parameter(name="--unsafe", help="Allow unsafe execution mode."),
+    ] = False,
+    timeout_secs: Annotated[
+        float | None,
+        Parameter(name="--timeout-secs", help="Maximum session time before timeout."),
+    ] = None,
+    budget_per_run_usd: Annotated[
+        float | None,
+        Parameter(name="--budget-per-run-usd", help="Per-run budget cap in USD."),
+    ] = None,
+    budget_per_space_usd: Annotated[
+        float | None,
+        Parameter(name="--budget-per-space-usd", help="Space budget cap in USD."),
+    ] = None,
+    guardrails: Annotated[
+        tuple[str, ...],
+        Parameter(
+            name="--guardrail",
+            help="Guardrail identifiers to enforce (repeatable).",
+            negative_iterable=(),
+        ),
+    ] = (),
+    secrets: Annotated[
+        tuple[str, ...],
+        Parameter(
+            name="--secret",
+            help="Secret keys to expose to the harness (repeatable).",
+            negative_iterable=(),
+        ),
+    ] = (),
     autocompact: Annotated[
         int | None,
         Parameter(name="--autocompact", help="Auto-compact threshold in messages."),
@@ -520,11 +560,19 @@ def start(
         request=SpaceLaunchRequest(
             space_id=SpaceId(selected.id),
             model=model,
+            agent=agent,
             autocompact=autocompact,
             passthrough_args=harness_args,
             fresh=True,
             pinned_context="",
             dry_run=dry_run,
+            permission_tier=permission_tier,
+            unsafe=unsafe,
+            timeout_secs=timeout_secs,
+            budget_per_run_usd=budget_per_run_usd,
+            budget_per_space_usd=budget_per_space_usd,
+            guardrails=guardrails,
+            secrets=secrets,
         ),
     )
 

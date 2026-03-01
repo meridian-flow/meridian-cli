@@ -24,10 +24,18 @@ if TYPE_CHECKING:
 class SpaceStartInput:
     name: str | None = None
     model: str = ""
+    agent: str | None = None
     autocompact: int | None = None
     harness_args: tuple[str, ...] = ()
     dry_run: bool = False
     repo_root: str | None = None
+    permission_tier: str | None = None
+    unsafe: bool = False
+    timeout_secs: float | None = None
+    budget_per_run_usd: float | None = None
+    budget_per_space_usd: float | None = None
+    guardrails: tuple[str, ...] = ()
+    secrets: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,9 +43,17 @@ class SpaceResumeInput:
     space: str | None = None
     fresh: bool = False
     model: str = ""
+    agent: str | None = None
     autocompact: int | None = None
     harness_args: tuple[str, ...] = ()
     repo_root: str | None = None
+    permission_tier: str | None = None
+    unsafe: bool = False
+    timeout_secs: float | None = None
+    budget_per_run_usd: float | None = None
+    budget_per_space_usd: float | None = None
+    guardrails: tuple[str, ...] = ()
+    secrets: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,11 +155,19 @@ def space_start_sync(payload: SpaceStartInput) -> SpaceActionOutput:
         request=SpaceLaunchRequest(
             space_id=SpaceId(space.id),
             model=payload.model,
+            agent=payload.agent,
             autocompact=payload.autocompact,
             passthrough_args=payload.harness_args,
             fresh=True,
             pinned_context="",
             dry_run=payload.dry_run,
+            permission_tier=payload.permission_tier,
+            unsafe=payload.unsafe,
+            timeout_secs=payload.timeout_secs,
+            budget_per_run_usd=payload.budget_per_run_usd,
+            budget_per_space_usd=payload.budget_per_space_usd,
+            guardrails=payload.guardrails,
+            secrets=payload.secrets,
         ),
     )
     transitioned = space_file.update_space_status(
@@ -185,10 +209,18 @@ def space_resume_sync(payload: SpaceResumeInput) -> SpaceActionOutput:
         request=SpaceLaunchRequest(
             space_id=space.space_id,
             model=payload.model,
+            agent=payload.agent,
             autocompact=payload.autocompact,
             passthrough_args=payload.harness_args,
             fresh=payload.fresh,
             pinned_context="",
+            permission_tier=payload.permission_tier,
+            unsafe=payload.unsafe,
+            timeout_secs=payload.timeout_secs,
+            budget_per_run_usd=payload.budget_per_run_usd,
+            budget_per_space_usd=payload.budget_per_space_usd,
+            guardrails=payload.guardrails,
+            secrets=payload.secrets,
         ),
     )
 

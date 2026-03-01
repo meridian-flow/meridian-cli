@@ -48,11 +48,19 @@ class SpaceLaunchRequest:
 
     space_id: SpaceId
     model: str = ""
+    agent: str | None = None
     fresh: bool = False
     autocompact: int | None = None
     passthrough_args: tuple[str, ...] = ()
     pinned_context: str = ""
     dry_run: bool = False
+    permission_tier: str | None = None
+    unsafe: bool = False
+    timeout_secs: float | None = None
+    budget_per_run_usd: float | None = None
+    budget_per_space_usd: float | None = None
+    guardrails: tuple[str, ...] = ()
+    secrets: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,25 +153,11 @@ def _build_interactive_command(
 
     resolved_root = resolve_repo_root(repo_root)
     resolved_config = config if config is not None else load_config(resolved_root)
-    profile: AgentProfile | None = None
-    configured_profile = resolved_config.default_primary_agent.strip()
-    if configured_profile:
-        try:
-            profile = load_agent_profile(
-                configured_profile,
-                repo_root=resolved_root,
-                search_paths=resolved_config.search_paths,
-            )
-        except FileNotFoundError:
-            if configured_profile != "primary":
-                try:
-                    profile = load_agent_profile(
-                        "primary",
-                        repo_root=resolved_root,
-                        search_paths=resolved_config.search_paths,
-                    )
-                except FileNotFoundError:
-                    profile = None
+    profile = _load_primary_agent_profile(
+        repo_root=resolved_root,
+        config=resolved_config,
+        requested_agent=request.agent,
+    )
 
     defaults = resolve_run_defaults(
         request.model,
@@ -203,27 +197,34 @@ def _build_interactive_command(
         command.extend(["--agent", materialized.agent_name])
     command.extend(["--model", str(model)])
     primary_default_tier = resolved_config.primary.permission_tier
-    resolved_tier = _resolve_permission_tier_for_profile(
+    inferred_tier = _resolve_permission_tier_for_profile(
         profile=profile,
         default_tier=primary_default_tier,
     )
-    warn_profile_tier_escalation(
-        profile=profile,
-        inferred_tier=resolved_tier,
-        default_tier=primary_default_tier,
-        warning_logger=logger,
+    permission_tier_override = (
+        request.permission_tier.strip()
+        if request.permission_tier is not None and request.permission_tier.strip()
+        else None
     )
+    if permission_tier_override is None:
+        warn_profile_tier_escalation(
+            profile=profile,
+            inferred_tier=inferred_tier,
+            default_tier=primary_default_tier,
+            warning_logger=logger,
+        )
+    resolved_tier = permission_tier_override or inferred_tier
     # Primary settings only apply to this primary agent launch path.
     # Subagent runs are assembled in lib/ops/run.py and do not read this config.
     permission_config = build_permission_config(
         resolved_tier,
-        unsafe=False,
+        unsafe=request.unsafe,
         default_tier=primary_default_tier,
     )
     resolver = build_permission_resolver(
         allowed_tools=profile.allowed_tools if profile is not None else (),
         permission_config=permission_config,
-        cli_permission_override=False,
+        cli_permission_override=permission_tier_override is not None,
     )
     command.extend(resolver.resolve_flags(harness))
     command.extend(passthrough_args)
@@ -255,25 +256,11 @@ def _resolve_primary_session_metadata(
     request: SpaceLaunchRequest,
     config: MeridianConfig,
 ) -> _PrimarySessionMetadata:
-    profile: AgentProfile | None = None
-    configured_profile = config.default_primary_agent.strip()
-    if configured_profile:
-        try:
-            profile = load_agent_profile(
-                configured_profile,
-                repo_root=repo_root,
-                search_paths=config.search_paths,
-            )
-        except FileNotFoundError:
-            if configured_profile != "primary":
-                try:
-                    profile = load_agent_profile(
-                        "primary",
-                        repo_root=repo_root,
-                        search_paths=config.search_paths,
-                    )
-                except FileNotFoundError:
-                    profile = None
+    profile = _load_primary_agent_profile(
+        repo_root=repo_root,
+        config=config,
+        requested_agent=request.agent,
+    )
 
     defaults = resolve_run_defaults(
         request.model,
@@ -332,6 +319,42 @@ def _resolve_permission_tier_for_profile(
             default_tier,
         )
     return default_tier
+
+
+def _load_primary_agent_profile(
+    *,
+    repo_root: Path,
+    config: MeridianConfig,
+    requested_agent: str | None,
+) -> AgentProfile | None:
+    requested_profile = requested_agent.strip() if requested_agent is not None else ""
+    if requested_profile:
+        return load_agent_profile(
+            requested_profile,
+            repo_root=repo_root,
+            search_paths=config.search_paths,
+        )
+
+    profile: AgentProfile | None = None
+    configured_profile = config.default_primary_agent.strip()
+    if configured_profile:
+        try:
+            profile = load_agent_profile(
+                configured_profile,
+                repo_root=repo_root,
+                search_paths=config.search_paths,
+            )
+        except FileNotFoundError:
+            if configured_profile != "primary":
+                try:
+                    profile = load_agent_profile(
+                        "primary",
+                        repo_root=repo_root,
+                        search_paths=config.search_paths,
+                    )
+                except FileNotFoundError:
+                    profile = None
+    return profile
 
 
 def _resolve_harness(*, model: ModelId) -> HarnessId:

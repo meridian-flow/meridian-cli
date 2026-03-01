@@ -24,6 +24,28 @@ def _write_skill(repo_root: Path, name: str, body: str) -> None:
     )
 
 
+def _write_config(repo_root: Path, content: str) -> None:
+    config_file = repo_root / ".meridian" / "config.toml"
+    config_file.parent.mkdir(parents=True, exist_ok=True)
+    config_file.write_text(content, encoding="utf-8")
+
+
+def _write_agent(repo_root: Path, *, name: str, model: str) -> None:
+    agent_file = repo_root / ".agents" / "agents" / f"{name}.md"
+    agent_file.parent.mkdir(parents=True, exist_ok=True)
+    agent_file.write_text(
+        (
+            "---\n"
+            f"name: {name}\n"
+            f"model: {model}\n"
+            "skills: []\n"
+            "---\n\n"
+            f"# {name}\n"
+        ),
+        encoding="utf-8",
+    )
+
+
 def test_run_create_dry_run_outputs_composed_prompt_and_command(
     package_root: Path, tmp_path: Path
 ) -> None:
@@ -100,3 +122,46 @@ def test_run_create_dry_run_outputs_composed_prompt_and_command(
     assert "Prefer deterministic tests." not in payload["composed_prompt"]
     assert "Context value: ok" in payload["composed_prompt"]
     assert "Implement the task." in payload["composed_prompt"]
+
+
+def test_start_dry_run_agent_flag_overrides_default_primary_agent(
+    package_root: Path, tmp_path: Path
+) -> None:
+    repo_root = tmp_path / "start-agent-override"
+    _write_config(
+        repo_root,
+        "[defaults]\ndefault_primary_agent = 'lead-primary'\n",
+    )
+    _write_agent(repo_root, name="lead-primary", model="claude-opus-4-6")
+    _write_agent(repo_root, name="review-primary", model="claude-sonnet-4-6")
+
+    env = os.environ.copy()
+    env["MERIDIAN_REPO_ROOT"] = str(repo_root)
+    env["PYTHONPATH"] = str(package_root / "src")
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "meridian",
+            "--json",
+            "start",
+            "--dry-run",
+            "--agent",
+            "review-primary",
+        ],
+        cwd=package_root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=20,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout)
+    command = payload["command"]
+    assert payload["message"] == "Space launch dry-run."
+    assert "--agent" in command
+    assert command[command.index("--agent") + 1] == "_meridian-dry-run-review-primary"
+    assert "--model" in command
+    assert command[command.index("--model") + 1] == "claude-sonnet-4-6"
