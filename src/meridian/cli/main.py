@@ -38,6 +38,8 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
 logger = logging.getLogger(__name__)
+_RUN_SPAWN_ERROR_TEXT_LIMIT = 2000
+_RUN_SPAWN_ERROR_TRUNCATED_SUFFIX = "... [truncated, full output in run logs]"
 
 _AGENT_ROOT_HELP = """Usage: meridian COMMAND [ARGS]
 
@@ -131,6 +133,24 @@ def _read_run_report_text(run_id: str) -> str | None:
     return text or None
 
 
+def _truncate_run_spawn_error_text(text: str) -> str:
+    normalized = text.strip()
+    if len(normalized) <= _RUN_SPAWN_ERROR_TEXT_LIMIT:
+        return normalized
+    keep = max(_RUN_SPAWN_ERROR_TEXT_LIMIT - len(_RUN_SPAWN_ERROR_TRUNCATED_SUFFIX), 0)
+    return f"{normalized[:keep].rstrip()}{_RUN_SPAWN_ERROR_TRUNCATED_SUFFIX}"
+
+
+def _truncate_run_spawn_failure_fields(payload: RunActionOutput) -> RunActionOutput:
+    if payload.status != "failed":
+        return payload
+    message = (
+        _truncate_run_spawn_error_text(payload.message) if payload.message is not None else None
+    )
+    error = _truncate_run_spawn_error_text(payload.error) if payload.error is not None else None
+    return replace(payload, message=message, error=error)
+
+
 def _emit_run_spawn_text(payload: RunActionOutput) -> None:
     print(_run_spawn_metadata_line(payload), file=sys.stderr)
     if payload.warning:
@@ -148,7 +168,17 @@ def _emit_run_spawn_text(payload: RunActionOutput) -> None:
     report_text = _read_run_report_text(payload.run_id)
     if report_text is None:
         print(f"warning: no report extracted for run '{payload.run_id}'", file=sys.stderr)
+        if payload.status == "failed":
+            fallback_parts = []
+            if payload.message is not None and payload.message.strip():
+                fallback_parts.append(payload.message.strip())
+            if payload.error is not None and payload.error.strip():
+                fallback_parts.append(f"error={payload.error.strip()}")
+            if fallback_parts:
+                print(_truncate_run_spawn_error_text("  ".join(fallback_parts)), file=sys.stderr)
         return
+    if payload.status == "failed":
+        report_text = _truncate_run_spawn_error_text(report_text)
     print(report_text)
 
 
@@ -160,9 +190,11 @@ def emit(payload: object) -> None:
         and isinstance(payload, RunActionOutput)
         and payload.command == "run.spawn"
         and payload.status != "dry-run"
-        and payload.run_id is not None
     ):
-        _emit_run_spawn_text(payload)
+        if payload.run_id is not None:
+            _emit_run_spawn_text(payload)
+        else:
+            emit_output(_truncate_run_spawn_failure_fields(payload), OutputConfig(format="text"))
         return
     emit_output(payload, options.output)
 
