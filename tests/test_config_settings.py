@@ -34,7 +34,7 @@ def test_load_config_from_fixture_toml(package_root: Path, tmp_path: Path) -> No
         guardrail_timeout_seconds=45.0,
         wait_timeout_seconds=900.0,
         default_permission_tier="workspace-write",
-        primary_agent="lead-primary",
+        default_primary_agent="lead-primary",
         default_agent="worker-agent",
         primary=PrimaryConfig(
             autocompact_pct=61,
@@ -73,6 +73,37 @@ def test_load_config_env_override(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
     assert loaded.max_depth == 9
     assert loaded.default_agent == "env-agent"
     assert loaded.max_retries == 3
+
+
+def test_load_config_accepts_legacy_primary_agent_key(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    _install_config(
+        repo_root,
+        "[defaults]\n"
+        "primary_agent = 'legacy-primary'\n",
+    )
+
+    loaded = load_config(repo_root)
+
+    assert loaded.default_primary_agent == "legacy-primary"
+    assert loaded.primary_agent == "legacy-primary"
+
+
+def test_load_config_legacy_primary_agent_env_alias(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path / "repo"
+    _install_config(
+        repo_root,
+        "[defaults]\n"
+        "default_primary_agent = 'from-file'\n",
+    )
+    monkeypatch.setenv("MERIDIAN_PRIMARY_AGENT", "legacy-env")
+
+    loaded = load_config(repo_root)
+
+    assert loaded.default_primary_agent == "legacy-env"
 
 
 def test_load_config_warns_on_unknown_keys(

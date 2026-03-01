@@ -61,11 +61,16 @@ class MeridianConfig:
     guardrail_timeout_seconds: float = 30.0
     wait_timeout_seconds: float = 600.0
     default_permission_tier: str = "read-only"
-    primary_agent: str = "primary"
+    default_primary_agent: str = "primary"
     default_agent: str = "agent"
     primary: PrimaryConfig = PrimaryConfig()
     output: OutputConfig = OutputConfig()
     search_paths: SearchPathConfig = SearchPathConfig()
+
+    @property
+    def primary_agent(self) -> str:
+        """Backward-compatible alias for legacy config field name."""
+        return self.default_primary_agent
 
 
 _SECTION_KEY_MAP: dict[str, dict[str, str]] = {
@@ -73,7 +78,8 @@ _SECTION_KEY_MAP: dict[str, dict[str, str]] = {
         "max_depth": "max_depth",
         "max_retries": "max_retries",
         "retry_backoff_seconds": "retry_backoff_seconds",
-        "primary_agent": "primary_agent",
+        "default_primary_agent": "default_primary_agent",
+        "primary_agent": "default_primary_agent",
         "agent": "default_agent",
         "default_agent": "default_agent",
     },
@@ -98,7 +104,8 @@ _TOP_LEVEL_KEY_MAP: dict[str, str] = {
     "guardrail_timeout_seconds": "guardrail_timeout_seconds",
     "wait_timeout_seconds": "wait_timeout_seconds",
     "default_permission_tier": "default_permission_tier",
-    "primary_agent": "primary_agent",
+    "default_primary_agent": "default_primary_agent",
+    "primary_agent": "default_primary_agent",
     "default_agent": "default_agent",
 }
 
@@ -110,7 +117,8 @@ _ENV_OVERRIDE_MAP: dict[str, str] = {
     "MERIDIAN_GUARDRAIL_TIMEOUT_SECONDS": "guardrail_timeout_seconds",
     "MERIDIAN_WAIT_TIMEOUT_SECONDS": "wait_timeout_seconds",
     "MERIDIAN_DEFAULT_PERMISSION_TIER": "default_permission_tier",
-    "MERIDIAN_PRIMARY_AGENT": "primary_agent",
+    "MERIDIAN_PRIMARY_AGENT": "default_primary_agent",
+    "MERIDIAN_DEFAULT_PRIMARY_AGENT": "default_primary_agent",
     "MERIDIAN_DEFAULT_AGENT": "default_agent",
 }
 
@@ -448,7 +456,7 @@ def _build_config(values: dict[str, object]) -> MeridianConfig:
         guardrail_timeout_seconds=cast("float", values["guardrail_timeout_seconds"]),
         wait_timeout_seconds=cast("float", values["wait_timeout_seconds"]),
         default_permission_tier=cast("str", values["default_permission_tier"]),
-        primary_agent=cast("str", values["primary_agent"]),
+        default_primary_agent=cast("str", values["default_primary_agent"]),
         default_agent=cast("str", values["default_agent"]),
         primary=cast("PrimaryConfig", values["primary"]),
         output=cast("OutputConfig", values["output"]),

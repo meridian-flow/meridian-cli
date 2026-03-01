@@ -257,10 +257,18 @@ def _build_create_payload(
                     search_paths=runtime_view.config.search_paths,
                 )
             except FileNotFoundError:
-                # No default agent profile found — proceed without injecting
-                # any implicit skills.  Skills are opt-in: declare them in
-                # the agent profile or pass --skills explicitly.
-                pass
+                if configured_default_agent != "agent":
+                    try:
+                        profile = load_agent_profile(
+                            "agent",
+                            repo_root=runtime_view.repo_root,
+                            search_paths=runtime_view.config.search_paths,
+                        )
+                    except FileNotFoundError:
+                        # No default agent profile found — proceed without injecting
+                        # any implicit skills.  Skills are opt-in: declare them in
+                        # the agent profile or pass --skills explicitly.
+                        pass
 
     defaults = resolve_run_defaults(
         payload.model,

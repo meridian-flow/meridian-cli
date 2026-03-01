@@ -13,7 +13,11 @@ from meridian.lib.config._paths import bundled_agents_root
 from meridian.lib.config.agent import _BUILTIN_PATH, load_agent_profile
 from meridian.lib.ops.run import RunCreateInput
 from meridian.lib.types import SpaceId
-from meridian.lib.space.launch import SpaceLaunchRequest, _build_interactive_command
+from meridian.lib.space.launch import (
+    SpaceLaunchRequest,
+    _build_interactive_command,
+    _resolve_primary_session_metadata,
+)
 
 
 def _write(path: Path, content: str) -> None:
@@ -102,7 +106,9 @@ def test_run_uses_default_agent_profile_and_profile_skills(tmp_path: Path) -> No
     assert result.skills == ("reviewing",)
 
 
-def test_run_falls_back_to_legacy_defaults_when_configured_profile_missing(tmp_path: Path) -> None:
+def test_run_falls_back_to_bundled_agent_when_configured_profile_missing(
+    tmp_path: Path,
+) -> None:
     _write_config(
         tmp_path,
         "[defaults]\nagent = 'missing-profile'\n",
@@ -120,15 +126,14 @@ def test_run_falls_back_to_legacy_defaults_when_configured_profile_missing(tmp_p
     )
 
     assert result.status == "dry-run"
-    assert result.agent is None
-    # Skills are opt-in: when default profile is missing, no implicit skills
+    assert result.agent == "agent"
     assert result.skills == ()
 
 
 def test_space_primary_profile_controls_model_skills_and_sandbox(tmp_path: Path) -> None:
     _write_config(
         tmp_path,
-        "[defaults]\nprimary_agent = 'lead-primary'\n",
+        "[defaults]\ndefault_primary_agent = 'lead-primary'\n",
     )
     _write_agent(
         tmp_path,
@@ -156,23 +161,22 @@ def test_space_primary_profile_controls_model_skills_and_sandbox(tmp_path: Path)
     assert "--system-prompt" not in command
 
 
-def test_space_primary_profile_missing_uses_default_permission_tier(tmp_path: Path) -> None:
+def test_space_primary_profile_missing_falls_back_to_bundled_primary(
+    tmp_path: Path,
+) -> None:
     _write_config(
         tmp_path,
-        "[defaults]\nprimary_agent = 'missing-primary'\n",
+        "[defaults]\ndefault_primary_agent = 'missing-primary'\n",
     )
 
-    request = SpaceLaunchRequest(space_id=SpaceId("w1"))
-    command = _build_interactive_command(
+    metadata = _resolve_primary_session_metadata(
         repo_root=tmp_path,
-        request=request,
-        prompt="space prompt",
-        passthrough_args=(),
+        request=SpaceLaunchRequest(space_id=SpaceId("w1")),
+        config=space_launch.load_config(tmp_path),
     )
 
-    assert command[command.index("--model") + 1] == "claude-opus-4-6"
-    assert "--allowedTools" in command
-    assert command[command.index("--system-prompt") + 1] == "space prompt"
+    assert metadata.agent == "primary"
+    assert metadata.model == "claude-opus-4-6"
 
 
 def test_space_primary_profile_missing_sandbox_uses_default_permission_tier(
@@ -182,7 +186,7 @@ def test_space_primary_profile_missing_sandbox_uses_default_permission_tier(
         tmp_path,
         (
             "[defaults]\n"
-            "primary_agent = 'lead-primary'\n"
+            "default_primary_agent = 'lead-primary'\n"
             "\n"
             "[permissions]\n"
             "default_tier = 'workspace-write'\n"
@@ -220,7 +224,7 @@ def test_space_primary_profile_unknown_sandbox_uses_default_permission_tier_with
         tmp_path,
         (
             "[defaults]\n"
-            "primary_agent = 'lead-primary'\n"
+            "default_primary_agent = 'lead-primary'\n"
             "\n"
             "[permissions]\n"
             "default_tier = 'read-only'\n"
@@ -272,7 +276,7 @@ def test_space_primary_profile_unknown_sandbox_uses_default_permission_tier_with
 def test_space_primary_profile_non_claude_model_raises_clear_error(tmp_path: Path) -> None:
     _write_config(
         tmp_path,
-        "[defaults]\nprimary_agent = 'lead-primary'\n",
+        "[defaults]\ndefault_primary_agent = 'lead-primary'\n",
     )
     _write_agent(
         tmp_path,

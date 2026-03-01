@@ -71,13 +71,13 @@ _CONFIG_KEY_SPECS: tuple[_ConfigKeySpec, ...] = (
         aliases=("retry_backoff_seconds",),
     ),
     _ConfigKeySpec(
-        canonical_key="defaults.primary_agent",
+        canonical_key="defaults.default_primary_agent",
         section="defaults",
-        file_key="primary_agent",
-        field_path=("primary_agent",),
+        file_key="default_primary_agent",
+        field_path=("default_primary_agent",),
         value_kind="str",
-        env_var="MERIDIAN_PRIMARY_AGENT",
-        aliases=("primary_agent",),
+        env_var="MERIDIAN_DEFAULT_PRIMARY_AGENT",
+        aliases=("defaults.primary_agent", "default_primary_agent", "primary_agent"),
     ),
     _ConfigKeySpec(
         canonical_key="defaults.agent",
@@ -583,7 +583,10 @@ def _scaffold_template() -> str:
         "# Delay multiplier between retries in seconds (float).",
         f"# retry_backoff_seconds = {defaults['defaults.retry_backoff_seconds']}",
         "# Profile name for the primary agent (str).",
-        f"# primary_agent = {_toml_literal(cast('str', defaults['defaults.primary_agent']))}",
+        (
+            "# default_primary_agent = "
+            f"{_toml_literal(cast('str', defaults['defaults.default_primary_agent']))}"
+        ),
         "# Profile name for the default non-primary agent (str).",
         f"# agent = {_toml_literal(cast('str', defaults['defaults.agent']))}",
         "",

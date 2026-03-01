@@ -2,7 +2,7 @@
 max_depth = 7
 max_retries = 4
 retry_backoff_seconds = 0.5
-primary_agent = "lead-primary"
+default_primary_agent = "lead-primary"
 agent = "worker-agent"
 
 [timeouts]

@@ -146,7 +146,7 @@ def _build_interactive_command(
     resolved_root = resolve_repo_root(repo_root)
     resolved_config = config if config is not None else load_config(resolved_root)
     profile: AgentProfile | None = None
-    configured_profile = resolved_config.primary_agent.strip()
+    configured_profile = resolved_config.default_primary_agent.strip()
     if configured_profile:
         try:
             profile = load_agent_profile(
@@ -155,7 +155,15 @@ def _build_interactive_command(
                 search_paths=resolved_config.search_paths,
             )
         except FileNotFoundError:
-            profile = None
+            if configured_profile != "primary":
+                try:
+                    profile = load_agent_profile(
+                        "primary",
+                        repo_root=resolved_root,
+                        search_paths=resolved_config.search_paths,
+                    )
+                except FileNotFoundError:
+                    profile = None
 
     defaults = resolve_run_defaults(
         request.model,
@@ -275,7 +283,7 @@ def _resolve_primary_session_metadata(
     config: MeridianConfig,
 ) -> _PrimarySessionMetadata:
     profile: AgentProfile | None = None
-    configured_profile = config.primary_agent.strip()
+    configured_profile = config.default_primary_agent.strip()
     if configured_profile:
         try:
             profile = load_agent_profile(
@@ -284,7 +292,15 @@ def _resolve_primary_session_metadata(
                 search_paths=config.search_paths,
             )
         except FileNotFoundError:
-            profile = None
+            if configured_profile != "primary":
+                try:
+                    profile = load_agent_profile(
+                        "primary",
+                        repo_root=repo_root,
+                        search_paths=config.search_paths,
+                    )
+                except FileNotFoundError:
+                    profile = None
 
     defaults = resolve_run_defaults(
         request.model,

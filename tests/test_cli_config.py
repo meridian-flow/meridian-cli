@@ -51,6 +51,25 @@ def test_config_set_get_roundtrip(tmp_path: Path, run_meridian, cli_env: dict[st
     assert payload["source"] == "file"
 
 
+def test_config_legacy_primary_agent_alias_roundtrip(
+    tmp_path: Path,
+    run_meridian,
+    cli_env: dict[str, str],
+) -> None:
+    cli_env["MERIDIAN_REPO_ROOT"] = tmp_path.as_posix()
+
+    set_result = run_meridian(["config", "set", "defaults.primary_agent", "legacy-primary"])
+    assert set_result.returncode == 0
+
+    get_result = run_meridian(["--json", "config", "get", "default_primary_agent"])
+    assert get_result.returncode == 0
+
+    payload = json.loads(get_result.stdout)
+    assert payload["key"] == "defaults.default_primary_agent"
+    assert payload["value"] == "legacy-primary"
+    assert payload["source"] == "file"
+
+
 def test_config_reset_removes_key(tmp_path: Path, run_meridian, cli_env: dict[str, str]) -> None:
     cli_env["MERIDIAN_REPO_ROOT"] = tmp_path.as_posix()
 
@@ -87,7 +106,7 @@ def test_config_show_displays_sources(
 
     assert by_key["defaults.max_depth"] == "env var"
     assert by_key["defaults.max_retries"] == "file"
-    assert by_key["defaults.primary_agent"] == "builtin"
+    assert by_key["defaults.default_primary_agent"] == "builtin"
 
 
 def test_config_show_warns_when_repo_root_does_not_exist(
