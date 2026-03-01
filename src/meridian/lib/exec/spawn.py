@@ -681,13 +681,18 @@ async def execute_with_finalization(
                 if artifacts.exists(stderr_key)
                 else ""
             )
-            category = classify_error(exit_code, stderr_text)
+            category = classify_error(
+                exit_code,
+                stderr_text,
+                timed_out=spawn_result.timed_out,
+            )
             if category == ErrorCategory.STRATEGY_CHANGE:
                 failure_reason = "strategy_change"
 
             if not should_retry(
                 exit_code=exit_code,
                 stderr=stderr_text,
+                timed_out=spawn_result.timed_out,
                 retries_attempted=retries_attempted,
                 max_retries=max_retries,
             ):

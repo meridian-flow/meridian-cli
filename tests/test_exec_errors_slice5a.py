@@ -64,3 +64,20 @@ def test_should_retry_honors_retryable_and_max_limit() -> None:
         )
         is False
     )
+
+
+def test_should_retry_never_retries_timeouts() -> None:
+    assert (
+        should_retry(
+            exit_code=3,
+            stderr="",
+            timed_out=True,
+            retries_attempted=0,
+            max_retries=3,
+        )
+        is False
+    )
+
+
+def test_classify_error_timeout_flag_returns_timeout_category() -> None:
+    assert classify_error(3, "", timed_out=True) == ErrorCategory.TIMEOUT

@@ -8,6 +8,7 @@ from enum import StrEnum
 class ErrorCategory(StrEnum):
     RETRYABLE = "retryable"
     UNRECOVERABLE = "unrecoverable"
+    TIMEOUT = "timeout"
     STRATEGY_CHANGE = "strategy_change"
 
 
@@ -58,8 +59,15 @@ def _contains_any(text: str, markers: tuple[str, ...]) -> bool:
     return any(marker in text for marker in markers)
 
 
-def classify_error(exit_code: int, stderr: str) -> ErrorCategory:
+def classify_error(
+    exit_code: int,
+    stderr: str,
+    timed_out: bool = False,
+) -> ErrorCategory:
     """Classify one failed harness attempt into a retry strategy category."""
+
+    if timed_out:
+        return ErrorCategory.TIMEOUT
 
     normalized = stderr.lower()
 
@@ -84,9 +92,19 @@ def should_retry(
     *,
     exit_code: int,
     stderr: str,
+    timed_out: bool = False,
     retries_attempted: int,
     max_retries: int = 3,
 ) -> bool:
+    if timed_out:
+        return False
     if retries_attempted >= max_retries:
         return False
-    return classify_error(exit_code, stderr) == ErrorCategory.RETRYABLE
+    return (
+        classify_error(
+            exit_code,
+            stderr,
+            timed_out=timed_out,
+        )
+        == ErrorCategory.RETRYABLE
+    )
