@@ -155,8 +155,33 @@ def test_space_primary_profile_controls_model_skills_and_sandbox(tmp_path: Path)
     assert "--allowedTools" in command
     assert "--agent" in command
     assert command[command.index("--agent") + 1] == "_meridian-c1-lead-primary"
-    assert "--append-system-prompt" not in command
+    assert "--append-system-prompt" in command
+    assert "Primary orchestration content" in command[command.index("--append-system-prompt") + 1]
     assert "--system-prompt" not in command
+
+
+def test_space_primary_profile_without_skills_omits_skill_injection(tmp_path: Path) -> None:
+    _write_config(
+        tmp_path,
+        "[defaults]\ndefault_primary_agent = 'lead-primary'\n",
+    )
+    _write_agent(
+        tmp_path,
+        name="lead-primary",
+        model="claude-sonnet-4-6",
+        skills=[],
+        sandbox="unrestricted",
+    )
+
+    command = _build_interactive_command(
+        repo_root=tmp_path,
+        request=SpaceLaunchRequest(space_id=SpaceId("w1")),
+        prompt="space prompt",
+        passthrough_args=(),
+        chat_id="c1",
+    )
+
+    assert "--append-system-prompt" not in command
 
 
 def test_space_primary_profile_missing_falls_back_to_bundled_primary(

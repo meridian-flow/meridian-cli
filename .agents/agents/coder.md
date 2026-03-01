@@ -3,7 +3,8 @@ name: coder
 description: Implementation agent with full tool access
 model: gpt-5.3-codex
 variant: high
-skills: []
+skills:
+  - scratchpad
 sandbox: unrestricted
 variant-models:
   - claude-opus-4-6

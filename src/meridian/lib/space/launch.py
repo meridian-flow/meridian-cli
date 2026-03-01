@@ -26,6 +26,7 @@ from meridian.lib.launch_resolve import (
     resolve_skills_from_profile,
 )
 from meridian.lib.prompt.assembly import resolve_run_defaults
+from meridian.lib.prompt.compose import compose_skill_injections
 from meridian.lib.safety.permissions import (
     warn_profile_tier_escalation,
     build_permission_config,
@@ -231,6 +232,10 @@ def _build_interactive_command(
         cli_permission_override=permission_tier_override is not None,
     )
     command.extend(resolver.resolve_flags(harness))
+    # Workaround: Claude Code --agent does not preload skills (issue #29902).
+    appended = compose_skill_injections(resolved_skills.loaded_skills)
+    if appended:
+        command.extend(["--append-system-prompt", appended])
     command.extend(passthrough_args)
     return tuple(command)
 
