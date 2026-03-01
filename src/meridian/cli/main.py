@@ -16,6 +16,7 @@ from cyclopts import App, Parameter
 from meridian import __version__
 from meridian.cli.config_cmd import register_config_commands
 from meridian.cli.doctor_cmd import register_doctor_command
+from meridian.cli.grep_cmd import register_grep_command
 from meridian.cli.models_cmd import register_models_commands
 from meridian.cli.output import OutputConfig, normalize_output_format
 from meridian.cli.output import emit as emit_output
@@ -44,6 +45,7 @@ Meridian orchestrator CLI
 
 Commands:
   doctor: Run diagnostics checks.
+  grep: Search across meridian state files.
   models: Model catalog commands
   run: Run management commands
   skills: Skills catalog commands
@@ -539,6 +541,7 @@ def _register_group_commands() -> None:
         register_models_commands(models_app, emit),
         register_config_commands(config_app, emit),
         register_doctor_command(app, emit),
+        register_grep_command(app, emit),
     )
     for commands, descriptions in modules:
         _REGISTERED_CLI_COMMANDS.update(commands)

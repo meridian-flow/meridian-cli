@@ -20,7 +20,7 @@ class OperationSpec(Generic[InputT, OutputT]):
     handler: Callable[[InputT], Coroutine[Any, Any, OutputT]]
     input_type: type[InputT]
     output_type: type[OutputT]
-    cli_group: str
+    cli_group: str | None
     cli_name: str
     mcp_name: str
     description: str
@@ -74,6 +74,7 @@ def _bootstrap_operation_modules() -> None:
     # allowing operation modules to self-register via `operation(...)`.
     import meridian.lib.ops.config as config_ops
     import meridian.lib.ops.diag as diag_ops
+    import meridian.lib.ops.grep as grep_ops
     import meridian.lib.ops.models as models_ops
     import meridian.lib.ops.run as run_ops
     import meridian.lib.ops.skills as skills_ops
@@ -82,6 +83,7 @@ def _bootstrap_operation_modules() -> None:
     _ = (
         config_ops,
         diag_ops,
+        grep_ops,
         models_ops,
         run_ops,
         skills_ops,

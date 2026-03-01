@@ -66,6 +66,7 @@ async def test_mcp_tools_registered_and_callable(package_root, cli_env, tmp_path
             "models_list",
             "models_show",
             "doctor",
+            "grep",
         }
         assert names == expected
 
@@ -73,6 +74,11 @@ async def test_mcp_tools_registered_and_callable(package_root, cli_env, tmp_path
         assert doctor.isError is False
         doctor_payload = _payload_from_call_result(doctor)
         assert isinstance(doctor_payload["ok"], bool)
+
+        grep = await session.call_tool("grep", {"pattern": "defaults\\.agent"})
+        assert grep.isError is False
+        grep_payload = _payload_from_call_result(grep)
+        assert grep_payload["total"] == 0
 
         created = await session.call_tool(
             "run_spawn",
