@@ -10,16 +10,19 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from meridian.lib.config import load_agent_profile, load_model_guidance
-from meridian.lib.config.agent import AgentProfile
+from meridian.lib.config import load_model_guidance
 from meridian.lib.config.catalog import load_model_catalog, resolve_model
 from meridian.lib.config.routing import route_model
 from meridian.lib.harness.registry import get_default_harness_registry
+from meridian.lib.launch_resolve import (
+    load_agent_profile_with_fallback,
+    resolve_permission_tier_from_profile,
+    resolve_skills_from_profile,
+)
 from meridian.lib.ops._runtime import OperationRuntime, build_runtime, resolve_runtime_root_and_config
 from meridian.lib.prompt import (
     compose_run_prompt_text,
     load_reference_files,
-    load_skill_contents,
     parse_template_assignments,
     resolve_run_defaults,
 )
@@ -28,7 +31,6 @@ from meridian.lib.safety.guardrails import normalize_guardrail_paths
 from meridian.lib.harness.adapter import PermissionResolver
 from meridian.lib.safety.permissions import (
     PermissionConfig,
-    permission_tier_from_profile,
     warn_profile_tier_escalation,
     build_permission_config,
     build_permission_resolver,
@@ -223,78 +225,37 @@ def _build_create_payload(
             harness_registry=runtime_bundle.harness_registry,
         )
 
-    explicit_requested_skills: tuple[str, ...] = ()
-    requested_skills = explicit_requested_skills
     # Track whether the agent was explicitly requested via --agent flag.
     # Used to suppress noisy permission-escalation warnings for the implicit
     # default agent profile (which normally has sandbox > config default).
     agent_explicitly_requested = bool(payload.agent)
 
-    profile: AgentProfile | None = None
-    if payload.agent:
-        profile = load_agent_profile(
-            payload.agent,
-            repo_root=runtime_view.repo_root,
-            search_paths=runtime_view.config.search_paths,
-        )
-    else:
-        configured_default_agent = runtime_view.config.default_agent.strip()
-        if configured_default_agent:
-            try:
-                profile = load_agent_profile(
-                    configured_default_agent,
-                    repo_root=runtime_view.repo_root,
-                    search_paths=runtime_view.config.search_paths,
-                )
-            except FileNotFoundError:
-                if configured_default_agent != "agent":
-                    try:
-                        profile = load_agent_profile(
-                            "agent",
-                            repo_root=runtime_view.repo_root,
-                            search_paths=runtime_view.config.search_paths,
-                        )
-                    except FileNotFoundError:
-                        # No default agent profile found — proceed without injecting
-                        # any implicit skills. Skills are opt-in: declare them in
-                        # the agent profile.
-                        pass
+    profile = load_agent_profile_with_fallback(
+        repo_root=runtime_view.repo_root,
+        search_paths=runtime_view.config.search_paths,
+        requested_agent=payload.agent,
+        configured_default=runtime_view.config.default_agent,
+        fallback_name="agent",
+    )
 
     defaults = resolve_run_defaults(
         payload.model,
         profile=profile,
     )
 
-    from meridian.lib.config.skill_registry import SkillRegistry
-
-    registry = SkillRegistry(
+    resolved_skills = resolve_skills_from_profile(
+        profile_skills=defaults.skills,
         repo_root=runtime_view.repo_root,
         search_paths=runtime_view.config.search_paths,
         readonly=payload.dry_run,
     )
-    manifests = registry.list()
-    if not manifests and not registry.readonly:
-        registry.reindex()
-        manifests = registry.list()
-
-    available_skill_names = {item.name for item in manifests}
-    missing_skills = tuple(
-        skill_name for skill_name in defaults.skills if skill_name not in available_skill_names
-    )
-
-    # Implicit/default skills may be unavailable in lightweight repositories used by tests.
-    # We skip only those missing implicit skills to keep dry-run and MCP surfaces usable.
-    resolved_skill_names = tuple(
-        skill_name for skill_name in defaults.skills if skill_name in available_skill_names
-    )
-    loaded_skills = load_skill_contents(registry, resolved_skill_names)
     loaded_references = load_reference_files(payload.files, base_dir=runtime_view.repo_root)
     parsed_template_vars = parse_template_assignments(payload.template_vars)
 
     # Model guidance is coupled to the run-agent skill (it lives under
     # run-agent/references/).  Only inject it when run-agent is actually
     # loaded — keeps trivial prompts small.
-    loaded_skill_names = {skill.name for skill in loaded_skills}
+    loaded_skill_names = set(resolved_skills.skill_names)
     model_guidance = (
         _load_model_guidance_text(repo_root=runtime_view.repo_root)
         if "run-agent" in loaded_skill_names
@@ -342,7 +303,7 @@ def _build_create_payload(
         # else Case 4: No agent, no skills -> bare prompt (agent_for_params stays None)
 
     composed_prompt = compose_run_prompt_text(
-        skills=() if native_agents else loaded_skills,
+        skills=() if native_agents else resolved_skills.loaded_skills,
         references=loaded_references,
         user_prompt=payload.prompt,
         report_path=payload.report_path,
@@ -375,8 +336,8 @@ def _build_create_payload(
                     )
 
     missing_skills_warning = (
-        f"Skipped unavailable implicit skills: {', '.join(missing_skills)}."
-        if missing_skills
+        f"Skipped unavailable implicit skills: {', '.join(resolved_skills.missing_skills)}."
+        if resolved_skills.missing_skills
         else None
     )
     warning = _merge_warnings(route_warning, missing_skills_warning)
@@ -384,7 +345,10 @@ def _build_create_payload(
     warning = _merge_warnings(preflight_warning, warning)
     from meridian.lib.harness.adapter import RunParams
 
-    inferred_tier = permission_tier_from_profile(profile.sandbox if profile is not None else None)
+    inferred_tier = resolve_permission_tier_from_profile(
+        profile=profile,
+        default_tier=runtime_view.config.default_permission_tier,
+    )
     # Only warn about tier escalation when the user explicitly chose an
     # agent via --agent.  The implicit default agent profile often has
     # sandbox > config default (e.g. workspace-write vs read-only), and
@@ -426,7 +390,7 @@ def _build_create_payload(
             RunParams(
                 prompt=composed_prompt,
                 model=ModelId(defaults.model),
-                skills=tuple(skill.name for skill in loaded_skills),
+                skills=resolved_skills.skill_names,
                 agent=agent_for_params,
                 adhoc_agent_json=adhoc_agent_json,
                 repo_root=runtime_view.repo_root.as_posix(),
@@ -441,7 +405,8 @@ def _build_create_payload(
     if profile is not None and profile.path.is_absolute() and profile.path.exists():
         session_agent_path = profile.path.resolve().as_posix()
     session_skill_paths = tuple(
-        Path(skill.path).expanduser().resolve().as_posix() for skill in loaded_skills
+        Path(skill.path).expanduser().resolve().as_posix()
+        for skill in resolved_skills.loaded_skills
     )
 
     return _PreparedCreate(
@@ -449,7 +414,7 @@ def _build_create_payload(
         harness_id=str(harness.id),
         warning=warning,
         composed_prompt=composed_prompt,
-        skills=tuple(skill.name for skill in loaded_skills),
+        skills=resolved_skills.skill_names,
         reference_files=tuple(str(reference.path) for reference in loaded_references),
         template_vars=parsed_template_vars,
         report_path=Path(payload.report_path).expanduser().resolve().as_posix(),
