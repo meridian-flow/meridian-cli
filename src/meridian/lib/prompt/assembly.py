@@ -51,18 +51,13 @@ class RunPromptDefaults:
 
 def resolve_run_defaults(
     requested_model: str,
-    requested_skills: Sequence[str],
     *,
     profile: AgentProfile | None,
     default_model: str = DEFAULT_MODEL,
 ) -> RunPromptDefaults:
     """Merge explicit run options with agent-profile defaults."""
 
-    merged: list[str] = list(dedupe_skill_names(requested_skills))
-    if profile is not None:
-        for skill_name in profile.skills:
-            if skill_name not in merged:
-                merged.append(skill_name)
+    merged = list(dedupe_skill_names(profile.skills)) if profile is not None else []
 
     resolved_model = requested_model.strip()
     if not resolved_model and profile is not None and profile.model:

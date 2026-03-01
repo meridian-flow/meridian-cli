@@ -19,7 +19,6 @@ def _empty_template_vars() -> dict[str, str]:
 class RunCreateInput:
     prompt: str = ""
     model: str = ""
-    skills: tuple[str, ...] = ()
     files: tuple[str, ...] = ()
     template_vars: tuple[str, ...] = ()
     agent: str | None = None

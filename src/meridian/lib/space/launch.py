@@ -167,7 +167,6 @@ def _build_interactive_command(
 
     defaults = resolve_run_defaults(
         request.model,
-        (),
         profile=profile,
     )
     model = ModelId(defaults.model)
@@ -278,7 +277,6 @@ def _resolve_primary_session_metadata(
 
     defaults = resolve_run_defaults(
         request.model,
-        (),
         profile=profile,
     )
     model = ModelId(defaults.model)

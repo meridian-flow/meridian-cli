@@ -172,7 +172,6 @@ def test_resolve_run_defaults_resolves_model_alias(monkeypatch, tmp_path: Path) 
 
     defaults = resolve_run_defaults(
         requested_model="codex",
-        requested_skills=(),
         profile=None,
     )
 

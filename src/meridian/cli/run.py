@@ -47,14 +47,6 @@ def _run_create(
         str,
         Parameter(name=["--model", "-m"], help="Model id or alias to use."),
     ] = "",
-    skill_flags: Annotated[
-        tuple[str, ...],
-        Parameter(
-            name=["--skills", "-s"],
-            help="Skill names to load (repeatable).",
-            negative_iterable=(),
-        ),
-    ] = (),
     references: Annotated[
         tuple[str, ...],
         Parameter(
@@ -147,39 +139,29 @@ def _run_create(
     resolved_budget_per_run = budget_per_run_usd
     if resolved_budget_per_run is None:
         resolved_budget_per_run = budget_usd
-    try:
-        result = run_create_sync(
-            RunCreateInput(
-                prompt=prompt,
-                model=model,
-                skills=skill_flags,
-                files=references,
-                template_vars=template_vars,
-                agent=agent,
-                report_path=report_path,
-                dry_run=dry_run,
-                verbose=verbose,
-                quiet=quiet,
-                stream=stream,
-                background=background,
-                space=space,
-                timeout_secs=timeout_secs,
-                permission_tier=permission_tier,
-                unsafe=unsafe,
-                budget_per_run_usd=resolved_budget_per_run,
-                budget_per_space_usd=budget_per_space_usd,
-                guardrails=guardrails,
-                secrets=secrets,
-            )
+    result = run_create_sync(
+        RunCreateInput(
+            prompt=prompt,
+            model=model,
+            files=references,
+            template_vars=template_vars,
+            agent=agent,
+            report_path=report_path,
+            dry_run=dry_run,
+            verbose=verbose,
+            quiet=quiet,
+            stream=stream,
+            background=background,
+            space=space,
+            timeout_secs=timeout_secs,
+            permission_tier=permission_tier,
+            unsafe=unsafe,
+            budget_per_run_usd=resolved_budget_per_run,
+            budget_per_space_usd=budget_per_space_usd,
+            guardrails=guardrails,
+            secrets=secrets,
         )
-    except KeyError as exc:
-        message = str(exc.args[0]) if exc.args else "Unknown skills."
-        result = RunActionOutput(
-            command="run.spawn",
-            status="failed",
-            error="unknown_skills",
-            message=message,
-        )
+    )
     emit(result)
     exit_code = _run_create_exit_code(result)
     if exit_code != 0:

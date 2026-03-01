@@ -90,7 +90,6 @@ def test_run_defaults_merge_agent_profile_defaults() -> None:
 
     defaults = resolve_run_defaults(
         "",
-        ("reviewing",),
         profile=profile,
     )
     assert defaults.model == "gpt-5.3-codex"

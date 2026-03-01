@@ -81,16 +81,6 @@ class _CreateRuntimeView:
     harness_registry: HarnessRegistry
 
 
-def _normalize_skill_flags(skill_flags: tuple[str, ...]) -> tuple[str, ...]:
-    parsed: list[str] = []
-    for flag in skill_flags:
-        for candidate in flag.split(","):
-            normalized = candidate.strip()
-            if normalized:
-                parsed.append(normalized)
-    return tuple(parsed)
-
-
 def _looks_like_alias_identifier(candidate: str) -> bool:
     return "/" not in candidate and "-" not in candidate and "." not in candidate
 
@@ -233,7 +223,7 @@ def _build_create_payload(
             harness_registry=runtime_bundle.harness_registry,
         )
 
-    explicit_requested_skills = _normalize_skill_flags(payload.skills)
+    explicit_requested_skills: tuple[str, ...] = ()
     requested_skills = explicit_requested_skills
     # Track whether the agent was explicitly requested via --agent flag.
     # Used to suppress noisy permission-escalation warnings for the implicit
@@ -266,13 +256,12 @@ def _build_create_payload(
                         )
                     except FileNotFoundError:
                         # No default agent profile found — proceed without injecting
-                        # any implicit skills.  Skills are opt-in: declare them in
-                        # the agent profile or pass --skills explicitly.
+                        # any implicit skills. Skills are opt-in: declare them in
+                        # the agent profile.
                         pass
 
     defaults = resolve_run_defaults(
         payload.model,
-        requested_skills,
         profile=profile,
     )
 
@@ -292,12 +281,6 @@ def _build_create_payload(
     missing_skills = tuple(
         skill_name for skill_name in defaults.skills if skill_name not in available_skill_names
     )
-    explicit_skills = set(explicit_requested_skills)
-    unknown_explicit = tuple(
-        skill_name for skill_name in missing_skills if skill_name in explicit_skills
-    )
-    if unknown_explicit:
-        raise KeyError(f"Unknown skills: {', '.join(unknown_explicit)}")
 
     # Implicit/default skills may be unavailable in lightweight repositories used by tests.
     # We skip only those missing implicit skills to keep dry-run and MCP surfaces usable.

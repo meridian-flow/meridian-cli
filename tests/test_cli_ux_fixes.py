@@ -139,37 +139,6 @@ def test_ol10_unknown_model_error_includes_available_models_and_suggestion(
     assert "Traceback" not in result.stderr
 
 
-def test_bug9_unknown_skill_returns_structured_error_payload(
-    package_root: Path, cli_env: dict[str, str], tmp_path: Path
-) -> None:
-    repo_root = tmp_path / "repo"
-    _seed_base_skills(repo_root)
-
-    result = _run_cli(
-        package_root=package_root,
-        cli_env=cli_env,
-        repo_root=repo_root,
-        args=[
-            "--json",
-            "run",
-            "--dry-run",
-            "-m",
-            "codex",
-            "-p",
-            "test",
-            "--skills",
-            "nonexistent-skill",
-        ],
-    )
-
-    assert result.returncode == 1
-    payload = json.loads(result.stdout)
-    assert payload["command"] == "run.spawn"
-    assert payload["status"] == "failed"
-    assert payload["error"] == "unknown_skills"
-    assert payload["message"] == "Unknown skills: nonexistent-skill"
-
-
 @pytest.mark.parametrize(
     "args,error_fragment",
     [
@@ -301,7 +270,7 @@ def test_dx3_help_uses_descriptions_and_hides_empty_flags(
     assert result.returncode == 0
     assert "--empty-" not in result.stdout
     assert "Prompt text for the run." in result.stdout
-    assert "Skill names to load (repeatable)." in result.stdout
+    assert "--skills" not in result.stdout
     assert ": [default:" not in result.stdout
 
 
