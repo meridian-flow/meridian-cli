@@ -74,20 +74,9 @@ class SpaceActionOutput:
         summary = f"Space {self.space_id} {self.state} ({self.message.rstrip('.')})"
         if not self.command:
             return summary
-        # Show the command for dry-run, but abbreviate long prompt args.
-        abbreviated: list[str] = []
-        skip_next = False
-        for i, token in enumerate(self.command):
-            if skip_next:
-                skip_next = False
-                continue
-            if token in ("--system-prompt", "--append-system-prompt", "--agents") and i + 1 < len(self.command):
-                abbreviated.append(token)
-                abbreviated.append(f"<{len(self.command[i + 1])} chars>")
-                skip_next = True
-            else:
-                abbreviated.append(token)
-        return f"{summary}\n{' '.join(abbreviated)}"
+        # Show the full command for dry-run so it can be copy-pasted.
+        import shlex
+        return f"{summary}\n{shlex.join(self.command)}"
 
 
 @dataclass(frozen=True, slots=True)
