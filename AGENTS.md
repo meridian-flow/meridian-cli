@@ -35,21 +35,11 @@ uv run pytest-llm
 uv run pyright
 ```
 
-### Long-Running Tasks
-
-For multi-phase plans, use the `/orchestrate` skill and NEVER write implementation code yourself. It discovers available skills, picks the right model for each subtask, and composes runs via `run-agent.sh`. See the orchestrate skill's SKILL.md for full details.
-
-Prefer to use `gpt-5.3-codex` for the majority of the tasks because its faster and cheaper than opus usually. Make sure you give these run-agents enough context to do their job.
-
-### Planning
-
-Make sure you use the `/mermaid` skill to plan your work. It will help you write plans in markdown format. Using `/orchestrate` and multiple agents to review-cycle through the plan can help you catch issues early and get a better plan.
-
 ### Commit Checkpoints
 
 **Commit after each step that passes tests.** Don't accumulate changes across multiple steps — if a later step breaks things, you lose the ability to roll back cleanly. Each step's commit should be atomic and self-contained:
-1. Implement the step (via `/run-agent`)
-2. Verify tests pass (via `/run-agent` or directly)
+1. Implement the step
+2. Verify tests pass
 3. Commit with a descriptive message
 4. Move to the next step
 
