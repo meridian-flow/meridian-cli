@@ -180,7 +180,7 @@ class RunListOutput:
 @dataclass(frozen=True, slots=True)
 class RunShowInput:
     run_id: str
-    include_report: bool = False
+    report: bool = False
     include_files: bool = False
     repo_root: str | None = None
 
@@ -261,7 +261,7 @@ class RunWaitInput:
     run_id: str | None = None
     timeout_secs: float | None = None
     poll_interval_secs: float | None = None
-    include_report: bool = False
+    report: bool = False
     include_files: bool = False
     repo_root: str | None = None
 

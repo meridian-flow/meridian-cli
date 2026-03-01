@@ -71,7 +71,7 @@ def test_run_wait_sync_waits_for_all_runs_and_returns_ordered_summary(
     monkeypatch.setattr(
         run_ops,
         "_detail_from_row",
-        lambda repo_root, row, include_report, include_files: _detail_from_status(
+        lambda repo_root, row, report, include_files: _detail_from_status(
             run_id=str(row.id),
             status=str(row.status),
             duration_secs=cast("float | None", row.duration_secs),
@@ -153,7 +153,7 @@ def test_run_wait_sync_accepts_legacy_run_id_alias_for_single_run(
     monkeypatch.setattr(
         run_ops,
         "_detail_from_row",
-        lambda repo_root, row, include_report, include_files: _detail_from_status(
+        lambda repo_root, row, report, include_files: _detail_from_status(
             run_id=str(row.id),
             status=str(row.status),
             duration_secs=cast("float | None", row.duration_secs),

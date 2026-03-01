@@ -23,12 +23,13 @@ from meridian.cli.run import register_run_commands
 from meridian.cli.skills_cmd import register_skills_commands
 from meridian.cli.space import register_space_commands
 from meridian.lib.config._paths import resolve_repo_root
+from meridian.lib.ops.run import RunActionOutput
 from meridian.lib.ops.space import SpaceActionOutput
 from meridian.lib.space import space_file
 from meridian.lib.space.launch import SpaceLaunchRequest, cleanup_orphaned_locks, launch_primary
 from meridian.lib.space.session_store import cleanup_stale_sessions
 from meridian.lib.space.summary import generate_space_summary
-from meridian.lib.state.paths import resolve_all_spaces_dir
+from meridian.lib.state.paths import resolve_all_spaces_dir, resolve_space_dir
 from meridian.lib.types import SpaceId
 from meridian.server.main import run_server
 
@@ -81,10 +82,87 @@ def get_global_options() -> GlobalOptions:
     return _GLOBAL_OPTIONS.get() or default
 
 
+def _run_spawn_metadata_line(payload: RunActionOutput) -> str:
+    duration = f"{payload.duration_secs:.1f}s" if payload.duration_secs is not None else "-"
+    exit_code = str(payload.exit_code) if payload.exit_code is not None else "-"
+    return " ".join(
+        (
+            f"run_id={payload.run_id or '-'}",
+            f"model={payload.model or '-'}",
+            f"harness={payload.harness_id or '-'}",
+            f"status={payload.status}",
+            f"duration={duration}",
+            f"exit_code={exit_code}",
+        )
+    )
+
+
+def _find_run_report_file(run_id: str) -> Path | None:
+    try:
+        repo_root = resolve_repo_root()
+    except Exception:
+        return None
+
+    selected_space = os.getenv("MERIDIAN_SPACE_ID", "").strip()
+    if selected_space:
+        selected_path = resolve_space_dir(repo_root, selected_space) / "runs" / run_id / "report.md"
+        if selected_path.is_file():
+            return selected_path
+
+    spaces_dir = resolve_all_spaces_dir(repo_root)
+    if not spaces_dir.is_dir():
+        return None
+    for space_dir in sorted(spaces_dir.iterdir()):
+        if not space_dir.is_dir():
+            continue
+        candidate = space_dir / "runs" / run_id / "report.md"
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _read_run_report_text(run_id: str) -> str | None:
+    report_file = _find_run_report_file(run_id)
+    if report_file is None:
+        return None
+    text = report_file.read_text(encoding="utf-8", errors="ignore").strip()
+    return text or None
+
+
+def _emit_run_spawn_text(payload: RunActionOutput) -> None:
+    print(_run_spawn_metadata_line(payload), file=sys.stderr)
+    if payload.warning:
+        print(f"warning: {payload.warning}", file=sys.stderr)
+
+    if payload.background and payload.status == "running" and payload.run_id is not None:
+        print(payload.run_id)
+        return
+
+    if payload.run_id is None:
+        # No stable run ID to resolve report from (e.g. preflight failure); defer to default emit.
+        emit_output(payload, OutputConfig(format="text"))
+        return
+
+    report_text = _read_run_report_text(payload.run_id)
+    if report_text is None:
+        print(f"warning: no report extracted for run '{payload.run_id}'", file=sys.stderr)
+        return
+    print(report_text)
+
+
 def emit(payload: object) -> None:
     """Write command output using current output format settings."""
-
-    emit_output(payload, get_global_options().output)
+    options = get_global_options()
+    if (
+        options.output.format == "text"
+        and isinstance(payload, RunActionOutput)
+        and payload.command == "run.spawn"
+        and payload.status != "dry-run"
+        and payload.run_id is not None
+    ):
+        _emit_run_spawn_text(payload)
+        return
+    emit_output(payload, options.output)
 
 
 def _extract_global_options(argv: Sequence[str]) -> tuple[list[str], GlobalOptions]:

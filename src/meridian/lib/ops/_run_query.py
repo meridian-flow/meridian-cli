@@ -90,7 +90,7 @@ def _detail_from_row(
     *,
     repo_root: Path,
     row: run_store.RunRecord,
-    include_report: bool,
+    report: bool,
     include_files: bool,
 ) -> RunDetailOutput:
     report_path, report_text = _read_report_text(repo_root, row.id)
@@ -116,7 +116,7 @@ def _detail_from_row(
         cost_usd=row.total_cost_usd,
         report_path=report_path,
         report_summary=report_summary,
-        report=report_text if include_report else None,
+        report=report_text if report else None,
         files_touched=files_touched,
         skills=(),
     )

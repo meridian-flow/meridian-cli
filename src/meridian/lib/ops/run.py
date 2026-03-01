@@ -235,7 +235,7 @@ def run_show_sync(payload: RunShowInput) -> RunDetailOutput:
     return _detail_from_row(
         repo_root=repo_root,
         row=row,
-        include_report=payload.include_report,
+        report=payload.report,
         include_files=payload.include_files,
     )
 
@@ -325,7 +325,7 @@ def run_wait_sync(payload: RunWaitInput) -> RunWaitMultiOutput:
                 _detail_from_row(
                     repo_root=repo_root,
                     row=completed_rows[run_id],
-                    include_report=payload.include_report,
+                    report=payload.report,
                     include_files=payload.include_files,
                 )
                 for run_id in run_ids

@@ -236,9 +236,9 @@ def _run_list(
 def _run_show(
     emit: Any,
     run_id: str,
-    include_report: Annotated[
+    report: Annotated[
         bool,
-        Parameter(name="--include-report", help="Include run report content in output."),
+        Parameter(name="--report", help="Include run report content in output."),
     ] = False,
     include_files: Annotated[
         bool,
@@ -249,7 +249,7 @@ def _run_show(
         run_show_sync(
             RunShowInput(
                 run_id=run_id,
-                include_report=include_report,
+                report=report,
                 include_files=include_files,
             )
         )
@@ -320,9 +320,9 @@ def _run_wait(
         float | None,
         Parameter(name="--timeout-secs", help="Maximum wait time before timing out."),
     ] = None,
-    include_report: Annotated[
+    report: Annotated[
         bool,
-        Parameter(name="--include-report", help="Include run report content in output."),
+        Parameter(name="--report", help="Include run report content in output."),
     ] = False,
     include_files: Annotated[
         bool,
@@ -333,7 +333,7 @@ def _run_wait(
         RunWaitInput(
             run_ids=run_ids,
             timeout_secs=timeout_secs,
-            include_report=include_report,
+            report=report,
             include_files=include_files,
         )
     )

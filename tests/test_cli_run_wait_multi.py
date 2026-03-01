@@ -88,3 +88,23 @@ def test_run_wait_exits_nonzero_when_any_run_failed(monkeypatch: pytest.MonkeyPa
         )
 
     assert int(exc_info.value.code) == 1
+
+
+def test_run_wait_passes_report_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, RunWaitInput] = {}
+    emitted: list[RunWaitMultiOutput] = []
+
+    def fake_run_wait_sync(payload: RunWaitInput) -> RunWaitMultiOutput:
+        captured["payload"] = payload
+        return _wait_output(_detail("r1", "succeeded", 0))
+
+    monkeypatch.setattr(run_cli, "run_wait_sync", fake_run_wait_sync)
+
+    run_cli._run_wait(
+        emitted.append,
+        run_ids=("r1",),
+        report=True,
+    )
+
+    assert captured["payload"].report is True
+    assert emitted[0].run_id == "r1"
