@@ -1,118 +1,74 @@
 # Harness Adapters
 
-meridian doesn't call LLMs directly. It routes runs to **harness CLIs** (Claude, Codex, OpenCode) or the **Anthropic Messages API** (DirectAdapter). The `HarnessAdapter` Protocol insulates meridian from changes in each CLI's interface.
+Meridian routes runs to harness adapters instead of calling model APIs directly in normal CLI flow.
 
-## Model Routing
+## Routing
 
-meridian automatically picks the right harness based on the model name:
+Model -> harness routing:
 
-| Model pattern | Harness | Examples |
-|--------------|---------|----------|
-| `claude-*`, `opus*`, `sonnet*`, `haiku*` | Claude CLI | `claude-opus-4-6`, `sonnet`, `haiku` |
-| `gpt-*`, `o1*`, `o3*`, `o4*`, `codex*` | Codex CLI | `gpt-5.3-codex`, `codex`, `o4-mini` |
-| `opencode-*`, contains `/` | OpenCode CLI | `opencode-gemini`, `google/gemini-pro` |
-| Any (with `--mode direct`) | DirectAdapter | API-only, no CLI |
+| Pattern | Harness |
+|---|---|
+| `claude-*`, `opus*`, `sonnet*`, `haiku*` | Claude |
+| `gpt-*`, `o1*`, `o3*`, `o4*`, `codex*` | Codex |
+| `opencode-*`, `gemini*`, contains `/` | OpenCode |
+| unknown | Codex fallback + warning |
 
-Unknown models fall back to Codex with a warning.
+## Adapters and Capabilities
 
-## Adapters
+| Adapter | Stream events | Resume | Fork | Native skills | Native agents |
+|---|---:|---:|---:|---:|---:|
+| Claude | yes | yes | yes | yes | yes |
+| Codex | yes | yes | no | yes | no |
+| OpenCode | yes | yes | yes | yes | no |
+| Direct (API) | no | no | no | no | no |
 
-### Claude CLI
+## Command Shapes
 
-```
-claude -p <prompt> --model <model> --output-format stream-json
-       [--allowedTools ...] [--permission-prompt-tool ...]
-```
+### Claude
 
-**Capabilities:** streaming, session resume, native skills
+- Base: `claude -p <prompt> --model <model> ...`
+- Resume: `--resume <harness_session_id>`
+- Fork: `--fork-session`
+- Native agent passthrough: `--agent <name>`
+- Ad-hoc agent+skills payload (when needed): `--agents <json>`
 
-Supports:
-- Permission tier flags (`--allowedTools`, `--dangerously-skip-permissions`)
-- Report path injection (tells the agent where to write `report.md`)
-- Session resume for `run continue`
+### Codex
 
-### Codex CLI
+- Base: `codex exec ...`
+- Resume: `codex exec resume <harness_session_id> ...`
 
-```
-codex exec --model <model> --output-format stream-json <prompt>
-      [--sandbox ...] [--agent ...]
-```
+### OpenCode
 
-**Capabilities:** streaming, session resume, native skills
+- Base: `opencode run ...`
+- Resume: `--session <harness_session_id>`
+- Fork: `--fork`
+- `opencode-` prefix is stripped before passing model value.
 
-### OpenCode CLI
+## Primary Agent Launch (Space)
 
-```
-opencode run --model <model> --output-format stream-json <prompt>
-```
+`meridian space start/resume` and `meridian start` launch a primary Claude harness session.
 
-**Capabilities:** streaming, session resume, native skills
+If the selected primary profile is an on-disk user profile, Meridian uses Claude native profile passthrough:
 
-Strips the `opencode-` prefix from model names before passing to the CLI.
+- `claude --agent <profile> --append-system-prompt <space prompt> --model <model>`
 
-### DirectAdapter (Anthropic API)
+Otherwise Meridian composes the prompt and passes it via `--system-prompt`.
 
-Calls the Anthropic Messages API directly using `urllib.request`. No CLI harness involved.
+## Session Continuation Fields
 
-**Capabilities:** programmatic tool calling (no streaming, no session resume)
+For run continuation, Meridian resolves and passes harness session context as:
 
-Features:
-- Generates tool definitions from the Operation Registry
-- Sets `allowed_callers: ["code_execution_20260120"]` for programmatic tool calling
-- Supports `code_execution_20260120` tool for sandbox code execution
-- Requires `ANTHROPIC_API_KEY` environment variable
+- `continue_harness_session_id`
+- `continue_fork`
 
-Use `direct` mode when you need the agent to call meridian operations as native API tools rather than parsing CLI output.
+## OpenCode Compaction Plugin
 
-## Model Catalog
+OpenCode compaction reinjection lives at:
 
-Six built-in models, extensible via `.meridian/models.toml`:
+- `.opencode/plugins/meridian.ts`
 
-| ID | Alias | Cost | Best for |
-|----|-------|------|----------|
-| `claude-opus-4-6` | `opus` | $$$ | Architecture, subtle correctness |
-| `gpt-5.3-codex` | `codex` | $ | Fast implementation, code generation |
-| `claude-sonnet-4-6` | `sonnet` | $$ | UI iteration, fast generalist |
-| `claude-haiku-4-5` | `haiku` | $ | Commit messages, quick transforms |
-| `gpt-5.2-high` | `gpt52h` | $$ | Escalation solver |
-| `gemini-3.1-pro` | `gemini` | $$ | Research, multimodal |
+On `experimental.session.compacting`, it reads `.meridian/.spaces/<space-id>/sessions.jsonl`, finds the matching session, and re-injects agent profile and skill content.
 
-Use aliases for convenience:
+## Direct Adapter
 
-```bash
-meridian run create -p "..." -m opus      # claude-opus-4-6
-meridian run create -p "..." -m codex     # gpt-5.3-codex
-meridian run create -p "..." -m haiku     # claude-haiku-4-5
-```
-
-### Custom models
-
-Add models to `.meridian/models.toml`:
-
-```toml
-[models.my-model]
-id = "my-custom-model-v1"
-aliases = ["mymodel", "mm"]
-harness = "opencode"
-cost_tier = "$$"
-description = "My custom model"
-```
-
-## Adapter Protocol
-
-All adapters implement the `HarnessAdapter` Protocol:
-
-```python
-class HarnessAdapter(Protocol):
-    @property
-    def harness_id(self) -> str: ...
-
-    @property
-    def capabilities(self) -> HarnessCapabilities: ...
-
-    def build_command(
-        self, params: RunParams, permissions: list[str],
-    ) -> list[str]: ...
-```
-
-To add a new harness, implement this protocol and register it with `HarnessRegistry`.
+A `DirectAdapter` (Anthropic Messages API tool-calling) exists in the harness registry for programmatic use, but standard `meridian run spawn` routing uses CLI harnesses (`claude`, `codex`, `opencode`).

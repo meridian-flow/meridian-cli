@@ -5,27 +5,28 @@
 [![License](https://img.shields.io/github/license/haowjy/meridian-channel)](LICENSE)
 [![CI](https://github.com/haowjy/meridian-channel/actions/workflows/meridian-ci.yml/badge.svg)](https://github.com/haowjy/meridian-channel/actions)
 
-Multi-model agent orchestrator with a primary agent (root agent launched in a space). Run tasks across Claude, Codex, and OpenCode from Claude, Codex, or Opencode.
+Multi-model agent orchestrator with one primary agent per space and portable run tooling across Claude, Codex, and OpenCode harnesses.
 
 ## What it does
 
-`meridian` wraps multiple AI coding CLIs behind a single interface. You pick a model, write a prompt, and it handles routing to the right CLI, tracking runs in SQLite, streaming output, and persisting results.
+`meridian` provides one interface for:
 
-It exposes the same operations as a CLI, an MCP server (`meridian serve`), and as Anthropic API tool definitions — so both humans and agents can use it.
+- Spawning model runs (`meridian run spawn`)
+- Managing space lifecycle (`meridian space start/resume/close/...`)
+- Serving the same operations over MCP (`meridian serve`)
+- Tracking state in files under `.meridian/.spaces/<space-id>/` (no SQLite authority)
 
 ## Install
 
-Requires **Python 3.12+** and at least one of: [Claude CLI](https://docs.anthropic.com/en/docs/claude-code), [Codex CLI](https://github.com/openai/codex), or [OpenCode](https://opencode.ai).
+Requires **Python 3.12+** and at least one harness CLI:
+[Claude CLI](https://docs.anthropic.com/en/docs/claude-code),
+[Codex CLI](https://github.com/openai/codex), or
+[OpenCode](https://opencode.ai).
 
 ```bash
-# Recommended — isolated install, adds `meridian` to PATH
 uv tool install meridian-channel
-
-# Or with pipx
-pipx install meridian-channel
-
-# Or plain pip
-pip install meridian-channel
+# or: pipx install meridian-channel
+# or: pip install meridian-channel
 ```
 
 ### From source
@@ -37,73 +38,57 @@ uv sync --extra dev
 uv run meridian --help
 ```
 
-### Shell completions
-
-```bash
-meridian completion install
-```
-
 ## Usage
 
 ### Run a task
 
 ```bash
-meridian run create -p "Fix the failing test" -m claude-sonnet-4-6
+meridian run spawn -p "Fix the failing test" -m claude-sonnet-4-6
 ```
 
-This blocks until the run finishes, streaming output to your terminal.
-
-### Run in the background
+### Run in background + inspect
 
 ```bash
-RUN_ID=$(meridian run create --background -p "Refactor auth module" -m gpt-5.3-codex)
-meridian run wait $RUN_ID
-meridian run show $RUN_ID --include-report
+RUN_ID=$(meridian run spawn --background -p "Refactor auth module" -m gpt-5.3-codex)
+meridian run wait "$RUN_ID"
+meridian run show "$RUN_ID" --report
 ```
 
-### Use skills and reference files
+### Use skills and references
 
 ```bash
-meridian run create -p "Review this code" -m claude-opus-4-6 -s review -f src/main.py
+meridian run spawn -p "Review this code" -m claude-opus-4-6 -s review -f src/main.py
 ```
 
-### Continue or retry a run
+### Continue a run
 
 ```bash
-# Pick up where the last run left off (forks the conversation)
 meridian run continue @latest -p "Also add tests"
-
-# Retry the last failure
-meridian run retry @last-failed
-```
-
-### Check run history
-
-```bash
-meridian run list
-meridian run stats
-meridian run show @latest --include-report
 ```
 
 ### Spaces
 
-Spaces group related runs under a persistent session with pinned context, and `space start` launches the space's primary agent.
-
 ```bash
-meridian space start --name auth-refactor  # launches the primary agent for this space
-meridian run create -p "Research the current implementation" -s research
-meridian run create -p "Implement the changes" -m gpt-5.3-codex
-meridian space close w1
+meridian space start --name auth-refactor
+export MERIDIAN_SPACE_ID=s1
+meridian run spawn -p "Research current implementation" -s research
+meridian run spawn -p "Implement changes" -m gpt-5.3-codex
+meridian space close s1
 ```
 
-### Configuration
-
-All state lives in `.meridian/` in your repo root (created automatically on first run). Config is optional — defaults work out of the box.
+### Search state files
 
 ```bash
-meridian config init                        # scaffold .meridian/config.toml
-meridian config set defaults.max_retries 5  # change a setting
-meridian config show                        # see all resolved values
+meridian grep "ERROR \[SPACE_REQUIRED\]"
+meridian grep "run.spawn" --space s1 --type runs
+```
+
+### Config
+
+```bash
+meridian config init
+meridian config set defaults.max_retries 5
+meridian config show
 ```
 
 ### MCP server
@@ -112,45 +97,45 @@ meridian config show                        # see all resolved values
 meridian serve
 ```
 
-Exposes all operations as MCP tools over stdio.
+## State Layout
 
-## Philosophy
+All authoritative run/space/session state is file-backed:
 
-Meridian is **not** a file system, project manager, or execution engine. It is a **coordination layer** that:
+```text
+.meridian/
+  .spaces/
+    <space-id>/
+      space.json
+      runs.jsonl
+      sessions.jsonl
+      runs/<run-id>/
+        output.jsonl
+        stderr.log
+        report.md
+      fs/
+        space-summary.md
+  active-spaces/<space-id>.lock
+  config.toml
+  models.toml
+```
 
-- **Manages agent ecosystem metadata**: Agent profile definitions, skill definitions, space context
-- **Provides shared working filesystem**: `.meridian/<space-id>/fs/` where agents read/write collaborative work
-- **Persists collaborative work**: Everything in `fs/` is committed to git (agents decide organization)
-- **Indexes ephemeral state**: Run history, sessions, artifacts (computed, not authoritative)
-- **Uses markdown/JSON files as source of truth**: No SQLite-as-authority (SQLite is optional indexing)
-- **Stays harness-agnostic**: Same `meridian` commands work across Claude, Codex, OpenCode, Cursor, **etc.** (extensible to future harnesses) for both primary agents and subagents, with per-harness adapters
+Writes use lock files plus atomic tmp+rename semantics in the state layer.
 
-## Core Concepts
+## Docs
 
-**Space**: A self-contained agent ecosystem with shared context
-- Primary agent: Entry point (any harness)
-- Child agents: Spawned from primary (any harness)
-- Filesystem: `.meridian/<space-id>/fs/` (git-committed)
-- Metadata: `.meridian/<space-id>/space.md`, agents, skills
-
-**Agent Profile**: Defines what an agent is (markdown + YAML frontmatter)
-- Capabilities (tools, model)
-- Skills (built-in knowledge/tools)
-- System prompt
-- Located in `.meridian/<space-id>/agents/` or `.claude/agents/`
-
-**Skill**: Domain knowledge or capability (markdown SKILL.md)
-- Located in `.meridian/<space-id>/skills/`
-- Loaded by agents on startup
-- Agents can read/search space skills
+- [CLI Reference](docs/cli-reference.md)
+- [Spaces](docs/spaces.md)
+- [Configuration](docs/configuration.md)
+- [Safety](docs/safety.md)
+- [MCP Tools](docs/mcp-tools.md)
+- [Harness Adapters](docs/harness-adapters.md)
 
 ## Development
 
 ```bash
 uv sync --extra dev
-uv run pytest
+uv run pytest-llm
 uv run pyright
-uv run ruff check .
 ```
 
 ## License

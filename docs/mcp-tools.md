@@ -1,14 +1,14 @@
 # MCP Tools
 
-`meridian serve` exposes all operations as MCP tools. An MCP-aware agent (Claude, etc.) calls these tools programmatically instead of parsing CLI stdout.
+`meridian serve` exposes Meridian operations as FastMCP tools over stdio.
 
-## Starting the Server
+## Start Server
 
 ```bash
 meridian serve
 ```
 
-The server communicates over stdio using the MCP protocol (JSON-RPC). Configure it in your MCP client's settings:
+Minimal MCP config:
 
 ```json
 {
@@ -21,240 +21,157 @@ The server communicates over stdio using the MCP protocol (JSON-RPC). Configure 
 }
 ```
 
-## Key Difference: Non-Blocking `run_create`
+## Current Tool Set
 
-In MCP mode, `run_create` returns immediately with `status: "running"`. The agent then polls with `run_show` or blocks with `run_wait`:
+From the operation registry, MCP exposes:
 
-```
-Agent -> run_create(prompt="Fix the bug", model="codex")
-      <- {status: "running", run_id: "r1"}
-Agent -> run_wait(run_id="r1", timeout_secs=300)
-      <- {status: "succeeded", run_id: "r1", report: "..."}
-```
+- `run_spawn`, `run_list`, `run_show`, `run_continue`, `run_wait`, `run_stats`
+- `models_list`, `models_show`
+- `skills_list`, `skills_show`
+- `doctor`
+- `grep`
 
-This prevents the MCP connection from hanging during long runs.
+Not MCP-exposed (CLI-only): `space_*`, `config_*`, `skills_search`.
 
-## Tool Reference
+## Run Tools
 
-### Run Management
+### `run_spawn`
 
-#### `run_create`
-
-Create and start a new agent run.
+Create and start a run.
 
 ```json
 {
-  "prompt": "Refactor the auth module",
+  "prompt": "Refactor auth flow",
   "model": "gpt-5.3-codex",
   "skills": ["scratchpad"],
-  "files": ["plan.md"],
-  "template_vars": {"TARGET": "auth"},
+  "files": ["docs/spec.md"],
+  "template_vars": ["TARGET=auth"],
   "agent": "coder",
-  "timeout_secs": 600,
-  "permission": "workspace-write",
+  "report_path": "report.md",
+  "background": true,
+  "space": "s12",
+  "permission_tier": "workspace-write",
   "budget_per_run_usd": 5.0,
-  "secrets": {"API_KEY": "sk-..."}
+  "budget_per_space_usd": 20.0,
+  "guardrails": ["./checks/lint.sh"],
+  "secrets": ["API_KEY=sk-..."]
 }
 ```
 
-Returns: `RunActionOutput` with `run_id`, `status`, `exit_code`, `report`, `composed_prompt` (dry-run), `cli_command` (dry-run).
+Notes:
 
-#### `run_list`
+- Default is blocking execution.
+- Set `background: true` for non-blocking behavior, then call `run_wait`/`run_show`.
 
-List runs with optional filters.
+### `run_list`
 
 ```json
 {
-  "workspace_id": "w1",
+  "space": "s12",
   "status": "failed",
-  "model": "codex",
+  "model": "gpt-5.3-codex",
   "limit": 10,
-  "standalone_only": false
+  "no_space": false,
+  "failed": true
 }
 ```
 
-Returns: `RunListOutput` with list of run summaries.
-
-#### `run_show`
-
-Get run details.
+### `run_show`
 
 ```json
 {
-  "run_id": "r1",
-  "include_report": true,
+  "run_id": "r7",
+  "report": true,
   "include_files": true
 }
 ```
 
-Returns: `RunDetailOutput` with full run metadata, optional report text and files-touched list.
-
-#### `run_continue`
-
-Continue a previous run with a follow-up prompt.
+### `run_continue`
 
 ```json
 {
-  "run_id": "r1",
-  "prompt": "Also update the tests",
-  "model": "claude-opus-4-6"
-}
-```
-
-#### `run_retry`
-
-Retry a failed run.
-
-```json
-{
-  "run_id": "r3",
-  "prompt": "Try with more context",
-  "model": "opus"
-}
-```
-
-#### `run_wait`
-
-Block until a run reaches terminal status.
-
-```json
-{
-  "run_id": "r1",
-  "timeout_secs": 300,
-  "include_report": true
-}
-```
-
-### Workspace Management
-
-#### `workspace_start`
-
-Create a workspace and launch supervisor.
-
-```json
-{
-  "name": "auth-refactor",
+  "run_id": "r7",
+  "prompt": "Also update tests",
   "model": "claude-opus-4-6",
-  "autocompact": 80
+  "fork": true
 }
 ```
 
-#### `workspace_resume`
+Uses `continue_harness_session_id` internally from the source run.
 
-Resume a paused workspace.
+### `run_wait`
 
 ```json
 {
-  "workspace_id": "w1",
-  "fresh": false,
-  "model": "claude-opus-4-6"
+  "run_ids": ["r7", "r8"],
+  "timeout_secs": 300,
+  "report": true,
+  "include_files": false
 }
 ```
 
-#### `workspace_list`
+Compatibility alias accepted: `run_id` (single string).
 
-```json
-{ "limit": 10 }
-```
-
-#### `workspace_show`
-
-```json
-{ "workspace_id": "w1" }
-```
-
-#### `workspace_close`
-
-```json
-{ "workspace_id": "w1" }
-```
-
-### Context Pinning
-
-#### `context_pin`
+### `run_stats`
 
 ```json
 {
-  "file_path": "docs/architecture.md",
-  "workspace_id": "w1"
+  "space": "s12",
+  "session": "c3"
 }
 ```
 
-#### `context_unpin`
+`session` is Meridian `chat_id`.
+
+## Search Tool
+
+### `grep`
+
+Searches state files (`output`, `logs`, `runs`, `sessions`) across spaces.
 
 ```json
 {
-  "file_path": "docs/architecture.md",
-  "workspace_id": "w1"
+  "pattern": "orphan_run",
+  "space_id": "s12",
+  "run_id": "r7",
+  "file_type": "logs"
 }
 ```
 
-#### `context_list`
+`run_id` requires `space_id`.
 
-```json
-{ "workspace_id": "w1" }
-```
+## Models and Skills
 
-### Skills & Models
-
-#### `skills_list`
+### `models_list`
 
 ```json
 {}
 ```
 
-#### `skills_search`
+### `models_show`
 
 ```json
-{ "query": "review" }
+{ "model": "codex" }
 ```
 
-#### `skills_load`
-
-```json
-{ "name": "review" }
-```
-
-Returns full SKILL.md content.
-
-#### `skills_reindex`
+### `skills_list`
 
 ```json
 {}
 ```
 
-#### `models_list`
+### `skills_show`
+
+```json
+{ "name": "scratchpad" }
+```
+
+## Diagnostics
+
+### `doctor`
 
 ```json
 {}
 ```
 
-#### `models_show`
-
-```json
-{ "name": "opus" }
-```
-
-### Diagnostics
-
-#### `diag_doctor`
-
-```json
-{}
-```
-
-Returns health checks: schema version, counts, directory presence.
-
-#### `diag_repair`
-
-```json
-{}
-```
-
-Returns list of repairs performed.
-
-## DirectAdapter (API Tools)
-
-The `DirectAdapter` generates Anthropic API tool definitions from the same Operation Registry. These tools include `allowed_callers: ["code_execution_20260120"]` for programmatic tool calling via the Anthropic Messages API `code_execution` feature.
-
-This enables agents running in `direct` mode (no CLI harness) to call meridian operations as native API tools.
+Runs health checks and safe repairs for file-backed space/run/session state.

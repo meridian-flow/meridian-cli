@@ -1,394 +1,205 @@
 # CLI Reference
 
+This page tracks the current CLI surface from `meridian --help`.
+
 ## Global Options
 
-These flags work with any command and must appear before the subcommand:
+Use before subcommands:
 
 | Flag | Description |
-|------|-------------|
-| `--json` | Output as JSON (equivalent to `--format json`) |
-| `--porcelain` | Machine-readable key=value output |
-| `--format <mode>` | Output mode: `rich` (default TTY), `plain` (default non-TTY), `json`, `porcelain` |
-| `--yes` | Auto-confirm all prompts |
-| `--no-input` | Fail on any interactive prompt (CI mode) |
-| `--version` | Print version and exit |
+|---|---|
+| `--json` | JSON output |
+| `--porcelain` | Stable key/value output |
+| `--format text\|json\|porcelain` | Explicit output format |
+| `--config <path>` | Load user config overlay |
+| `--yes` | Auto-confirm prompts where supported |
+| `--no-input` | Fail instead of prompting |
+| `--version` | Print version |
 
-Output auto-detection: when stdout is a TTY, output defaults to `rich` (colored, formatted). Non-TTY defaults to `plain` (no ANSI, no box-drawing). `--json` and `--porcelain` always disable rich formatting.
+## Top-Level Commands
 
----
+```text
+completion  config  doctor  grep  init  models  run  serve  skills  space  start
+```
 
 ## `meridian run`
 
-Manage agent runs.
+### `run spawn`
 
-### `meridian run create`
-
-Create and execute a run. Blocks until completion in CLI mode.
+Create and start a run.
 
 ```bash
-meridian run create -p "Implement the feature" -m gpt-5.3-codex
-meridian run create -p "Review changes" -m claude-opus-4-6 -s review
-meridian run create -p "Research approaches" -f plan.md -f spec.md --dry-run
+meridian run spawn -p "Implement feature" -m gpt-5.3-codex
+meridian run spawn --background -p "Long task" -m opus
+meridian run spawn --dry-run -p "Plan only"
 ```
 
-| Flag | Short | Type | Default | Description |
-|------|-------|------|---------|-------------|
-| `--prompt` | `-p` | string | `""` | Task prompt |
-| `--model` | `-m` | string | auto | Model ID or alias (e.g., `opus`, `codex`, `sonnet`) |
-| `--skills` | `-s` | string[] | `()` | Skills to compose into prompt |
-| `--file` | `-f` | path[] | `()` | Reference files appended to prompt |
-| `--var` | | KEY=VALUE[] | `()` | Template variables for `${KEY}` substitution |
-| `--agent` | | string | none | Agent profile name (loads from `.agents/agents/`) |
-| `--report-path` | | string | `report.md` | Output report filename |
-| `--dry-run` | | bool | false | Preview composed prompt and command without executing |
-| `--workspace` | | string | auto | Workspace ID (auto-detected from `MERIDIAN_WORKSPACE_ID`) |
-| `--timeout-secs` | | float | none | Kill run after N seconds |
-| `--permission` | | string | `read-only` | Permission tier (see [Safety](safety.md)) |
-| `--unsafe` | | bool | false | Required for `danger` permission tier |
-| `--budget-usd` | | float | none | Per-run cost limit in USD |
-| `--budget-per-workspace-usd` | | float | none | Workspace cumulative cost limit |
-| `--guardrail` | | path[] | `()` | Post-run validation scripts |
-| `--secret` | | KEY=VALUE[] | `()` | Secrets redacted from all output |
+Common flags:
 
-**Aliases:** `meridian run -p "..."` works as shorthand for `meridian run create -p "..."`.
+| Flag | Notes |
+|---|---|
+| `--prompt, -p` | Prompt text |
+| `--model, -m` | Model id or alias |
+| `--skills, -s` | Repeatable skill names |
+| `--file, -f` | Repeatable reference files |
+| `--var` | Repeatable `KEY=VALUE` template vars |
+| `--agent, -a` | Agent profile name |
+| `--report-path` | Relative report path (default `report.md`) |
+| `--dry-run` | Compose only, do not execute harness |
+| `--background` | Return immediately with run ID |
+| `--space-id`, `--space` | Explicit space scope |
+| `--timeout-secs` | Runtime limit |
+| `--permission` | `read-only`, `workspace-write`, `full-access`, `danger` |
+| `--unsafe` | Required with `--permission danger` |
+| `--budget-per-run-usd` | Per-run budget cap |
+| `--budget-per-space-usd` | Per-space budget cap |
+| `--budget-usd` | Legacy alias for per-run budget |
+| `--guardrail` | Repeatable guardrail identifiers |
+| `--secret` | Repeatable secret keys |
 
-### `meridian run list`
+Notes:
 
-List runs with optional filters.
+- `meridian run -p "..."` is shorthand for `meridian run spawn -p "..."`.
+- If no space is selected, spawn auto-creates one and warns with the new `sN`.
+
+### `run list`
 
 ```bash
-meridian list                           # latest 20 runs
-meridian run list --failed              # only failed runs
-meridian run list --workspace w1        # runs in workspace
-meridian run list --status running      # filter by status
-meridian run list --model codex --limit 5
+meridian run list
+meridian run list --space s12 --status failed
 ```
 
-| Flag | Type | Default | Description |
-|------|------|---------|-------------|
-| `--workspace` | string | none | Filter by workspace ID |
-| `--status` | string | none | Filter: `queued`, `running`, `succeeded`, `failed`, `cancelled` |
-| `--model` | string | none | Filter by model |
-| `--limit` | int | 20 | Max results |
-| `--no-workspace` | bool | false | Only standalone (non-workspace) runs |
-| `--failed` | bool | false | Shorthand for `--status failed` |
+Flags: `--space-id/--space`, `--status`, `--model`, `--limit`, `--no-space`, `--failed`.
 
-### `meridian run show <run_id>`
-
-Show details of a specific run.
+### `run show`
 
 ```bash
-meridian show r1                        # basic details
-meridian show r1 --include-report       # with full report text
-meridian show r1 --include-files        # with files-touched list
+meridian run show r7
+meridian run show r7 --report --include-files
 ```
 
-| Flag | Type | Default | Description |
-|------|------|---------|-------------|
-| `--include-report` | bool | false | Include full report markdown |
-| `--include-files` | bool | false | Include list of files touched |
+Flags: `--report`, `--include-files`.
 
-### `meridian run continue <run_id>`
-
-Continue a previous run with a follow-up prompt. Creates a new run linked to the original.
+### `run continue`
 
 ```bash
-meridian run continue r1 -p "Also fix the edge case in line 42"
-meridian run continue r1 -p "Try a different approach" -m claude-opus-4-6
+meridian run continue r7 -p "Add tests"
+meridian run continue r7 -p "Try alternative" --fork
 ```
 
-| Flag | Short | Type | Default | Description |
-|------|-------|------|---------|-------------|
-| `--prompt` | `-p` | string | required | Follow-up prompt |
-| `--model` | `-m` | string | original | Override model |
-| `--timeout-secs` | | float | none | Timeout |
+Flags: `--prompt/-p` (required), `--model/-m`, `--fork`, `--timeout-secs`.
 
-### `meridian run retry <run_id>`
-
-Retry a failed run. Uses the original prompt unless overridden.
+### `run wait`
 
 ```bash
-meridian run retry r3                   # same prompt, same model
-meridian run retry r3 -p "Try with more context" -m opus
+meridian run wait r7
+meridian run wait r7 r8 --report
 ```
 
-| Flag | Short | Type | Default | Description |
-|------|-------|------|---------|-------------|
-| `--prompt` | `-p` | string | original | Override prompt |
-| `--model` | `-m` | string | original | Override model |
-| `--timeout-secs` | | float | none | Timeout |
+Flags: `--timeout-secs`, `--report`, `--include-files`.
 
-### `meridian run wait <run_id>`
-
-Block until a run reaches a terminal status. Useful after MCP's non-blocking `run_create`.
+### `run stats`
 
 ```bash
-meridian wait r1
-meridian wait r1 --timeout-secs 300 --include-report
+meridian run stats
+meridian run stats --space s12 --session c4
 ```
 
-| Flag | Type | Default | Description |
-|------|------|---------|-------------|
-| `--timeout-secs` | float | 600 | Max wait time |
-| `--include-report` | bool | false | Include report when done |
-| `--include-files` | bool | false | Include files-touched when done |
+Flags: `--space-id/--space`, `--session`.
 
----
+## `meridian space`
 
-## `meridian workspace`
-
-Manage persistent workspaces.
-
-### `meridian workspace start`
-
-Create a workspace and launch a supervisor harness. The `meridian` process stays alive as the parent, managing the workspace lifecycle.
+### `space start`
 
 ```bash
-meridian start                                  # auto-named workspace
-meridian start --name auth-refactor             # named workspace
-meridian start --model claude-opus-4-6          # specify supervisor model
-meridian start --autocompact 80                 # set compaction threshold
-meridian start -- --verbose                     # passthrough args to harness
+meridian space start --name auth-refactor
+meridian space start --model claude-opus-4-6 --autocompact 70
 ```
 
-| Flag | Type | Default | Description |
-|------|------|---------|-------------|
-| `--name` | string | auto-generated | Workspace name |
-| `--model` | string | default | Supervisor model |
-| `--autocompact` | int | none | Claude autocompact percentage threshold |
-| `--harness-arg` | string[] | `()` | Extra args forwarded to harness CLI |
+Flags: `--name`, `--model`, `--autocompact`, `--dry-run`, `--harness-arg` (repeatable).
 
-**What happens:**
-1. Creates workspace row in SQLite
-2. Generates `workspace-summary.md`
-3. Writes lock file (`.meridian/active-workspaces/<id>.lock`)
-4. Sets `MERIDIAN_WORKSPACE_ID` in child environment
-5. Spawns supervisor harness, waits for exit
-6. On exit: transitions to `paused` (normal) or `abandoned` (crash)
-7. Cleans up lock file
-
-### `meridian workspace resume`
-
-Resume a paused workspace. Regenerates the summary, re-injects pinned context, and launches a new supervisor conversation.
+### `space resume`
 
 ```bash
-meridian workspace resume                       # latest active/paused workspace
-meridian workspace resume --workspace w3        # specific workspace
-meridian workspace resume --fresh               # new conversation, no history
+meridian space resume
+meridian space resume --space s12 --fresh
 ```
 
-| Flag | Type | Default | Description |
-|------|------|---------|-------------|
-| `--workspace` | string | auto | Workspace ID (defaults to most recent active, then paused) |
-| `--fresh` | bool | false | Start fresh conversation (still includes pinned context) |
-| `--model` | string | default | Override supervisor model |
-| `--autocompact` | int | none | Autocompact threshold |
-| `--harness-arg` | string[] | `()` | Passthrough args |
+Flags: `--space-id/--space`, `--fresh`, `--model`, `--autocompact`, `--harness-arg`.
 
-### `meridian workspace list`
+### `space list/show/close`
 
 ```bash
-meridian workspace list
-meridian workspace list --limit 5
+meridian space list --limit 20
+meridian space show s12
+meridian space close s12
 ```
 
-### `meridian workspace show <workspace_id>`
+## `meridian start`
 
-Show workspace details, including state, run count, and pinned files.
+Resolve or create a space and launch the primary harness.
 
-### `meridian workspace close <workspace_id>`
+```bash
+meridian start
+meridian start --new
+meridian start --space s12
+```
 
-Transition workspace to `completed` state.
+Flags: `--new`, `--space`, `--continue` (currently stubbed, errors), `--model`, `--autocompact`, `--dry-run`, `--harness-arg`.
 
----
+## `meridian grep`
+
+Search Meridian state files.
+
+```bash
+meridian grep "orphan_run"
+meridian grep "failed" --space s12 --type runs
+meridian grep "timeout" --space s12 --run r7 --type logs
+```
+
+Flags:
+
+- `--space`: one space
+- `--run`: one run (requires `--space`)
+- `--type`: `output`, `logs`, `runs`, `sessions`
+
+## `meridian config`
+
+```bash
+meridian config init
+meridian config show
+meridian config get defaults.max_depth
+meridian config set permissions.default_tier workspace-write
+meridian config reset permissions.default_tier
+```
 
 ## `meridian skills`
 
-Discover and inspect skills from `.agents/skills/`.
-
-### `meridian skills list`
-
-List all indexed skills with name, description, and tags.
-
-### `meridian skills search <query>`
-
-Search skills by keyword or tag.
-
 ```bash
-meridian skills search "review"
-meridian skills search "testing"
-```
-
-### `meridian skills show <name>`
-
-Load and display the full SKILL.md content.
-
-```bash
-meridian skills show review
+meridian skills list
+meridian skills search review
 meridian skills show scratchpad
 ```
 
-### `meridian skills reindex`
-
-Rebuild the skill index from `.agents/skills/`. Run after adding or modifying skills.
-
----
-
 ## `meridian models`
 
-Browse the model catalog.
-
-### `meridian models list`
-
-List all available models with routing info and cost tier.
-
-### `meridian models show <name>`
-
-Show details for a specific model by ID or alias.
-
 ```bash
-meridian models show opus
-meridian models show gpt-5.3-codex
+meridian models list
+meridian models show codex
 ```
 
----
-
-## `meridian context`
-
-Pin files to workspace context. Pinned files survive conversation compaction and are re-injected on resume.
-
-### `meridian context pin <file_path>`
+## `meridian doctor`
 
 ```bash
-meridian context pin docs/architecture.md
-meridian context pin --workspace w1 plan.md
+meridian doctor
 ```
 
-### `meridian context unpin <file_path>`
-
-```bash
-meridian context unpin plan.md
-```
-
-Note: `workspace-summary.md` is always implicitly pinned and cannot be unpinned.
-
-### `meridian context list`
-
-```bash
-meridian context list
-meridian context list --workspace w1
-```
-
----
-
-## `meridian diag`
-
-Diagnostics and repair.
-
-### `meridian diag doctor`
-
-Run health checks: schema version, run/workspace counts, directory structure.
-
-```bash
-meridian doctor          # alias
-meridian diag doctor
-```
-
-### `meridian diag repair`
-
-Fix common issues:
-- Remove stale workspace lock files
-- Repair missing schema tables
-- Rebuild corrupt JSONL from SQLite
-- Transition stuck-active workspaces to abandoned
-- Run WAL checkpoint
-
-```bash
-meridian diag repair
-```
-
----
-
-## `meridian export`
-
-Export workspace artifacts for committing to version control.
-
-### `meridian export workspace`
-
-Gather committable markdown artifacts: workspace summary, run reports, pinned markdown files.
-
-```bash
-meridian export
-meridian export workspace --workspace w1
-```
-
----
-
-## `meridian migrate`
-
-Migrate from legacy bash-based run-agent tooling.
-
-### `meridian migrate run`
-
-Import `runs.jsonl` into SQLite, rename skill directories, and update references.
-
-```bash
-meridian migrate run
-meridian migrate run --repo-root /path/to/repo
-```
-
-| Flag | Type | Default | Description |
-|------|------|---------|-------------|
-| `--jsonl-path` | string | auto | Path to legacy `runs.jsonl` |
-| `--apply-skill-migrations` | bool | true | Rename skill dirs and update references |
-| `--repo-root` | string | `.` | Repository root |
-
-Migration is idempotent — safe to run multiple times.
-
----
+Runs diagnostics and safe repairs for file-backed state.
 
 ## `meridian serve`
-
-Start the MCP server on stdio. Used by MCP-aware agents (Claude, etc.) to call meridian tools programmatically.
 
 ```bash
 meridian serve
 ```
 
----
-
-## `meridian completion`
-
-Shell completion helpers.
-
-```bash
-meridian completion bash       # print bash completion script
-meridian completion zsh        # print zsh completion script
-meridian completion fish       # print fish completion script
-meridian completion install    # auto-install to shell config
-```
-
----
-
-## Top-Level Aliases
-
-| Alias | Equivalent |
-|-------|------------|
-| `meridian start [args]` | `meridian workspace start [args]` |
-| `meridian list` | `meridian run list` |
-| `meridian show [id]` | `meridian run show [id]` |
-| `meridian wait [id]` | `meridian run wait [id]` |
-| `meridian doctor` | `meridian diag doctor` |
-
----
-
-## Exit Codes
-
-| Code | Meaning |
-|------|---------|
-| 0 | Success |
-| 1 | Agent/harness error |
-| 2 | Infrastructure error (spawn failure, missing binary) |
-| 3 | Timeout |
-| 130 | SIGINT (Ctrl-C) |
-| 143 | SIGTERM |
+Starts the FastMCP stdio server.
