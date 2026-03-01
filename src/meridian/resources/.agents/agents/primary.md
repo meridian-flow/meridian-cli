@@ -2,8 +2,8 @@
 name: primary
 description: Primary agent
 model: claude-opus-4-6
-skills: []
-mcp-tools: [run_spawn, run_list, run_show, run_wait, run_continue, run_stats, skills_list, skills_show, models_list, models_show, doctor]
+skills: [orchestrate, meridian-run]
+# mcp-tools: [run_spawn, run_list, run_show, run_wait, run_continue, run_stats, skills_list, skills_show, models_list, models_show, doctor]
 sandbox: unrestricted
 ---
 

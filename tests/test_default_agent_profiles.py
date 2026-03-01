@@ -343,7 +343,7 @@ def test_builtin_primary_profile_used_when_no_file_on_disk(tmp_path: Path) -> No
     assert profile.name == "primary"
     assert profile.model == "claude-opus-4-6"
     assert profile.sandbox == "unrestricted"
-    assert profile.skills == ()
+    assert profile.skills == ("orchestrate", "meridian-run")
     assert profile.path == (bundled_root / "agents" / "primary.md").resolve()
     assert profile.path != _BUILTIN_PATH
 
@@ -377,9 +377,6 @@ def test_run_uses_builtin_default_agent_when_no_profile_on_disk(tmp_path: Path) 
     assert "--config" in result.cli_command
     assert any(
         token.startswith("mcp_servers.meridian.command=") for token in result.cli_command
-    )
-    assert any(
-        token.startswith("mcp_servers.meridian.enabled_tools=") for token in result.cli_command
     )
 
 

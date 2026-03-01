@@ -47,7 +47,7 @@ def test_build_interactive_command_uses_system_prompt_model_and_passthrough(
     assert command[0] == "claude"
     assert "-p" not in command
     assert "--system-prompt" in command
-    assert command[command.index("--system-prompt") + 1] == prompt
+    assert prompt in command[command.index("--system-prompt") + 1]
     assert "--model" in command
     assert command[command.index("--model") + 1] == "claude-opus-4-6"
     assert "--permission-mode" in command
