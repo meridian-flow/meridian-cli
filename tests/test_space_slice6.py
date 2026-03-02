@@ -90,6 +90,7 @@ def test_space_start_creates_lock_sets_env_and_forwards_passthrough(
     spawns = spawn_store.list_spawns(space_dir)
     assert len(spawns) == 1
     assert spawns[0].id == env["MERIDIAN_SPAWN_ID"]
+    assert spawns[0].kind == "primary"
     assert spawns[0].status == "succeeded"
     assert spawns[0].exit_code == 0
 

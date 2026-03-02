@@ -206,6 +206,52 @@ async def test_execute_marks_empty_success_output_as_failed(tmp_path: Path) -> N
     assert exit_code == 1
     row = _fetch_run_row(space_dir, run.spawn_id)
     assert row.status == "failed"
+    assert row.error == "missing_report"
+
+
+@pytest.mark.asyncio
+async def test_primary_kind_uses_optional_report_policy(tmp_path: Path) -> None:
+    run, space_dir = _create_run(tmp_path, prompt="empty-primary")
+    artifacts = LocalStore(root_dir=tmp_path / ".artifacts")
+    spawn_store.start_spawn(
+        space_dir,
+        spawn_id=run.spawn_id,
+        chat_id="c1",
+        model=str(run.model),
+        agent="primary",
+        harness="codex",
+        kind="primary",
+        prompt=run.prompt,
+    )
+
+    script = tmp_path / "empty-primary-success.py"
+    _write_script(
+        script,
+        """
+        raise SystemExit(0)
+        """,
+    )
+    adapter = ScriptHarnessAdapter(command=(sys.executable, str(script)))
+    registry = HarnessRegistry()
+    registry.register(adapter)
+
+    exit_code = await execute_with_finalization(
+        run,
+        repo_root=tmp_path,
+        space_dir=space_dir,
+        artifacts=artifacts,
+        registry=registry,
+        harness_id=adapter.id,
+        cwd=tmp_path,
+        max_retries=0,
+        retry_backoff_seconds=0.0,
+    )
+
+    assert exit_code == 1
+    row = _fetch_run_row(space_dir, run.spawn_id)
+    assert row.kind == "primary"
+    assert row.status == "failed"
+    # Primary bypasses child report policy, so empty-output fallback remains.
     assert row.error == "empty_output"
 
 
@@ -234,7 +280,7 @@ async def test_retry_does_not_reuse_stale_fallback_report(tmp_path: Path) -> Non
             print("network error: timeout", file=sys.stderr, flush=True)
             raise SystemExit(1)
 
-        # Successful exit with no output should still fail finalization as empty output.
+        # Successful exit with no output should still fail finalization as missing report.
         raise SystemExit(0)
         """,
     )
@@ -258,7 +304,7 @@ async def test_retry_does_not_reuse_stale_fallback_report(tmp_path: Path) -> Non
     assert exit_code == 1
     row = _fetch_run_row(space_dir, run.spawn_id)
     assert row.status == "failed"
-    assert row.error == "empty_output"
+    assert row.error == "missing_report"
     assert not artifacts.exists(make_artifact_key(run.spawn_id, "report.md"))
 
 

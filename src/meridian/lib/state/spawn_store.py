@@ -28,6 +28,7 @@ class SpawnRecord:
     model: str | None
     agent: str | None
     harness: str | None
+    kind: str
     harness_session_id: str | None
     status: str
     prompt: str | None
@@ -94,6 +95,7 @@ def start_spawn(
     model: str,
     agent: str,
     harness: str,
+    kind: str = "child",
     prompt: str,
     spawn_id: SpawnId | str | None = None,
     harness_session_id: str | None = None,
@@ -114,6 +116,7 @@ def start_spawn(
             "model": model,
             "agent": agent,
             "harness": harness,
+            "kind": kind,
             "status": "running",
             "started_at": started,
             "prompt": prompt,
@@ -170,6 +173,7 @@ def _empty_record(spawn_id: str) -> SpawnRecord:
         model=None,
         agent=None,
         harness=None,
+        kind="child",
         harness_session_id=None,
         status="unknown",
         prompt=None,
@@ -201,6 +205,7 @@ def _record_from_events(events: list[JSONRow]) -> dict[str, SpawnRecord]:
                 model=str(event["model"]) if "model" in event else current.model,
                 agent=str(event["agent"]) if "agent" in event else current.agent,
                 harness=str(event["harness"]) if "harness" in event else current.harness,
+                kind=str(event["kind"]) if "kind" in event else current.kind,
                 harness_session_id=(
                     str(event["harness_session_id"])
                     if "harness_session_id" in event
@@ -246,6 +251,7 @@ def _record_from_events(events: list[JSONRow]) -> dict[str, SpawnRecord]:
                 model=current.model,
                 agent=current.agent,
                 harness=current.harness,
+                kind=current.kind,
                 harness_session_id=current.harness_session_id,
                 status=str(event.get("status", current.status)),
                 prompt=current.prompt,

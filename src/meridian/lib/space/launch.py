@@ -507,6 +507,7 @@ def launch_primary(
                 model=session_metadata.model,
                 agent=session_metadata.agent,
                 harness=session_metadata.harness,
+                kind="primary",
                 prompt=prompt,
             )
         )

@@ -37,6 +37,7 @@ def test_start_and_finalize_run_round_trip(tmp_path):
     loaded = get_spawn(space_dir, spawn_id)
     assert loaded is not None
     assert loaded.id == "p1"
+    assert loaded.kind == "child"
     assert loaded.status == "succeeded"
     assert loaded.model == "gpt-5.3-codex"
     assert loaded.chat_id == "c1"

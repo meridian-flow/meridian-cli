@@ -456,6 +456,16 @@ def _append_text_to_stderr_artifact(
     artifacts.put(key, redact_secret_bytes(combined.encode("utf-8"), secrets))
 
 
+def _spawn_kind(space_dir: Path, spawn_id: SpawnId) -> str:
+    row = spawn_store.get_spawn(space_dir, spawn_id)
+    if row is None:
+        return "child"
+    normalized = row.kind.strip().lower()
+    if normalized in {"primary", "child"}:
+        return normalized
+    return "child"
+
+
 async def execute_with_finalization(
     run: Spawn,
     *,
@@ -539,6 +549,7 @@ async def execute_with_finalization(
             model=str(run.model),
             agent=agent or "",
             harness=str(harness.id),
+            kind="child",
             prompt=run.prompt,
             harness_session_id=continue_harness_session_id,
         )
@@ -652,6 +663,13 @@ async def execute_with_finalization(
                     _append_budget_exceeded_event(run=run, breach=breach)
                 exit_code = DEFAULT_INFRA_EXIT_CODE
                 break
+
+            if exit_code == 0 and _spawn_kind(space_dir, run.spawn_id) == "child":
+                if extracted.report.content is None:
+                    # Child spawns must produce a report directly or via fallback extraction.
+                    exit_code = 1
+                    failure_reason = "missing_report"
+                    break
 
             if exit_code == 0 and extracted.output_is_empty:
                 # Successful exit with no content is unusable; fail fast so primary agents can react.

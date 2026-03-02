@@ -448,6 +448,7 @@ def _execute_spawn_background(
         model=prepared.model,
         agent=prepared.agent_name or "",
         harness=prepared.harness_id,
+        kind="child",
         prompt=prepared.composed_prompt,
         harness_session_id=prepared.continue_harness_session_id,
     )
@@ -572,6 +573,7 @@ def _execute_spawn_blocking(
         model=prepared.model,
         agent=prepared.agent_name or "",
         harness=prepared.harness_id,
+        kind="child",
         prompt=prepared.composed_prompt,
         harness_session_id=prepared.continue_harness_session_id,
     )
