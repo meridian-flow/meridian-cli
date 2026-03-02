@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import sys
 import textwrap
 from pathlib import Path
@@ -360,3 +361,83 @@ async def test_finalize_row_enriched_with_usage_cost_and_report(
     report_key = make_artifact_key(run.spawn_id, "report.md")
     assert artifacts.exists(report_key)
     assert "Final summary." in artifacts.get(report_key).decode("utf-8")
+
+
+@pytest.mark.asyncio
+async def test_execute_sets_timeout_failure_reason(tmp_path: Path) -> None:
+    run, space_dir = _create_run(tmp_path, prompt="timeout")
+    artifacts = LocalStore(root_dir=tmp_path / ".artifacts")
+
+    script = tmp_path / "timeout.py"
+    _write_script(
+        script,
+        """
+        import time
+
+        time.sleep(2.0)
+        """,
+    )
+    adapter = ScriptHarnessAdapter(command=(sys.executable, str(script)))
+    registry = HarnessRegistry()
+    registry.register(adapter)
+
+    exit_code = await execute_with_finalization(
+        run,
+        repo_root=tmp_path,
+        space_dir=space_dir,
+        artifacts=artifacts,
+        registry=registry,
+        harness_id=adapter.id,
+        cwd=tmp_path,
+        timeout_seconds=0.05,
+        kill_grace_seconds=0.05,
+        max_retries=3,
+        retry_backoff_seconds=0.0,
+    )
+
+    assert exit_code == 3
+    row = _fetch_run_row(space_dir, run.spawn_id)
+    assert row.status == "failed"
+    assert row.error == "timeout"
+
+
+@pytest.mark.asyncio
+async def test_execute_sets_cancelled_failure_reason(tmp_path: Path) -> None:
+    run, space_dir = _create_run(tmp_path, prompt="cancel")
+    artifacts = LocalStore(root_dir=tmp_path / ".artifacts")
+
+    script = tmp_path / "cancel.py"
+    _write_script(
+        script,
+        """
+        import time
+
+        time.sleep(5.0)
+        """,
+    )
+    adapter = ScriptHarnessAdapter(command=(sys.executable, str(script)))
+    registry = HarnessRegistry()
+    registry.register(adapter)
+
+    task = asyncio.create_task(
+        execute_with_finalization(
+            run,
+            repo_root=tmp_path,
+            space_dir=space_dir,
+            artifacts=artifacts,
+            registry=registry,
+            harness_id=adapter.id,
+            cwd=tmp_path,
+            timeout_seconds=None,
+            kill_grace_seconds=0.05,
+            max_retries=0,
+        )
+    )
+    await asyncio.sleep(0.05)
+    task.cancel()
+    exit_code = await task
+
+    assert exit_code == 130
+    row = _fetch_run_row(space_dir, run.spawn_id)
+    assert row.status == "failed"
+    assert row.error == "cancelled"

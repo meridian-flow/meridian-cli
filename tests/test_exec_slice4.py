@@ -324,7 +324,7 @@ async def test_timeout_kills_child_and_finalizes_row(package_root: Path, tmp_pat
     row = _fetch_run_row(space_dir, run.spawn_id)
     assert row.status == "failed"
     assert row.exit_code == 3
-    assert row.error is None
+    assert row.error == "timeout"
     assert row.finished_at is not None
 
 

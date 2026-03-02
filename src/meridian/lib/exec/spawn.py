@@ -730,7 +730,9 @@ async def execute_with_finalization(
                 stderr_text,
                 timed_out=spawn_result.timed_out,
             )
-            if category == ErrorCategory.STRATEGY_CHANGE:
+            if spawn_result.timed_out:
+                failure_reason = "timeout"
+            elif category == ErrorCategory.STRATEGY_CHANGE:
                 failure_reason = "strategy_change"
 
             if not should_retry(
@@ -756,6 +758,7 @@ async def execute_with_finalization(
                 await asyncio.sleep(retry_backoff_seconds * retries_attempted)
     except asyncio.CancelledError:
         exit_code = 130
+        failure_reason = "cancelled"
     except Exception:
         logger.exception(
             "Spawn execution failed with infrastructure error.",
