@@ -91,6 +91,15 @@ def _read_output_payload(artifacts: LocalStore, spawn_id: SpawnId) -> dict[str, 
     return json.loads(raw.strip())
 
 
+def _read_finalize_event(space_dir: Path, spawn_id: SpawnId) -> dict[str, object]:
+    rows = (space_dir / "spawns.jsonl").read_text(encoding="utf-8").splitlines()
+    events = [json.loads(row) for row in rows if row.strip()]
+    for event in reversed(events):
+        if event.get("event") == "finalize" and event.get("id") == str(spawn_id):
+            return event
+    raise AssertionError(f"Finalize event for spawn '{spawn_id}' not found")
+
+
 @pytest.mark.asyncio
 async def test_execute_retries_retryable_errors_up_to_max(tmp_path: Path) -> None:
     run, space_dir = _create_run(tmp_path, prompt="retry me")
@@ -363,10 +372,59 @@ async def test_finalize_row_enriched_with_usage_cost_and_report(
     assert row.input_tokens == 22
     assert row.output_tokens == 7
     assert row.total_cost_usd == pytest.approx(0.014)
+    finalize_event = _read_finalize_event(space_dir, run.spawn_id)
+    assert finalize_event["input_tokens"] == 22
+    assert finalize_event["output_tokens"] == 7
 
     report_key = make_artifact_key(run.spawn_id, "report.md")
     assert artifacts.exists(report_key)
     assert "Final summary." in artifacts.get(report_key).decode("utf-8")
+
+
+@pytest.mark.asyncio
+async def test_finalize_event_omits_token_fields_when_usage_is_missing(tmp_path: Path) -> None:
+    run, space_dir = _create_run(tmp_path, prompt="no-usage")
+    artifacts = LocalStore(root_dir=tmp_path / ".artifacts")
+
+    stream_fixture = tmp_path / "slice5-no-usage-stream.jsonl"
+    stream_fixture.write_text('{"role":"assistant","content":"Final summary."}\n', encoding="utf-8")
+
+    adapter = ScriptHarnessAdapter(
+        command=(
+            sys.executable,
+            str(tmp_path / "emit-summary.py"),
+        )
+    )
+    _write_script(
+        tmp_path / "emit-summary.py",
+        f"""
+        from pathlib import Path
+
+        print(Path({stream_fixture.as_posix()!r}).read_text(encoding="utf-8"), end="")
+        raise SystemExit(0)
+        """,
+    )
+    registry = HarnessRegistry()
+    registry.register(adapter)
+
+    exit_code = await execute_with_finalization(
+        run,
+        repo_root=tmp_path,
+        space_dir=space_dir,
+        artifacts=artifacts,
+        registry=registry,
+        harness_id=adapter.id,
+        cwd=tmp_path,
+        max_retries=0,
+    )
+
+    assert exit_code == 0
+    row = _fetch_run_row(space_dir, run.spawn_id)
+    assert row.input_tokens is None
+    assert row.output_tokens is None
+    finalize_event = _read_finalize_event(space_dir, run.spawn_id)
+    assert "input_tokens" not in finalize_event
+    assert "output_tokens" not in finalize_event
 
 
 @pytest.mark.asyncio

@@ -39,16 +39,16 @@ def _usage_from_response(response: dict[str, object]) -> TokenUsage:
     usage = response.get("usage")
     if not isinstance(usage, dict):
         return TokenUsage()
-    input_tokens = usage.get("input_tokens", 0)
-    output_tokens = usage.get("output_tokens", 0)
+    input_tokens = usage.get("input_tokens")
+    output_tokens = usage.get("output_tokens")
     try:
-        input_count = int(input_tokens) if input_tokens is not None else 0
+        input_count = int(input_tokens) if input_tokens is not None else None
     except (TypeError, ValueError):
-        input_count = 0
+        input_count = None
     try:
-        output_count = int(output_tokens) if output_tokens is not None else 0
+        output_count = int(output_tokens) if output_tokens is not None else None
     except (TypeError, ValueError):
-        output_count = 0
+        output_count = None
     total_cost = usage.get("total_cost_usd")
     try:
         parsed_cost = float(total_cost) if total_cost is not None else None

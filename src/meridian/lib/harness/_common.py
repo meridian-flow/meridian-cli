@@ -322,8 +322,8 @@ def extract_usage_from_artifacts(artifacts: ArtifactStore, spawn_id: SpawnId) ->
         return TokenUsage()
 
     return TokenUsage(
-        input_tokens=best_tokens.input_tokens or 0,
-        output_tokens=best_tokens.output_tokens or 0,
+        input_tokens=best_tokens.input_tokens,
+        output_tokens=best_tokens.output_tokens,
         total_cost_usd=best_cost,
     )
 

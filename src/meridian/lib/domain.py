@@ -33,8 +33,8 @@ def _empty_mapping() -> Mapping[str, Any]:
 class TokenUsage:
     """Token usage measured for a run."""
 
-    input_tokens: int = 0
-    output_tokens: int = 0
+    input_tokens: int | None = None
+    output_tokens: int | None = None
     total_cost_usd: float | None = None
 
 
