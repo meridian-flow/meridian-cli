@@ -75,6 +75,7 @@ def _bootstrap_operation_modules() -> None:
     import meridian.lib.ops.config as config_ops
     import meridian.lib.ops.diag as diag_ops
     import meridian.lib.ops.models as models_ops
+    import meridian.lib.ops.report as report_ops
     import meridian.lib.ops.spawn as spawn_ops
     import meridian.lib.ops.skills as skills_ops
     import meridian.lib.ops.space as space_ops
@@ -83,6 +84,7 @@ def _bootstrap_operation_modules() -> None:
         config_ops,
         diag_ops,
         models_ops,
+        report_ops,
         spawn_ops,
         skills_ops,
         space_ops,

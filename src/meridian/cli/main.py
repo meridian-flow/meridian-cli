@@ -19,6 +19,7 @@ from meridian.cli.doctor_cmd import register_doctor_command
 from meridian.cli.models_cmd import register_models_commands
 from meridian.cli.output import OutputConfig, normalize_output_format
 from meridian.cli.output import emit as emit_output
+from meridian.cli.report_cmd import register_report_commands
 from meridian.cli.skills_cmd import register_skills_commands
 from meridian.cli.space import register_space_commands
 from meridian.lib.config._paths import resolve_repo_root
@@ -45,6 +46,7 @@ Meridian orchestrator CLI
 
 Commands:
   spawn: Spawn and manage subagents
+  report: Manage spawn reports
   models: Model catalog commands
   skills: Skills catalog commands
 """
@@ -359,6 +361,7 @@ def serve() -> None:
 
 space_app = App(name="space", help="Space lifecycle commands", help_formatter="plain")
 spawn_app = App(name="spawn", help="Spawn management commands", help_formatter="plain")
+report_app = App(name="report", help="Report management commands", help_formatter="plain")
 skills_app = App(name="skills", help="Skills catalog commands", help_formatter="plain")
 models_app = App(name="models", help="Model catalog commands", help_formatter="plain")
 config_app = App(name="config", help="Repository config commands", help_formatter="plain")
@@ -368,6 +371,7 @@ completion_app = App(name="completion", help="Shell completion helpers", help_fo
 
 app.command(space_app, name="space")
 app.command(spawn_app, name="spawn")
+app.command(report_app, name="report")
 app.command(skills_app, name="skills")
 app.command(models_app, name="models")
 app.command(config_app, name="config")
@@ -603,6 +607,7 @@ def _register_group_commands() -> None:
     modules = (
         register_space_commands(space_app, emit),
         register_spawn_commands(spawn_app, emit),
+        register_report_commands(report_app, emit),
         register_skills_commands(skills_app, emit),
         register_models_commands(models_app, emit),
         register_config_commands(config_app, emit),

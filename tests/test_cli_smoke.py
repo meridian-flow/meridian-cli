@@ -16,6 +16,7 @@ def test_help_lists_resource_first_groups(run_meridian) -> None:
         "serve",
         "space",
         "spawn",
+        "report",
         "skills",
         "models",
         "doctor",
@@ -38,6 +39,7 @@ def test_help_is_restricted_in_agent_mode(package_root, cli_env) -> None:
     )
     assert completed.returncode == 0
     assert "spawn" in completed.stdout
+    assert "report" in completed.stdout
     assert "skills" in completed.stdout
     assert "models" in completed.stdout
     assert "doctor" not in completed.stdout
