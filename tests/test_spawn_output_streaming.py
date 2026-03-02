@@ -139,7 +139,7 @@ def test_subrun_event_emission_when_depth_gt_zero(
     assert capsys.readouterr().out == ""
 
     monkeypatch.setenv("MERIDIAN_DEPTH", "1")
-    monkeypatch.setenv("MERIDIAN_PARENT_RUN_ID", "r33")
+    monkeypatch.setenv("MERIDIAN_SPAWN_ID", "p33")
     monkeypatch.setattr("meridian.lib.ops.spawn.time.time", lambda: 1740000000.123)
     _emit_subrun_event(
         {"t": "meridian.spawn.start", "id": "r34", "model": "claude-haiku-4-5", "d": 1}
@@ -148,7 +148,7 @@ def test_subrun_event_emission_when_depth_gt_zero(
     assert payload["v"] == 1
     assert payload["t"] == "meridian.spawn.start"
     assert payload["id"] == "r34"
-    assert payload["parent"] == "r33"
+    assert payload["parent"] == "p33"
     assert payload["ts"] == 1740000000.123
 
 

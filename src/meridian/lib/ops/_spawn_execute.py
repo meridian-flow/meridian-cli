@@ -103,7 +103,7 @@ def _emit_subrun_event(payload: dict[str, Any]) -> None:
         return
     event_payload = dict(payload)
     event_payload["v"] = 1
-    parent_spawn_id = os.getenv("MERIDIAN_PARENT_RUN_ID", "").strip()
+    parent_spawn_id = os.getenv("MERIDIAN_SPAWN_ID", "").strip()
     event_payload["parent"] = parent_spawn_id or None
     event_payload["ts"] = time.time()
     print(json.dumps(event_payload, separators=(",", ":")), file=sys.stdout, flush=True)
@@ -122,7 +122,7 @@ def _depth_exceeded_output(current_depth: int, max_depth: int) -> SpawnActionOut
 
 def _spawn_child_env(
     space_id: str | None,
-    parent_spawn_id: str | None = None,
+    spawn_id: str | None = None,
 ) -> dict[str, str]:
     # Preserve Meridian spawn context across nesting without forwarding unrelated
     # parent process environment variables.
@@ -131,14 +131,21 @@ def _spawn_child_env(
     child_env["MERIDIAN_DEPTH"] = str(current_depth + 1)
     if space_id is not None:
         child_env["MERIDIAN_SPACE_ID"] = space_id
-    if parent_spawn_id is None:
-        child_env.pop("MERIDIAN_PARENT_RUN_ID", None)
+    parent_spawn_id = os.getenv("MERIDIAN_SPAWN_ID", "").strip()
+    if parent_spawn_id:
+        child_env["MERIDIAN_PARENT_SPAWN_ID"] = parent_spawn_id
     else:
-        normalized_parent = parent_spawn_id.strip()
-        if normalized_parent:
-            child_env["MERIDIAN_PARENT_RUN_ID"] = normalized_parent
+        child_env.pop("MERIDIAN_PARENT_SPAWN_ID", None)
+    if spawn_id is None:
+        child_env.pop("MERIDIAN_SPAWN_ID", None)
+    else:
+        normalized_spawn = spawn_id.strip()
+        if normalized_spawn:
+            child_env["MERIDIAN_SPAWN_ID"] = normalized_spawn
         else:
-            child_env.pop("MERIDIAN_PARENT_RUN_ID", None)
+            child_env.pop("MERIDIAN_SPAWN_ID", None)
+    # Drop legacy name now that canonical spawn vars are used everywhere.
+    child_env.pop("MERIDIAN_PARENT_RUN_ID", None)
     return child_env
 
 

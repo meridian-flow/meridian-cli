@@ -13,7 +13,7 @@ def test_emit_subrun_event_enriches_protocol(
     capsys,
 ) -> None:
     monkeypatch.setenv("MERIDIAN_DEPTH", "1")
-    monkeypatch.setenv("MERIDIAN_PARENT_RUN_ID", "r33")
+    monkeypatch.setenv("MERIDIAN_SPAWN_ID", "p33")
     monkeypatch.setattr("meridian.lib.ops._spawn_execute.time.time", lambda: 1740000000.123)
 
     _emit_subrun_event(
@@ -24,7 +24,7 @@ def test_emit_subrun_event_enriches_protocol(
     assert payload["v"] == 1
     assert payload["t"] == "meridian.spawn.start"
     assert payload["id"] == "r34"
-    assert payload["parent"] == "r33"
+    assert payload["parent"] == "p33"
     assert payload["ts"] == 1740000000.123
     assert payload["model"] == "claude-haiku-4-5"
     assert payload["d"] == 1
@@ -32,13 +32,14 @@ def test_emit_subrun_event_enriches_protocol(
 
 def test_run_child_env_sets_parent_spawn_id(monkeypatch) -> None:
     monkeypatch.setenv("MERIDIAN_DEPTH", "2")
-    monkeypatch.setenv("MERIDIAN_PARENT_RUN_ID", "ancestor")
+    monkeypatch.setenv("MERIDIAN_SPAWN_ID", "p-ancestor")
 
-    env = _spawn_child_env("s9", "r34")
+    env = _spawn_child_env("s9", "p34")
 
     assert env["MERIDIAN_DEPTH"] == "3"
     assert env["MERIDIAN_SPACE_ID"] == "s9"
-    assert env["MERIDIAN_PARENT_RUN_ID"] == "r34"
+    assert env["MERIDIAN_PARENT_SPAWN_ID"] == "p-ancestor"
+    assert env["MERIDIAN_SPAWN_ID"] == "p34"
 
 
 def test_parse_json_stream_event_recognizes_namespaced_subrun() -> None:
