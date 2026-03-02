@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
 import textwrap
 from pathlib import Path
@@ -83,6 +84,11 @@ def _fetch_run_row(space_dir: Path, spawn_id: SpawnId) -> spawn_store.SpawnRecor
 
 def _write_script(path: Path, source: str) -> None:
     path.write_text(textwrap.dedent(source), encoding="utf-8")
+
+
+def _read_output_payload(artifacts: LocalStore, spawn_id: SpawnId) -> dict[str, object]:
+    raw = artifacts.get(make_artifact_key(spawn_id, "output.jsonl")).decode("utf-8")
+    return json.loads(raw.strip())
 
 
 @pytest.mark.asyncio
@@ -399,6 +405,13 @@ async def test_execute_sets_timeout_failure_reason(tmp_path: Path) -> None:
     row = _fetch_run_row(space_dir, run.spawn_id)
     assert row.status == "failed"
     assert row.error == "timeout"
+    payload = _read_output_payload(artifacts, run.spawn_id)
+    assert payload == {
+        "error_code": "harness_empty_output",
+        "failure_reason": "timeout",
+        "exit_code": 3,
+        "timed_out": True,
+    }
 
 
 @pytest.mark.asyncio
@@ -441,3 +454,41 @@ async def test_execute_sets_cancelled_failure_reason(tmp_path: Path) -> None:
     row = _fetch_run_row(space_dir, run.spawn_id)
     assert row.status == "failed"
     assert row.error == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_execute_writes_structured_failure_artifact_for_empty_crash(tmp_path: Path) -> None:
+    run, space_dir = _create_run(tmp_path, prompt="empty crash")
+    artifacts = LocalStore(root_dir=tmp_path / ".artifacts")
+
+    script = tmp_path / "empty-crash.py"
+    _write_script(
+        script,
+        """
+        raise SystemExit(1)
+        """,
+    )
+    adapter = ScriptHarnessAdapter(command=(sys.executable, str(script)))
+    registry = HarnessRegistry()
+    registry.register(adapter)
+
+    exit_code = await execute_with_finalization(
+        run,
+        repo_root=tmp_path,
+        space_dir=space_dir,
+        artifacts=artifacts,
+        registry=registry,
+        harness_id=adapter.id,
+        cwd=tmp_path,
+        max_retries=0,
+        retry_backoff_seconds=0.0,
+    )
+
+    assert exit_code == 1
+    payload = _read_output_payload(artifacts, run.spawn_id)
+    assert payload == {
+        "error_code": "harness_empty_output",
+        "failure_reason": "empty_output",
+        "exit_code": 1,
+        "timed_out": False,
+    }

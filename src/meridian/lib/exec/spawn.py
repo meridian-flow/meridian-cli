@@ -456,6 +456,39 @@ def _append_text_to_stderr_artifact(
     artifacts.put(key, redact_secret_bytes(combined.encode("utf-8"), secrets))
 
 
+def _artifact_is_zero_bytes(
+    *,
+    artifacts: ArtifactStore,
+    spawn_id: SpawnId,
+    filename: str,
+) -> bool:
+    key = make_artifact_key(spawn_id, filename)
+    if not artifacts.exists(key):
+        return True
+    return len(artifacts.get(key)) == 0
+
+
+def _write_structured_failure_artifact(
+    *,
+    artifacts: ArtifactStore,
+    spawn_id: SpawnId,
+    output_log_path: Path,
+    exit_code: int,
+    failure_reason: str | None,
+    timed_out: bool,
+) -> None:
+    payload = {
+        "error_code": "harness_empty_output",
+        "failure_reason": failure_reason or "empty_output",
+        "exit_code": exit_code,
+        "timed_out": timed_out,
+    }
+    encoded = f"{json.dumps(payload, sort_keys=True)}\n".encode("utf-8")
+    artifacts.put(make_artifact_key(spawn_id, OUTPUT_FILENAME), encoded)
+    output_log_path.parent.mkdir(parents=True, exist_ok=True)
+    output_log_path.write_bytes(encoded)
+
+
 def _spawn_kind(space_dir: Path, spawn_id: SpawnId) -> str:
     row = spawn_store.get_spawn(space_dir, spawn_id)
     if row is None:
@@ -607,6 +640,8 @@ async def execute_with_finalization(
                 stream_stderr_to_terminal=stream_stderr_to_terminal,
             )
             exit_code = spawn_result.exit_code
+            if spawn_result.timed_out:
+                failure_reason = "timeout"
 
             if report_path.exists():
                 redacted_report = redact_secret_bytes(report_path.read_bytes(), secrets)
@@ -671,11 +706,30 @@ async def execute_with_finalization(
                     failure_reason = "missing_report"
                     break
 
-            if exit_code == 0 and extracted.output_is_empty:
-                # Successful exit with no content is unusable; fail fast so primary agents can react.
-                exit_code = 1
-                failure_reason = "empty_output"
-                break
+            if extracted.output_is_empty:
+                if exit_code == 0:
+                    # Successful exit with no content is unusable; fail fast so primary agents can react.
+                    exit_code = 1
+                    failure_reason = "empty_output"
+                    break
+
+                if _artifact_is_zero_bytes(
+                    artifacts=artifacts,
+                    spawn_id=run.spawn_id,
+                    filename=OUTPUT_FILENAME,
+                ) and _artifact_is_zero_bytes(
+                    artifacts=artifacts,
+                    spawn_id=run.spawn_id,
+                    filename=STDERR_FILENAME,
+                ):
+                    _write_structured_failure_artifact(
+                        artifacts=artifacts,
+                        spawn_id=run.spawn_id,
+                        output_log_path=output_log_path,
+                        exit_code=exit_code,
+                        failure_reason=failure_reason,
+                        timed_out=spawn_result.timed_out,
+                    )
 
             if exit_code == 0:
                 guardrail_result = run_guardrails(
