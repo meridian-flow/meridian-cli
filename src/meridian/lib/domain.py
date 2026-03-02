@@ -31,7 +31,7 @@ def _empty_mapping() -> Mapping[str, Any]:
 
 @dataclass(frozen=True, slots=True)
 class TokenUsage:
-    """Token usage measured for a run."""
+    """Token usage measured for a spawn."""
 
     input_tokens: int | None = None
     output_tokens: int | None = None
@@ -40,7 +40,7 @@ class TokenUsage:
 
 @dataclass(frozen=True, slots=True)
 class SpawnCreateParams:
-    """Input fields for creating a run record."""
+    """Input fields for creating a spawn record."""
 
     prompt: str
     model: ModelId
@@ -57,7 +57,7 @@ class SpawnFilters:
 
 @dataclass(frozen=True, slots=True)
 class SpawnEnrichment:
-    """Post-run enrichment payload."""
+    """Post-spawn enrichment payload."""
 
     usage: TokenUsage = field(default_factory=TokenUsage)
     report_path: Path | None = None
@@ -77,7 +77,7 @@ class Spawn:
 
 @dataclass(frozen=True, slots=True)
 class SpawnSummary:
-    """Compact run view for list output."""
+    """Compact spawn view for list output."""
 
     spawn_id: SpawnId
     status: SpawnStatus
@@ -200,7 +200,7 @@ class SpawnEdge:
 
 @dataclass(frozen=True, slots=True)
 class ArtifactRecord:
-    """Metadata record for one run artifact."""
+    """Metadata record for one spawn artifact."""
 
     spawn_id: SpawnId
     key: ArtifactKey

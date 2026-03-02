@@ -48,7 +48,7 @@ def _spawn_create(
     emit: Any,
     prompt: Annotated[
         str,
-        Parameter(name=["--prompt", "-p"], help="Prompt text for the run."),
+        Parameter(name=["--prompt", "-p"], help="Prompt text for the spawn."),
     ] = "",
     template_vars: Annotated[
         tuple[str, ...],
@@ -75,13 +75,13 @@ def _spawn_create(
     ] = (),
     agent: Annotated[
         str | None,
-        Parameter(name=["--agent", "-a"], help="Agent profile name to run."),
+        Parameter(name=["--agent", "-a"], help="Agent profile name to execute."),
     ] = None,
     report_path: Annotated[
         str,
         Parameter(
             name="--report-path",
-            help="Relative path for generated run report.",
+            help="Relative path for generated spawn report.",
             show=_HUMAN_ONLY,
         ),
     ] = "report.md",
@@ -91,7 +91,7 @@ def _spawn_create(
     ] = False,
     verbose: Annotated[
         bool,
-        Parameter(name="--verbose", help="Enable verbose run logging.", show=_HUMAN_ONLY),
+        Parameter(name="--verbose", help="Enable verbose spawn logging.", show=_HUMAN_ONLY),
     ] = False,
     quiet: Annotated[
         bool,
@@ -103,15 +103,17 @@ def _spawn_create(
     ] = False,
     background: Annotated[
         bool,
-        Parameter(name="--background", help="Submit run and return immediately with run ID."),
+        Parameter(
+            name="--background", help="Submit spawn and return immediately with spawn ID."
+        ),
     ] = False,
     space: Annotated[
         str | None,
-        Parameter(name=["--space-id", "--space"], help="Space id to run within."),
+        Parameter(name=["--space-id", "--space"], help="Space id to spawn within."),
     ] = None,
     timeout_secs: Annotated[
         float | None,
-        Parameter(name="--timeout-secs", help="Maximum runtime before run timeout."),
+        Parameter(name="--timeout-secs", help="Maximum runtime before spawn timeout."),
     ] = None,
     permission_tier: Annotated[
         str | None,
@@ -173,7 +175,7 @@ def _spawn_list(
     if status is not None and status.strip():
         candidate = status.strip()
         if candidate not in {"queued", "running", "succeeded", "failed", "cancelled"}:
-            raise ValueError(f"Unsupported run status '{status}'")
+            raise ValueError(f"Unsupported spawn status '{status}'")
         normalized_status = cast("SpawnStatus", candidate)
 
     result = spawn_list_sync(
@@ -194,15 +196,15 @@ def _spawn_show(
     spawn_id: str,
     report: Annotated[
         bool,
-        Parameter(name="--report", help="Include run report content in output."),
+        Parameter(name="--report", help="Include spawn report content in output."),
     ] = False,
     include_files: Annotated[
         bool,
-        Parameter(name="--include-files", help="Include run file metadata in output."),
+        Parameter(name="--include-files", help="Include spawn file metadata in output."),
     ] = False,
     space: Annotated[
         str | None,
-        Parameter(name=["--space-id", "--space"], help="Space id containing the run."),
+        Parameter(name=["--space-id", "--space"], help="Space id containing the spawn."),
     ] = None,
 ) -> None:
     emit(
@@ -259,7 +261,7 @@ def _spawn_continue(
     ] = None,
     space: Annotated[
         str | None,
-        Parameter(name=["--space-id", "--space"], help="Space id containing the source run."),
+        Parameter(name=["--space-id", "--space"], help="Space id containing the source spawn."),
     ] = None,
 ) -> None:
     emit(
@@ -281,7 +283,7 @@ def _spawn_cancel(
     spawn_id: str,
     space: Annotated[
         str | None,
-        Parameter(name=["--space-id", "--space"], help="Space id containing the run."),
+        Parameter(name=["--space-id", "--space"], help="Space id containing the spawn."),
     ] = None,
 ) -> None:
     result = spawn_cancel_sync(
@@ -315,11 +317,11 @@ def _spawn_wait(
     ] = False,
     report: Annotated[
         bool,
-        Parameter(name="--report", help="Include run report content in output."),
+        Parameter(name="--report", help="Include spawn report content in output."),
     ] = False,
     include_files: Annotated[
         bool,
-        Parameter(name="--include-files", help="Include run file metadata in output."),
+        Parameter(name="--include-files", help="Include spawn file metadata in output."),
     ] = False,
     space: Annotated[
         str | None,

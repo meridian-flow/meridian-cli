@@ -147,14 +147,14 @@ def test_run_spawn_text_emit_warns_when_report_is_missing(monkeypatch, capsys, t
     assert captured.out.strip() == ""
     assert "spawn_id=r2" in captured.err
     assert "status=failed" in captured.err
-    assert "warning: no report extracted for run 'r2'" in captured.err
+    assert "warning: no report extracted for spawn 'r2'" in captured.err
 
 
 def test_run_spawn_text_emit_truncates_failed_report(monkeypatch, capsys, tmp_path: Path) -> None:
     monkeypatch.setenv("MERIDIAN_SPACE_ID", "s1")
     monkeypatch.setattr(cli_main, "resolve_repo_root", lambda: tmp_path)
 
-    long_report = "x" * (cli_main._RUN_SPAWN_ERROR_TEXT_LIMIT + 500)
+    long_report = "x" * (cli_main._SPAWN_ERROR_TEXT_LIMIT + 500)
     report_path = tmp_path / ".meridian" / ".spaces" / "s1" / "spawns" / "r3" / "report.md"
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(long_report, encoding="utf-8")
@@ -177,14 +177,14 @@ def test_run_spawn_text_emit_truncates_failed_report(monkeypatch, capsys, tmp_pa
 
     captured = capsys.readouterr()
     report_out = captured.out.strip()
-    assert cli_main._RUN_SPAWN_ERROR_TRUNCATED_SUFFIX in report_out
-    assert len(report_out) == cli_main._RUN_SPAWN_ERROR_TEXT_LIMIT
+    assert cli_main._SPAWN_ERROR_TRUNCATED_SUFFIX in report_out
+    assert len(report_out) == cli_main._SPAWN_ERROR_TEXT_LIMIT
     assert "spawn_id=r3" in captured.err
     assert "status=failed" in captured.err
 
 
 def test_run_spawn_text_emit_truncates_failed_message_without_run_id(capsys) -> None:
-    long_message = "z" * (cli_main._RUN_SPAWN_ERROR_TEXT_LIMIT + 500)
+    long_message = "z" * (cli_main._SPAWN_ERROR_TEXT_LIMIT + 500)
     token = cli_main._GLOBAL_OPTIONS.set(cli_main.GlobalOptions(output=OutputConfig(format="text")))
     try:
         cli_main.emit(SpawnActionOutput(command="spawn.create", status="failed", message=long_message))
@@ -192,12 +192,12 @@ def test_run_spawn_text_emit_truncates_failed_message_without_run_id(capsys) -> 
         cli_main._GLOBAL_OPTIONS.reset(token)
 
     captured = capsys.readouterr()
-    assert cli_main._RUN_SPAWN_ERROR_TRUNCATED_SUFFIX in captured.out
+    assert cli_main._SPAWN_ERROR_TRUNCATED_SUFFIX in captured.out
     assert long_message not in captured.out
 
 
 def test_run_spawn_json_emit_does_not_truncate_failed_message(capsys) -> None:
-    long_message = "j" * (cli_main._RUN_SPAWN_ERROR_TEXT_LIMIT + 500)
+    long_message = "j" * (cli_main._SPAWN_ERROR_TEXT_LIMIT + 500)
     token = cli_main._GLOBAL_OPTIONS.set(cli_main.GlobalOptions(output=OutputConfig(format="json")))
     try:
         cli_main.emit(SpawnActionOutput(command="spawn.create", status="failed", message=long_message))

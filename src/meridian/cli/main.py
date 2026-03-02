@@ -37,8 +37,8 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
 logger = logging.getLogger(__name__)
-_RUN_SPAWN_ERROR_TEXT_LIMIT = 2000
-_RUN_SPAWN_ERROR_TRUNCATED_SUFFIX = "... [truncated, full output in run logs]"
+_SPAWN_ERROR_TEXT_LIMIT = 2000
+_SPAWN_ERROR_TRUNCATED_SUFFIX = "... [truncated, full output in spawn logs]"
 
 _AGENT_ROOT_HELP = """Usage: meridian COMMAND [ARGS]
 
@@ -88,7 +88,7 @@ def _spawn_spawn_metadata_line(payload: SpawnActionOutput) -> str:
     )
 
 
-def _find_run_report_file(spawn_id: str) -> Path | None:
+def _find_spawn_report_file(spawn_id: str) -> Path | None:
     try:
         repo_root = resolve_repo_root()
     except Exception:
@@ -112,33 +112,33 @@ def _find_run_report_file(spawn_id: str) -> Path | None:
     return None
 
 
-def _read_run_report_text(spawn_id: str) -> str | None:
-    report_file = _find_run_report_file(spawn_id)
+def _read_spawn_report_text(spawn_id: str) -> str | None:
+    report_file = _find_spawn_report_file(spawn_id)
     if report_file is None:
         return None
     text = report_file.read_text(encoding="utf-8", errors="ignore").strip()
     return text or None
 
 
-def _truncate_run_spawn_error_text(text: str) -> str:
+def _truncate_spawn_error_text(text: str) -> str:
     normalized = text.strip()
-    if len(normalized) <= _RUN_SPAWN_ERROR_TEXT_LIMIT:
+    if len(normalized) <= _SPAWN_ERROR_TEXT_LIMIT:
         return normalized
-    keep = max(_RUN_SPAWN_ERROR_TEXT_LIMIT - len(_RUN_SPAWN_ERROR_TRUNCATED_SUFFIX), 0)
-    return f"{normalized[:keep].rstrip()}{_RUN_SPAWN_ERROR_TRUNCATED_SUFFIX}"
+    keep = max(_SPAWN_ERROR_TEXT_LIMIT - len(_SPAWN_ERROR_TRUNCATED_SUFFIX), 0)
+    return f"{normalized[:keep].rstrip()}{_SPAWN_ERROR_TRUNCATED_SUFFIX}"
 
 
-def _truncate_run_spawn_failure_fields(payload: SpawnActionOutput) -> SpawnActionOutput:
+def _truncate_spawn_failure_fields(payload: SpawnActionOutput) -> SpawnActionOutput:
     if payload.status != "failed":
         return payload
     message = (
-        _truncate_run_spawn_error_text(payload.message) if payload.message is not None else None
+        _truncate_spawn_error_text(payload.message) if payload.message is not None else None
     )
-    error = _truncate_run_spawn_error_text(payload.error) if payload.error is not None else None
+    error = _truncate_spawn_error_text(payload.error) if payload.error is not None else None
     return replace(payload, message=message, error=error)
 
 
-def _emit_run_spawn_text(payload: SpawnActionOutput) -> None:
+def _emit_spawn_text(payload: SpawnActionOutput) -> None:
     print(_spawn_spawn_metadata_line(payload), file=sys.stderr)
     if payload.warning:
         print(f"warning: {payload.warning}", file=sys.stderr)
@@ -148,13 +148,13 @@ def _emit_run_spawn_text(payload: SpawnActionOutput) -> None:
         return
 
     if payload.spawn_id is None:
-        # No stable run ID to resolve report from (e.g. preflight failure); defer to default emit.
+        # No stable spawn ID to resolve report from (e.g. preflight failure); defer to default emit.
         emit_output(payload, OutputConfig(format="text"))
         return
 
-    report_text = _read_run_report_text(payload.spawn_id)
+    report_text = _read_spawn_report_text(payload.spawn_id)
     if report_text is None:
-        print(f"warning: no report extracted for run '{payload.spawn_id}'", file=sys.stderr)
+        print(f"warning: no report extracted for spawn '{payload.spawn_id}'", file=sys.stderr)
         if payload.status == "failed":
             fallback_parts = []
             if payload.message is not None and payload.message.strip():
@@ -162,10 +162,10 @@ def _emit_run_spawn_text(payload: SpawnActionOutput) -> None:
             if payload.error is not None and payload.error.strip():
                 fallback_parts.append(f"error={payload.error.strip()}")
             if fallback_parts:
-                print(_truncate_run_spawn_error_text("  ".join(fallback_parts)), file=sys.stderr)
+                print(_truncate_spawn_error_text("  ".join(fallback_parts)), file=sys.stderr)
         return
     if payload.status == "failed":
-        report_text = _truncate_run_spawn_error_text(report_text)
+        report_text = _truncate_spawn_error_text(report_text)
     print(report_text)
 
 
@@ -179,9 +179,9 @@ def emit(payload: object) -> None:
         and payload.status != "dry-run"
     ):
         if payload.spawn_id is not None:
-            _emit_run_spawn_text(payload)
+            _emit_spawn_text(payload)
         else:
-            emit_output(_truncate_run_spawn_failure_fields(payload), OutputConfig(format="text"))
+            emit_output(_truncate_spawn_failure_fields(payload), OutputConfig(format="text"))
         return
     emit_output(payload, options.output)
 
@@ -488,9 +488,9 @@ def start(
         float | None,
         Parameter(name="--timeout-secs", help="Maximum session time before timeout."),
     ] = None,
-    budget_per_run_usd: Annotated[
+    budget_per_spawn_usd: Annotated[
         float | None,
-        Parameter(name="--budget-per-run-usd", help="Per-run budget cap in USD."),
+        Parameter(name="--budget-per-spawn-usd", help="Per-spawn budget cap in USD."),
     ] = None,
     budget_per_space_usd: Annotated[
         float | None,
@@ -563,7 +563,7 @@ def start(
             permission_tier=permission_tier,
             unsafe=unsafe,
             timeout_secs=timeout_secs,
-            budget_per_run_usd=budget_per_run_usd,
+            budget_per_run_usd=budget_per_spawn_usd,
             budget_per_space_usd=budget_per_space_usd,
             guardrails=guardrails,
             secrets=secrets,

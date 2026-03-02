@@ -233,7 +233,7 @@ def test_dx3_help_uses_descriptions_and_hides_empty_flags(
 
     assert result.returncode == 0
     assert "--empty-" not in result.stdout
-    assert "Prompt text for the run." in result.stdout
+    assert "Prompt text for the spawn." in result.stdout
     assert "--skills" not in result.stdout
     assert ": [default:" not in result.stdout
 
@@ -250,7 +250,7 @@ def test_dx5_timeout_error_returns_exit_code_124(monkeypatch, capsys) -> None:
     monkeypatch.setattr(cli_main, "resolve_all_spaces_dir", lambda repo_root: Path.cwd() / ".missing")
 
     def _raise_timeout(_: list[str]) -> None:
-        raise TimeoutError("Timed out waiting for run 'r-timeout'")
+        raise TimeoutError("Timed out waiting for spawn 'r-timeout'")
 
     monkeypatch.setattr(cli_main, "app", _raise_timeout)
 
@@ -259,5 +259,5 @@ def test_dx5_timeout_error_returns_exit_code_124(monkeypatch, capsys) -> None:
 
     assert int(exc_info.value.code) == 124
     stderr = capsys.readouterr().err
-    assert "Timed out waiting for run 'r-timeout'" in stderr
+    assert "Timed out waiting for spawn 'r-timeout'" in stderr
     assert "Traceback" not in stderr
