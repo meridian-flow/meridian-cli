@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import signal
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -32,6 +34,7 @@ from ._spawn_execute import (
 )
 from ._spawn_models import (
     SpawnActionOutput,
+    SpawnCancelInput,
     SpawnContinueInput,
     SpawnCreateInput,
     SpawnDetailOutput,
@@ -219,6 +222,65 @@ def spawn_show_sync(payload: SpawnShowInput) -> SpawnDetailOutput:
 
 async def spawn_show(payload: SpawnShowInput) -> SpawnDetailOutput:
     return await asyncio.to_thread(spawn_show_sync, payload)
+
+
+def _read_background_pid(space_dir: Path, spawn_id: str) -> int:
+    pid_path = space_dir / "spawns" / spawn_id / "background.pid"
+    if not pid_path.is_file():
+        raise ValueError(f"Spawn '{spawn_id}' has no background worker PID.")
+    try:
+        pid = int(pid_path.read_text(encoding="utf-8").strip())
+    except ValueError as exc:
+        raise ValueError(f"Spawn '{spawn_id}' has invalid background PID.") from exc
+    if pid <= 0:
+        raise ValueError(f"Spawn '{spawn_id}' has invalid background PID.")
+    return pid
+
+
+def spawn_cancel_sync(payload: SpawnCancelInput) -> SpawnActionOutput:
+    repo_root, _ = resolve_runtime_root_and_config(payload.repo_root)
+    resolved_space = _non_empty_space(payload.space)
+    spawn_id = resolve_spawn_reference(repo_root, payload.spawn_id, resolved_space)
+    current_space_id, space_dir = _resolve_space_dir(repo_root, resolved_space)
+    row = _read_spawn_row(repo_root, spawn_id, current_space_id)
+    if row is None:
+        raise ValueError(f"Spawn '{spawn_id}' not found")
+
+    if _spawn_is_terminal(row.status):
+        return SpawnActionOutput(
+            command="spawn.cancel",
+            status=row.status,
+            spawn_id=spawn_id,
+            message=f"Spawn '{spawn_id}' is already {row.status}.",
+            model=row.model,
+            harness_id=row.harness,
+        )
+
+    pid = _read_background_pid(space_dir, spawn_id)
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+
+    spawn_store.finalize_spawn(
+        space_dir,
+        spawn_id,
+        status="cancelled",
+        exit_code=130,
+        error="cancelled",
+    )
+    return SpawnActionOutput(
+        command="spawn.cancel",
+        status="cancelled",
+        spawn_id=spawn_id,
+        message="Spawn cancelled.",
+        model=row.model,
+        harness_id=row.harness,
+    )
+
+
+async def spawn_cancel(payload: SpawnCancelInput) -> SpawnActionOutput:
+    return await asyncio.to_thread(spawn_cancel_sync, payload)
 
 
 def _spawn_is_terminal(status: str) -> bool:
@@ -437,6 +499,20 @@ operation(
         cli_name="show",
         mcp_name="spawn_show",
         description="Show spawn details.",
+    )
+)
+
+operation(
+    OperationSpec[SpawnCancelInput, SpawnActionOutput](
+        name="spawn.cancel",
+        handler=spawn_cancel,
+        sync_handler=spawn_cancel_sync,
+        input_type=SpawnCancelInput,
+        output_type=SpawnActionOutput,
+        cli_group="spawn",
+        cli_name="cancel",
+        mcp_name="spawn_cancel",
+        description="Cancel a running spawn.",
     )
 )
 

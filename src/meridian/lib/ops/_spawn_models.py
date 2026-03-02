@@ -184,6 +184,13 @@ class SpawnShowInput:
 
 
 @dataclass(frozen=True, slots=True)
+class SpawnCancelInput:
+    spawn_id: str
+    space: str | None = None
+    repo_root: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class SpawnDetailOutput:
     spawn_id: str
     status: str

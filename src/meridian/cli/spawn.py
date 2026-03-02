@@ -13,6 +13,7 @@ from meridian.lib.domain import SpawnStatus
 from meridian.lib.ops.registry import get_all_operations
 from meridian.lib.ops.spawn import (
     SpawnActionOutput,
+    SpawnCancelInput,
     SpawnContinueInput,
     SpawnCreateInput,
     SpawnListInput,
@@ -21,6 +22,7 @@ from meridian.lib.ops.spawn import (
     SpawnWaitInput,
     spawn_continue_sync,
     spawn_create_sync,
+    spawn_cancel_sync,
     spawn_list_sync,
     spawn_show_sync,
     spawn_stats_sync,
@@ -274,6 +276,25 @@ def _spawn_continue(
     )
 
 
+def _spawn_cancel(
+    emit: Any,
+    spawn_id: str,
+    space: Annotated[
+        str | None,
+        Parameter(name=["--space-id", "--space"], help="Space id containing the run."),
+    ] = None,
+) -> None:
+    result = spawn_cancel_sync(
+        SpawnCancelInput(
+            spawn_id=spawn_id,
+            space=space,
+        )
+    )
+    emit(result)
+    if result.status == "failed":
+        raise SystemExit(1)
+
+
 def _spawn_wait(
     emit: Any,
     spawn_ids: Annotated[
@@ -319,6 +340,7 @@ def register_spawn_commands(app: App, emit: Emitter) -> tuple[set[str], dict[str
         "spawn.list": lambda: partial(_spawn_list, emit),
         "spawn.stats": lambda: partial(_spawn_stats, emit),
         "spawn.show": lambda: partial(_spawn_show, emit),
+        "spawn.cancel": lambda: partial(_spawn_cancel, emit),
         "spawn.continue": lambda: partial(_spawn_continue, emit),
         "spawn.wait": lambda: partial(_spawn_wait, emit),
     }

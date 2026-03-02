@@ -57,6 +57,7 @@ async def test_mcp_tools_registered_and_callable(package_root, cli_env, tmp_path
         expected = {
             "spawn_create",
             "spawn_continue",
+            "spawn_cancel",
             "spawn_list",
             "spawn_show",
             "spawn_stats",
