@@ -1,6 +1,10 @@
 # Spaces
 
-Spaces are the top-level coordination unit. A space owns run history, harness-session history, and a shared `fs/` working tree.
+Spaces are the top-level coordination unit. A space owns spawn history (currently stored as `run` records), harness-session history, and a shared `fs/` working tree.
+
+Developer note:
+- Canonical domain term is `spawn` (see [Developer Terminology](developer-terminology.md)).
+- Current filenames and commands may still use `run` during migration.
 
 ## Lifecycle
 
@@ -35,36 +39,38 @@ meridian start [--new] [--space sN]
   .spaces/
     <space-id>/
       space.json            # space metadata (id/name/status/timestamps)
-      runs.jsonl            # append-only run start/finalize events
+      spawns.jsonl            # append-only run start/finalize events
       sessions.jsonl        # append-only harness launch/stop/update events
-      runs/
+      spawns/
         <run-id>/
           output.jsonl
           stderr.log
           report.md
       sessions/
-        <chat-id>.lock      # live session lock while harness process runs
+        <chat-id>.lock      # live session lock while harness process spawns
       fs/
         space-summary.md    # generated summary artifact
 ```
 
 - No SQLite authority.
 - Space metadata lives in `space.json`.
-- Run state is derived from `runs.jsonl`.
+- Spawn state is derived from `spawns.jsonl`.
 - Session recording is derived from `sessions.jsonl`.
 - State writes use lock files and atomic tmp+rename.
 
 ## Environment and Scoping
 
-`MERIDIAN_SPACE_ID` scopes run commands to one space.
+`MERIDIAN_SPACE_ID` scopes run/spawn commands to one space.
 
 ```bash
 export MERIDIAN_SPACE_ID=s12
-meridian run spawn -p "Implement the parser"
-meridian run list
+meridian spawn spawn -p "Implement the parser"
+meridian spawn list
 ```
 
-If `MERIDIAN_SPACE_ID` is unset, `meridian run spawn` auto-creates a new space and returns a warning with the new `sN` ID.
+Current behavior: if `MERIDIAN_SPACE_ID` is unset, `meridian spawn spawn` auto-creates a new space and returns a warning with the new `sN` ID.
+
+Target behavior: spawn creation requires explicit space context (`MERIDIAN_SPACE_ID` or `--space`), with no auto-create fallback.
 
 ## Locking
 

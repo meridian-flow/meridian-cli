@@ -124,6 +124,9 @@ Writes use lock files plus atomic tmp+rename semantics in the state layer.
 ## Docs
 
 - [CLI Reference](docs/cli-reference.md)
+- [Developer Terminology (Spawn vs Run)](docs/developer-terminology.md)
+- [Agent CLI Spec (Target)](_docs/cli-spec-agent.md)
+- [Human CLI Spec (Target)](_docs/cli-spec-human.md)
 - [Spaces](docs/spaces.md)
 - [Configuration](docs/configuration.md)
 - [Safety](docs/safety.md)

@@ -1,6 +1,10 @@
 # Harness Adapters
 
-Meridian routes runs to harness adapters instead of calling model APIs directly in normal CLI flow.
+Meridian routes spawns to harness adapters instead of calling model APIs directly in normal CLI flow.
+
+Developer note:
+- Canonical domain term is `spawn` (see [Developer Terminology](developer-terminology.md)).
+- This document uses some current `run` wording where it mirrors present code/CLI names.
 
 ## Routing
 
@@ -56,7 +60,7 @@ Otherwise Meridian composes the prompt and passes it via `--system-prompt`.
 
 ## Session Continuation Fields
 
-For run continuation, Meridian resolves and passes harness session context as:
+For spawn continuation (currently `run continue`), Meridian resolves and passes harness session context as:
 
 - `continue_harness_session_id`
 - `continue_fork`
@@ -71,4 +75,4 @@ On `experimental.session.compacting`, it reads `.meridian/.spaces/<space-id>/ses
 
 ## Direct Adapter
 
-A `DirectAdapter` (Anthropic Messages API tool-calling) exists in the harness registry for programmatic use, but standard `meridian run spawn` routing uses CLI harnesses (`claude`, `codex`, `opencode`).
+A `DirectAdapter` (Anthropic Messages API tool-calling) exists in the harness registry for programmatic use, but standard spawn routing (currently `meridian spawn spawn`) uses CLI harnesses (`claude`, `codex`, `opencode`).

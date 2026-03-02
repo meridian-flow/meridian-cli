@@ -2,6 +2,22 @@
 
 `meridian serve` exposes Meridian operations as FastMCP tools over stdio.
 
+Developer note:
+- Canonical domain term is `spawn` (see [Developer Terminology](developer-terminology.md)).
+- Current MCP tool names still use `run_*` until migration is complete.
+- Keep docs/tests explicit about whether they describe current or target names.
+
+## Migration Naming Map (Target)
+
+| Current | Target |
+|---|---|
+| `spawn_create` | `spawn_create` |
+| `spawn_list` | `spawn_list` |
+| `spawn_show` | `spawn_show` |
+| `spawn_continue` | `spawn_continue` |
+| `spawn_wait` | `spawn_wait` |
+| `spawn_stats` | `spawn_stats` |
+
 ## Start Server
 
 ```bash
@@ -25,17 +41,23 @@ Minimal MCP config:
 
 From the operation registry, MCP exposes:
 
-- `run_spawn`, `run_list`, `run_show`, `run_continue`, `run_wait`, `run_stats`
+- `spawn_create`, `spawn_list`, `spawn_show`, `spawn_continue`, `spawn_wait`, `spawn_stats`
 - `models_list`, `models_show`
 - `skills_list`, `skills_show`
 - `doctor`
 - `grep`
 
+Target state after migration:
+- `spawn_create`, `spawn_list`, `spawn_show`, `spawn_continue`, `spawn_wait`, `spawn_stats`
+- `models_list`, `models_show`
+- `skills_list`, `skills_show`
+- `doctor`
+
 Not MCP-exposed (CLI-only): `space_*`, `config_*`, `skills_search`.
 
-## Run Tools
+## Spawn Tools
 
-### `run_spawn`
+### `spawn_create`
 
 Create and start a run.
 
@@ -43,27 +65,22 @@ Create and start a run.
 {
   "prompt": "Refactor auth flow",
   "model": "gpt-5.3-codex",
-  "skills": ["scratchpad"],
   "files": ["docs/spec.md"],
   "template_vars": ["TARGET=auth"],
   "agent": "coder",
   "report_path": "report.md",
   "background": true,
   "space": "s12",
-  "permission_tier": "workspace-write",
-  "budget_per_run_usd": 5.0,
-  "budget_per_space_usd": 20.0,
-  "guardrails": ["./checks/lint.sh"],
-  "secrets": ["API_KEY=sk-..."]
+  "permission_tier": "workspace-write"
 }
 ```
 
 Notes:
 
 - Default is blocking execution.
-- Set `background: true` for non-blocking behavior, then call `run_wait`/`run_show`.
+- Set `background: true` for non-blocking behavior, then call `spawn_wait`/`spawn_show`.
 
-### `run_list`
+### `spawn_list`
 
 ```json
 {
@@ -76,21 +93,21 @@ Notes:
 }
 ```
 
-### `run_show`
+### `spawn_show`
 
 ```json
 {
-  "run_id": "r7",
+  "spawn_id": "r7",
   "report": true,
   "include_files": true
 }
 ```
 
-### `run_continue`
+### `spawn_continue`
 
 ```json
 {
-  "run_id": "r7",
+  "spawn_id": "r7",
   "prompt": "Also update tests",
   "model": "claude-opus-4-6",
   "fork": true
@@ -99,20 +116,20 @@ Notes:
 
 Uses `continue_harness_session_id` internally from the source run.
 
-### `run_wait`
+### `spawn_wait`
 
 ```json
 {
-  "run_ids": ["r7", "r8"],
+  "spawn_ids": ["r7", "r8"],
   "timeout_secs": 300,
   "report": true,
   "include_files": false
 }
 ```
 
-Compatibility alias accepted: `run_id` (single string).
+Compatibility alias accepted: `spawn_id` (single string).
 
-### `run_stats`
+### `spawn_stats`
 
 ```json
 {
@@ -127,18 +144,18 @@ Compatibility alias accepted: `run_id` (single string).
 
 ### `grep`
 
-Searches state files (`output`, `logs`, `runs`, `sessions`) across spaces.
+Searches state files (`output`, `logs`, `spawns`, `sessions`) across spaces.
 
 ```json
 {
   "pattern": "orphan_run",
   "space_id": "s12",
-  "run_id": "r7",
+  "spawn_id": "r7",
   "file_type": "logs"
 }
 ```
 
-`run_id` requires `space_id`.
+`spawn_id` requires `space_id`.
 
 ## Models and Skills
 

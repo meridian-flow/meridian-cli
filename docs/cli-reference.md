@@ -2,6 +2,22 @@
 
 This page tracks the current CLI surface from `meridian --help`.
 
+Developer note:
+- Canonical domain term is `spawn` (see [Developer Terminology](developer-terminology.md)).
+- Current commands still use `run` names until migration is complete.
+- Use this file for current behavior; use the terminology doc for target naming rules.
+
+## Migration Naming Map (Target)
+
+| Current | Target |
+|---|---|
+| `meridian spawn spawn` | `meridian spawn` |
+| `meridian spawn list` | `meridian spawn list` |
+| `meridian spawn show` | `meridian spawn show` |
+| `meridian spawn continue` | `meridian spawn continue` |
+| `meridian spawn wait` | `meridian spawn wait` |
+| `meridian spawn stats` | `meridian spawn stats` |
+
 ## Global Options
 
 Use before subcommands:
@@ -22,16 +38,16 @@ Use before subcommands:
 completion  config  doctor  grep  init  models  run  serve  skills  space  start
 ```
 
-## `meridian run`
+## `meridian spawn`
 
 ### `run spawn`
 
 Create and start a run.
 
 ```bash
-meridian run spawn -p "Implement feature" -m gpt-5.3-codex
-meridian run spawn --background -p "Long task" -m opus
-meridian run spawn --dry-run -p "Plan only"
+meridian spawn spawn -p "Implement feature" -m gpt-5.3-codex
+meridian spawn spawn --background -p "Long task" -m opus
+meridian spawn spawn --dry-run -p "Plan only"
 ```
 
 Common flags:
@@ -41,7 +57,6 @@ Common flags:
 | `--prompt, -p` | Prompt text |
 | `--prompt-var` | Repeatable `KEY=VALUE` prompt template vars (replaces `{{KEY}}`) |
 | `--model, -m` | Model id or alias |
-| `--skills, -s` | Repeatable skill names |
 | `--file, -f` | Repeatable reference files |
 | `--agent, -a` | Agent profile name |
 | `--report-path` | Relative report path (default `report.md`) |
@@ -53,14 +68,15 @@ Common flags:
 
 Notes:
 
-- `meridian run -p "..."` is shorthand for `meridian run spawn -p "..."`.
-- If no space is selected, spawn auto-creates one and warns with the new `sN`.
+- `meridian spawn -p "..."` is shorthand for `meridian spawn spawn -p "..."`.
+- Current behavior: if no space is selected, `run spawn` auto-creates a space and warns with the new `sN`.
+- Target behavior: `spawn` requires explicit space context (`MERIDIAN_SPACE_ID` or `--space`), with no auto-create fallback.
 
 ### `run list`
 
 ```bash
-meridian run list
-meridian run list --space s12 --status failed
+meridian spawn list
+meridian spawn list --space s12 --status failed
 ```
 
 Flags: `--space-id/--space`, `--status`, `--model`, `--limit`, `--no-space`, `--failed`.
@@ -68,8 +84,8 @@ Flags: `--space-id/--space`, `--status`, `--model`, `--limit`, `--no-space`, `--
 ### `run show`
 
 ```bash
-meridian run show r7
-meridian run show r7 --report --include-files
+meridian spawn show r7
+meridian spawn show r7 --report --include-files
 ```
 
 Flags: `--report`, `--include-files`.
@@ -77,8 +93,8 @@ Flags: `--report`, `--include-files`.
 ### `run continue`
 
 ```bash
-meridian run continue r7 -p "Add tests"
-meridian run continue r7 -p "Try alternative" --fork
+meridian spawn continue r7 -p "Add tests"
+meridian spawn continue r7 -p "Try alternative" --fork
 ```
 
 Flags: `--prompt/-p` (required), `--model/-m`, `--fork`, `--timeout-secs`.
@@ -86,8 +102,8 @@ Flags: `--prompt/-p` (required), `--model/-m`, `--fork`, `--timeout-secs`.
 ### `run wait`
 
 ```bash
-meridian run wait r7
-meridian run wait r7 r8 --report
+meridian spawn wait r7
+meridian spawn wait r7 r8 --report
 ```
 
 Flags: `--timeout-secs`, `--report`, `--include-files`.
@@ -95,8 +111,8 @@ Flags: `--timeout-secs`, `--report`, `--include-files`.
 ### `run stats`
 
 ```bash
-meridian run stats
-meridian run stats --space s12 --session c4
+meridian spawn stats
+meridian spawn stats --space s12 --session c4
 ```
 
 Flags: `--space-id/--space`, `--session`.
@@ -147,7 +163,7 @@ Search Meridian state files.
 
 ```bash
 meridian grep "orphan_run"
-meridian grep "failed" --space s12 --type runs
+meridian grep "failed" --space s12 --type spawns
 meridian grep "timeout" --space s12 --run r7 --type logs
 ```
 
@@ -155,7 +171,7 @@ Flags:
 
 - `--space`: one space
 - `--run`: one run (requires `--space`)
-- `--type`: `output`, `logs`, `runs`, `sessions`
+- `--type`: `output`, `logs`, `spawns`, `sessions`
 
 ## `meridian config`
 

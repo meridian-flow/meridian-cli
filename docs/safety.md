@@ -8,12 +8,16 @@ Meridian safety layers:
 4. Secret redaction (execution-layer capability)
 5. Depth limiting
 
+Developer note:
+- Canonical domain term is `spawn` (see [Developer Terminology](developer-terminology.md)).
+- Command examples below use current CLI paths (`meridian spawn ...`) until migration completes.
+
 ## Permission Tiers
 
 ```bash
-meridian run spawn -p "Read code" --permission read-only
-meridian run spawn -p "Edit files" --permission workspace-write
-meridian run spawn -p "Run broadly" --permission full-access
+meridian spawn spawn -p "Read code" --permission read-only
+meridian spawn spawn -p "Edit files" --permission workspace-write
+meridian spawn spawn -p "Spawn broadly" --permission full-access
 ```
 
 | Tier | Intent | Claude | Codex |
@@ -59,19 +63,21 @@ Secret values are injected as `MERIDIAN_SECRET_<KEY>` and redacted in persisted 
 
 Redaction applies to:
 
-- `runs/<run-id>/output.jsonl`
-- `runs/<run-id>/stderr.log`
-- `runs/<run-id>/report.md`
+- `spawns/<run-id>/output.jsonl`
+- `spawns/<run-id>/stderr.log`
+- `spawns/<run-id>/report.md`
 
 Guardrail scripts do not receive `MERIDIAN_SECRET_*` values.
 
 ## Depth Limiting
 
 ```text
-MERIDIAN_DEPTH=0 -> meridian run spawn (child depth 1)
-  -> MERIDIAN_DEPTH=1 -> meridian run spawn (child depth 2)
-  -> MERIDIAN_DEPTH=2 -> meridian run spawn (child depth 3)
+MERIDIAN_DEPTH=0 -> meridian spawn spawn (child depth 1)
+  -> MERIDIAN_DEPTH=1 -> meridian spawn spawn (child depth 2)
+  -> MERIDIAN_DEPTH=2 -> meridian spawn spawn (child depth 3)
   -> MERIDIAN_DEPTH=3 -> refused (max depth reached)
 ```
+
+Target naming after migration: `meridian spawn` replaces `meridian spawn spawn`.
 
 `MERIDIAN_MAX_DEPTH` controls the ceiling (default `3`).

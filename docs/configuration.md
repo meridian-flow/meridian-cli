@@ -2,6 +2,10 @@
 
 Meridian works without config files, but you can override defaults in `.meridian/config.toml`.
 
+Developer note:
+- Canonical domain term is `spawn` (see [Developer Terminology](developer-terminology.md)).
+- This page includes current `run` names where they reflect active config keys or env vars.
+
 ## Quick Start
 
 ```bash
@@ -26,13 +30,13 @@ meridian config reset defaults.max_retries
     .spaces/
       <space-id>/
         space.json
-        runs.jsonl
+        spawns.jsonl
         sessions.jsonl
-        runs/<run-id>/
+        spawns/<run-id>/
         fs/
 ```
 
-File state under `.meridian/.spaces/*` is authoritative for spaces/runs/sessions.
+File state under `.meridian/.spaces/*` is authoritative for spaces/spawns/sessions.
 
 ## `config.toml` Keys
 
@@ -103,7 +107,7 @@ cost_tier = "$$"
 | `MERIDIAN_REPO_ROOT` | Force repo root resolution |
 | `MERIDIAN_CONFIG` | User config overlay path |
 | `MERIDIAN_STATE_ROOT` | Override state root (default `.meridian`) |
-| `MERIDIAN_SPACE_ID` | Default space scope for run operations |
+| `MERIDIAN_SPACE_ID` | Default space scope for run/spawn operations |
 | `MERIDIAN_CHAT_ID` | Current chat/session id in nested execution |
 | `MERIDIAN_DEPTH` | Current nesting depth |
 | `MERIDIAN_MAX_DEPTH` | Max nesting depth override |
@@ -124,7 +128,7 @@ cost_tier = "$$"
 
 | Variable | Purpose |
 |---|---|
-| `MERIDIAN_GUARDRAIL_RUN_ID` | Run id passed to guardrail scripts |
+| `MERIDIAN_GUARDRAIL_RUN_ID` | Spawn id passed to guardrail scripts |
 | `MERIDIAN_GUARDRAIL_OUTPUT_LOG` | Path to `output.jsonl` |
 | `MERIDIAN_GUARDRAIL_REPORT_PATH` | Path to `report.md` |
 | `MERIDIAN_SECRET_<KEY>` | Secret injection/redaction channel |
