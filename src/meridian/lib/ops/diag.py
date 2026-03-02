@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -89,6 +90,25 @@ def _repair_stale_session_locks(repo_root: Path) -> int:
 
 
 def _repair_orphan_runs(repo_root: Path) -> int:
+    def _background_pid(space_dir: Path, run_id: str) -> int | None:
+        pid_path = space_dir / "spawns" / run_id / "background.pid"
+        if not pid_path.is_file():
+            return None
+        try:
+            value = int(pid_path.read_text(encoding="utf-8").strip())
+        except ValueError:
+            return None
+        return value if value > 0 else None
+
+    def _pid_is_alive(pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+
     repaired = 0
     for space_dir in _space_dirs(repo_root):
         record = space_file.get_space(repo_root, space_dir.name)
@@ -98,6 +118,9 @@ def _repair_orphan_runs(repo_root: Path) -> int:
         active_sessions = set(list_active_sessions(space_dir))
         for run in spawn_store.list_spawns(space_dir):
             if run.status != "running":
+                continue
+            pid = _background_pid(space_dir, run.id)
+            if pid is not None and _pid_is_alive(pid):
                 continue
             if run.chat_id is not None and run.chat_id in active_sessions:
                 continue
@@ -139,7 +162,6 @@ def doctor_sync(payload: DoctorInput) -> DoctorOutput:
     # Skip destructive repairs when running as a subagent (MERIDIAN_SPACE_ID set).
     # Subagents should never mark their parent's concurrent spawns as failed
     # or close the parent space.
-    import os
     if not os.environ.get("MERIDIAN_SPACE_ID"):
         orphan_runs = _repair_orphan_runs(runtime.repo_root)
         if orphan_runs > 0:

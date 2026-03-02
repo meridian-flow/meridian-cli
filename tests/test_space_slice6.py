@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib
 import json
 import shlex
+import subprocess
 import sys
 from pathlib import Path
 
@@ -282,6 +283,70 @@ def test_doctor_rebuilds_stale_state_and_orphan_runs(
     refreshed_space = get_space(tmp_path, created.id)
     assert refreshed_space is not None
     assert refreshed_space.status == "closed"
+
+
+def test_doctor_marks_running_spawn_orphan_when_background_pid_is_dead(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("MERIDIAN_SPACE_ID", raising=False)
+    created = create_space(tmp_path, name="dead-pid")
+    space_dir = resolve_space_dir(tmp_path, created.id)
+    spawn_id = spawn_store.start_spawn(
+        space_dir,
+        chat_id="c1",
+        model="gpt-5.3-codex",
+        agent="coder",
+        harness="codex",
+        prompt="repair",
+    )
+
+    pid_path = space_dir / "spawns" / str(spawn_id) / "background.pid"
+    pid_path.parent.mkdir(parents=True, exist_ok=True)
+    pid_path.write_text("999999\n", encoding="utf-8")
+
+    repaired = doctor_sync(DoctorInput(repo_root=tmp_path.as_posix()))
+    assert "orphan_runs" in repaired.repaired
+
+    row = spawn_store.get_spawn(space_dir, spawn_id)
+    assert row is not None
+    assert row.status == "failed"
+    assert row.error == "orphan_run"
+
+
+def test_doctor_keeps_running_spawn_when_background_pid_is_alive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("MERIDIAN_SPACE_ID", raising=False)
+    created = create_space(tmp_path, name="live-pid")
+    space_dir = resolve_space_dir(tmp_path, created.id)
+    spawn_id = spawn_store.start_spawn(
+        space_dir,
+        chat_id="c1",
+        model="gpt-5.3-codex",
+        agent="coder",
+        harness="codex",
+        prompt="repair",
+    )
+
+    process = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(30)"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        pid_path = space_dir / "spawns" / str(spawn_id) / "background.pid"
+        pid_path.parent.mkdir(parents=True, exist_ok=True)
+        pid_path.write_text(f"{process.pid}\n", encoding="utf-8")
+
+        repaired = doctor_sync(DoctorInput(repo_root=tmp_path.as_posix()))
+        assert "orphan_runs" not in repaired.repaired
+
+        row = spawn_store.get_spawn(space_dir, spawn_id)
+        assert row is not None
+        assert row.status == "running"
+    finally:
+        process.terminate()
+        process.wait(timeout=5)
 
 
 def test_start_command_launches_and_forwards_options(
