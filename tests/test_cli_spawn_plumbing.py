@@ -227,3 +227,17 @@ def test_spawn_wait_passes_report_flag(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert captured["payload"].report is True
     assert emitted[0].spawn_id == "r1"
+
+
+def test_spawn_wait_passes_verbosity_flags(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, SpawnWaitInput] = {}
+
+    def fake_spawn_wait_sync(payload: SpawnWaitInput) -> SpawnWaitMultiOutput:
+        captured["payload"] = payload
+        return _wait_output(_detail("r1"))
+
+    monkeypatch.setattr(run_cli, "spawn_wait_sync", fake_spawn_wait_sync)
+    run_cli._spawn_wait(lambda _: None, spawn_ids=("r1",), verbose=True, quiet=True)
+
+    assert captured["payload"].verbose is True
+    assert captured["payload"].quiet is True

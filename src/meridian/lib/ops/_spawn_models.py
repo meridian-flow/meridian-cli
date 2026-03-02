@@ -265,6 +265,8 @@ class SpawnWaitInput:
     spawn_id: str | None = None
     timeout_secs: float | None = None
     poll_interval_secs: float | None = None
+    verbose: bool = False
+    quiet: bool = False
     report: bool = False
     include_files: bool = False
     space: str | None = None

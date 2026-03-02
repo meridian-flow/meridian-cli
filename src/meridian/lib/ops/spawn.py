@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import signal
+import sys
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -55,6 +56,8 @@ from ._spawn_query import (
     resolve_spawn_reference,
     resolve_spawn_references,
 )
+
+_WAIT_HEARTBEAT_INTERVAL_SECS = 5.0
 
 
 def _resolve_space_dir(repo_root: Path, space: str | None = None) -> tuple[str, Path]:
@@ -337,6 +340,34 @@ def _build_wait_multi_output(results: tuple[SpawnDetailOutput, ...]) -> SpawnWai
     )
 
 
+def _resolve_wait_heartbeat_mode(*, verbose: bool, quiet: bool, config_verbosity: str | None) -> str:
+    if quiet:
+        return "quiet"
+    if verbose:
+        return "verbose"
+    preset = (config_verbosity or "").strip().lower()
+    if preset in {"quiet", "verbose", "debug"}:
+        return preset
+    return "normal"
+
+
+def _render_wait_heartbeat(pending: set[str], *, elapsed_secs: float, mode: str) -> str | None:
+    if not pending or mode == "quiet":
+        return None
+    pending_count = len(pending)
+    if mode in {"verbose", "debug"}:
+        ordered = sorted(pending)
+        preview = ", ".join(ordered[:5])
+        if len(ordered) > 5:
+            preview = f"{preview}, +{len(ordered) - 5} more"
+        return f"waiting {elapsed_secs:.1f}s; pending spawns ({pending_count}): {preview}"
+    return f"waiting for {pending_count} spawn(s) to finish..."
+
+
+def _emit_wait_heartbeat(message: str) -> None:
+    print(message, file=sys.stderr, flush=True)
+
+
 def spawn_wait_sync(payload: SpawnWaitInput) -> SpawnWaitMultiOutput:
     repo_root, config = resolve_runtime_root_and_config(payload.repo_root)
     resolved_space = _non_empty_space(payload.space)
@@ -344,7 +375,8 @@ def spawn_wait_sync(payload: SpawnWaitInput) -> SpawnWaitMultiOutput:
     timeout_secs = (
         payload.timeout_secs if payload.timeout_secs is not None else config.wait_timeout_seconds
     )
-    deadline = time.monotonic() + max(timeout_secs, 0.0)
+    started = time.monotonic()
+    deadline = started + max(timeout_secs, 0.0)
     poll = (
         payload.poll_interval_secs
         if payload.poll_interval_secs is not None
@@ -355,6 +387,13 @@ def spawn_wait_sync(payload: SpawnWaitInput) -> SpawnWaitMultiOutput:
 
     completed_rows: dict[str, spawn_store.SpawnRecord] = {}
     pending: set[str] = set(spawn_ids)
+    heartbeat_mode = _resolve_wait_heartbeat_mode(
+        verbose=payload.verbose,
+        quiet=payload.quiet,
+        config_verbosity=getattr(getattr(config, "output", None), "verbosity", None),
+    )
+    heartbeat_interval = max(_WAIT_HEARTBEAT_INTERVAL_SECS, poll)
+    next_heartbeat = started + heartbeat_interval
 
     while True:
         for spawn_id in tuple(pending):
@@ -379,9 +418,19 @@ def spawn_wait_sync(payload: SpawnWaitInput) -> SpawnWaitMultiOutput:
             )
             return _build_wait_multi_output(details)
 
-        if time.monotonic() >= deadline:
+        now = time.monotonic()
+        if now >= deadline:
             timed_out = "', '".join(sorted(pending))
             raise TimeoutError(f"Timed out waiting for spawn(s) '{timed_out}'")
+        if now >= next_heartbeat:
+            heartbeat = _render_wait_heartbeat(
+                pending,
+                elapsed_secs=max(now - started, 0.0),
+                mode=heartbeat_mode,
+            )
+            if heartbeat is not None:
+                _emit_wait_heartbeat(heartbeat)
+            next_heartbeat = now + heartbeat_interval
         time.sleep(poll)
 
 

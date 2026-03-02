@@ -305,6 +305,14 @@ def _spawn_wait(
         float | None,
         Parameter(name="--timeout-secs", help="Maximum wait time before timing out."),
     ] = None,
+    verbose: Annotated[
+        bool,
+        Parameter(name="--verbose", help="Enable verbose wait status output.", show=_HUMAN_ONLY),
+    ] = False,
+    quiet: Annotated[
+        bool,
+        Parameter(name="--quiet", help="Suppress wait heartbeat output.", show=_HUMAN_ONLY),
+    ] = False,
     report: Annotated[
         bool,
         Parameter(name="--report", help="Include run report content in output."),
@@ -322,6 +330,8 @@ def _spawn_wait(
         SpawnWaitInput(
             spawn_ids=spawn_ids,
             timeout_secs=timeout_secs,
+            verbose=verbose,
+            quiet=quiet,
             report=report,
             include_files=include_files,
             space=space,

@@ -165,3 +165,137 @@ def test_run_wait_sync_accepts_legacy_run_id_alias_for_single_run(
     assert result.spawn_id == "legacy-run"
     assert result.status == "succeeded"
     assert result.exit_code == 0
+
+
+def test_run_wait_sync_emits_heartbeat_with_default_verbosity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        run_ops,
+        "resolve_runtime_root_and_config",
+        lambda _: (
+            Path("/tmp/repo"),
+            SimpleNamespace(
+                wait_timeout_seconds=5.0,
+                retry_backoff_seconds=0.1,
+                output=SimpleNamespace(verbosity="normal"),
+            ),
+        ),
+    )
+    monkeypatch.setattr(run_ops.time, "sleep", lambda _: None)
+    monkeypatch.setattr(run_ops, "_WAIT_HEARTBEAT_INTERVAL_SECS", 0.0)
+
+    clock = {"value": 0.0}
+
+    def fake_monotonic() -> float:
+        current = clock["value"]
+        clock["value"] += 0.11
+        return current
+
+    monkeypatch.setattr(run_ops.time, "monotonic", fake_monotonic)
+
+    rows = [
+        SimpleNamespace(id="r1", status="running", duration_secs=None, exit_code=None),
+        SimpleNamespace(id="r1", status="succeeded", duration_secs=1.0, exit_code=0),
+    ]
+    monkeypatch.setattr(
+        run_ops,
+        "_read_spawn_row",
+        lambda _repo_root, _spawn_id, _space=None: rows.pop(0) if len(rows) > 1 else rows[0],
+    )
+    monkeypatch.setattr(
+        run_ops,
+        "_detail_from_row",
+        lambda repo_root, row, report, include_files, space_id=None: _detail_from_status(
+            spawn_id=str(row.id),
+            status=str(row.status),
+            duration_secs=cast("float | None", row.duration_secs),
+            exit_code=cast("int | None", row.exit_code),
+        ),
+    )
+
+    heartbeats: list[str] = []
+    monkeypatch.setattr(run_ops, "_emit_wait_heartbeat", heartbeats.append)
+
+    result = run_ops.spawn_wait_sync(
+        SpawnWaitInput(
+            spawn_ids=("r1",),
+            timeout_secs=5.0,
+            poll_interval_secs=0.1,
+        )
+    )
+
+    assert result.status == "succeeded"
+    assert heartbeats == ["waiting for 1 spawn(s) to finish..."]
+
+
+def test_run_wait_sync_suppresses_heartbeat_when_quiet(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        run_ops,
+        "resolve_runtime_root_and_config",
+        lambda _: (
+            Path("/tmp/repo"),
+            SimpleNamespace(
+                wait_timeout_seconds=5.0,
+                retry_backoff_seconds=0.1,
+                output=SimpleNamespace(verbosity="verbose"),
+            ),
+        ),
+    )
+    monkeypatch.setattr(run_ops.time, "sleep", lambda _: None)
+    monkeypatch.setattr(run_ops, "_WAIT_HEARTBEAT_INTERVAL_SECS", 0.0)
+
+    clock = {"value": 0.0}
+
+    def fake_monotonic() -> float:
+        current = clock["value"]
+        clock["value"] += 0.11
+        return current
+
+    monkeypatch.setattr(run_ops.time, "monotonic", fake_monotonic)
+
+    rows = [
+        SimpleNamespace(id="r1", status="running", duration_secs=None, exit_code=None),
+        SimpleNamespace(id="r1", status="succeeded", duration_secs=1.0, exit_code=0),
+    ]
+    monkeypatch.setattr(
+        run_ops,
+        "_read_spawn_row",
+        lambda _repo_root, _spawn_id, _space=None: rows.pop(0) if len(rows) > 1 else rows[0],
+    )
+    monkeypatch.setattr(
+        run_ops,
+        "_detail_from_row",
+        lambda repo_root, row, report, include_files, space_id=None: _detail_from_status(
+            spawn_id=str(row.id),
+            status=str(row.status),
+            duration_secs=cast("float | None", row.duration_secs),
+            exit_code=cast("int | None", row.exit_code),
+        ),
+    )
+
+    heartbeats: list[str] = []
+    monkeypatch.setattr(run_ops, "_emit_wait_heartbeat", heartbeats.append)
+
+    result = run_ops.spawn_wait_sync(
+        SpawnWaitInput(
+            spawn_ids=("r1",),
+            timeout_secs=5.0,
+            poll_interval_secs=0.1,
+            quiet=True,
+        )
+    )
+
+    assert result.status == "succeeded"
+    assert heartbeats == []
+
+
+def test_render_wait_heartbeat_verbose_lists_pending_spawns() -> None:
+    rendered = run_ops._render_wait_heartbeat(
+        {"s3", "s1", "s2"},
+        elapsed_secs=12.3,
+        mode="verbose",
+    )
+    assert rendered == "waiting 12.3s; pending spawns (3): s1, s2, s3"
