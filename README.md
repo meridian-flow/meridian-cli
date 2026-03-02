@@ -1,5 +1,7 @@
 # meridian-channel
 
+NOTE THIS IS POTENTIALLY UNSTABLE RIGHT NOW
+
 [![PyPI](https://img.shields.io/pypi/v/meridian-channel)](https://pypi.org/project/meridian-channel/)
 [![Python](https://img.shields.io/pypi/pyversions/meridian-channel)](https://pypi.org/project/meridian-channel/)
 [![License](https://img.shields.io/github/license/haowjy/meridian-channel)](LICENSE)
