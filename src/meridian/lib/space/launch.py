@@ -8,6 +8,7 @@ import os
 import shlex
 import signal
 import subprocess
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -34,6 +35,7 @@ from meridian.lib.safety.permissions import (
 )
 from meridian.lib.space.session_store import start_session, stop_session
 from meridian.lib.space import space_file
+from meridian.lib.state import spawn_store
 from meridian.lib.state.paths import resolve_space_dir, resolve_state_paths
 from meridian.lib.types import HarnessId, ModelId, SpaceId
 
@@ -405,6 +407,7 @@ def _build_space_env(
     prompt: str,
     *,
     default_autocompact_pct: int | None = None,
+    spawn_id: str | None = None,
 ) -> dict[str, str]:
     env_overrides = {
         "MERIDIAN_SPACE_ID": str(request.space_id),
@@ -412,6 +415,8 @@ def _build_space_env(
         "MERIDIAN_SPACE_PROMPT": prompt,
         "MERIDIAN_STATE_ROOT": resolve_state_paths(repo_root).root_dir.resolve().as_posix(),
     }
+    if spawn_id is not None and spawn_id.strip():
+        env_overrides["MERIDIAN_SPAWN_ID"] = spawn_id.strip()
     autocompact_pct = (
         request.autocompact
         if request.autocompact is not None
@@ -458,12 +463,6 @@ def launch_primary(
     )
     space_dir = resolve_space_dir(repo_root, request.space_id)
     lock_path = space_lock_path(repo_root, request.space_id)
-    child_env = _build_space_env(
-        repo_root,
-        request,
-        prompt,
-        default_autocompact_pct=config.primary.autocompact_pct,
-    )
 
     if request.dry_run:
         command = _build_harness_command(
@@ -482,6 +481,9 @@ def launch_primary(
 
     command: tuple[str, ...] = ()
     chat_id: str | None = None
+    primary_spawn_id: str | None = None
+    primary_started = 0.0
+    child_env: dict[str, str] | None = None
 
     # Always use Popen (not execvp) so the finally block can clean up
     # materialized harness files after the child exits.
@@ -497,6 +499,24 @@ def launch_primary(
             agent_path=session_metadata.agent_path,
             skills=session_metadata.skills,
             skill_paths=session_metadata.skill_paths,
+        )
+        primary_spawn_id = str(
+            spawn_store.start_spawn(
+                space_dir,
+                chat_id=chat_id,
+                model=session_metadata.model,
+                agent=session_metadata.agent,
+                harness=session_metadata.harness,
+                prompt=prompt,
+            )
+        )
+        primary_started = time.monotonic()
+        child_env = _build_space_env(
+            repo_root,
+            request,
+            prompt,
+            default_autocompact_pct=config.primary.autocompact_pct,
+            spawn_id=primary_spawn_id,
         )
         command = _build_harness_command(
             repo_root=repo_root,
@@ -535,6 +555,15 @@ def launch_primary(
     except FileNotFoundError:
         exit_code = 2
     finally:
+        if primary_spawn_id is not None:
+            duration = max(0.0, time.monotonic() - primary_started) if primary_started > 0.0 else None
+            spawn_store.finalize_spawn(
+                space_dir,
+                primary_spawn_id,
+                status="succeeded" if exit_code == 0 else "failed",
+                exit_code=exit_code,
+                duration_secs=duration,
+            )
         if chat_id is not None:
             try:
                 stop_session(space_dir, chat_id)

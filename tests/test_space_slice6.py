@@ -74,6 +74,8 @@ def test_space_start_creates_lock_sets_env_and_forwards_passthrough(
     env = payload["env"]
     assert isinstance(env, dict)
     assert env["MERIDIAN_SPACE_ID"] == result.space_id
+    assert isinstance(env["MERIDIAN_SPAWN_ID"], str)
+    assert env["MERIDIAN_SPAWN_ID"].startswith("p")
     assert env["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"] == "72"
 
     argv = payload["argv"]
@@ -84,6 +86,12 @@ def test_space_start_creates_lock_sets_env_and_forwards_passthrough(
 
     assert result.summary_path is not None
     assert Path(result.summary_path).exists()
+    space_dir = resolve_space_dir(tmp_path, result.space_id)
+    spawns = spawn_store.list_spawns(space_dir)
+    assert len(spawns) == 1
+    assert spawns[0].id == env["MERIDIAN_SPAWN_ID"]
+    assert spawns[0].status == "succeeded"
+    assert spawns[0].exit_code == 0
 
 
 def test_space_resume_fresh_omits_continuation_guidance(
@@ -293,6 +301,8 @@ def test_start_command_launches_and_forwards_options(
     env = payload["env"]
     assert isinstance(env, dict)
     assert env["MERIDIAN_SPACE_ID"] == "s1"
+    assert isinstance(env["MERIDIAN_SPAWN_ID"], str)
+    assert env["MERIDIAN_SPAWN_ID"].startswith("p")
     assert env["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"] == "72"
 
     argv = payload["argv"]

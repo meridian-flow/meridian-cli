@@ -74,7 +74,7 @@ def test_build_space_env_sanitizes_parent_env_and_keeps_space_overrides(
         space_id=SpaceId("s99"),
         autocompact=80,
     )
-    env = _build_space_env(tmp_path, request, "space prompt")
+    env = _build_space_env(tmp_path, request, "space prompt", spawn_id="p88")
 
     assert env["PATH"] == "/usr/local/bin:/usr/bin"
     assert env["HOME"] == "/home/sliceb"
@@ -82,6 +82,7 @@ def test_build_space_env_sanitizes_parent_env_and_keeps_space_overrides(
     assert "MY_SECRET_TOKEN" not in env
     assert "RANDOM_PARENT_VALUE" not in env
     assert env["MERIDIAN_SPACE_ID"] == "s99"
+    assert env["MERIDIAN_SPAWN_ID"] == "p88"
     assert env["MERIDIAN_DEPTH"] == "5"
     assert env["MERIDIAN_SPACE_PROMPT"] == "space prompt"
     assert env["MERIDIAN_STATE_ROOT"] == (tmp_path / ".meridian").as_posix()
