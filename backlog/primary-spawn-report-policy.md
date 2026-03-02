@@ -1,27 +1,40 @@
 # Primary Spawn + Report Policy Backlog
 
 Date added: 2026-03-02
-Status: `todo`
+Status: `checkpoint-0-frozen`
 Priority: `high`
+
+## Checkpoint 0 Decision Freeze (Locked)
+
+- Concept name: `spawn`
+- ID prefix: `p`
+- Primary identity: spawn with `kind=primary`
+- Child identity: spawn with `kind=child`
+- Report policy:
+  - Primary: `optional`
+  - Child: `required_with_fallback`
+
+These terms and policy rules are fixed and should be treated as non-negotiable inputs for implementation slices.
 
 ## Scope
 
-Model the primary agent session as a canonical spawn and support different report requirements by spawn kind.
+Model the primary agent session as a canonical spawn and enforce report requirements by spawn kind using the frozen terms above.
 
 ## Problem
 
 - Primary sessions launched by `meridian start` are outside spawn lifecycle/state.
 - Primary has no canonical `MERIDIAN_SPAWN_ID` for in-session commands.
-- Report requirements cannot cleanly differ between primary and child spawns.
+- Report requirements are not enforced through a single spawn-kind policy.
 
 ## Target Behavior
 
-- `meridian start` creates a root primary spawn record.
-- Primary process receives `MERIDIAN_SPAWN_ID`.
-- Primary finalizes via the same spawn finalization/cleanup path on exit/close.
-- Spawn records include kind and report policy:
-  - `primary`: report optional
-  - `child`: report required (with fallback extraction)
+- `meridian start` creates a root spawn with `kind=primary` and `spawn_id` prefix `p`.
+- Child launches create spawns with `kind=child` and `spawn_id` prefix `p`.
+- Primary and child processes receive `MERIDIAN_SPAWN_ID`.
+- Primary and child finalize through the same spawn finalization/cleanup path.
+- Report policy is evaluated by spawn kind:
+  - `kind=primary` -> `optional`
+  - `kind=child` -> `required_with_fallback`
 
 ## Proposed Slices
 
