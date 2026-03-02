@@ -30,7 +30,7 @@ def _write_skill(repo_root: Path, name: str, body: str) -> None:
     )
 
 
-def _run_cli(
+def _spawn_cli(
     *,
     package_root: Path,
     cli_env: dict[str, str],
@@ -39,6 +39,8 @@ def _run_cli(
 ) -> subprocess.CompletedProcess[str]:
     env = dict(cli_env)
     env["MERIDIAN_REPO_ROOT"] = repo_root.as_posix()
+    if "spawn" in args and "--space" not in args and "--space-id" not in args:
+        env["MERIDIAN_SPACE_ID"] = "s1"
     return subprocess.run(
         [sys.executable, "-m", "meridian", *args],
         cwd=package_root,
@@ -61,11 +63,11 @@ def test_bug5_prompt_text_uses_rendered_template_not_repr(
     repo_root = tmp_path / "repo"
     _seed_base_skills(repo_root)
 
-    result = _run_cli(
+    result = _spawn_cli(
         package_root=package_root,
         cli_env=cli_env,
         repo_root=repo_root,
-        args=["--json", "run", "--dry-run", "-m", "codex", "-p", "hello"],
+        args=["--json", "spawn", "--dry-run", "-m", "codex", "-p", "hello"],
     )
 
     assert result.returncode == 0
@@ -81,11 +83,11 @@ def test_bug6_gemini_alias_routes_to_opencode(
     repo_root = tmp_path / "repo"
     _seed_base_skills(repo_root)
 
-    result = _run_cli(
+    result = _spawn_cli(
         package_root=package_root,
         cli_env=cli_env,
         repo_root=repo_root,
-        args=["--json", "run", "--dry-run", "-m", "gemini", "-p", "test"],
+        args=["--json", "spawn", "--dry-run", "-m", "gemini", "-p", "test"],
     )
 
     assert result.returncode == 0
@@ -100,11 +102,11 @@ def test_bug8_unknown_model_fails_fast_with_clean_error(
     repo_root = tmp_path / "repo"
     _seed_base_skills(repo_root)
 
-    result = _run_cli(
+    result = _spawn_cli(
         package_root=package_root,
         cli_env=cli_env,
         repo_root=repo_root,
-        args=["--json", "run", "--dry-run", "-m", "nonexistent-model", "-p", "test"],
+        args=["--json", "spawn", "--dry-run", "-m", "nonexistent-model", "-p", "test"],
     )
 
     assert result.returncode != 0
@@ -124,11 +126,11 @@ def test_ol10_unknown_model_error_includes_available_models_and_suggestion(
     repo_root = tmp_path / "repo"
     _seed_base_skills(repo_root)
 
-    result = _run_cli(
+    result = _spawn_cli(
         package_root=package_root,
         cli_env=cli_env,
         repo_root=repo_root,
-        args=["run", "--dry-run", "-m", "codxe", "-p", "test"],
+        args=["spawn", "--dry-run", "-m", "codxe", "-p", "test"],
     )
 
     assert result.returncode != 0
@@ -148,8 +150,8 @@ def test_ol10_unknown_model_error_includes_available_models_and_suggestion(
             id="skills-show",
         ),
         pytest.param(
-            ["run", "show", "nonexistent-run"],
-            "Run 'nonexistent-run' not found",
+            ["spawn", "show", "nonexistent-run"],
+            "Spawn 'nonexistent-run' not found",
             id="run-show",
         ),
     ],
@@ -163,10 +165,10 @@ def test_bug16_show_unknown_resource_emits_clean_error(
 ) -> None:
     repo_root = tmp_path / "repo"
     _seed_base_skills(repo_root)
-    if args[:2] == ["run", "show"]:
+    if args[:2] == ["spawn", "show"]:
         cli_env["MERIDIAN_SPACE_ID"] = "s1"
 
-    result = _run_cli(
+    result = _spawn_cli(
         package_root=package_root,
         cli_env=cli_env,
         repo_root=repo_root,
@@ -184,11 +186,11 @@ def test_bug17_run_create_requires_nonempty_prompt(
     repo_root = tmp_path / "repo"
     _seed_base_skills(repo_root)
 
-    result = _run_cli(
+    result = _spawn_cli(
         package_root=package_root,
         cli_env=cli_env,
         repo_root=repo_root,
-        args=["run", "--dry-run"],
+        args=["spawn", "--dry-run"],
     )
 
     assert result.returncode != 0
@@ -206,16 +208,16 @@ def test_bug3_no_prefixed_global_flags_are_accepted(
     repo_root = tmp_path / "repo"
     _seed_base_skills(repo_root)
 
-    result = _run_cli(
+    result = _spawn_cli(
         package_root=package_root,
         cli_env=cli_env,
         repo_root=repo_root,
-        args=[flag, "--json", "run", "--dry-run", "-m", "codex", "-p", "hello"],
+        args=[flag, "--json", "spawn", "--dry-run", "-m", "codex", "-p", "hello"],
     )
 
     assert result.returncode == 0
     payload = json.loads(result.stdout)
-    assert payload["command"] == "run.spawn"
+    assert payload["command"] == "spawn.create"
     assert payload["status"] == "dry-run"
 
 
@@ -224,7 +226,7 @@ def test_dx2_unknown_top_level_command_has_clean_error(
     cli_env: dict[str, str],
     tmp_path: Path,
 ) -> None:
-    result = _run_cli(
+    result = _spawn_cli(
         package_root=package_root,
         cli_env=cli_env,
         repo_root=tmp_path / "repo",
@@ -242,7 +244,7 @@ def test_dx2_init_alias_routes_to_config_init(
     tmp_path: Path,
 ) -> None:
     repo_root = tmp_path / "repo"
-    result = _run_cli(
+    result = _spawn_cli(
         package_root=package_root,
         cli_env=cli_env,
         repo_root=repo_root,
@@ -260,11 +262,11 @@ def test_dx3_help_uses_descriptions_and_hides_empty_flags(
 ) -> None:
     repo_root = tmp_path / "repo"
     _seed_base_skills(repo_root)
-    result = _run_cli(
+    result = _spawn_cli(
         package_root=package_root,
         cli_env=cli_env,
         repo_root=repo_root,
-        args=["run", "spawn", "--help"],
+        args=["spawn", "spawn", "--help"],
     )
 
     assert result.returncode == 0
@@ -291,7 +293,7 @@ def test_dx5_timeout_error_returns_exit_code_124(monkeypatch, capsys) -> None:
     monkeypatch.setattr(cli_main, "app", _raise_timeout)
 
     with pytest.raises(SystemExit) as exc_info:
-        cli_main.main(["run", "wait", "r-timeout"])
+        cli_main.main(["spawn", "wait", "r-timeout"])
 
     assert int(exc_info.value.code) == 124
     stderr = capsys.readouterr().err

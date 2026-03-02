@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from meridian.lib.state.run_store import finalize_run, get_run, list_runs, run_stats, start_run
+from meridian.lib.state.spawn_store import finalize_spawn, get_spawn, list_spawns, spawn_stats, start_spawn
 
 
 def _space_dir(tmp_path):
@@ -14,7 +14,7 @@ def _space_dir(tmp_path):
 def test_start_and_finalize_run_round_trip(tmp_path):
     space_dir = _space_dir(tmp_path)
 
-    run_id = start_run(
+    spawn_id = start_spawn(
         space_dir,
         chat_id="c1",
         model="gpt-5.3-codex",
@@ -23,9 +23,9 @@ def test_start_and_finalize_run_round_trip(tmp_path):
         prompt="hello",
         harness_session_id="hs-1",
     )
-    finalize_run(
+    finalize_spawn(
         space_dir,
-        run_id,
+        spawn_id,
         "succeeded",
         0,
         duration_secs=12.5,
@@ -34,7 +34,7 @@ def test_start_and_finalize_run_round_trip(tmp_path):
         output_tokens=17,
     )
 
-    loaded = get_run(space_dir, run_id)
+    loaded = get_spawn(space_dir, spawn_id)
     assert loaded is not None
     assert loaded.id == "r1"
     assert loaded.status == "succeeded"
@@ -49,7 +49,7 @@ def test_start_and_finalize_run_round_trip(tmp_path):
 
 def test_start_run_writes_schema_version(tmp_path):
     space_dir = _space_dir(tmp_path)
-    start_run(
+    start_spawn(
         space_dir,
         chat_id="c1",
         model="claude-sonnet-4-6",
@@ -58,7 +58,7 @@ def test_start_run_writes_schema_version(tmp_path):
         prompt="test",
     )
 
-    first = (space_dir / "runs.jsonl").read_text(encoding="utf-8").splitlines()[0]
+    first = (space_dir / "spawns.jsonl").read_text(encoding="utf-8").splitlines()[0]
     payload = json.loads(first)
     assert payload["v"] == 1
     assert payload["event"] == "start"
@@ -67,7 +67,7 @@ def test_start_run_writes_schema_version(tmp_path):
 
 def test_list_runs_filters_by_model_and_status(tmp_path):
     space_dir = _space_dir(tmp_path)
-    r1 = start_run(
+    r1 = start_spawn(
         space_dir,
         chat_id="c1",
         model="gpt-5.3-codex",
@@ -75,7 +75,7 @@ def test_list_runs_filters_by_model_and_status(tmp_path):
         harness="codex",
         prompt="p1",
     )
-    r2 = start_run(
+    r2 = start_spawn(
         space_dir,
         chat_id="c1",
         model="claude-sonnet-4-6",
@@ -83,11 +83,11 @@ def test_list_runs_filters_by_model_and_status(tmp_path):
         harness="claude",
         prompt="p2",
     )
-    finalize_run(space_dir, r1, "failed", 1)
-    finalize_run(space_dir, r2, "succeeded", 0)
+    finalize_spawn(space_dir, r1, "failed", 1)
+    finalize_spawn(space_dir, r2, "succeeded", 0)
 
-    failed = list_runs(space_dir, filters={"status": "failed"})
-    claude = list_runs(space_dir, filters={"model": "claude-sonnet-4-6"})
+    failed = list_spawns(space_dir, filters={"status": "failed"})
+    claude = list_spawns(space_dir, filters={"model": "claude-sonnet-4-6"})
 
     assert [run.id for run in failed] == ["r1"]
     assert [run.id for run in claude] == ["r2"]
@@ -95,8 +95,8 @@ def test_list_runs_filters_by_model_and_status(tmp_path):
 
 def test_list_runs_skips_truncated_trailing_json(tmp_path):
     space_dir = _space_dir(tmp_path)
-    runs_jsonl = space_dir / "runs.jsonl"
-    with runs_jsonl.open("w", encoding="utf-8") as handle:
+    spawns_jsonl = space_dir / "spawns.jsonl"
+    with spawns_jsonl.open("w", encoding="utf-8") as handle:
         handle.write(
             json.dumps(
                 {
@@ -116,16 +116,16 @@ def test_list_runs_skips_truncated_trailing_json(tmp_path):
         )
         handle.write('{"v":1,"event":"finalize","id":"r1","status":"succeeded"')
 
-    runs = list_runs(space_dir)
-    assert len(runs) == 1
-    assert runs[0].id == "r1"
-    assert runs[0].status == "running"
+    spawns = list_spawns(space_dir)
+    assert len(spawns) == 1
+    assert spawns[0].id == "r1"
+    assert spawns[0].status == "running"
 
 
 def test_run_stats_aggregates_model_status_cost_duration_and_tokens(tmp_path):
     space_dir = _space_dir(tmp_path)
 
-    r1 = start_run(
+    r1 = start_spawn(
         space_dir,
         chat_id="c1",
         model="gpt-5.3-codex",
@@ -133,7 +133,7 @@ def test_run_stats_aggregates_model_status_cost_duration_and_tokens(tmp_path):
         harness="codex",
         prompt="a",
     )
-    r2 = start_run(
+    r2 = start_spawn(
         space_dir,
         chat_id="c2",
         model="claude-sonnet-4-6",
@@ -141,7 +141,7 @@ def test_run_stats_aggregates_model_status_cost_duration_and_tokens(tmp_path):
         harness="claude",
         prompt="b",
     )
-    finalize_run(
+    finalize_spawn(
         space_dir,
         r1,
         "succeeded",
@@ -151,7 +151,7 @@ def test_run_stats_aggregates_model_status_cost_duration_and_tokens(tmp_path):
         input_tokens=100,
         output_tokens=50,
     )
-    finalize_run(
+    finalize_spawn(
         space_dir,
         r2,
         "failed",
@@ -162,7 +162,7 @@ def test_run_stats_aggregates_model_status_cost_duration_and_tokens(tmp_path):
         output_tokens=10,
     )
 
-    stats = run_stats(space_dir)
+    stats = spawn_stats(space_dir)
     assert stats["total_runs"] == 2
     assert stats["by_status"] == {"failed": 1, "succeeded": 1}
     assert stats["by_model"] == {"claude-sonnet-4-6": 1, "gpt-5.3-codex": 1}

@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol, cast
 
-from meridian.lib.types import ArtifactKey, RunId
+from meridian.lib.types import ArtifactKey, SpawnId
 
 
 class ArtifactStore(Protocol):
@@ -21,13 +21,13 @@ class ArtifactStore(Protocol):
 
     def delete(self, key: ArtifactKey) -> None: ...
 
-    def list_artifacts(self, run_id: str) -> list[ArtifactKey]: ...
+    def list_artifacts(self, spawn_id: str) -> list[ArtifactKey]: ...
 
 
-def make_artifact_key(run_id: RunId | str, name: str) -> ArtifactKey:
+def make_artifact_key(spawn_id: SpawnId | str, name: str) -> ArtifactKey:
     """Build an artifact key from run ID and artifact name/path."""
 
-    return ArtifactKey(f"{run_id}/{name}")
+    return ArtifactKey(f"{spawn_id}/{name}")
 
 
 def _normalize_key(key: ArtifactKey) -> Path:
@@ -67,8 +67,8 @@ class LocalStore:
         if target.exists():
             target.unlink()
 
-    def list_artifacts(self, run_id: str) -> list[ArtifactKey]:
-        base = self.root_dir / run_id
+    def list_artifacts(self, spawn_id: str) -> list[ArtifactKey]:
+        base = self.root_dir / spawn_id
         if not base.exists():
             return []
 
@@ -102,7 +102,7 @@ class InMemoryStore:
         _normalize_key(key)
         self._data.pop(key, None)
 
-    def list_artifacts(self, run_id: str) -> list[ArtifactKey]:
-        prefix = f"{run_id}/"
+    def list_artifacts(self, spawn_id: str) -> list[ArtifactKey]:
+        prefix = f"{spawn_id}/"
         matches = [key for key in self._data if str(key).startswith(prefix)]
         return sorted(matches, key=str)

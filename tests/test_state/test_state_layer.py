@@ -10,23 +10,23 @@ from pathlib import Path
 
 import pytest
 
-from meridian.lib.domain import PinnedFile, Run, Space, Span, WorkflowEvent
+from meridian.lib.domain import PinnedFile, Spawn, Space, Span, WorkflowEvent
 from meridian.lib.space.session_store import get_last_session, start_session, stop_session
 from meridian.lib.space.space_file import create_space, get_space, update_space_status
 from meridian.lib.state.artifact_store import InMemoryStore, LocalStore, make_artifact_key
-from meridian.lib.state.id_gen import next_run_id, next_chat_id, next_space_id
-from meridian.lib.state.run_store import finalize_run, get_run, list_runs, run_stats, start_run
+from meridian.lib.state.id_gen import next_spawn_id, next_chat_id, next_space_id
+from meridian.lib.state.spawn_store import finalize_spawn, get_spawn, list_spawns, spawn_stats, start_spawn
 from meridian.lib.state.paths import resolve_space_dir
-from meridian.lib.types import RunId, SpanId, TraceId
+from meridian.lib.types import SpawnId, SpanId, TraceId
 
 
 def _write_start_and_finalize(repo_root: str, space_id: str, idx: int) -> None:
     root = Path(repo_root)
     space_dir = resolve_space_dir(root, space_id)
-    run_id = RunId(f"rlock{idx}")
-    start_run(
+    spawn_id = SpawnId(f"rlock{idx}")
+    start_spawn(
         space_dir,
-        run_id=run_id,
+        spawn_id=spawn_id,
         chat_id=f"c{idx}",
         model="gpt-5.3-codex",
         agent="coder",
@@ -34,9 +34,9 @@ def _write_start_and_finalize(repo_root: str, space_id: str, idx: int) -> None:
         prompt=f"job-{idx}",
         started_at="2026-02-25T00:00:00Z",
     )
-    finalize_run(
+    finalize_spawn(
         space_dir,
-        run_id,
+        spawn_id,
         "succeeded",
         0,
         duration_secs=0.1,
@@ -51,7 +51,7 @@ def test_space_and_run_crud_with_file_backed_stores(tmp_path: Path) -> None:
     assert space.id == "s1"
     assert get_space(tmp_path, space.id) is not None
 
-    run_1 = start_run(
+    run_1 = start_spawn(
         space_dir,
         chat_id="c1",
         model="claude-opus-4-6",
@@ -59,7 +59,7 @@ def test_space_and_run_crud_with_file_backed_stores(tmp_path: Path) -> None:
         harness="claude",
         prompt="standalone",
     )
-    run_2 = start_run(
+    run_2 = start_spawn(
         space_dir,
         chat_id="c1",
         model="gpt-5.3-codex",
@@ -68,17 +68,17 @@ def test_space_and_run_crud_with_file_backed_stores(tmp_path: Path) -> None:
         prompt="space-1",
     )
 
-    finalize_run(space_dir, run_1, "failed", 1)
-    finalize_run(space_dir, run_2, "succeeded", 0, input_tokens=10, output_tokens=20)
+    finalize_spawn(space_dir, run_1, "failed", 1)
+    finalize_spawn(space_dir, run_2, "succeeded", 0, input_tokens=10, output_tokens=20)
 
-    loaded = get_run(space_dir, run_2)
+    loaded = get_spawn(space_dir, run_2)
     assert loaded is not None
     assert loaded.prompt == "space-1"
     assert loaded.status == "succeeded"
     assert loaded.input_tokens == 10
     assert loaded.output_tokens == 20
 
-    summaries = list_runs(space_dir, filters={"model": "gpt-5.3-codex"})
+    summaries = list_spawns(space_dir, filters={"model": "gpt-5.3-codex"})
     assert [summary.id for summary in summaries] == ["r2"]
 
 
@@ -98,7 +98,7 @@ def test_run_stats_aggregate_duration_cost_and_tokens(tmp_path: Path) -> None:
     space = create_space(tmp_path, name="stats")
     space_dir = resolve_space_dir(tmp_path, space.id)
 
-    r1 = start_run(
+    r1 = start_spawn(
         space_dir,
         chat_id="c1",
         model="gpt-5.3-codex",
@@ -106,7 +106,7 @@ def test_run_stats_aggregate_duration_cost_and_tokens(tmp_path: Path) -> None:
         harness="codex",
         prompt="a",
     )
-    r2 = start_run(
+    r2 = start_spawn(
         space_dir,
         chat_id="c2",
         model="claude-sonnet-4-6",
@@ -115,7 +115,7 @@ def test_run_stats_aggregate_duration_cost_and_tokens(tmp_path: Path) -> None:
         prompt="b",
     )
 
-    finalize_run(
+    finalize_spawn(
         space_dir,
         r1,
         "succeeded",
@@ -125,7 +125,7 @@ def test_run_stats_aggregate_duration_cost_and_tokens(tmp_path: Path) -> None:
         input_tokens=100,
         output_tokens=50,
     )
-    finalize_run(
+    finalize_spawn(
         space_dir,
         r2,
         "failed",
@@ -136,7 +136,7 @@ def test_run_stats_aggregate_duration_cost_and_tokens(tmp_path: Path) -> None:
         output_tokens=10,
     )
 
-    stats = run_stats(space_dir)
+    stats = spawn_stats(space_dir)
     assert stats["total_runs"] == 2
     assert stats["by_status"] == {"failed": 1, "succeeded": 1}
     assert stats["by_model"] == {"claude-sonnet-4-6": 1, "gpt-5.3-codex": 1}
@@ -186,12 +186,12 @@ def test_locking_contention_writes_clean_jsonl(tmp_path: Path) -> None:
         assert proc.exitcode == 0
 
     space_dir = resolve_space_dir(tmp_path, space.id)
-    rows = list_runs(space_dir)
+    rows = list_spawns(space_dir)
     assert len(rows) == process_count
     assert all(row.status == "succeeded" for row in rows)
 
     # Every line must remain parseable JSON under concurrent append pressure.
-    with (space_dir / "runs.jsonl").open("r", encoding="utf-8") as handle:
+    with (space_dir / "spawns.jsonl").open("r", encoding="utf-8") as handle:
         for line in handle:
             json.loads(line)
 
@@ -202,10 +202,10 @@ def test_id_generation_uses_s_r_c_prefixes(tmp_path: Path) -> None:
     space = create_space(tmp_path, name="idgen")
     space_dir = resolve_space_dir(tmp_path, space.id)
 
-    assert str(next_run_id(space_dir)) == "r1"
+    assert str(next_spawn_id(space_dir)) == "r1"
     assert next_chat_id(space_dir) == "c1"
 
-    start_run(
+    start_spawn(
         space_dir,
         chat_id="c1",
         model="gpt-5.3-codex",
@@ -213,11 +213,11 @@ def test_id_generation_uses_s_r_c_prefixes(tmp_path: Path) -> None:
         harness="codex",
         prompt="first",
     )
-    assert str(next_run_id(space_dir)) == "r2"
+    assert str(next_spawn_id(space_dir)) == "r2"
 
 
 def test_artifact_store_local_and_memory(tmp_path: Path) -> None:
-    key = make_artifact_key(RunId("r1"), "output.jsonl")
+    key = make_artifact_key(SpawnId("r1"), "output.jsonl")
 
     local = LocalStore(root_dir=tmp_path / "artifacts")
     local.put(key, b"hello")
@@ -237,14 +237,14 @@ def test_artifact_store_local_and_memory(tmp_path: Path) -> None:
 
 
 def test_domain_dataclasses_are_frozen() -> None:
-    for cls in (Run, Space, PinnedFile, WorkflowEvent, Span):
+    for cls in (Spawn, Space, PinnedFile, WorkflowEvent, Span):
         assert dataclasses.is_dataclass(cls)
         assert cls.__dataclass_params__.frozen
 
     span = Span(
         span_id=SpanId("span-1"),
         trace_id=TraceId("trace-1"),
-        name="run",
+        name="spawn",
         kind="workflow",
         started_at=datetime.now(UTC),
     )

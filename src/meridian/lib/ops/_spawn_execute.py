@@ -1,4 +1,4 @@
-"""Run execution helpers shared by sync and async run handlers."""
+"""Spawn execution helpers shared by sync and async spawn handlers."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from meridian.lib.config.agent import (
     load_agent_profile,
     parse_agent_profile,
 )
-from meridian.lib.domain import Run
+from meridian.lib.domain import Spawn
 from meridian.lib.exec.spawn import execute_with_finalization
 from meridian.lib.exec.terminal import TerminalEventFilter, resolve_visible_categories
 from meridian.lib.harness.adapter import PermissionResolver
@@ -41,16 +41,16 @@ from meridian.lib.space.session_store import (
     stop_session,
     update_session_harness_id,
 )
-from meridian.lib.state import run_store
-from meridian.lib.state.paths import resolve_run_log_dir, resolve_space_dir
-from meridian.lib.types import ModelId, RunId, SpaceId
+from meridian.lib.state import spawn_store
+from meridian.lib.state.paths import resolve_spawn_log_dir, resolve_space_dir
+from meridian.lib.types import ModelId, SpawnId, SpaceId
 
-from ._run_models import RunActionOutput, RunCreateInput
-from ._run_query import _read_run_row
+from ._spawn_models import SpawnActionOutput, SpawnCreateInput
+from ._spawn_query import _read_spawn_row
 
 _BACKGROUND_TASKS: set[asyncio.Task[None]] = set()
 logger = structlog.get_logger(__name__)
-_BACKGROUND_SUBMIT_MESSAGE = "Background run submitted."
+_BACKGROUND_SUBMIT_MESSAGE = "Background spawn submitted."
 _BACKGROUND_PID_FILENAME = "background.pid"
 _BACKGROUND_STDOUT_FILENAME = "background-launcher.stdout.log"
 _BACKGROUND_STDERR_FILENAME = "background-launcher.stderr.log"
@@ -103,15 +103,15 @@ def _emit_subrun_event(payload: dict[str, Any]) -> None:
         return
     event_payload = dict(payload)
     event_payload["v"] = 1
-    parent_run_id = os.getenv("MERIDIAN_PARENT_RUN_ID", "").strip()
-    event_payload["parent"] = parent_run_id or None
+    parent_spawn_id = os.getenv("MERIDIAN_PARENT_RUN_ID", "").strip()
+    event_payload["parent"] = parent_spawn_id or None
     event_payload["ts"] = time.time()
     print(json.dumps(event_payload, separators=(",", ":")), file=sys.stdout, flush=True)
 
 
-def _depth_exceeded_output(current_depth: int, max_depth: int) -> RunActionOutput:
-    return RunActionOutput(
-        command="run.spawn",
+def _depth_exceeded_output(current_depth: int, max_depth: int) -> SpawnActionOutput:
+    return SpawnActionOutput(
+        command="spawn.create",
         status="failed",
         message=f"Max agent depth ({max_depth}) reached. Complete this task directly.",
         error="max_depth_exceeded",
@@ -120,21 +120,21 @@ def _depth_exceeded_output(current_depth: int, max_depth: int) -> RunActionOutpu
     )
 
 
-def _run_child_env(
+def _spawn_child_env(
     space_id: str | None,
-    parent_run_id: str | None = None,
+    parent_spawn_id: str | None = None,
 ) -> dict[str, str]:
-    # Preserve Meridian run context across nesting without forwarding unrelated
+    # Preserve Meridian spawn context across nesting without forwarding unrelated
     # parent process environment variables.
     child_env = {key: value for key, value in os.environ.items() if key.startswith("MERIDIAN_")}
     current_depth = _read_non_negative_int_env("MERIDIAN_DEPTH", 0)
     child_env["MERIDIAN_DEPTH"] = str(current_depth + 1)
     if space_id is not None:
         child_env["MERIDIAN_SPACE_ID"] = space_id
-    if parent_run_id is None:
+    if parent_spawn_id is None:
         child_env.pop("MERIDIAN_PARENT_RUN_ID", None)
     else:
-        normalized_parent = parent_run_id.strip()
+        normalized_parent = parent_spawn_id.strip()
         if normalized_parent:
             child_env["MERIDIAN_PARENT_RUN_ID"] = normalized_parent
         else:
@@ -263,9 +263,9 @@ def _stdout_is_tty() -> bool:
         return False
 
 
-async def _execute_existing_run(
+async def _execute_existing_spawn(
     *,
-    run_id: RunId,
+    spawn_id: SpawnId,
     repo_root: Path,
     timeout_secs: float | None,
     skills: tuple[str, ...],
@@ -284,18 +284,18 @@ async def _execute_existing_run(
     runtime = build_runtime(str(repo_root))
     space_id_text = (space_id_hint or os.getenv("MERIDIAN_SPACE_ID", "")).strip()
     if not space_id_text:
-        logger.error("Missing space ID for run execution.", run_id=str(run_id))
+        logger.error("Missing space ID for spawn execution.", spawn_id=str(spawn_id))
         return 1
 
     space_dir = resolve_space_dir(repo_root, space_id_text)
-    run_record = run_store.get_run(space_dir, run_id)
-    if run_record is None or run_record.model is None or run_record.prompt is None:
-        logger.error("Run not found for background execution.", run_id=str(run_id))
+    spawn_record = spawn_store.get_spawn(space_dir, spawn_id)
+    if spawn_record is None or spawn_record.model is None or spawn_record.prompt is None:
+        logger.error("Spawn not found for background execution.", spawn_id=str(spawn_id))
         return 1
-    run = Run(
-        run_id=RunId(run_record.id),
-        prompt=run_record.prompt,
-        model=ModelId(run_record.model),
+    spawn = Spawn(
+        spawn_id=SpawnId(spawn_record.id),
+        prompt=spawn_record.prompt,
+        model=ModelId(spawn_record.model),
         status="running",
         space_id=SpaceId(space_id_text),
     )
@@ -308,9 +308,9 @@ async def _execute_existing_run(
 
     chat_id = start_session(
         space_dir,
-        harness=run_record.harness or "",
-        harness_session_id=run_record.harness_session_id or "",
-        model=run_record.model,
+        harness=spawn_record.harness or "",
+        harness_session_id=spawn_record.harness_session_id or "",
+        model=spawn_record.model,
         agent=session_agent,
         agent_path=session_agent_path,
         skills=skills,
@@ -320,7 +320,7 @@ async def _execute_existing_run(
     try:
         materialized_agent_name = _materialize_session_agent_name(
             repo_root=runtime.repo_root,
-            harness_id=run_record.harness or "",
+            harness_id=spawn_record.harness or "",
             chat_id=chat_id,
             session_agent=session_agent,
             session_agent_path=session_agent_path,
@@ -332,7 +332,7 @@ async def _execute_existing_run(
             resolved_agent_name = materialized_agent_name
 
         return await execute_with_finalization(
-            run,
+            spawn,
             repo_root=runtime.repo_root,
             space_dir=space_dir,
             artifacts=runtime.artifacts,
@@ -345,9 +345,9 @@ async def _execute_existing_run(
             skills=skills,
             agent=resolved_agent_name,
             mcp_tools=mcp_tools,
-            env_overrides=_run_child_env(
+            env_overrides=_spawn_child_env(
                 space_id_text,
-                str(run.run_id),
+                str(spawn.spawn_id),
             ),
             max_retries=runtime.config.max_retries,
             retry_backoff_seconds=runtime.config.retry_backoff_seconds,
@@ -364,7 +364,7 @@ async def _execute_existing_run(
             stop_session(space_dir, chat_id)
         finally:
             _cleanup_session_materialized(
-                harness_id=run_record.harness or "",
+                    harness_id=spawn_record.harness or "",
                 repo_root=runtime.repo_root,
                 chat_id=chat_id,
             )
@@ -372,7 +372,7 @@ async def _execute_existing_run(
 
 def _build_background_worker_command(
     *,
-    run_id: str,
+    spawn_id: str,
     repo_root: Path,
     space_id: str | None,
     timeout_secs: float | None,
@@ -391,9 +391,9 @@ def _build_background_worker_command(
     command: list[str] = [
         sys.executable,
         "-m",
-        "meridian.lib.ops._run_execute",
-        "--run-id",
-        run_id,
+        "meridian.lib.ops._spawn_execute",
+        "--spawn-id",
+        spawn_id,
         "--repo-root",
         repo_root.as_posix(),
         "--permission-tier",
@@ -426,16 +426,16 @@ def _build_background_worker_command(
     return tuple(command)
 
 
-def _execute_run_background(
+def _execute_spawn_background(
     *,
-    payload: RunCreateInput,
+    payload: SpawnCreateInput,
     prepared: _PreparedCreateLike,
     runtime: OperationRuntime,
-) -> RunActionOutput:
+) -> SpawnActionOutput:
     if payload.stream:
-        logger.warning("--stream is ignored with --background; output goes to run log files.")
+        logger.warning("--stream is ignored with --background; output goes to spawn log files.")
     space_id, space_dir = _resolve_space(runtime.repo_root, payload.space)
-    run_id = run_store.start_run(
+    spawn_id = spawn_store.start_spawn(
         space_dir,
         chat_id=_resolve_chat_id(),
         model=prepared.model,
@@ -444,20 +444,20 @@ def _execute_run_background(
         prompt=prepared.composed_prompt,
         harness_session_id=prepared.continue_harness_session_id,
     )
-    run = Run(
-        run_id=RunId(run_id),
+    spawn = Spawn(
+        spawn_id=SpawnId(spawn_id),
         prompt=prepared.composed_prompt,
         model=ModelId(prepared.model),
         status="running",
         space_id=space_id,
     )
-    run_id_text = str(run.run_id)
+    spawn_id_text = str(spawn.spawn_id)
     space_id_str = str(space_id)
 
     current_depth = _read_non_negative_int_env("MERIDIAN_DEPTH", 0)
     run_start_event: dict[str, Any] = {
-        "t": "meridian.run.start",
-        "id": run_id_text,
+        "t": "meridian.spawn.start",
+        "id": spawn_id_text,
         "model": prepared.model,
         "d": current_depth,
     }
@@ -466,7 +466,7 @@ def _execute_run_background(
     _emit_subrun_event(run_start_event)
 
     launch_command = _build_background_worker_command(
-        run_id=run_id_text,
+        spawn_id=spawn_id_text,
         repo_root=runtime.repo_root,
         space_id=space_id_str,
         timeout_secs=payload.timeout_secs,
@@ -482,7 +482,7 @@ def _execute_run_background(
         session_agent_path=prepared.session_agent_path,
         session_skill_paths=prepared.skill_paths,
     )
-    log_dir = resolve_run_log_dir(runtime.repo_root, run.run_id, run.space_id)
+    log_dir = resolve_spawn_log_dir(runtime.repo_root, spawn.spawn_id, spawn.space_id)
     log_dir.mkdir(parents=True, exist_ok=True)
     stdout_path = log_dir / _BACKGROUND_STDOUT_FILENAME
     stderr_path = log_dir / _BACKGROUND_STDERR_FILENAME
@@ -504,23 +504,23 @@ def _execute_run_background(
                 close_fds=True,
             )
     except OSError as exc:
-        run_store.finalize_run(
+        spawn_store.finalize_spawn(
             space_dir,
-            run.run_id,
+            spawn.spawn_id,
             status="failed",
             exit_code=1,
             error=str(exc),
         )
         logger.exception(
-            "Failed to launch background run worker.",
-            run_id=run_id_text,
+            "Failed to launch background spawn worker.",
+            spawn_id=spawn_id_text,
             command=list(launch_command),
         )
-        return RunActionOutput(
-            command="run.spawn",
+        return SpawnActionOutput(
+            command="spawn.create",
             status="failed",
-            run_id=run_id_text,
-            message=f"Failed to launch background run: {exc}",
+            spawn_id=spawn_id_text,
+            message=f"Failed to launch background spawn: {exc}",
             error="background_launch_failed",
             model=prepared.model,
             harness_id=prepared.harness_id,
@@ -534,12 +534,12 @@ def _execute_run_background(
 
     (log_dir / _BACKGROUND_PID_FILENAME).write_text(f"{process.pid}\n", encoding="utf-8")
     # The Popen object goes out of scope without wait(). This is intentional:
-    # the child runs in its own session (start_new_session=True) and is
+    # the child spawns in its own session (start_new_session=True) and is
     # re-parented to init/systemd. We only need the PID for diagnostics.
-    return RunActionOutput(
-        command="run.spawn",
+    return SpawnActionOutput(
+        command="spawn.create",
         status="running",
-        run_id=run_id_text,
+        spawn_id=spawn_id_text,
         message=_BACKGROUND_SUBMIT_MESSAGE,
         model=prepared.model,
         harness_id=prepared.harness_id,
@@ -552,14 +552,14 @@ def _execute_run_background(
     )
 
 
-def _execute_run_blocking(
+def _execute_spawn_blocking(
     *,
-    payload: RunCreateInput,
+    payload: SpawnCreateInput,
     prepared: _PreparedCreateLike,
     runtime: OperationRuntime,
-) -> RunActionOutput:
+) -> SpawnActionOutput:
     space_id, space_dir = _resolve_space(runtime.repo_root, payload.space)
-    run_id = run_store.start_run(
+    spawn_id = spawn_store.start_spawn(
         space_dir,
         chat_id=_resolve_chat_id(),
         model=prepared.model,
@@ -568,8 +568,8 @@ def _execute_run_blocking(
         prompt=prepared.composed_prompt,
         harness_session_id=prepared.continue_harness_session_id,
     )
-    run = Run(
-        run_id=RunId(run_id),
+    spawn = Spawn(
+        spawn_id=SpawnId(spawn_id),
         prompt=prepared.composed_prompt,
         model=ModelId(prepared.model),
         status="running",
@@ -577,8 +577,8 @@ def _execute_run_blocking(
     )
     current_depth = _read_non_negative_int_env("MERIDIAN_DEPTH", 0)
     run_start_event: dict[str, Any] = {
-        "t": "meridian.run.start",
-        "id": str(run.run_id),
+        "t": "meridian.spawn.start",
+        "id": str(spawn.spawn_id),
         "model": prepared.model,
         "d": current_depth,
     }
@@ -632,7 +632,7 @@ def _execute_run_blocking(
 
         exit_code = asyncio.run(
             execute_with_finalization(
-                run,
+                spawn,
                 repo_root=runtime.repo_root,
                 space_dir=space_dir,
                 artifacts=runtime.artifacts,
@@ -645,9 +645,9 @@ def _execute_run_blocking(
                 skills=prepared.skills,
                 agent=resolved_agent_name,
                 mcp_tools=prepared.mcp_tools,
-                env_overrides=_run_child_env(
+                env_overrides=_spawn_child_env(
                     space_id_str,
-                    str(run.run_id),
+                    str(spawn.spawn_id),
                 ),
                 max_retries=runtime.config.max_retries,
                 retry_backoff_seconds=runtime.config.retry_backoff_seconds,
@@ -674,7 +674,7 @@ def _execute_run_blocking(
             )
     duration = time.monotonic() - started
 
-    row = _read_run_row(runtime.repo_root, str(run.run_id), space=space_id_str)
+    row = _read_spawn_row(runtime.repo_root, str(spawn.spawn_id), space=space_id_str)
     status = "failed"
     if row is not None:
         status = row.status
@@ -690,8 +690,8 @@ def _execute_run_blocking(
             tokens_total = input_tokens + output_tokens
     _emit_subrun_event(
         {
-            "t": "meridian.run.done",
-            "id": str(run.run_id),
+            "t": "meridian.spawn.done",
+            "id": str(spawn.spawn_id),
             "exit": exit_code,
             "secs": done_secs,
             "tok": tokens_total,
@@ -699,11 +699,11 @@ def _execute_run_blocking(
         }
     )
 
-    return RunActionOutput(
-        command="run.spawn",
+    return SpawnActionOutput(
+        command="spawn.create",
         status=status,
-        run_id=str(run.run_id),
-        message="Run completed.",
+        spawn_id=str(spawn.spawn_id),
+        message="Spawn completed.",
         model=prepared.model,
         harness_id=prepared.harness_id,
         warning=prepared.warning,
@@ -716,9 +716,9 @@ def _execute_run_blocking(
     )
 
 
-async def _execute_run_non_blocking(
+async def _execute_spawn_non_blocking(
     *,
-    run_id: RunId,
+    spawn_id: SpawnId,
     repo_root: Path,
     timeout_secs: float | None,
     skills: tuple[str, ...],
@@ -733,8 +733,8 @@ async def _execute_run_non_blocking(
     session_agent_path: str = "",
     session_skill_paths: tuple[str, ...] = (),
 ) -> None:
-    _ = await _execute_existing_run(
-        run_id=run_id,
+    _ = await _execute_existing_spawn(
+        spawn_id=spawn_id,
         repo_root=repo_root,
         timeout_secs=timeout_secs,
         skills=skills,
@@ -760,7 +760,7 @@ def _track_task(task: asyncio.Task[None]) -> None:
         except asyncio.CancelledError:
             pass
         except Exception:
-            logger.exception("Background run task failed.")
+            logger.exception("Background spawn task failed.")
         finally:
             _BACKGROUND_TASKS.discard(done)
 
@@ -768,8 +768,8 @@ def _track_task(task: asyncio.Task[None]) -> None:
 
 
 def _build_background_worker_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="python -m meridian.lib.ops._run_execute")
-    parser.add_argument("--run-id", required=True)
+    parser = argparse.ArgumentParser(prog="python -m meridian.lib.ops._spawn_execute")
+    parser.add_argument("--spawn-id", required=True)
     parser.add_argument("--repo-root", required=True)
     parser.add_argument("--space-id", default=None)
     parser.add_argument("--timeout-secs", type=float, default=None)
@@ -797,8 +797,8 @@ def _background_worker_main(argv: Sequence[str] | None = None) -> int:
     )
     allowed_tools = tuple(str(item) for item in parsed.allowed_tool)
     return asyncio.run(
-        _execute_existing_run(
-            run_id=RunId(parsed.run_id),
+        _execute_existing_spawn(
+            spawn_id=SpawnId(parsed.spawn_id),
             repo_root=Path(parsed.repo_root).expanduser().resolve(),
             space_id_hint=parsed.space_id,
             timeout_secs=parsed.timeout_secs,

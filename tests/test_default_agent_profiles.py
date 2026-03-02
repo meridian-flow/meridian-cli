@@ -6,12 +6,12 @@ from pathlib import Path
 
 import pytest
 
-import meridian.lib.ops.run as run_ops
+import meridian.lib.ops.spawn as run_ops
 import meridian.lib.safety.permissions as permission_safety
 import meridian.lib.space.launch as space_launch
 from meridian.lib.config._paths import bundled_agents_root
 from meridian.lib.config.agent import _BUILTIN_PATH, load_agent_profile
-from meridian.lib.ops.run import RunCreateInput
+from meridian.lib.ops.spawn import SpawnCreateInput
 from meridian.lib.types import SpaceId
 from meridian.lib.space.launch import (
     SpaceLaunchRequest,
@@ -92,8 +92,8 @@ def test_run_uses_default_agent_profile_and_profile_skills(tmp_path: Path) -> No
     )
     _write_skill(tmp_path, "reviewing", "Review skill content")
 
-    result = run_ops.run_create_sync(
-        RunCreateInput(
+    result = run_ops.spawn_create_sync(
+        SpawnCreateInput(
             prompt="review the changes",
             dry_run=True,
             repo_root=tmp_path.as_posix(),
@@ -112,11 +112,11 @@ def test_run_falls_back_to_bundled_agent_when_configured_profile_missing(
         tmp_path,
         "[defaults]\nagent = 'missing-profile'\n",
     )
-    _write_skill(tmp_path, "run-agent", "Run delegation skill")
+    _write_skill(tmp_path, "run-agent", "Spawn delegation skill")
     _write_skill(tmp_path, "agent", "Agent baseline skill")
 
-    result = run_ops.run_create_sync(
-        RunCreateInput(
+    result = run_ops.spawn_create_sync(
+        SpawnCreateInput(
             prompt="fallback behavior",
             model="gpt-5.3-codex",
             dry_run=True,
@@ -333,7 +333,7 @@ def test_agent_profile_parses_mcp_tools_and_defaults_to_empty_tuple(tmp_path: Pa
         name="mcp-agent",
         model="gpt-5.3-codex",
         skills=["agent"],
-        mcp_tools=["run_list", "run_show"],
+        mcp_tools=["spawn_list", "spawn_show"],
     )
     _write_agent(
         tmp_path,
@@ -345,7 +345,7 @@ def test_agent_profile_parses_mcp_tools_and_defaults_to_empty_tuple(tmp_path: Pa
     mcp_profile = load_agent_profile("mcp-agent", repo_root=tmp_path)
     plain_profile = load_agent_profile("plain-agent", repo_root=tmp_path)
 
-    assert mcp_profile.mcp_tools == ("run_list", "run_show")
+    assert mcp_profile.mcp_tools == ("spawn_list", "spawn_show")
     assert plain_profile.mcp_tools == ()
 
 
@@ -369,7 +369,7 @@ def test_builtin_primary_profile_used_when_no_file_on_disk(tmp_path: Path) -> No
     assert profile.name == "primary"
     assert profile.model == "claude-opus-4-6"
     assert profile.sandbox == "unrestricted"
-    assert profile.skills == ("orchestrate", "meridian-run")
+    assert profile.skills == ("orchestrate", "meridian-spawn-agent")
     assert profile.path == (bundled_root / "agents" / "primary.md").resolve()
     assert profile.path != _BUILTIN_PATH
 
@@ -389,9 +389,9 @@ def test_disk_profile_takes_precedence_over_builtin(tmp_path: Path) -> None:
 
 
 def test_run_uses_builtin_default_agent_when_no_profile_on_disk(tmp_path: Path) -> None:
-    """run_create_sync should resolve the built-in 'agent' profile as default."""
-    result = run_ops.run_create_sync(
-        RunCreateInput(
+    """spawn_create_sync should resolve the built-in 'agent' profile as default."""
+    result = run_ops.spawn_create_sync(
+        SpawnCreateInput(
             prompt="hello",
             dry_run=True,
             repo_root=tmp_path.as_posix(),
@@ -413,11 +413,11 @@ def test_claude_command_merges_permission_and_mcp_allowed_tools(tmp_path: Path) 
         model="claude-sonnet-4-6",
         skills=[],
         sandbox="workspace-write",
-        mcp_tools=["run_list", "run_show"],
+        mcp_tools=["spawn_list", "spawn_show"],
     )
 
-    result = run_ops.run_create_sync(
-        RunCreateInput(
+    result = run_ops.spawn_create_sync(
+        SpawnCreateInput(
             prompt="review changes",
             dry_run=True,
             agent="claude-reviewer",
@@ -436,8 +436,8 @@ def test_claude_command_merges_permission_and_mcp_allowed_tools(tmp_path: Path) 
     allowed_tools = _allowed_tools_from_command(result.cli_command)
     assert "Edit" in allowed_tools
     assert "Write" in allowed_tools
-    assert "mcp__meridian__run_list" in allowed_tools
-    assert "mcp__meridian__run_show" in allowed_tools
+    assert "mcp__meridian__spawn_list" in allowed_tools
+    assert "mcp__meridian__spawn_show" in allowed_tools
 
 
 def test_run_logs_warning_when_profile_sandbox_exceeds_config_default(
@@ -461,7 +461,7 @@ def test_run_logs_warning_when_profile_sandbox_exceeds_config_default(
         skills=["run-agent", "agent"],
         sandbox="unrestricted",
     )
-    _write_skill(tmp_path, "run-agent", "Run delegation skill")
+    _write_skill(tmp_path, "run-agent", "Spawn delegation skill")
     _write_skill(tmp_path, "agent", "Agent baseline skill")
 
     class _Logger:
@@ -476,8 +476,8 @@ def test_run_logs_warning_when_profile_sandbox_exceeds_config_default(
     monkeypatch.setattr(permission_safety, "logger", stub_logger)
 
     # Warning only fires when agent is explicitly requested (not implicit default)
-    run_ops.run_create_sync(
-        RunCreateInput(
+    run_ops.spawn_create_sync(
+        SpawnCreateInput(
             prompt="check warning",
             agent="unsafe-agent",
             dry_run=True,
@@ -506,8 +506,8 @@ def test_explicit_allowed_tools_replace_tier_tools_for_claude(tmp_path: Path) ->
         allowed_tools=["Read", "Glob", "Grep", "WebSearch", "WebFetch"],
     )
 
-    result = run_ops.run_create_sync(
-        RunCreateInput(
+    result = run_ops.spawn_create_sync(
+        SpawnCreateInput(
             prompt="research task",
             dry_run=True,
             agent="researcher",
@@ -539,8 +539,8 @@ def test_explicit_allowed_tools_codex_falls_back_to_sandbox(tmp_path: Path) -> N
         allowed_tools=["Read", "Glob", "WebSearch"],
     )
 
-    result = run_ops.run_create_sync(
-        RunCreateInput(
+    result = run_ops.spawn_create_sync(
+        SpawnCreateInput(
             prompt="research task",
             dry_run=True,
             agent="codex-researcher",
@@ -568,8 +568,8 @@ def test_cli_permission_overrides_explicit_allowed_tools(tmp_path: Path) -> None
         allowed_tools=["Read", "Glob"],
     )
 
-    result = run_ops.run_create_sync(
-        RunCreateInput(
+    result = run_ops.spawn_create_sync(
+        SpawnCreateInput(
             prompt="override test",
             dry_run=True,
             agent="restricted",
@@ -595,11 +595,11 @@ def test_explicit_allowed_tools_merge_with_mcp_tools(tmp_path: Path) -> None:
         skills=[],
         sandbox="read-only",
         allowed_tools=["Read", "Glob", "Grep"],
-        mcp_tools=["run_list", "run_show"],
+        mcp_tools=["spawn_list", "spawn_show"],
     )
 
-    result = run_ops.run_create_sync(
-        RunCreateInput(
+    result = run_ops.spawn_create_sync(
+        SpawnCreateInput(
             prompt="merge test",
             dry_run=True,
             agent="mcp-researcher",
@@ -615,8 +615,8 @@ def test_explicit_allowed_tools_merge_with_mcp_tools(tmp_path: Path) -> None:
     assert "Glob" in allowed_tools
     assert "Grep" in allowed_tools
     # MCP tools
-    assert "mcp__meridian__run_list" in allowed_tools
-    assert "mcp__meridian__run_show" in allowed_tools
+    assert "mcp__meridian__spawn_list" in allowed_tools
+    assert "mcp__meridian__spawn_show" in allowed_tools
 
 
 def test_empty_allowed_tools_falls_back_to_tier(tmp_path: Path) -> None:
@@ -629,8 +629,8 @@ def test_empty_allowed_tools_falls_back_to_tier(tmp_path: Path) -> None:
         sandbox="workspace-write",
     )
 
-    result = run_ops.run_create_sync(
-        RunCreateInput(
+    result = run_ops.spawn_create_sync(
+        SpawnCreateInput(
             prompt="tier test",
             dry_run=True,
             agent="tier-agent",

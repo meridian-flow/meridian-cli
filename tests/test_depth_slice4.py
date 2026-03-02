@@ -10,8 +10,8 @@ from typing import Any
 
 import pytest
 
-from meridian.lib.ops._run_execute import _run_child_env
-from meridian.lib.ops.run import RunCreateInput, run_create, run_create_sync
+from meridian.lib.ops._spawn_execute import _spawn_child_env
+from meridian.lib.ops.spawn import SpawnCreateInput, spawn_create, spawn_create_sync
 from meridian.server.main import mcp
 
 
@@ -38,8 +38,8 @@ def test_run_create_sync_refuses_when_depth_limit_reached(
     monkeypatch.setenv("MERIDIAN_DEPTH", "3")
     monkeypatch.setenv("MERIDIAN_MAX_DEPTH", "3")
 
-    result = run_create_sync(
-        RunCreateInput(
+    result = spawn_create_sync(
+        SpawnCreateInput(
             prompt="blocked",
             model="gpt-5.3-codex",
             repo_root=tmp_path.as_posix(),
@@ -50,7 +50,7 @@ def test_run_create_sync_refuses_when_depth_limit_reached(
     assert result.error == "max_depth_exceeded"
     assert result.current_depth == 3
     assert result.max_depth == 3
-    assert result.run_id is None
+    assert result.spawn_id is None
     assert not (tmp_path / ".meridian" / ".spaces").exists()
 
 
@@ -62,8 +62,8 @@ async def test_run_create_async_refuses_when_depth_limit_reached(
     monkeypatch.setenv("MERIDIAN_DEPTH", "4")
     monkeypatch.setenv("MERIDIAN_MAX_DEPTH", "4")
 
-    result = await run_create(
-        RunCreateInput(
+    result = await spawn_create(
+        SpawnCreateInput(
             prompt="blocked-async",
             model="gpt-5.3-codex",
             repo_root=tmp_path.as_posix(),
@@ -74,7 +74,7 @@ async def test_run_create_async_refuses_when_depth_limit_reached(
     assert result.error == "max_depth_exceeded"
     assert result.current_depth == 4
     assert result.max_depth == 4
-    assert result.run_id is None
+    assert result.spawn_id is None
     assert not (tmp_path / ".meridian" / ".spaces").exists()
 
 
@@ -90,7 +90,7 @@ async def test_mcp_run_spawn_refuses_when_depth_limit_reached(
     monkeypatch.setenv("MERIDIAN_MAX_DEPTH", "3")
 
     raw = await mcp.call_tool(
-        "run_spawn",
+        "spawn_create",
         {"prompt": "blocked-mcp", "model": "gpt-5.3-codex"},
     )
     payload = _payload_from_result(raw)
@@ -98,13 +98,13 @@ async def test_mcp_run_spawn_refuses_when_depth_limit_reached(
     assert payload["error"] == "max_depth_exceeded"
     assert payload["current_depth"] == 3
     assert payload["max_depth"] == 3
-    assert payload["run_id"] is None
+    assert payload["spawn_id"] is None
     assert not (repo_root / ".meridian" / ".spaces").exists()
 
 
 def test_run_child_env_increments_depth(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MERIDIAN_DEPTH", "2")
-    env = _run_child_env("s9")
+    env = _spawn_child_env("s9")
     assert env["MERIDIAN_DEPTH"] == "3"
     assert env["MERIDIAN_SPACE_ID"] == "s9"
 
@@ -121,6 +121,7 @@ def test_cli_run_spawn_depth_limit_returns_structured_error(
     env["MERIDIAN_REPO_ROOT"] = repo_root.as_posix()
     env["MERIDIAN_DEPTH"] = "3"
     env["MERIDIAN_MAX_DEPTH"] = "3"
+    env["MERIDIAN_SPACE_ID"] = "s1"
 
     result = subprocess.run(
         [
@@ -128,7 +129,6 @@ def test_cli_run_spawn_depth_limit_returns_structured_error(
             "-m",
             "meridian",
             "--json",
-            "run",
             "spawn",
             "--prompt",
             "blocked-cli",
@@ -149,5 +149,5 @@ def test_cli_run_spawn_depth_limit_returns_structured_error(
     assert payload["error"] == "max_depth_exceeded"
     assert payload["current_depth"] == 3
     assert payload["max_depth"] == 3
-    assert payload["run_id"] is None
+    assert payload["spawn_id"] is None
     assert not (repo_root / ".meridian" / ".spaces").exists()

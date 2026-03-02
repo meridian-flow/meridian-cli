@@ -1,11 +1,11 @@
-"""File-backed ID generation for spaces, runs, and sessions."""
+"""File-backed ID generation for spaces, spawns, and sessions."""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
-from meridian.lib.types import RunId, SpaceId
+from meridian.lib.types import SpawnId, SpaceId
 
 
 def _count_start_events(path: Path) -> int:
@@ -52,11 +52,11 @@ def next_space_id(repo_root: Path) -> SpaceId:
     return SpaceId(f"s{max_suffix + 1}")
 
 
-def next_run_id(space_dir: Path) -> RunId:
+def next_spawn_id(space_dir: Path) -> SpawnId:
     """Return the next run ID (`r1`, `r2`, ...) for a space."""
 
-    starts = _count_start_events(space_dir / "runs.jsonl")
-    return RunId(f"r{starts + 1}")
+    starts = _count_start_events(space_dir / "spawns.jsonl")
+    return SpawnId(f"r{starts + 1}")
 
 
 def next_chat_id(space_dir: Path) -> str:

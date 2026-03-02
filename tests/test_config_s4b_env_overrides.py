@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 import meridian.lib.safety.permissions as permissions_module
-from meridian.lib.domain import Run, TokenUsage
+from meridian.lib.domain import Spawn, TokenUsage
 from meridian.lib.exec.spawn import execute_with_finalization
 from meridian.lib.harness.adapter import (
     ArtifactStore as HarnessArtifactStore,
@@ -18,7 +18,7 @@ from meridian.lib.harness.adapter import (
 from meridian.lib.harness.adapter import (
     HarnessCapabilities,
     PermissionResolver,
-    RunParams,
+    SpawnParams,
     StreamEvent,
 )
 from meridian.lib.harness.claude import ClaudeAdapter
@@ -35,7 +35,7 @@ from meridian.lib.safety.permissions import (
 from meridian.lib.space.space_file import create_space
 from meridian.lib.state.artifact_store import LocalStore, make_artifact_key
 from meridian.lib.state.paths import resolve_space_dir
-from meridian.lib.types import HarnessId, ModelId, RunId, SpaceId
+from meridian.lib.types import HarnessId, ModelId, SpawnId, SpaceId
 
 
 class _EnvOverrideHarness:
@@ -53,7 +53,7 @@ class _EnvOverrideHarness:
     def capabilities(self) -> HarnessCapabilities:
         return HarnessCapabilities()
 
-    def build_command(self, run: RunParams, perms: PermissionResolver) -> list[str]:
+    def build_command(self, run: SpawnParams, perms: PermissionResolver) -> list[str]:
         _ = run
         return [sys.executable, str(self._script), *perms.resolve_flags(self.id)]
 
@@ -65,12 +65,12 @@ class _EnvOverrideHarness:
         _ = line
         return None
 
-    def extract_usage(self, artifacts: HarnessArtifactStore, run_id: RunId) -> TokenUsage:
-        _ = (artifacts, run_id)
+    def extract_usage(self, artifacts: HarnessArtifactStore, spawn_id: SpawnId) -> TokenUsage:
+        _ = (artifacts, spawn_id)
         return TokenUsage()
 
-    def extract_session_id(self, artifacts: HarnessArtifactStore, run_id: RunId) -> str | None:
-        _ = (artifacts, run_id)
+    def extract_session_id(self, artifacts: HarnessArtifactStore, spawn_id: SpawnId) -> str | None:
+        _ = (artifacts, spawn_id)
         return None
 
 
@@ -171,11 +171,11 @@ def test_standard_harnesses_only_opencode_sets_env_overrides() -> None:
 
 def test_opencode_mcp_config_uses_profile_scoped_tool_globs() -> None:
     mcp_config = OpenCodeAdapter().mcp_config(
-        RunParams(
+        SpawnParams(
             prompt="test",
             model=ModelId("opencode-gpt-5.3-codex"),
             repo_root="/tmp/repo",
-            mcp_tools=("run_list", "run_show"),
+            mcp_tools=("spawn_list", "spawn_show"),
         )
     )
 
@@ -190,8 +190,8 @@ def test_opencode_mcp_config_uses_profile_scoped_tool_globs() -> None:
         "serve",
     ]
     assert payload["mcp_servers"]["meridian"]["tool_globs"] == [
-        "mcp__meridian__run_list",
-        "mcp__meridian__run_show",
+        "mcp__meridian__spawn_list",
+        "mcp__meridian__spawn_show",
     ]
 
 
@@ -224,8 +224,8 @@ async def test_execute_with_finalization_merges_adapter_env_overrides(
     )
 
     space = create_space(tmp_path, name="env-overrides")
-    run = Run(
-        run_id=RunId("r1"),
+    run = Spawn(
+        spawn_id=SpawnId("r1"),
         prompt="env",
         model=ModelId("gpt-5.3-codex"),
         status="queued",
@@ -258,7 +258,7 @@ async def test_execute_with_finalization_merges_adapter_env_overrides(
     assert exit_code == 0
     assert adapter.seen_configs == [permission_config]
 
-    output = artifacts.get(make_artifact_key(run.run_id, "output.jsonl")).decode("utf-8")
+    output = artifacts.get(make_artifact_key(run.spawn_id, "output.jsonl")).decode("utf-8")
     payload = json.loads(output.strip())
     assert payload == {
         "caller": "caller-value",

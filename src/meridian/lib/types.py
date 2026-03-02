@@ -3,7 +3,7 @@
 from typing import NewType
 
 SpaceId = NewType("SpaceId", str)
-RunId = NewType("RunId", str)
+SpawnId = NewType("SpawnId", str)
 HarnessId = NewType("HarnessId", str)
 ModelId = NewType("ModelId", str)
 WorkflowEventId = NewType("WorkflowEventId", int)

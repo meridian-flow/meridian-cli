@@ -14,14 +14,14 @@ if TYPE_CHECKING:
     from meridian.lib.types import (
         ArtifactKey,
         ModelId,
-        RunId,
+        SpawnId,
         SpanId,
         TraceId,
         WorkflowEventId,
         SpaceId,
     )
 
-RunStatus = Literal["queued", "running", "succeeded", "failed", "cancelled"]
+SpawnStatus = Literal["queued", "running", "succeeded", "failed", "cancelled"]
 SpaceState = Literal["active", "closed"]
 
 
@@ -39,7 +39,7 @@ class TokenUsage:
 
 
 @dataclass(frozen=True, slots=True)
-class RunCreateParams:
+class SpawnCreateParams:
     """Input fields for creating a run record."""
 
     prompt: str
@@ -48,15 +48,15 @@ class RunCreateParams:
 
 
 @dataclass(frozen=True, slots=True)
-class RunFilters:
-    """Run list filter options."""
+class SpawnFilters:
+    """Spawn list filter options."""
 
     space_id: SpaceId | None = None
-    status: RunStatus | None = None
+    status: SpawnStatus | None = None
 
 
 @dataclass(frozen=True, slots=True)
-class RunEnrichment:
+class SpawnEnrichment:
     """Post-run enrichment payload."""
 
     usage: TokenUsage = field(default_factory=TokenUsage)
@@ -64,23 +64,23 @@ class RunEnrichment:
 
 
 @dataclass(frozen=True, slots=True)
-class Run:
-    """Run aggregate root."""
+class Spawn:
+    """Spawn aggregate root."""
 
-    run_id: RunId
+    spawn_id: SpawnId
     prompt: str
     model: ModelId
-    status: RunStatus
+    status: SpawnStatus
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     space_id: SpaceId | None = None
 
 
 @dataclass(frozen=True, slots=True)
-class RunSummary:
+class SpawnSummary:
     """Compact run view for list output."""
 
-    run_id: RunId
-    status: RunStatus
+    spawn_id: SpawnId
+    status: SpawnStatus
     model: ModelId
     space_id: SpaceId | None = None
 
@@ -170,7 +170,7 @@ class WorkflowEvent:
     space_id: SpaceId
     event_type: str
     payload: Mapping[str, Any]
-    run_id: RunId | None = None
+    spawn_id: SpawnId | None = None
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
@@ -190,11 +190,11 @@ class Span:
 
 
 @dataclass(frozen=True, slots=True)
-class RunEdge:
-    """Dependency edge between two runs."""
+class SpawnEdge:
+    """Dependency edge between two spawns."""
 
-    source_run_id: RunId
-    target_run_id: RunId
+    source_spawn_id: SpawnId
+    target_run_id: SpawnId
     edge_type: str
 
 
@@ -202,7 +202,7 @@ class RunEdge:
 class ArtifactRecord:
     """Metadata record for one run artifact."""
 
-    run_id: RunId
+    spawn_id: SpawnId
     key: ArtifactKey
     path: Path
     size: int | None = None

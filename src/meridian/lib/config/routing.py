@@ -7,7 +7,7 @@ from typing import Literal
 
 from meridian.lib.types import HarnessId
 
-RunMode = Literal["harness", "direct"]
+SpawnMode = Literal["harness", "direct"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -18,7 +18,7 @@ class RoutingDecision:
     warning: str | None = None
 
 
-def route_model(model: str, mode: RunMode = "harness") -> RoutingDecision:
+def route_model(model: str, mode: SpawnMode = "harness") -> RoutingDecision:
     """Route a model ID to the corresponding harness family.
 
     Matches current bash behavior with Codex fallback for unknown families.

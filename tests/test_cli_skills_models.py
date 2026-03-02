@@ -24,7 +24,7 @@ def repo_with_skill(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def _run_cli(cwd: Path, args: list[str], timeout: float = 15.0) -> subprocess.CompletedProcess[str]:
+def _spawn_cli(cwd: Path, args: list[str], timeout: float = 15.0) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     src = str(Path(__file__).resolve().parents[1] / "src")
     existing = env.get("PYTHONPATH", "")
@@ -41,18 +41,18 @@ def _run_cli(cwd: Path, args: list[str], timeout: float = 15.0) -> subprocess.Co
 
 
 def test_skills_cli_commands_work(repo_with_skill: Path) -> None:
-    listed = _run_cli(repo_with_skill, ["--json", "skills", "list"])
+    listed = _spawn_cli(repo_with_skill, ["--json", "skills", "list"])
     assert listed.returncode == 0
     listed_payload = json.loads(listed.stdout)
     assert listed_payload["skills"]
     assert any(item["name"] == "test-skill" for item in listed_payload["skills"])
 
-    searched = _run_cli(repo_with_skill, ["--json", "skills", "search", "test"])
+    searched = _spawn_cli(repo_with_skill, ["--json", "skills", "search", "test"])
     assert searched.returncode == 0
     searched_payload = json.loads(searched.stdout)
     assert any(item["name"] == "test-skill" for item in searched_payload["skills"])
 
-    shown = _run_cli(repo_with_skill, ["--json", "skills", "show", "test-skill"])
+    shown = _spawn_cli(repo_with_skill, ["--json", "skills", "show", "test-skill"])
     assert shown.returncode == 0
     shown_payload = json.loads(shown.stdout)
     assert shown_payload["name"] == "test-skill"

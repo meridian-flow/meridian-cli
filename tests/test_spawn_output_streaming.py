@@ -1,4 +1,4 @@
-"""Run output streaming tests for slices 1-3."""
+"""Spawn output streaming tests for slices 1-3."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from meridian.lib.domain import Run, TokenUsage
+from meridian.lib.domain import Spawn, TokenUsage
 from meridian.lib.exec.spawn import execute_with_finalization
 from meridian.lib.exec.terminal import (
     DEFAULT_VISIBLE_CATEGORIES,
@@ -23,19 +23,19 @@ from meridian.lib.harness.adapter import (
     ArtifactStore,
     HarnessCapabilities,
     PermissionResolver,
-    RunParams,
+    SpawnParams,
     StreamEvent,
 )
 from meridian.lib.harness.claude import ClaudeAdapter
 from meridian.lib.harness.codex import CodexAdapter
 from meridian.lib.harness.opencode import OpenCodeAdapter
 from meridian.lib.harness.registry import HarnessRegistry
-from meridian.lib.ops._run_execute import _emit_subrun_event
+from meridian.lib.ops._spawn_execute import _emit_subrun_event
 from meridian.lib.safety.permissions import PermissionConfig
 from meridian.lib.space.space_file import create_space
 from meridian.lib.state.artifact_store import LocalStore
 from meridian.lib.state.paths import resolve_space_dir
-from meridian.lib.types import HarnessId, ModelId, RunId, SpaceId
+from meridian.lib.types import HarnessId, ModelId, SpawnId, SpaceId
 
 
 class _StreamingHarness:
@@ -52,7 +52,7 @@ class _StreamingHarness:
     def capabilities(self) -> HarnessCapabilities:
         return HarnessCapabilities(supports_stream_events=True)
 
-    def build_command(self, run: RunParams, perms: PermissionResolver) -> list[str]:
+    def build_command(self, run: SpawnParams, perms: PermissionResolver) -> list[str]:
         _ = run
         return [
             sys.executable,
@@ -69,12 +69,12 @@ class _StreamingHarness:
     def parse_stream_event(self, line: str) -> StreamEvent | None:
         return self._parser.parse_stream_event(line)
 
-    def extract_usage(self, artifacts: ArtifactStore, run_id: RunId) -> TokenUsage:
-        _ = (artifacts, run_id)
+    def extract_usage(self, artifacts: ArtifactStore, spawn_id: SpawnId) -> TokenUsage:
+        _ = (artifacts, spawn_id)
         return TokenUsage()
 
-    def extract_session_id(self, artifacts: ArtifactStore, run_id: RunId) -> str | None:
-        _ = (artifacts, run_id)
+    def extract_session_id(self, artifacts: ArtifactStore, spawn_id: SpawnId) -> str | None:
+        _ = (artifacts, spawn_id)
         return None
 
 
@@ -87,7 +87,7 @@ def test_harness_adapters_map_event_categories() -> None:
     claude_tool = claude.parse_stream_event('{"type":"tool_use"}')
     codex_reasoning = codex.parse_stream_event('{"type":"response.reasoning_summary.delta"}')
     codex_tool = codex.parse_stream_event('{"type":"tool.call.completed"}')
-    opencode_subrun = opencode.parse_stream_event('{"type":"run.start"}')
+    opencode_subrun = opencode.parse_stream_event('{"type":"spawn.start"}')
     opencode_error = opencode.parse_stream_event('{"type":"error"}')
 
     assert claude_result is not None and claude_result.category == "lifecycle"
@@ -134,34 +134,34 @@ def test_subrun_event_emission_when_depth_gt_zero(
 ) -> None:
     monkeypatch.setenv("MERIDIAN_DEPTH", "0")
     _emit_subrun_event(
-        {"t": "meridian.run.start", "id": "r34", "model": "claude-haiku-4-5", "d": 0}
+        {"t": "meridian.spawn.start", "id": "r34", "model": "claude-haiku-4-5", "d": 0}
     )
     assert capsys.readouterr().out == ""
 
     monkeypatch.setenv("MERIDIAN_DEPTH", "1")
     monkeypatch.setenv("MERIDIAN_PARENT_RUN_ID", "r33")
-    monkeypatch.setattr("meridian.lib.ops.run.time.time", lambda: 1740000000.123)
+    monkeypatch.setattr("meridian.lib.ops.spawn.time.time", lambda: 1740000000.123)
     _emit_subrun_event(
-        {"t": "meridian.run.start", "id": "r34", "model": "claude-haiku-4-5", "d": 1}
+        {"t": "meridian.spawn.start", "id": "r34", "model": "claude-haiku-4-5", "d": 1}
     )
     payload = json.loads(capsys.readouterr().out.strip())
     assert payload["v"] == 1
-    assert payload["t"] == "meridian.run.start"
+    assert payload["t"] == "meridian.spawn.start"
     assert payload["id"] == "r34"
     assert payload["parent"] == "r33"
     assert payload["ts"] == 1740000000.123
 
 
 def test_parse_json_stream_event_recognizes_meridian_protocol() -> None:
-    start = parse_json_stream_event('{"t":"run.start","id":"r5","model":"claude-haiku-4-5","d":1}')
+    start = parse_json_stream_event('{"t":"spawn.start","id":"r5","model":"claude-haiku-4-5","d":1}')
     assert start is not None
-    assert start.event_type == "run.start"
+    assert start.event_type == "spawn.start"
     assert start.text == "r5 claude-haiku-4-5 started"
     assert categorize_stream_event(start).category == "sub-run"
 
-    done = parse_json_stream_event('{"t":"run.done","id":"r5","exit":0,"secs":2.1,"tok":3200}')
+    done = parse_json_stream_event('{"t":"spawn.done","id":"r5","exit":0,"secs":2.1,"tok":3200}')
     assert done is not None
-    assert done.event_type == "run.done"
+    assert done.event_type == "spawn.done"
     assert done.text == "r5 completed 2.1s exit=0 tok=3200"
     assert categorize_stream_event(done).category == "sub-run"
 
@@ -175,9 +175,9 @@ def test_terminal_formatter_renders_subrun_from_meridian_protocol() -> None:
     )
 
     raw_start = parse_json_stream_event(
-        '{"t":"run.start","id":"r34","model":"claude-haiku-4-5","agent":"reviewer","d":1}'
+        '{"t":"spawn.start","id":"r34","model":"claude-haiku-4-5","agent":"reviewer","d":1}'
     )
-    raw_done = parse_json_stream_event('{"t":"run.done","id":"r34","exit":0,"secs":2.1,"tok":3200}')
+    raw_done = parse_json_stream_event('{"t":"spawn.done","id":"r34","exit":0,"secs":2.1,"tok":3200}')
     assert raw_start is not None
     assert raw_done is not None
 
@@ -195,8 +195,8 @@ async def test_execute_with_finalization_emits_categorized_events_to_observer(
     tmp_path: Path,
 ) -> None:
     space = create_space(tmp_path, name="stream-events")
-    run = Run(
-        run_id=RunId("r1"),
+    run = Spawn(
+        spawn_id=SpawnId("r1"),
         prompt="events",
         model=ModelId("gpt-5.3-codex"),
         status="queued",
@@ -260,18 +260,18 @@ def test_terminal_event_filter_honors_visibility_and_subrun_indentation() -> Non
 
     filterer.observe(
         StreamEvent(
-            event_type="run.start",
+            event_type="spawn.start",
             category="sub-run",
-            raw_line='{"type":"run.start"}',
+            raw_line='{"type":"spawn.start"}',
             text="r34 started",
             metadata={"d": 1},
         )
     )
     filterer.observe(
         StreamEvent(
-            event_type="run.start",
+            event_type="spawn.start",
             category="sub-run",
-            raw_line='{"type":"run.start"}',
+            raw_line='{"type":"spawn.start"}',
             text="r35 started",
             metadata={"d": 2},
         )

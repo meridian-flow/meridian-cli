@@ -12,7 +12,7 @@ from meridian.lib.ops._runtime import build_runtime
 from meridian.lib.ops.registry import OperationSpec, operation
 from meridian.lib.space import space_file
 from meridian.lib.space.session_store import cleanup_stale_sessions, list_active_sessions
-from meridian.lib.state import run_store
+from meridian.lib.state import spawn_store
 from meridian.lib.state.paths import resolve_all_spaces_dir
 
 if TYPE_CHECKING:
@@ -75,7 +75,7 @@ def _count_runs(repo_root: Path) -> int:
     for space_dir in _space_dirs(repo_root):
         if space_file.get_space(repo_root, space_dir.name) is None:
             continue
-        total += len(run_store.list_runs(space_dir))
+        total += len(spawn_store.list_spawns(space_dir))
     return total
 
 
@@ -96,13 +96,13 @@ def _repair_orphan_runs(repo_root: Path) -> int:
             continue
 
         active_sessions = set(list_active_sessions(space_dir))
-        for run in run_store.list_runs(space_dir):
+        for run in spawn_store.list_spawns(space_dir):
             if run.status != "running":
                 continue
             if run.chat_id is not None and run.chat_id in active_sessions:
                 continue
 
-            run_store.finalize_run(
+            spawn_store.finalize_spawn(
                 space_dir,
                 run.id,
                 status="failed",
@@ -137,7 +137,7 @@ def doctor_sync(payload: DoctorInput) -> DoctorOutput:
         repaired.append("stale_session_locks")
 
     # Skip destructive repairs when running as a subagent (MERIDIAN_SPACE_ID set).
-    # Subagents should never mark their parent's concurrent runs as failed
+    # Subagents should never mark their parent's concurrent spawns as failed
     # or close the parent space.
     import os
     if not os.environ.get("MERIDIAN_SPACE_ID"):
@@ -182,9 +182,9 @@ def doctor_sync(payload: DoctorInput) -> DoctorOutput:
         if record.status == "active" and not active_sessions:
             warnings.append(f"Space '{record.id}' is marked active with no live sessions.")
 
-        running = [row.id for row in run_store.list_runs(space_dir) if row.status == "running"]
+        running = [row.id for row in spawn_store.list_spawns(space_dir) if row.status == "running"]
         if running:
-            warnings.append(f"Space '{record.id}' has orphan candidate running runs: {', '.join(running)}")
+            warnings.append(f"Space '{record.id}' has orphan candidate running spawns: {', '.join(running)}")
 
     agents_dir = agents_dirs[0] if agents_dirs else runtime.repo_root
     skills_dir = skills_dirs[0] if skills_dirs else runtime.repo_root
@@ -215,6 +215,6 @@ operation(
         cli_group="doctor",
         cli_name="doctor",
         mcp_name="doctor",
-        description="Run diagnostics checks.",
+        description="Spawn diagnostics checks.",
     )
 )

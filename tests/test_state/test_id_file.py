@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from meridian.lib.state.id_gen import next_run_id, next_chat_id, next_space_id
+from meridian.lib.state.id_gen import next_spawn_id, next_chat_id, next_space_id
 
 
 def test_next_space_id_starts_at_s1(tmp_path):
@@ -24,14 +24,14 @@ def test_next_space_id_uses_max_numeric_suffix(tmp_path):
 def test_next_run_id_counts_start_events_and_skips_truncated_trailing_line(tmp_path):
     space_dir = tmp_path / ".meridian" / ".spaces" / "s1"
     space_dir.mkdir(parents=True, exist_ok=True)
-    runs_jsonl = space_dir / "runs.jsonl"
-    with runs_jsonl.open("w", encoding="utf-8") as handle:
+    spawns_jsonl = space_dir / "spawns.jsonl"
+    with spawns_jsonl.open("w", encoding="utf-8") as handle:
         handle.write(json.dumps({"v": 1, "event": "start", "id": "r1"}) + "\n")
         handle.write(json.dumps({"v": 1, "event": "finalize", "id": "r1"}) + "\n")
         handle.write(json.dumps({"v": 1, "event": "start", "id": "r2"}) + "\n")
         handle.write('{"v":1,"event":"start","id":"r3"')
 
-    assert next_run_id(space_dir) == "r3"
+    assert next_spawn_id(space_dir) == "r3"
 
 
 def test_next_chat_id_counts_start_events(tmp_path):

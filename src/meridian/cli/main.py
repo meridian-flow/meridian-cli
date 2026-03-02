@@ -16,14 +16,13 @@ from cyclopts import App, Parameter
 from meridian import __version__
 from meridian.cli.config_cmd import register_config_commands
 from meridian.cli.doctor_cmd import register_doctor_command
-from meridian.cli.grep_cmd import register_grep_command
 from meridian.cli.models_cmd import register_models_commands
 from meridian.cli.output import OutputConfig, normalize_output_format
 from meridian.cli.output import emit as emit_output
 from meridian.cli.skills_cmd import register_skills_commands
 from meridian.cli.space import register_space_commands
 from meridian.lib.config._paths import resolve_repo_root
-from meridian.lib.ops.run import RunActionOutput
+from meridian.lib.ops.spawn import SpawnActionOutput
 from meridian.lib.ops.space import SpaceActionOutput
 from meridian.lib.space import space_file
 from meridian.lib.space.launch import SpaceLaunchRequest, cleanup_orphaned_locks, launch_primary
@@ -45,22 +44,9 @@ _AGENT_ROOT_HELP = """Usage: meridian COMMAND [ARGS]
 Meridian orchestrator CLI
 
 Commands:
-  doctor: Run diagnostics checks.
-  grep: Search across meridian state files.
+  spawn: Spawn and manage subagents
   models: Model catalog commands
-  run: Run management commands
   skills: Skills catalog commands
-  --help, -h: Display this message and exit.
-  --version: Display application version.
-
-Parameters:
-  JSON, --json, --no-json: Emit command output as JSON. [default: False]
-  FORMAT, --format: Set output format: text, json, or porcelain.
-  PORCELAIN, --porcelain, --no-porcelain: Emit stable tab-separated key/value
-output. [default: False]
-  YES, --yes, --no-yes: Auto-approve prompts when supported. [default: False]
-  NO-INPUT, --no-input, --no-no-input: Disable interactive prompts and fail if
-input is needed. [default: False]
 """
 
 
@@ -85,12 +71,12 @@ def get_global_options() -> GlobalOptions:
     return _GLOBAL_OPTIONS.get() or default
 
 
-def _run_spawn_metadata_line(payload: RunActionOutput) -> str:
+def _spawn_spawn_metadata_line(payload: SpawnActionOutput) -> str:
     duration = f"{payload.duration_secs:.1f}s" if payload.duration_secs is not None else "-"
     exit_code = str(payload.exit_code) if payload.exit_code is not None else "-"
     return " ".join(
         (
-            f"run_id={payload.run_id or '-'}",
+            f"spawn_id={payload.spawn_id or '-'}",
             f"model={payload.model or '-'}",
             f"harness={payload.harness_id or '-'}",
             f"status={payload.status}",
@@ -100,7 +86,7 @@ def _run_spawn_metadata_line(payload: RunActionOutput) -> str:
     )
 
 
-def _find_run_report_file(run_id: str) -> Path | None:
+def _find_run_report_file(spawn_id: str) -> Path | None:
     try:
         repo_root = resolve_repo_root()
     except Exception:
@@ -108,7 +94,7 @@ def _find_run_report_file(run_id: str) -> Path | None:
 
     selected_space = os.getenv("MERIDIAN_SPACE_ID", "").strip()
     if selected_space:
-        selected_path = resolve_space_dir(repo_root, selected_space) / "runs" / run_id / "report.md"
+        selected_path = resolve_space_dir(repo_root, selected_space) / "spawns" / spawn_id / "report.md"
         if selected_path.is_file():
             return selected_path
 
@@ -118,14 +104,14 @@ def _find_run_report_file(run_id: str) -> Path | None:
     for space_dir in sorted(spaces_dir.iterdir()):
         if not space_dir.is_dir():
             continue
-        candidate = space_dir / "runs" / run_id / "report.md"
+        candidate = space_dir / "spawns" / spawn_id / "report.md"
         if candidate.is_file():
             return candidate
     return None
 
 
-def _read_run_report_text(run_id: str) -> str | None:
-    report_file = _find_run_report_file(run_id)
+def _read_run_report_text(spawn_id: str) -> str | None:
+    report_file = _find_run_report_file(spawn_id)
     if report_file is None:
         return None
     text = report_file.read_text(encoding="utf-8", errors="ignore").strip()
@@ -140,7 +126,7 @@ def _truncate_run_spawn_error_text(text: str) -> str:
     return f"{normalized[:keep].rstrip()}{_RUN_SPAWN_ERROR_TRUNCATED_SUFFIX}"
 
 
-def _truncate_run_spawn_failure_fields(payload: RunActionOutput) -> RunActionOutput:
+def _truncate_run_spawn_failure_fields(payload: SpawnActionOutput) -> SpawnActionOutput:
     if payload.status != "failed":
         return payload
     message = (
@@ -150,23 +136,23 @@ def _truncate_run_spawn_failure_fields(payload: RunActionOutput) -> RunActionOut
     return replace(payload, message=message, error=error)
 
 
-def _emit_run_spawn_text(payload: RunActionOutput) -> None:
-    print(_run_spawn_metadata_line(payload), file=sys.stderr)
+def _emit_run_spawn_text(payload: SpawnActionOutput) -> None:
+    print(_spawn_spawn_metadata_line(payload), file=sys.stderr)
     if payload.warning:
         print(f"warning: {payload.warning}", file=sys.stderr)
 
-    if payload.background and payload.status == "running" and payload.run_id is not None:
-        print(payload.run_id)
+    if payload.background and payload.status == "running" and payload.spawn_id is not None:
+        print(payload.spawn_id)
         return
 
-    if payload.run_id is None:
+    if payload.spawn_id is None:
         # No stable run ID to resolve report from (e.g. preflight failure); defer to default emit.
         emit_output(payload, OutputConfig(format="text"))
         return
 
-    report_text = _read_run_report_text(payload.run_id)
+    report_text = _read_run_report_text(payload.spawn_id)
     if report_text is None:
-        print(f"warning: no report extracted for run '{payload.run_id}'", file=sys.stderr)
+        print(f"warning: no report extracted for run '{payload.spawn_id}'", file=sys.stderr)
         if payload.status == "failed":
             fallback_parts = []
             if payload.message is not None and payload.message.strip():
@@ -186,11 +172,11 @@ def emit(payload: object) -> None:
     options = get_global_options()
     if (
         options.output.format == "text"
-        and isinstance(payload, RunActionOutput)
-        and payload.command == "run.spawn"
+        and isinstance(payload, SpawnActionOutput)
+        and payload.command == "spawn.create"
         and payload.status != "dry-run"
     ):
-        if payload.run_id is not None:
+        if payload.spawn_id is not None:
             _emit_run_spawn_text(payload)
         else:
             emit_output(_truncate_run_spawn_failure_fields(payload), OutputConfig(format="text"))
@@ -315,7 +301,7 @@ _COMMAND_TREE_APP = app
 def root(
     json_mode: Annotated[
         bool,
-        Parameter(name="--json", help="Emit command output as JSON."),
+        Parameter(name="--json", help="Emit command output as JSON.", show=False),
     ] = False,
     output_format: Annotated[
         str | None,
@@ -327,17 +313,22 @@ def root(
     ] = None,
     porcelain: Annotated[
         bool,
-        Parameter(name="--porcelain", help="Emit stable tab-separated key/value output."),
+        Parameter(
+            name="--porcelain",
+            help="Emit stable tab-separated key/value output.",
+            show=False,
+        ),
     ] = False,
     yes: Annotated[
         bool,
-        Parameter(name="--yes", help="Auto-approve prompts when supported."),
+        Parameter(name="--yes", help="Auto-approve prompts when supported.", show=False),
     ] = False,
     no_input: Annotated[
         bool,
         Parameter(
             name="--no-input",
             help="Disable interactive prompts and fail if input is needed.",
+            show=False,
         ),
     ] = False,
 ) -> None:
@@ -367,7 +358,7 @@ def serve() -> None:
 
 
 space_app = App(name="space", help="Space lifecycle commands", help_formatter="plain")
-run_app = App(name="run", help="Run management commands", help_formatter="plain")
+spawn_app = App(name="spawn", help="Spawn management commands", help_formatter="plain")
 skills_app = App(name="skills", help="Skills catalog commands", help_formatter="plain")
 models_app = App(name="models", help="Model catalog commands", help_formatter="plain")
 config_app = App(name="config", help="Repository config commands", help_formatter="plain")
@@ -376,7 +367,7 @@ completion_app = App(name="completion", help="Shell completion helpers", help_fo
 
 
 app.command(space_app, name="space")
-app.command(run_app, name="run")
+app.command(spawn_app, name="spawn")
 app.command(skills_app, name="skills")
 app.command(models_app, name="models")
 app.command(config_app, name="config")
@@ -605,18 +596,17 @@ _REGISTERED_CLI_DESCRIPTIONS: dict[str, str] = {}
 
 
 def _register_group_commands() -> None:
-    # Import lazily to avoid a circular import with meridian.cli.run, which
+    # Import lazily to avoid a circular import with meridian.cli.spawn, which
     # reads agent-mode state from this module during import.
-    from meridian.cli.run import register_run_commands
+    from meridian.cli.spawn import register_spawn_commands
 
     modules = (
         register_space_commands(space_app, emit),
-        register_run_commands(run_app, emit),
+        register_spawn_commands(spawn_app, emit),
         register_skills_commands(skills_app, emit),
         register_models_commands(models_app, emit),
         register_config_commands(config_app, emit),
         register_doctor_command(app, emit),
-        register_grep_command(app, emit),
     )
     for commands, descriptions in modules:
         _REGISTERED_CLI_COMMANDS.update(commands)
@@ -718,7 +708,7 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     # Skip orphan cleanup when running as a subagent (MERIDIAN_SPACE_ID set).
     # Subagents should never clean up their parent space's state — doing so
-    # can mark concurrent runs as failed and close the parent space.
+    # can mark concurrent spawns as failed and close the parent space.
     if not os.environ.get("MERIDIAN_SPACE_ID"):
         try:
             repo_root = resolve_repo_root()

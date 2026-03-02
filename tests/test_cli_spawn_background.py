@@ -1,4 +1,4 @@
-"""CLI integration checks for run.spawn --background behavior."""
+"""CLI integration checks for spawn.create --background behavior."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import importlib
 from pathlib import Path
 
 from meridian.cli.output import OutputConfig
-from meridian.lib.ops.run import RunActionOutput
+from meridian.lib.ops.spawn import SpawnActionOutput
 from meridian.lib.space.space_file import create_space
 
 cli_main = importlib.import_module("meridian.cli.main")
@@ -27,7 +27,7 @@ def test_run_create_background_prints_run_id_in_text_mode(
         [
             "--format",
             "text",
-            "run",
+            "spawn",
             "--background",
             "--timeout-secs",
             "0.1",
@@ -37,22 +37,22 @@ def test_run_create_background_prints_run_id_in_text_mode(
         timeout=20,
     )
     assert created.returncode == 0, created.stderr
-    run_id = created.stdout.strip()
-    assert re.fullmatch(r"r[0-9]+", run_id), created.stdout
+    spawn_id = created.stdout.strip()
+    assert re.fullmatch(r"r[0-9]+", spawn_id), created.stdout
 
     waited = run_meridian(
         [
             "--json",
-            "run",
+            "spawn",
             "wait",
-            run_id,
+            spawn_id,
             "--timeout-secs",
             "30",
         ],
         timeout=35,
     )
     payload = json.loads(waited.stdout)
-    assert payload["run_id"] == run_id
+    assert payload["spawn_id"] == spawn_id
     if payload["status"] == "succeeded":
         assert waited.returncode == 0, waited.stderr
     else:
@@ -72,7 +72,7 @@ def test_run_create_background_writes_metadata_to_stderr(
         [
             "--format",
             "text",
-            "run",
+            "spawn",
             "--background",
             "--timeout-secs",
             "0.1",
@@ -82,9 +82,9 @@ def test_run_create_background_writes_metadata_to_stderr(
         timeout=20,
     )
     assert created.returncode == 0, created.stderr
-    run_id = created.stdout.strip()
-    assert re.fullmatch(r"r[0-9]+", run_id), created.stdout
-    assert f"run_id={run_id}" in created.stderr
+    spawn_id = created.stdout.strip()
+    assert re.fullmatch(r"r[0-9]+", spawn_id), created.stdout
+    assert f"spawn_id={spawn_id}" in created.stderr
     assert "status=running" in created.stderr
 
 
@@ -96,17 +96,17 @@ def test_run_spawn_text_emit_prints_report_to_stdout_and_metadata_to_stderr(
     monkeypatch.setenv("MERIDIAN_SPACE_ID", "s1")
     monkeypatch.setattr(cli_main, "resolve_repo_root", lambda: tmp_path)
 
-    report_path = tmp_path / ".meridian" / ".spaces" / "s1" / "runs" / "r1" / "report.md"
+    report_path = tmp_path / ".meridian" / ".spaces" / "s1" / "spawns" / "r1" / "report.md"
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text("# Report\n\ndone\n", encoding="utf-8")
 
     token = cli_main._GLOBAL_OPTIONS.set(cli_main.GlobalOptions(output=OutputConfig(format="text")))
     try:
         cli_main.emit(
-            RunActionOutput(
-                command="run.spawn",
+            SpawnActionOutput(
+                command="spawn.create",
                 status="succeeded",
-                run_id="r1",
+                spawn_id="r1",
                 model="gpt-5.3-codex",
                 harness_id="codex",
                 duration_secs=1.2,
@@ -118,7 +118,7 @@ def test_run_spawn_text_emit_prints_report_to_stdout_and_metadata_to_stderr(
 
     captured = capsys.readouterr()
     assert "# Report" in captured.out
-    assert "run_id=r1" in captured.err
+    assert "spawn_id=r1" in captured.err
     assert "status=succeeded" in captured.err
     assert "warning: no report extracted" not in captured.err
 
@@ -130,10 +130,10 @@ def test_run_spawn_text_emit_warns_when_report_is_missing(monkeypatch, capsys, t
     token = cli_main._GLOBAL_OPTIONS.set(cli_main.GlobalOptions(output=OutputConfig(format="text")))
     try:
         cli_main.emit(
-            RunActionOutput(
-                command="run.spawn",
+            SpawnActionOutput(
+                command="spawn.create",
                 status="failed",
-                run_id="r2",
+                spawn_id="r2",
                 model="gpt-5.3-codex",
                 harness_id="codex",
                 duration_secs=2.0,
@@ -145,7 +145,7 @@ def test_run_spawn_text_emit_warns_when_report_is_missing(monkeypatch, capsys, t
 
     captured = capsys.readouterr()
     assert captured.out.strip() == ""
-    assert "run_id=r2" in captured.err
+    assert "spawn_id=r2" in captured.err
     assert "status=failed" in captured.err
     assert "warning: no report extracted for run 'r2'" in captured.err
 
@@ -155,17 +155,17 @@ def test_run_spawn_text_emit_truncates_failed_report(monkeypatch, capsys, tmp_pa
     monkeypatch.setattr(cli_main, "resolve_repo_root", lambda: tmp_path)
 
     long_report = "x" * (cli_main._RUN_SPAWN_ERROR_TEXT_LIMIT + 500)
-    report_path = tmp_path / ".meridian" / ".spaces" / "s1" / "runs" / "r3" / "report.md"
+    report_path = tmp_path / ".meridian" / ".spaces" / "s1" / "spawns" / "r3" / "report.md"
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(long_report, encoding="utf-8")
 
     token = cli_main._GLOBAL_OPTIONS.set(cli_main.GlobalOptions(output=OutputConfig(format="text")))
     try:
         cli_main.emit(
-            RunActionOutput(
-                command="run.spawn",
+            SpawnActionOutput(
+                command="spawn.create",
                 status="failed",
-                run_id="r3",
+                spawn_id="r3",
                 model="gpt-5.3-codex",
                 harness_id="codex",
                 duration_secs=1.1,
@@ -179,7 +179,7 @@ def test_run_spawn_text_emit_truncates_failed_report(monkeypatch, capsys, tmp_pa
     report_out = captured.out.strip()
     assert cli_main._RUN_SPAWN_ERROR_TRUNCATED_SUFFIX in report_out
     assert len(report_out) == cli_main._RUN_SPAWN_ERROR_TEXT_LIMIT
-    assert "run_id=r3" in captured.err
+    assert "spawn_id=r3" in captured.err
     assert "status=failed" in captured.err
 
 
@@ -187,7 +187,7 @@ def test_run_spawn_text_emit_truncates_failed_message_without_run_id(capsys) -> 
     long_message = "z" * (cli_main._RUN_SPAWN_ERROR_TEXT_LIMIT + 500)
     token = cli_main._GLOBAL_OPTIONS.set(cli_main.GlobalOptions(output=OutputConfig(format="text")))
     try:
-        cli_main.emit(RunActionOutput(command="run.spawn", status="failed", message=long_message))
+        cli_main.emit(SpawnActionOutput(command="spawn.create", status="failed", message=long_message))
     finally:
         cli_main._GLOBAL_OPTIONS.reset(token)
 
@@ -200,7 +200,7 @@ def test_run_spawn_json_emit_does_not_truncate_failed_message(capsys) -> None:
     long_message = "j" * (cli_main._RUN_SPAWN_ERROR_TEXT_LIMIT + 500)
     token = cli_main._GLOBAL_OPTIONS.set(cli_main.GlobalOptions(output=OutputConfig(format="json")))
     try:
-        cli_main.emit(RunActionOutput(command="run.spawn", status="failed", message=long_message))
+        cli_main.emit(SpawnActionOutput(command="spawn.create", status="failed", message=long_message))
     finally:
         cli_main._GLOBAL_OPTIONS.reset(token)
 

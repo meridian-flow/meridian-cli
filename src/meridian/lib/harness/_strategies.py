@@ -7,12 +7,12 @@ from dataclasses import dataclass, fields
 from enum import StrEnum
 from typing import cast
 
-from meridian.lib.harness.adapter import McpConfig, PermissionResolver, RunParams
+from meridian.lib.harness.adapter import McpConfig, PermissionResolver, SpawnParams
 from meridian.lib.types import HarnessId
 
 
 class FlagEffect(StrEnum):
-    """Command-building effect for one RunParams field."""
+    """Command-building effect for one SpawnParams field."""
 
     CLI_FLAG = "cli_flag"
     TRANSFORM = "transform"
@@ -24,7 +24,7 @@ type StrategyTransform = Callable[[object, list[str]], None]
 
 @dataclass(frozen=True, slots=True)
 class FlagStrategy:
-    """Mapping rule for how one RunParams field is applied to CLI args."""
+    """Mapping rule for how one SpawnParams field is applied to CLI args."""
 
     effect: FlagEffect
     cli_flag: str | None = None
@@ -107,7 +107,7 @@ def build_harness_command(
     *,
     base_command: tuple[str, ...],
     prompt_mode: PromptMode,
-    run: RunParams,
+    run: SpawnParams,
     strategies: StrategyMap,
     perms: PermissionResolver,
     harness_id: HarnessId,
@@ -116,7 +116,7 @@ def build_harness_command(
     """Build one harness command using field strategies."""
 
     strategy_args: list[str] = []
-    for run_field in fields(RunParams):
+    for run_field in fields(SpawnParams):
         field_name = run_field.name
         if field_name in _SKIP_FIELDS:
             continue

@@ -10,14 +10,14 @@ from pathlib import Path
 
 import pytest
 
-import meridian.lib.ops.run as run_ops
+import meridian.lib.ops.spawn as run_ops
 from meridian.lib.ops.diag import DoctorInput, doctor_sync
-from meridian.lib.ops.run import (
-    RunActionOutput,
-    RunContinueInput,
-    RunCreateInput,
-    run_continue_sync,
-    run_create_sync,
+from meridian.lib.ops.spawn import (
+    SpawnActionOutput,
+    SpawnContinueInput,
+    SpawnCreateInput,
+    spawn_continue_sync,
+    spawn_create_sync,
 )
 from meridian.lib.ops.space import (
     SpaceResumeInput,
@@ -27,7 +27,7 @@ from meridian.lib.ops.space import (
 )
 from meridian.lib.space import crud as space_crud
 from meridian.lib.space.space_file import create_space, get_space
-from meridian.lib.state import run_store
+from meridian.lib.state import spawn_store
 from meridian.lib.state.paths import resolve_space_dir
 
 
@@ -157,7 +157,7 @@ def test_run_continue_works_for_running_failed_and_succeeded(
     space_dir = resolve_space_dir(tmp_path, space.id)
     monkeypatch.setenv("MERIDIAN_SPACE_ID", space.id)
 
-    run_id = run_store.start_run(
+    spawn_id = spawn_store.start_spawn(
         space_dir,
         chat_id="c1",
         model="gpt-5.3-codex",
@@ -167,38 +167,38 @@ def test_run_continue_works_for_running_failed_and_succeeded(
         harness_session_id="sess-source",
     )
     if status != "running":
-        run_store.finalize_run(
+        spawn_store.finalize_spawn(
             space_dir,
-            run_id,
+            spawn_id,
             status,
             0 if status == "succeeded" else 1,
         )
 
     captured: dict[str, object] = {}
 
-    def fake_run_create_sync(payload: RunCreateInput) -> RunActionOutput:
+    def fake_run_create_sync(payload: SpawnCreateInput) -> SpawnActionOutput:
         captured["payload"] = payload
-        return RunActionOutput(
-            command="run.spawn",
+        return SpawnActionOutput(
+            command="spawn.create",
             status="succeeded",
-            run_id="r-next",
+            spawn_id="r-next",
             message="ok",
         )
 
-    monkeypatch.setattr(run_ops, "run_create_sync", fake_run_create_sync)
+    monkeypatch.setattr(run_ops, "spawn_create_sync", fake_run_create_sync)
 
-    result = run_continue_sync(
-        RunContinueInput(
-            run_id=str(run_id),
+    result = spawn_continue_sync(
+        SpawnContinueInput(
+            spawn_id=str(spawn_id),
             prompt="",
             fork=True,
             repo_root=tmp_path.as_posix(),
         )
     )
 
-    assert result.command == "run.continue"
+    assert result.command == "spawn.continue"
     forwarded = captured["payload"]
-    assert isinstance(forwarded, RunCreateInput)
+    assert isinstance(forwarded, SpawnCreateInput)
     assert forwarded.prompt == "original prompt"
     assert forwarded.model == "gpt-5.3-codex"
     assert forwarded.continue_harness == "codex"
@@ -209,8 +209,8 @@ def test_run_continue_works_for_running_failed_and_succeeded(
 def test_run_create_dry_run_fallbacks_for_harness_mismatch_and_missing_fork_support(
     tmp_path: Path,
 ) -> None:
-    mismatch = run_create_sync(
-        RunCreateInput(
+    mismatch = spawn_create_sync(
+        SpawnCreateInput(
             prompt="continue mismatch",
             model="gpt-5.3-codex",
             dry_run=True,
@@ -225,8 +225,8 @@ def test_run_create_dry_run_fallbacks_for_harness_mismatch_and_missing_fork_supp
     assert mismatch.warning is not None
     assert "target harness differs" in mismatch.warning
 
-    no_fork_support = run_create_sync(
-        RunCreateInput(
+    no_fork_support = spawn_create_sync(
+        SpawnCreateInput(
             prompt="continue codex",
             model="gpt-5.3-codex",
             dry_run=True,
@@ -242,11 +242,14 @@ def test_run_create_dry_run_fallbacks_for_harness_mismatch_and_missing_fork_supp
     assert "does not support session fork" in no_fork_support.warning
 
 
-def test_doctor_rebuilds_stale_state_and_orphan_runs(tmp_path: Path) -> None:
+def test_doctor_rebuilds_stale_state_and_orphan_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("MERIDIAN_SPACE_ID", raising=False)
     created = create_space(tmp_path, name="stuck-active")
     space_dir = resolve_space_dir(tmp_path, created.id)
 
-    _ = run_store.start_run(
+    _ = spawn_store.start_spawn(
         space_dir,
         chat_id="c1",
         model="gpt-5.3-codex",

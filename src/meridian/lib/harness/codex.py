@@ -23,11 +23,11 @@ from meridian.lib.harness.adapter import (
     HarnessCapabilities,
     McpConfig,
     PermissionResolver,
-    RunParams,
+    SpawnParams,
     StreamEvent,
 )
 from meridian.lib.safety.permissions import PermissionConfig
-from meridian.lib.types import HarnessId, RunId
+from meridian.lib.types import HarnessId, SpawnId
 
 
 class CodexAdapter:
@@ -65,7 +65,7 @@ class CodexAdapter:
             supports_programmatic_tools=False,
         )
 
-    def build_command(self, run: RunParams, perms: PermissionResolver) -> list[str]:
+    def build_command(self, run: SpawnParams, perms: PermissionResolver) -> list[str]:
         mcp_config = self.mcp_config(run)
         harness_session_id = (run.continue_harness_session_id or "").strip()
         base_command = (
@@ -83,7 +83,7 @@ class CodexAdapter:
             mcp_config=mcp_config,
         )
 
-    def mcp_config(self, run: RunParams) -> McpConfig | None:
+    def mcp_config(self, run: SpawnParams) -> McpConfig | None:
         repo_root = (run.repo_root or "").strip()
         if not repo_root:
             return None
@@ -124,11 +124,11 @@ class CodexAdapter:
             return None
         return categorize_stream_event(event, exact_map=self.EVENT_CATEGORY_MAP)
 
-    def extract_usage(self, artifacts: ArtifactStore, run_id: RunId):
-        return extract_usage_from_artifacts(artifacts, run_id)
+    def extract_usage(self, artifacts: ArtifactStore, spawn_id: SpawnId):
+        return extract_usage_from_artifacts(artifacts, spawn_id)
 
-    def extract_session_id(self, artifacts: ArtifactStore, run_id: RunId) -> str | None:
-        return extract_session_id_from_artifacts(artifacts, run_id)
+    def extract_session_id(self, artifacts: ArtifactStore, spawn_id: SpawnId) -> str | None:
+        return extract_session_id_from_artifacts(artifacts, spawn_id)
 
     def extract_tasks(self, event: StreamEvent) -> list[dict[str, str]] | None:
         _ = event

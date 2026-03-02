@@ -1,12 +1,12 @@
-"""run.stats aggregate and filter behavior."""
+"""spawn.stats aggregate and filter behavior."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from meridian.lib.ops.run import RunStatsInput, run_stats_sync
+from meridian.lib.ops.spawn import SpawnStatsInput, spawn_stats_sync
 from meridian.lib.space.space_file import create_space
-from meridian.lib.state import run_store
+from meridian.lib.state import spawn_store
 from meridian.lib.state.paths import resolve_space_dir
 
 
@@ -19,7 +19,7 @@ def _start_and_finalize(
     duration_secs: float | None = None,
     total_cost_usd: float | None = None,
 ) -> str:
-    run_id = run_store.start_run(
+    spawn_id = spawn_store.start_spawn(
         space_dir,
         chat_id=chat_id,
         model=model,
@@ -28,15 +28,15 @@ def _start_and_finalize(
         prompt="stats",
     )
     if status != "running":
-        run_store.finalize_run(
+        spawn_store.finalize_spawn(
             space_dir,
-            run_id,
+            spawn_id,
             status,
             0 if status == "succeeded" else 1,
             duration_secs=duration_secs,
             total_cost_usd=total_cost_usd,
         )
-    return str(run_id)
+    return str(spawn_id)
 
 
 def test_run_stats_sync_aggregates_all_runs(tmp_path: Path, monkeypatch) -> None:
@@ -75,7 +75,7 @@ def test_run_stats_sync_aggregates_all_runs(tmp_path: Path, monkeypatch) -> None
         chat_id="c2",
     )
 
-    result = run_stats_sync(RunStatsInput(repo_root=tmp_path.as_posix()))
+    result = spawn_stats_sync(SpawnStatsInput(repo_root=tmp_path.as_posix()))
     assert result.total_runs == 4
     assert result.succeeded == 1
     assert result.failed == 1
@@ -111,8 +111,8 @@ def test_run_stats_sync_filters_by_space_and_session(tmp_path: Path, monkeypatch
         total_cost_usd=0.2,
     )
 
-    result = run_stats_sync(
-        RunStatsInput(
+    result = spawn_stats_sync(
+        SpawnStatsInput(
             repo_root=tmp_path.as_posix(),
             space=space.id,
             session="c1",
@@ -144,8 +144,8 @@ def test_run_stats_sync_returns_empty_for_non_current_space(tmp_path: Path, monk
         total_cost_usd=0.1,
     )
 
-    result = run_stats_sync(
-        RunStatsInput(
+    result = spawn_stats_sync(
+        SpawnStatsInput(
             repo_root=tmp_path.as_posix(),
             space=second.id,
         )

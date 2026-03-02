@@ -1,4 +1,4 @@
-"""Token-efficient pytest wrapper for agent runs."""
+"""Token-efficient pytest wrapper for agent spawns."""
 
 from __future__ import annotations
 

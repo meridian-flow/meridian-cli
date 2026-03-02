@@ -74,18 +74,16 @@ def _bootstrap_operation_modules() -> None:
     # allowing operation modules to self-register via `operation(...)`.
     import meridian.lib.ops.config as config_ops
     import meridian.lib.ops.diag as diag_ops
-    import meridian.lib.ops.grep as grep_ops
     import meridian.lib.ops.models as models_ops
-    import meridian.lib.ops.run as run_ops
+    import meridian.lib.ops.spawn as spawn_ops
     import meridian.lib.ops.skills as skills_ops
     import meridian.lib.ops.space as space_ops
 
     _ = (
         config_ops,
         diag_ops,
-        grep_ops,
         models_ops,
-        run_ops,
+        spawn_ops,
         skills_ops,
         space_ops,
     )

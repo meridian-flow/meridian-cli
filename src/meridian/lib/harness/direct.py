@@ -16,8 +16,8 @@ from meridian.lib.harness.adapter import (
     HarnessCapabilities,
     McpConfig,
     PermissionResolver,
-    RunParams,
-    RunResult,
+    SpawnParams,
+    SpawnResult,
     StreamEvent,
 )
 from meridian.lib.ops.codec import (
@@ -27,7 +27,7 @@ from meridian.lib.ops.codec import (
 )
 from meridian.lib.safety.permissions import PermissionConfig
 from meridian.lib.serialization import to_jsonable
-from meridian.lib.types import HarnessId, ModelId, RunId
+from meridian.lib.types import HarnessId, ModelId, SpawnId
 
 if TYPE_CHECKING:
     from meridian.lib.ops.registry import OperationSpec
@@ -88,11 +88,11 @@ class DirectAdapter:
             supports_programmatic_tools=True,
         )
 
-    def build_command(self, run: RunParams, perms: PermissionResolver) -> list[str]:
+    def build_command(self, run: SpawnParams, perms: PermissionResolver) -> list[str]:
         _ = (run, perms)
         return ["direct"]
 
-    def mcp_config(self, run: RunParams) -> McpConfig | None:
+    def mcp_config(self, run: SpawnParams) -> McpConfig | None:
         _ = run
         # Direct mode calls Meridian operations in-process via the API/tool loop, so
         # there is no external MCP sidecar to configure or reconnect.
@@ -106,12 +106,12 @@ class DirectAdapter:
         _ = line
         return None
 
-    def extract_usage(self, artifacts: ArtifactStore, run_id: RunId) -> TokenUsage:
-        _ = (artifacts, run_id)
+    def extract_usage(self, artifacts: ArtifactStore, spawn_id: SpawnId) -> TokenUsage:
+        _ = (artifacts, spawn_id)
         return TokenUsage()
 
-    def extract_session_id(self, artifacts: ArtifactStore, run_id: RunId) -> str | None:
-        _ = (artifacts, run_id)
+    def extract_session_id(self, artifacts: ArtifactStore, spawn_id: SpawnId) -> str | None:
+        _ = (artifacts, spawn_id)
         return None
 
     def extract_tasks(self, event: StreamEvent) -> list[dict[str, str]] | None:
@@ -214,7 +214,7 @@ class DirectAdapter:
         api_key: str | None = None,
         max_tokens: int = 2048,
         max_tool_round_trips: int = 8,
-    ) -> RunResult:
+    ) -> SpawnResult:
         """Execute one prompt via Anthropic Messages API with tool-calling support."""
 
         key = api_key or os.getenv("ANTHROPIC_API_KEY")
@@ -249,7 +249,7 @@ class DirectAdapter:
 
             if not tool_uses:
                 output = _extract_text_blocks(content)
-                return RunResult(
+                return SpawnResult(
                     status="succeeded",
                     output=output,
                     usage=final_usage,
@@ -272,7 +272,7 @@ class DirectAdapter:
 
             messages.append({"role": "user", "content": tool_results})
 
-        return RunResult(
+        return SpawnResult(
             status="failed",
             output="Direct adapter exceeded tool-calling round-trip limit.",
             usage=final_usage,

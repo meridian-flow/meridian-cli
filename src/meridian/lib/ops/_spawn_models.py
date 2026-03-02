@@ -1,11 +1,11 @@
-"""Run operation input/output dataclasses and shared lightweight model helpers."""
+"""Spawn operation input/output dataclasses and shared lightweight model helpers."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from meridian.lib.domain import RunStatus
+from meridian.lib.domain import SpawnStatus
 
 if TYPE_CHECKING:
     from meridian.lib.formatting import FormatContext
@@ -16,7 +16,7 @@ def _empty_template_vars() -> dict[str, str]:
 
 
 @dataclass(frozen=True, slots=True)
-class RunCreateInput:
+class SpawnCreateInput:
     prompt: str = ""
     model: str = ""
     files: tuple[str, ...] = ()
@@ -38,10 +38,10 @@ class RunCreateInput:
 
 
 @dataclass(frozen=True, slots=True)
-class RunActionOutput:
+class SpawnActionOutput:
     command: str
     status: str
-    run_id: str | None = None
+    spawn_id: str | None = None
     message: str | None = None
     error: str | None = None
     current_depth: int | None = None
@@ -63,12 +63,12 @@ class RunActionOutput:
         """Compact single-line summary for text output mode."""
         # Intentionally omit composed_prompt/cli_command from text output.
         # Background submissions print only the run ID so callers can capture
-        # it via R1=$(meridian run spawn --background ...).
-        if self.background and self.run_id is not None and self.status == "running":
-            return self.run_id
+        # it via R1=$(meridian spawn spawn --background ...).
+        if self.background and self.spawn_id is not None and self.status == "running":
+            return self.spawn_id
         parts: list[str] = [self.command, self.status]
-        if self.run_id is not None:
-            parts.append(self.run_id)
+        if self.spawn_id is not None:
+            parts.append(self.spawn_id)
         if self.model is not None:
             parts.append(f"model={self.model}")
         if self.harness_id is not None:
@@ -92,9 +92,9 @@ class RunActionOutput:
 
 
 @dataclass(frozen=True, slots=True)
-class RunListInput:
+class SpawnListInput:
     space: str | None = None
-    status: RunStatus | None = None
+    status: SpawnStatus | None = None
     model: str | None = None
     limit: int = 20
     no_space: bool = False
@@ -103,14 +103,14 @@ class RunListInput:
 
 
 @dataclass(frozen=True, slots=True)
-class RunStatsInput:
+class SpawnStatsInput:
     session: str | None = None
     space: str | None = None
     repo_root: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
-class RunStatsOutput:
+class SpawnStatsOutput:
     total_runs: int
     succeeded: int
     failed: int
@@ -141,8 +141,8 @@ class RunStatsOutput:
 
 
 @dataclass(frozen=True, slots=True)
-class RunListEntry:
-    run_id: str
+class SpawnListEntry:
+    spawn_id: str
     status: str
     model: str
     space_id: str | None
@@ -152,7 +152,7 @@ class RunListEntry:
     def as_row(self) -> list[str]:
         """Return columnar cells for tabular alignment."""
         return [
-            self.run_id,
+            self.spawn_id,
             self.status,
             self.model,
             self.space_id if self.space_id is not None else "-",
@@ -162,21 +162,21 @@ class RunListEntry:
 
 
 @dataclass(frozen=True, slots=True)
-class RunListOutput:
-    runs: tuple[RunListEntry, ...]
+class SpawnListOutput:
+    spawns: tuple[SpawnListEntry, ...]
 
     def format_text(self, ctx: FormatContext | None = None) -> str:
-        """Columnar list of runs for text output mode."""
-        if not self.runs:
-            return "(no runs)"
+        """Columnar list of spawns for text output mode."""
+        if not self.spawns:
+            return "(no spawns)"
         from meridian.cli.format_helpers import tabular
 
-        return tabular([entry.as_row() for entry in self.runs])
+        return tabular([entry.as_row() for entry in self.spawns])
 
 
 @dataclass(frozen=True, slots=True)
-class RunShowInput:
-    run_id: str
+class SpawnShowInput:
+    spawn_id: str
     report: bool = False
     include_files: bool = False
     space: str | None = None
@@ -184,8 +184,8 @@ class RunShowInput:
 
 
 @dataclass(frozen=True, slots=True)
-class RunDetailOutput:
-    run_id: str
+class SpawnDetailOutput:
+    spawn_id: str
     status: str
     model: str
     harness: str
@@ -228,7 +228,7 @@ class RunDetailOutput:
             cost_value = str(self.cost_usd)
 
         pairs: list[tuple[str, str | None]] = [
-            ("Run", self.run_id),
+            ("Spawn", self.spawn_id),
             ("Status", status_str),
             ("Model", f"{self.model} ({self.harness})"),
             ("Duration", duration_value),
@@ -241,8 +241,8 @@ class RunDetailOutput:
 
 
 @dataclass(frozen=True, slots=True)
-class RunContinueInput:
-    run_id: str
+class SpawnContinueInput:
+    spawn_id: str
     prompt: str
     model: str = ""
     fork: bool = False
@@ -252,10 +252,10 @@ class RunContinueInput:
 
 
 @dataclass(frozen=True, slots=True)
-class RunWaitInput:
-    run_ids: tuple[str, ...] = ()
-    # Compatibility alias for MCP clients that still send `run_id`.
-    run_id: str | None = None
+class SpawnWaitInput:
+    spawn_ids: tuple[str, ...] = ()
+    # Compatibility alias for MCP clients that still send `spawn_id`.
+    spawn_id: str | None = None
     timeout_secs: float | None = None
     poll_interval_secs: float | None = None
     report: bool = False
@@ -265,42 +265,42 @@ class RunWaitInput:
 
 
 @dataclass(frozen=True, slots=True)
-class RunWaitMultiOutput:
-    runs: tuple[RunDetailOutput, ...]
+class SpawnWaitMultiOutput:
+    spawns: tuple[SpawnDetailOutput, ...]
     total_runs: int
     succeeded_runs: int
     failed_runs: int
     cancelled_runs: int
     any_failed: bool
     # Compatibility fields for single-run callers.
-    run_id: str | None = None
+    spawn_id: str | None = None
     status: str | None = None
     exit_code: int | None = None
 
     def format_text(self, ctx: FormatContext | None = None) -> str:
-        """Summarize waited runs as a fixed-column table."""
+        """Summarize waited spawns as a fixed-column table."""
         from meridian.cli.format_helpers import tabular
 
-        rows = [["run_id", "status", "duration", "exit"]]
+        rows = [["spawn_id", "status", "duration", "exit"]]
         rows.extend(
             [
-                run.run_id,
+                run.spawn_id,
                 run.status,
                 f"{run.duration_secs:.1f}s" if run.duration_secs is not None else "-",
                 str(run.exit_code) if run.exit_code is not None else "-",
             ]
-            for run in self.runs
+            for run in self.spawns
         )
         return tabular(rows)
 
 
 @dataclass(frozen=True, slots=True)
-class RunListFilters:
+class SpawnListFilters:
     """Type-safe run-list filters converted into parameterized SQL."""
 
     model: str | None = None
     space: str | None = None
     no_space: bool = False
-    status: RunStatus | None = None
+    status: SpawnStatus | None = None
     failed: bool = False
     limit: int = 20

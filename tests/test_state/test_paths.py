@@ -17,13 +17,13 @@ def test_space_path_resolvers_and_dataclass_fields(tmp_path):
     assert space_dir == tmp_path / ".meridian" / ".spaces" / "s12"
     assert paths.space_json == space_dir / "space.json"
     assert paths.space_lock == space_dir / "space.lock"
-    assert paths.runs_jsonl == space_dir / "runs.jsonl"
-    assert paths.runs_lock == space_dir / "runs.lock"
+    assert paths.spawns_jsonl == space_dir / "spawns.jsonl"
+    assert paths.spawns_lock == space_dir / "spawns.lock"
     assert paths.sessions_jsonl == space_dir / "sessions.jsonl"
     assert paths.sessions_lock == space_dir / "sessions.lock"
     assert paths.sessions_dir == space_dir / "sessions"
     assert paths.fs_dir == space_dir / "fs"
-    assert paths.runs_dir == space_dir / "runs"
+    assert paths.spawns_dir == space_dir / "spawns"
 
 
 def test_ensure_gitignore_writes_expected_content(tmp_path):

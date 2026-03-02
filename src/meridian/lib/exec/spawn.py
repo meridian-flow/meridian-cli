@@ -16,13 +16,13 @@ from typing import cast
 import structlog
 
 from meridian.lib.config.settings import MeridianConfig
-from meridian.lib.domain import Run
+from meridian.lib.domain import Spawn
 from meridian.lib.exec.errors import ErrorCategory, classify_error, should_retry
 from meridian.lib.exec.process_groups import signal_process_group
 from meridian.lib.exec.signals import SignalForwarder, map_process_exit_code, signal_coordinator
 from meridian.lib.exec.timeout import (
     DEFAULT_KILL_GRACE_SECONDS,
-    RunTimeoutError,
+    SpawnTimeoutError,
     terminate_process,
     wait_for_process_exit,
 )
@@ -33,7 +33,7 @@ from meridian.lib.extract.finalize import (
 )
 from meridian.lib.harness.adapter import (
     PermissionResolver,
-    RunParams,
+    SpawnParams,
     StreamEvent,
     resolve_mcp_config,
 )
@@ -43,9 +43,9 @@ from meridian.lib.safety.guardrails import GuardrailFailure, run_guardrails
 from meridian.lib.safety.permissions import PermissionConfig
 from meridian.lib.safety.redaction import SecretSpec, redact_secret_bytes
 from meridian.lib.state.artifact_store import ArtifactStore, make_artifact_key
-from meridian.lib.state import run_store
-from meridian.lib.state.paths import resolve_run_log_dir, resolve_state_paths
-from meridian.lib.types import HarnessId, RunId, SpaceId
+from meridian.lib.state import spawn_store
+from meridian.lib.state.paths import resolve_spawn_log_dir, resolve_state_paths
+from meridian.lib.types import HarnessId, SpawnId, SpaceId
 
 OUTPUT_FILENAME = "output.jsonl"
 STDERR_FILENAME = "stderr.log"
@@ -153,10 +153,10 @@ class SpawnResult:
     budget_breach: BudgetBreach | None = None
 
 
-def run_log_dir(repo_root: Path, run_id: RunId, space_id: SpaceId | None) -> Path:
+def run_log_dir(repo_root: Path, spawn_id: SpawnId, space_id: SpaceId | None) -> Path:
     """Resolve run artifact directory from run/space IDs."""
 
-    return resolve_run_log_dir(repo_root, run_id, space_id)
+    return resolve_spawn_log_dir(repo_root, spawn_id, space_id)
 
 
 def _extract_tokens_payload(raw_line: bytes) -> bytes | None:
@@ -271,7 +271,7 @@ async def _terminate_after_cancellation(
 
 async def spawn_and_stream(
     *,
-    run_id: RunId,
+    spawn_id: SpawnId,
     command: tuple[str, ...],
     cwd: Path,
     artifacts: ArtifactStore,
@@ -354,7 +354,7 @@ async def spawn_and_stream(
                     timeout_seconds=timeout_seconds,
                     kill_grace_seconds=kill_grace_seconds,
                 )
-            except RunTimeoutError:
+            except SpawnTimeoutError:
                 timed_out = True
                 raw_return_code = process.returncode if process.returncode is not None else 1
             received_signal = forwarder.received_signal
@@ -368,10 +368,10 @@ async def spawn_and_stream(
         stdout_bytes, tokens_payload = await stdout_task
         stderr_bytes = await stderr_task
 
-        artifacts.put(make_artifact_key(run_id, OUTPUT_FILENAME), stdout_bytes)
-        artifacts.put(make_artifact_key(run_id, STDERR_FILENAME), stderr_bytes)
+        artifacts.put(make_artifact_key(spawn_id, OUTPUT_FILENAME), stdout_bytes)
+        artifacts.put(make_artifact_key(spawn_id, STDERR_FILENAME), stderr_bytes)
         if tokens_payload is not None:
-            artifacts.put(make_artifact_key(run_id, TOKENS_FILENAME), tokens_payload)
+            artifacts.put(make_artifact_key(spawn_id, TOKENS_FILENAME), tokens_payload)
 
     if budget_breach is not None:
         mapped_exit_code = DEFAULT_INFRA_EXIT_CODE
@@ -396,12 +396,12 @@ async def spawn_and_stream(
 
 def _append_budget_exceeded_event(
     *,
-    run: Run,
+    run: Spawn,
     breach: BudgetBreach,
 ) -> None:
     logger.warning(
-        "Run budget exceeded.",
-        run_id=str(run.run_id),
+        "Spawn budget exceeded.",
+        spawn_id=str(run.spawn_id),
         scope=breach.scope,
         observed_usd=breach.observed_usd,
         limit_usd=breach.limit_usd,
@@ -421,11 +421,11 @@ def _guardrail_failure_text(failures: tuple[GuardrailFailure, ...]) -> str:
 def _append_text_to_stderr_artifact(
     *,
     artifacts: ArtifactStore,
-    run_id: RunId,
+    spawn_id: SpawnId,
     text: str,
     secrets: tuple[SecretSpec, ...],
 ) -> None:
-    key = make_artifact_key(run_id, STDERR_FILENAME)
+    key = make_artifact_key(spawn_id, STDERR_FILENAME)
     existing = artifacts.get(key).decode("utf-8", errors="ignore") if artifacts.exists(key) else ""
     prefix = "\n" if existing and not existing.endswith("\n") else ""
     combined = f"{existing}{prefix}{text}\n"
@@ -433,7 +433,7 @@ def _append_text_to_stderr_artifact(
 
 
 async def execute_with_finalization(
-    run: Run,
+    run: Spawn,
     *,
     repo_root: Path,
     space_dir: Path,
@@ -467,7 +467,7 @@ async def execute_with_finalization(
     """Execute one run and always append a finalize row via try/finally."""
 
     execution_cwd = (cwd or Path.cwd()).resolve()
-    log_dir = resolve_run_log_dir(repo_root, run.run_id, run.space_id)
+    log_dir = resolve_spawn_log_dir(repo_root, run.spawn_id, run.space_id)
     output_log_path = log_dir / OUTPUT_FILENAME
     report_path = log_dir / REPORT_FILENAME
 
@@ -476,7 +476,7 @@ async def execute_with_finalization(
     else:
         harness = registry.get(harness_id)
 
-    run_params = RunParams(
+    run_params = SpawnParams(
         prompt=run.prompt,
         model=run.model,
         skills=skills,
@@ -506,10 +506,10 @@ async def execute_with_finalization(
         env_overrides=merged_env_overrides,
         pass_through=HARNESS_ENV_PASS_THROUGH,
     )
-    if run_store.get_run(space_dir, run.run_id) is None:
-        run_store.start_run(
+    if spawn_store.get_spawn(space_dir, run.spawn_id) is None:
+        spawn_store.start_spawn(
             space_dir,
-            run_id=run.run_id,
+            spawn_id=run.spawn_id,
             chat_id=os.getenv("MERIDIAN_CHAT_ID", "").strip() or "c0",
             model=str(run.model),
             agent=agent or "",
@@ -538,7 +538,7 @@ async def execute_with_finalization(
         while True:
             reset_finalize_attempt_artifacts(
                 artifacts=artifacts,
-                run_id=run.run_id,
+                spawn_id=run.spawn_id,
                 log_dir=log_dir,
             )
 
@@ -549,7 +549,7 @@ async def execute_with_finalization(
                 break
 
             spawn_result = await spawn_and_stream(
-                run_id=run.run_id,
+                spawn_id=run.spawn_id,
                 command=command,
                 cwd=execution_cwd,
                 artifacts=artifacts,
@@ -575,14 +575,14 @@ async def execute_with_finalization(
                 redacted_report = redact_secret_bytes(report_path.read_bytes(), secrets)
                 report_path.write_bytes(redacted_report)
                 artifacts.put(
-                    make_artifact_key(run.run_id, REPORT_FILENAME),
+                    make_artifact_key(run.spawn_id, REPORT_FILENAME),
                     redacted_report,
                 )
 
             extracted = enrich_finalize(
                 artifacts=artifacts,
                 adapter=harness,
-                run_id=run.run_id,
+                spawn_id=run.spawn_id,
                 log_dir=log_dir,
                 secrets=secrets,
             )
@@ -602,7 +602,7 @@ async def execute_with_finalization(
                 except Exception:
                     logger.warning(
                         "Harness session ID observer failed.",
-                        run_id=str(run.run_id),
+                        spawn_id=str(run.spawn_id),
                         harness_id=str(harness.id),
                         exc_info=True,
                     )
@@ -636,7 +636,7 @@ async def execute_with_finalization(
             if exit_code == 0:
                 guardrail_result = run_guardrails(
                     guardrails,
-                    run_id=run.run_id,
+                    spawn_id=run.spawn_id,
                     cwd=execution_cwd,
                     env=child_env,
                     report_path=extracted.report_path,
@@ -650,7 +650,7 @@ async def execute_with_finalization(
                 guardrail_text = _guardrail_failure_text(guardrail_result.failures)
                 _append_text_to_stderr_artifact(
                     artifacts=artifacts,
-                    run_id=run.run_id,
+                    spawn_id=run.spawn_id,
                     text=guardrail_text,
                     secrets=secrets,
                 )
@@ -663,7 +663,7 @@ async def execute_with_finalization(
                 exit_code = 1
                 logger.warning(
                     "Retrying after guardrail failure.",
-                    run_id=str(run.run_id),
+                    spawn_id=str(run.spawn_id),
                     harness_id=str(harness.id),
                     retries_attempted=retries_attempted,
                     max_retries=max_retries,
@@ -675,7 +675,7 @@ async def execute_with_finalization(
                     await asyncio.sleep(retry_backoff_seconds * retries_attempted)
                 continue
 
-            stderr_key = make_artifact_key(run.run_id, STDERR_FILENAME)
+            stderr_key = make_artifact_key(run.spawn_id, STDERR_FILENAME)
             stderr_text = (
                 artifacts.get(stderr_key).decode("utf-8", errors="ignore")
                 if artifacts.exists(stderr_key)
@@ -701,7 +701,7 @@ async def execute_with_finalization(
             retries_attempted += 1
             logger.warning(
                 "Retrying failed run attempt.",
-                run_id=str(run.run_id),
+                spawn_id=str(run.spawn_id),
                 harness_id=str(harness.id),
                 exit_code=exit_code,
                 retries_attempted=retries_attempted,
@@ -714,8 +714,8 @@ async def execute_with_finalization(
         exit_code = 130
     except Exception:
         logger.exception(
-            "Run execution failed with infrastructure error.",
-            run_id=str(run.run_id),
+            "Spawn execution failed with infrastructure error.",
+            spawn_id=str(run.spawn_id),
             harness_id=str(harness.id),
         )
         exit_code = DEFAULT_INFRA_EXIT_CODE
@@ -724,9 +724,9 @@ async def execute_with_finalization(
         finalized_usage = extracted.usage if extracted is not None else None
         status = "succeeded" if exit_code == 0 else "failed"
         with signal_coordinator().mask_sigterm():
-            run_store.finalize_run(
+            spawn_store.finalize_spawn(
                 space_dir,
-                run.run_id,
+                run.spawn_id,
                 status=status,
                 exit_code=exit_code,
                 duration_secs=duration_seconds,

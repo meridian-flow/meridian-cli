@@ -11,7 +11,7 @@ from meridian.lib.exec.spawn import (
 )
 from meridian.lib.exec.timeout import (
     DEFAULT_KILL_GRACE_SECONDS,
-    RunTimeoutError,
+    SpawnTimeoutError,
     terminate_process,
     wait_for_process_exit,
 )
@@ -19,7 +19,7 @@ from meridian.lib.exec.timeout import (
 __all__ = [
     "DEFAULT_KILL_GRACE_SECONDS",
     "ErrorCategory",
-    "RunTimeoutError",
+    "SpawnTimeoutError",
     "SafeDefaultPermissionResolver",
     "SpawnResult",
     "classify_error",

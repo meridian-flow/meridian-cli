@@ -12,7 +12,7 @@ from meridian.lib.extract.report import ExtractedReport, extract_or_fallback_rep
 from meridian.lib.harness.adapter import HarnessAdapter
 from meridian.lib.safety.redaction import SecretSpec, redact_secrets
 from meridian.lib.state.artifact_store import ArtifactStore
-from meridian.lib.types import ArtifactKey, RunId
+from meridian.lib.types import ArtifactKey, SpawnId
 
 _REPORT_FILENAME = "report.md"
 _OUTPUT_FILENAME = "output.jsonl"
@@ -33,13 +33,13 @@ class FinalizeExtraction:
 def reset_finalize_attempt_artifacts(
     *,
     artifacts: ArtifactStore,
-    run_id: RunId,
+    spawn_id: SpawnId,
     log_dir: Path,
 ) -> None:
     """Clear attempt-scoped artifacts so retries never reuse stale extraction state."""
 
     for name in (_OUTPUT_FILENAME, _STDERR_FILENAME, _TOKENS_FILENAME, _REPORT_FILENAME):
-        artifacts.delete(ArtifactKey(f"{run_id}/{name}"))
+        artifacts.delete(ArtifactKey(f"{spawn_id}/{name}"))
 
     report_path = log_dir / _REPORT_FILENAME
     if report_path.exists():
@@ -49,7 +49,7 @@ def reset_finalize_attempt_artifacts(
 def _persist_report(
     *,
     artifacts: ArtifactStore,
-    run_id: RunId,
+    spawn_id: SpawnId,
     log_dir: Path,
     extracted: ExtractedReport,
     secrets: tuple[SecretSpec, ...],
@@ -59,7 +59,7 @@ def _persist_report(
 
     redacted_content = redact_secrets(extracted.content, secrets)
     target = log_dir / _REPORT_FILENAME
-    report_key = ArtifactKey(f"{run_id}/{_REPORT_FILENAME}")
+    report_key = ArtifactKey(f"{spawn_id}/{_REPORT_FILENAME}")
     if extracted.source == "assistant_message":
         wrapped = f"# Auto-extracted Report\n\n{redacted_content.strip()}\n"
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -79,12 +79,12 @@ def _persist_report(
 def _is_empty_output(
     *,
     artifacts: ArtifactStore,
-    run_id: RunId,
+    spawn_id: SpawnId,
     extracted_report: ExtractedReport,
 ) -> bool:
     if extracted_report.content and extracted_report.content.strip():
         return False
-    output_text = _read_artifact_text(artifacts, run_id, _OUTPUT_FILENAME)
+    output_text = _read_artifact_text(artifacts, spawn_id, _OUTPUT_FILENAME)
     return not output_text.strip()
 
 
@@ -92,19 +92,19 @@ def enrich_finalize(
     *,
     artifacts: ArtifactStore,
     adapter: HarnessAdapter,
-    run_id: RunId,
+    spawn_id: SpawnId,
     log_dir: Path,
     secrets: tuple[SecretSpec, ...] = (),
 ) -> FinalizeExtraction:
-    """Run all extraction steps and return one enriched finalization payload."""
+    """Spawn all extraction steps and return one enriched finalization payload."""
 
-    usage = adapter.extract_usage(artifacts, run_id)
-    harness_session_id = adapter.extract_session_id(artifacts, run_id)
-    files_touched = extract_files_touched(artifacts, run_id)
-    report = extract_or_fallback_report(artifacts, run_id)
+    usage = adapter.extract_usage(artifacts, spawn_id)
+    harness_session_id = adapter.extract_session_id(artifacts, spawn_id)
+    files_touched = extract_files_touched(artifacts, spawn_id)
+    report = extract_or_fallback_report(artifacts, spawn_id)
     report_path = _persist_report(
         artifacts=artifacts,
-        run_id=run_id,
+        spawn_id=spawn_id,
         log_dir=log_dir,
         extracted=report,
         secrets=secrets,
@@ -118,7 +118,7 @@ def enrich_finalize(
         report=report,
         output_is_empty=_is_empty_output(
             artifacts=artifacts,
-            run_id=run_id,
+            spawn_id=spawn_id,
             extracted_report=report,
         ),
     )

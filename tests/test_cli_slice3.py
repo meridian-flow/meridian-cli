@@ -85,13 +85,14 @@ def test_run_create_dry_run_outputs_composed_prompt_and_command(
     env = os.environ.copy()
     env["MERIDIAN_REPO_ROOT"] = str(repo_root)
     env["PYTHONPATH"] = str(package_root / "src")
+    env["MERIDIAN_SPACE_ID"] = "s1"
     completed = subprocess.run(
         [
             sys.executable,
             "-m",
             "meridian",
             "--json",
-            "run",
+            "spawn",
             "--dry-run",
             "--agent",
             "reviewer",
@@ -112,7 +113,7 @@ def test_run_create_dry_run_outputs_composed_prompt_and_command(
 
     assert completed.returncode == 0, completed.stderr
     payload = json.loads(completed.stdout)
-    assert payload["command"] == "run.spawn"
+    assert payload["command"] == "spawn.create"
     assert payload["status"] == "dry-run"
     assert payload["model"] == "gpt-5.3-codex"
     assert payload["harness_id"] == "codex"

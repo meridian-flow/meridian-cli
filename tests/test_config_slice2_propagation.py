@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import meridian.lib.ops.run as run_ops
+import meridian.lib.ops.spawn as run_ops
 import pytest
-from meridian.lib.ops.run import RunCreateInput
+from meridian.lib.ops.spawn import SpawnCreateInput
 from meridian.lib.safety.permissions import PermissionConfig, PermissionTier
 from meridian.lib.space.space_file import create_space
 
@@ -47,8 +47,8 @@ def test_custom_max_retries_flows_to_execute_with_finalization(
 
     monkeypatch.setattr(run_ops, "execute_with_finalization", fake_execute_with_finalization)
 
-    run_ops.run_create_sync(
-        RunCreateInput(
+    run_ops.spawn_create_sync(
+        SpawnCreateInput(
             prompt="max retries propagation",
             model="gpt-5.3-codex",
             repo_root=tmp_path.as_posix(),
@@ -88,8 +88,8 @@ def test_custom_default_permission_tier_flows_through_build_permission_config(
     monkeypatch.setattr(run_ops, "build_permission_config", fake_build_permission_config)
     monkeypatch.setattr(run_ops, "execute_with_finalization", fake_execute_with_finalization)
 
-    run_ops.run_create_sync(
-        RunCreateInput(
+    run_ops.spawn_create_sync(
+        SpawnCreateInput(
             prompt="permission propagation",
             model="gpt-5.3-codex",
             repo_root=tmp_path.as_posix(),
@@ -122,11 +122,12 @@ def test_custom_kill_grace_seconds_flows_to_execute_with_finalization(
 
     monkeypatch.setattr(run_ops, "execute_with_finalization", fake_execute_with_finalization)
 
-    run_ops.run_create_sync(
-        RunCreateInput(
+    run_ops.spawn_create_sync(
+        SpawnCreateInput(
             prompt="kill grace propagation",
             model="gpt-5.3-codex",
             repo_root=tmp_path.as_posix(),
+            space="s1",
         )
     )
 
@@ -139,12 +140,13 @@ def test_run_spawn_rejects_danger_permission_tier_without_unsafe_override(
 ) -> None:
     _clear_config_env(monkeypatch)
     with pytest.raises(ValueError, match="requires explicit --unsafe"):
-        run_ops.run_create_sync(
-            RunCreateInput(
+        run_ops.spawn_create_sync(
+            SpawnCreateInput(
                 prompt="opencode danger warning",
                 model="opencode-gpt-5.3-codex",
                 permission_tier="danger",
                 repo_root=tmp_path.as_posix(),
                 dry_run=True,
+                space="s1",
             )
         )

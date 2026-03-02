@@ -15,7 +15,7 @@ def test_help_lists_resource_first_groups(run_meridian) -> None:
     for expected in [
         "serve",
         "space",
-        "run",
+        "spawn",
         "skills",
         "models",
         "doctor",
@@ -37,10 +37,10 @@ def test_help_is_restricted_in_agent_mode(package_root, cli_env) -> None:
         timeout=15,
     )
     assert completed.returncode == 0
-    assert "run" in completed.stdout
+    assert "spawn" in completed.stdout
     assert "skills" in completed.stdout
     assert "models" in completed.stdout
-    assert "doctor" in completed.stdout
+    assert "doctor" not in completed.stdout
     assert "space" not in completed.stdout
     assert "config" not in completed.stdout
     assert "completion" not in completed.stdout
@@ -90,11 +90,11 @@ def test_serve_exits_cleanly_on_eof(package_root, cli_env) -> None:
 
 
 def test_json_and_format_flags_output_stdout_only(run_meridian) -> None:
-    result = run_meridian(["--json", "run", "--dry-run", "-p", "hello"])
+    result = run_meridian(["--json", "spawn", "--dry-run", "-p", "hello"])
     assert result.returncode == 0
     assert "Traceback" not in result.stderr
     payload = json.loads(result.stdout)
-    assert payload["command"] == "run.spawn"
+    assert payload["command"] == "spawn.create"
     assert payload["status"] == "dry-run"
 
     result_format = run_meridian(["--format", "json", "start"])
@@ -105,7 +105,7 @@ def test_json_and_format_flags_output_stdout_only(run_meridian) -> None:
 
 def test_yes_and_no_input_flags_are_wired(run_meridian) -> None:
     result = run_meridian(
-        ["--yes", "--no-input", "--json", "run", "--dry-run", "-p", "prompt text"]
+        ["--yes", "--no-input", "--json", "spawn", "--dry-run", "-p", "prompt text"]
     )
     assert result.returncode == 0
     payload = json.loads(result.stdout)
@@ -142,7 +142,7 @@ def test_run_spawn_help_hides_human_flags_in_agent_mode(package_root, cli_env) -
     env = dict(cli_env)
     env["MERIDIAN_SPACE_ID"] = "s-test"
     completed = subprocess.run(
-        [sys.executable, "-m", "meridian", "run", "spawn", "--help"],
+        [sys.executable, "-m", "meridian", "spawn", "--help"],
         cwd=package_root,
         env=env,
         capture_output=True,
@@ -174,7 +174,7 @@ def test_run_spawn_help_hides_human_flags_in_agent_mode(package_root, cli_env) -
 def test_run_spawn_help_shows_all_flags_in_human_mode(package_root, cli_env) -> None:
     # No MERIDIAN_SPACE_ID = human mode, all flags visible
     completed = subprocess.run(
-        [sys.executable, "-m", "meridian", "run", "spawn", "--help"],
+        [sys.executable, "-m", "meridian", "spawn", "--help"],
         cwd=package_root,
         env=cli_env,
         capture_output=True,

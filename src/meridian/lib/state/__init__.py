@@ -6,39 +6,39 @@ from meridian.lib.state.artifact_store import (
     LocalStore,
     make_artifact_key,
 )
-from meridian.lib.state.id_gen import next_run_id, next_chat_id, next_space_id
+from meridian.lib.state.id_gen import next_spawn_id, next_chat_id, next_space_id
 from meridian.lib.state.paths import (
     SpacePaths,
     StatePaths,
     ensure_gitignore,
     resolve_all_spaces_dir,
-    resolve_run_log_dir,
+    resolve_spawn_log_dir,
     resolve_space_dir,
     resolve_state_paths,
-    run_log_subpath,
+    spawn_log_subpath,
 )
-from meridian.lib.state.run_store import RunRecord, finalize_run, get_run, list_runs, run_stats, start_run
+from meridian.lib.state.spawn_store import SpawnRecord, finalize_spawn, get_spawn, list_spawns, spawn_stats, start_spawn
 
 __all__ = [
     "ArtifactStore",
     "InMemoryStore",
     "LocalStore",
-    "RunRecord",
+    "SpawnRecord",
     "SpacePaths",
     "StatePaths",
     "ensure_gitignore",
-    "finalize_run",
-    "get_run",
-    "list_runs",
+    "finalize_spawn",
+    "get_spawn",
+    "list_spawns",
     "make_artifact_key",
-    "next_run_id",
+    "next_spawn_id",
     "next_chat_id",
     "next_space_id",
     "resolve_all_spaces_dir",
-    "resolve_run_log_dir",
+    "resolve_spawn_log_dir",
     "resolve_space_dir",
     "resolve_state_paths",
-    "run_log_subpath",
-    "run_stats",
-    "start_run",
+    "spawn_log_subpath",
+    "spawn_stats",
+    "start_spawn",
 ]

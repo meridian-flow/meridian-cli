@@ -1,22 +1,22 @@
-"""CLI plumbing for run.stats."""
+"""CLI plumbing for spawn.stats."""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
-from meridian.cli import run as run_cli
-from meridian.lib.ops.run import RunStatsInput, RunStatsOutput
+from meridian.cli import spawn as run_cli
+from meridian.lib.ops.spawn import SpawnStatsInput, SpawnStatsOutput
 from meridian.lib.space.space_file import create_space
 
 
 def test_run_stats_passes_session_and_space_filters(monkeypatch) -> None:
-    captured: dict[str, RunStatsInput] = {}
-    emitted: list[RunStatsOutput] = []
+    captured: dict[str, SpawnStatsInput] = {}
+    emitted: list[SpawnStatsOutput] = []
 
-    def fake_run_stats_sync(payload: RunStatsInput) -> RunStatsOutput:
+    def fake_run_stats_sync(payload: SpawnStatsInput) -> SpawnStatsOutput:
         captured["payload"] = payload
-        return RunStatsOutput(
+        return SpawnStatsOutput(
             total_runs=1,
             succeeded=1,
             failed=0,
@@ -27,15 +27,15 @@ def test_run_stats_passes_session_and_space_filters(monkeypatch) -> None:
             models={"gpt-5.3-codex": 1},
         )
 
-    monkeypatch.setattr(run_cli, "run_stats_sync", fake_run_stats_sync)
+    monkeypatch.setattr(run_cli, "spawn_stats_sync", fake_run_stats_sync)
 
-    run_cli._run_stats(
+    run_cli._spawn_stats(
         emitted.append,
         session="sess-1",
         space="s1",
     )
 
-    assert captured["payload"] == RunStatsInput(session="sess-1", space="s1")
+    assert captured["payload"] == SpawnStatsInput(session="sess-1", space="s1")
     assert emitted[0].total_runs == 1
     assert emitted[0].models == {"gpt-5.3-codex": 1}
 
@@ -49,7 +49,7 @@ def test_cli_run_stats_json_output(
     space = create_space(tmp_path, name="cli-stats")
     cli_env["MERIDIAN_SPACE_ID"] = space.id
 
-    result = run_meridian(["--json", "run", "stats"])
+    result = run_meridian(["--json", "spawn", "stats"])
     assert result.returncode == 0
     payload = json.loads(result.stdout)
     assert payload["total_runs"] >= 0

@@ -15,7 +15,7 @@ from typing import cast
 
 import pytest
 
-from meridian.lib.domain import Run, TokenUsage
+from meridian.lib.domain import Spawn, TokenUsage
 from meridian.lib.exec.signals import (
     SignalCoordinator,
     SignalForwarder,
@@ -29,16 +29,16 @@ from meridian.lib.harness.adapter import (
 from meridian.lib.harness.adapter import (
     HarnessCapabilities,
     PermissionResolver,
-    RunParams,
+    SpawnParams,
     StreamEvent,
 )
 from meridian.lib.harness.registry import HarnessRegistry
 from meridian.lib.safety.permissions import PermissionConfig
 from meridian.lib.space.space_file import create_space
-from meridian.lib.state import run_store
+from meridian.lib.state import spawn_store
 from meridian.lib.state.artifact_store import LocalStore, make_artifact_key
 from meridian.lib.state.paths import resolve_space_dir
-from meridian.lib.types import HarnessId, ModelId, RunId, SpaceId
+from meridian.lib.types import HarnessId, ModelId, SpawnId, SpaceId
 
 
 class RecordingPermissionResolver(PermissionResolver):
@@ -65,7 +65,7 @@ class MockHarnessAdapter:
         self._base_args = base_args
         self._command_override = command_override
         self.build_calls = 0
-        self.last_params: RunParams | None = None
+        self.last_params: SpawnParams | None = None
 
     @property
     def id(self) -> HarnessId:
@@ -75,7 +75,7 @@ class MockHarnessAdapter:
     def capabilities(self) -> HarnessCapabilities:
         return HarnessCapabilities()
 
-    def build_command(self, run: RunParams, perms: PermissionResolver) -> list[str]:
+    def build_command(self, run: SpawnParams, perms: PermissionResolver) -> list[str]:
         self.build_calls += 1
         self.last_params = run
 
@@ -99,21 +99,21 @@ class MockHarnessAdapter:
         _ = line
         return None
 
-    def extract_usage(self, artifacts: HarnessArtifactStore, run_id: RunId) -> TokenUsage:
-        _ = (artifacts, run_id)
+    def extract_usage(self, artifacts: HarnessArtifactStore, spawn_id: SpawnId) -> TokenUsage:
+        _ = (artifacts, spawn_id)
         return TokenUsage()
 
-    def extract_session_id(self, artifacts: HarnessArtifactStore, run_id: RunId) -> str | None:
-        key = make_artifact_key(run_id, "session_id.txt")
+    def extract_session_id(self, artifacts: HarnessArtifactStore, spawn_id: SpawnId) -> str | None:
+        key = make_artifact_key(spawn_id, "session_id.txt")
         if artifacts.exists(key):
             return artifacts.get(key).decode("utf-8").strip()
         return None
 
 
-def _create_run(repo_root: Path, *, prompt: str) -> tuple[Run, Path]:
+def _create_run(repo_root: Path, *, prompt: str) -> tuple[Spawn, Path]:
     space = create_space(repo_root, name="slice4")
-    run = Run(
-        run_id=RunId("r1"),
+    run = Spawn(
+        spawn_id=SpawnId("r1"),
         prompt=prompt,
         model=ModelId("gpt-5.3-codex"),
         status="queued",
@@ -122,8 +122,8 @@ def _create_run(repo_root: Path, *, prompt: str) -> tuple[Run, Path]:
     return run, resolve_space_dir(repo_root, space.id)
 
 
-def _fetch_run_row(space_dir: Path, run_id: RunId) -> run_store.RunRecord:
-    row = run_store.get_run(space_dir, run_id)
+def _fetch_run_row(space_dir: Path, spawn_id: SpawnId) -> spawn_store.SpawnRecord:
+    row = spawn_store.get_spawn(space_dir, spawn_id)
     assert row is not None
     return row
 
@@ -200,12 +200,12 @@ async def test_execute_with_finalization_captures_without_stderr_passthrough(
     assert perms.seen_harness_ids == [HarnessId("mock")]
     assert start_new_session_values == [True]
 
-    row = _fetch_run_row(space_dir, run.run_id)
+    row = _fetch_run_row(space_dir, run.spawn_id)
     assert row.status == "succeeded"
     assert row.exit_code == 0
 
-    output_key = make_artifact_key(run.run_id, "output.jsonl")
-    stderr_key = make_artifact_key(run.run_id, "stderr.log")
+    output_key = make_artifact_key(run.spawn_id, "output.jsonl")
+    stderr_key = make_artifact_key(run.spawn_id, "stderr.log")
     assert artifacts.exists(output_key)
     assert artifacts.exists(stderr_key)
 
@@ -281,7 +281,7 @@ async def test_timeout_kills_child_and_finalizes_row(package_root: Path, tmp_pat
     )
 
     assert exit_code == 3
-    row = _fetch_run_row(space_dir, run.run_id)
+    row = _fetch_run_row(space_dir, run.spawn_id)
     assert row.status == "failed"
     assert row.exit_code == 3
     assert row.error is None
@@ -397,7 +397,7 @@ async def test_infra_failure_still_writes_finalize_row(tmp_path: Path) -> None:
     )
 
     assert exit_code == 2
-    row = _fetch_run_row(space_dir, run.run_id)
+    row = _fetch_run_row(space_dir, run.spawn_id)
     assert row.status == "failed"
     assert row.exit_code == 2
     assert row.error is None
@@ -438,7 +438,7 @@ async def test_execute_with_finalization_ignores_sigterm_during_finalize_write(
     monkeypatch.setattr(spawn_module, "signal_coordinator", lambda: FakeCoordinator())
 
     finalize_called = False
-    original_finalize = spawn_module.run_store.finalize_run
+    original_finalize = spawn_module.spawn_store.finalize_spawn
 
     def wrapped_finalize(*args: object, **kwargs: object) -> None:
         nonlocal finalize_called
@@ -446,7 +446,7 @@ async def test_execute_with_finalization_ignores_sigterm_during_finalize_write(
         assert sigterm_masked is True
         original_finalize(*args, **kwargs)
 
-    monkeypatch.setattr(spawn_module.run_store, "finalize_run", wrapped_finalize)
+    monkeypatch.setattr(spawn_module.spawn_store, "finalize_spawn", wrapped_finalize)
 
     exit_code = await execute_with_finalization(
         run,
@@ -572,13 +572,13 @@ def test_kill_running_parent_process_still_finalizes_run(
             import sys
             from pathlib import Path
 
-            from meridian.lib.domain import Run, TokenUsage
+            from meridian.lib.domain import Spawn, TokenUsage
             from meridian.lib.exec.spawn import execute_with_finalization
             from meridian.lib.harness.adapter import (
                 ArtifactStore,
                 HarnessCapabilities,
                 PermissionResolver,
-                RunParams,
+                SpawnParams,
                 StreamEvent,
             )
             from meridian.lib.harness.registry import HarnessRegistry
@@ -586,7 +586,7 @@ def test_kill_running_parent_process_still_finalizes_run(
             from meridian.lib.space.space_file import create_space
             from meridian.lib.state.artifact_store import LocalStore
             from meridian.lib.state.paths import resolve_space_dir
-            from meridian.lib.types import HarnessId, ModelId, RunId, SpaceId
+            from meridian.lib.types import HarnessId, ModelId, SpawnId, SpaceId
 
 
             class WorkerAdapter:
@@ -598,7 +598,7 @@ def test_kill_running_parent_process_still_finalizes_run(
                 def capabilities(self) -> HarnessCapabilities:
                     return HarnessCapabilities()
 
-                def build_command(self, run: RunParams, perms: PermissionResolver) -> list[str]:
+                def build_command(self, run: SpawnParams, perms: PermissionResolver) -> list[str]:
                     _ = run
                     return [
                         sys.executable,
@@ -615,20 +615,20 @@ def test_kill_running_parent_process_still_finalizes_run(
                     _ = line
                     return None
 
-                def extract_usage(self, artifacts: ArtifactStore, run_id: RunId) -> TokenUsage:
-                    _ = (artifacts, run_id)
+                def extract_usage(self, artifacts: ArtifactStore, spawn_id: SpawnId) -> TokenUsage:
+                    _ = (artifacts, spawn_id)
                     return TokenUsage()
 
-                def extract_session_id(self, artifacts: ArtifactStore, run_id: RunId) -> str | None:
-                    _ = (artifacts, run_id)
+                def extract_session_id(self, artifacts: ArtifactStore, spawn_id: SpawnId) -> str | None:
+                    _ = (artifacts, spawn_id)
                     return None
 
 
             async def main() -> int:
                 repo_root = Path("{repo_root.as_posix()}")
                 space = create_space(repo_root, name="worker")
-                run = Run(
-                    run_id=RunId("r1"),
+                run = Spawn(
+                    spawn_id=SpawnId("r1"),
                     prompt="hang",
                     model=ModelId("gpt-5.3-codex"),
                     status="queued",
@@ -675,7 +675,7 @@ def test_kill_running_parent_process_still_finalizes_run(
         deadline = time.time() + 10.0
         saw_running = False
         while time.time() < deadline:
-            row = run_store.get_run(space_dir, "r1")
+            row = spawn_store.get_spawn(space_dir, "r1")
             if row is not None and row.status == "running":
                 saw_running = True
                 break
@@ -689,7 +689,7 @@ def test_kill_running_parent_process_still_finalizes_run(
             proc.kill()
             proc.wait(timeout=5)
 
-    row = run_store.get_run(resolve_space_dir(repo_root, "s1"), "r1")
+    row = spawn_store.get_spawn(resolve_space_dir(repo_root, "s1"), "r1")
     assert row is not None
     assert row.status == "failed"
     assert row.exit_code == 143

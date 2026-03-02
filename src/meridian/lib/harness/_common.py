@@ -8,7 +8,7 @@ from typing import cast
 
 from meridian.lib.domain import TokenUsage
 from meridian.lib.harness.adapter import ArtifactStore, StreamEvent
-from meridian.lib.types import ArtifactKey, RunId
+from meridian.lib.types import ArtifactKey, SpawnId
 
 
 def _payload_text(payload: dict[str, object], key: str, *, default: str = "?") -> str:
@@ -24,19 +24,19 @@ def _synthesize_meridian_protocol_text(
     event_type: str,
     payload: dict[str, object],
 ) -> str | None:
-    if event_type == "run.start":
-        run_id = _payload_text(payload, "id")
+    if event_type == "spawn.start":
+        spawn_id = _payload_text(payload, "id")
         model = _payload_text(payload, "model")
         agent = payload.get("agent")
         if agent is None or not str(agent).strip():
-            return f"{run_id} {model} started"
-        return f"{run_id} {model} ({str(agent).strip()}) started"
+            return f"{spawn_id} {model} started"
+        return f"{spawn_id} {model} ({str(agent).strip()}) started"
 
-    if event_type == "run.done":
-        run_id = _payload_text(payload, "id")
+    if event_type == "spawn.done":
+        spawn_id = _payload_text(payload, "id")
         secs = _payload_text(payload, "secs")
         exit_code = _payload_text(payload, "exit")
-        rendered = f"{run_id} completed {secs}s exit={exit_code}"
+        rendered = f"{spawn_id} completed {secs}s exit={exit_code}"
         tokens = payload.get("tok")
         if tokens is not None:
             rendered = f"{rendered} tok={tokens}"
@@ -70,12 +70,12 @@ def parse_json_stream_event(line: str) -> StreamEvent | None:
     payload = cast("dict[str, object]", payload_obj)
     event_type = str(payload.get("type") or payload.get("t") or payload.get("event") or "line")
     text = payload.get("text") or payload.get("message")
-    # Recognize both "run.*" and "meridian.run.*" as meridian protocol events.
+    # Recognize both "spawn.*" and "meridian.spawn.*" as meridian protocol events.
     synth_type = event_type
     if synth_type.startswith("meridian."):
         synth_type = synth_type[len("meridian."):]
-    category = "sub-run" if synth_type.startswith("run.") else "progress"
-    if text is None and "t" in payload and synth_type.startswith("run."):
+    category = "sub-run" if synth_type.startswith("spawn.") else "progress"
+    if text is None and "t" in payload and synth_type.startswith("spawn."):
         text = _synthesize_meridian_protocol_text(event_type=synth_type, payload=payload)
     if text is not None:
         return StreamEvent(
@@ -118,8 +118,8 @@ def _category_from_event_type(
     if exact_map is not None and normalized_event_type in exact_map:
         return exact_map[normalized_event_type]
 
-    if normalized_event_type.startswith("run.") or normalized_event_type.startswith(
-        "meridian.run."
+    if normalized_event_type.startswith("spawn.") or normalized_event_type.startswith(
+        "meridian.spawn."
     ):
         return "sub-run"
     if any(token in normalized_event_type for token in ("error", "fail", "warning", "warn")):
@@ -148,9 +148,9 @@ def _category_from_event_type(
 
 
 def _read_json_artifact(
-    artifacts: ArtifactStore, run_id: RunId, filename: str
+    artifacts: ArtifactStore, spawn_id: SpawnId, filename: str
 ) -> dict[str, object] | None:
-    artifact_key = ArtifactKey(f"{run_id}/{filename}")
+    artifact_key = ArtifactKey(f"{spawn_id}/{filename}")
     if not artifacts.exists(artifact_key):
         return None
     raw = artifacts.get(artifact_key)
@@ -269,9 +269,9 @@ def _candidate_token_score(candidate: _UsageCandidate) -> int:
 
 
 def _iter_json_lines_artifact(
-    artifacts: ArtifactStore, run_id: RunId, filename: str
+    artifacts: ArtifactStore, spawn_id: SpawnId, filename: str
 ) -> list[dict[str, object]]:
-    artifact_key = ArtifactKey(f"{run_id}/{filename}")
+    artifact_key = ArtifactKey(f"{spawn_id}/{filename}")
     if not artifacts.exists(artifact_key):
         return []
 
@@ -291,17 +291,17 @@ def _iter_json_lines_artifact(
     return payloads
 
 
-def extract_usage_from_artifacts(artifacts: ArtifactStore, run_id: RunId) -> TokenUsage:
+def extract_usage_from_artifacts(artifacts: ArtifactStore, spawn_id: SpawnId) -> TokenUsage:
     candidates: list[_UsageCandidate] = []
 
     for filename in ("tokens.json", "usage.json"):
-        payload = _read_json_artifact(artifacts, run_id, filename)
+        payload = _read_json_artifact(artifacts, spawn_id, filename)
         if payload is None:
             continue
         for nested in _iter_dicts(payload):
             candidates.append(_candidate_from_payload(nested))
 
-    for payload in _iter_json_lines_artifact(artifacts, run_id, "output.jsonl"):
+    for payload in _iter_json_lines_artifact(artifacts, spawn_id, "output.jsonl"):
         for nested in _iter_dicts(payload):
             candidates.append(_candidate_from_payload(nested))
 
@@ -328,10 +328,10 @@ def extract_usage_from_artifacts(artifacts: ArtifactStore, run_id: RunId) -> Tok
     )
 
 
-def extract_session_id_from_artifacts(artifacts: ArtifactStore, run_id: RunId) -> str | None:
-    key = ArtifactKey(f"{run_id}/session_id.txt")
+def extract_session_id_from_artifacts(artifacts: ArtifactStore, spawn_id: SpawnId) -> str | None:
+    key = ArtifactKey(f"{spawn_id}/session_id.txt")
     if not artifacts.exists(key):
-        for payload in _iter_json_lines_artifact(artifacts, run_id, "output.jsonl"):
+        for payload in _iter_json_lines_artifact(artifacts, spawn_id, "output.jsonl"):
             for nested in _iter_dicts(payload):
                 for key_name in ("session_id", "sessionId"):
                     value = nested.get(key_name)

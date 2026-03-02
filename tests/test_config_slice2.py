@@ -53,14 +53,14 @@ def test_parse_skill_frontmatter_from_fixture(package_root: Path) -> None:
 
 def test_skill_registry_reindex_search_and_load(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
-    _create_skill(repo_root, "run-agent", "Run delegation skill", tags=["base"])
+    _create_skill(repo_root, "run-agent", "Spawn delegation skill", tags=["base"])
     _create_skill(repo_root, "agent", "Worker guidance", tags=["base"])
     _create_skill(repo_root, "orchestrate", "Primary guidance", tags=["base"])
     _create_skill(repo_root, "reviewing", "Review code", tags=["review", "quality"])
 
     registry = SkillRegistry(
         repo_root=repo_root,
-        db_path=repo_root / ".meridian" / "index" / "runs.db",
+        db_path=repo_root / ".meridian" / "index" / "spawns.db",
     )
     assert registry.db_path == repo_root / ".meridian" / "index" / "skills.json"
     report = registry.reindex()
@@ -109,7 +109,7 @@ def test_agent_profile_parsing(tmp_path: Path) -> None:
             "variant: high\n"
             "skills: [reviewing]\n"
             "allowed-tools: [Read, Grep]\n"
-            "mcp-tools: [run_list, run_show]\n"
+            "mcp-tools: [spawn_list, spawn_show]\n"
             "sandbox: danger-full-access\n"
             "variant-models:\n"
             "  - claude-opus-4-6\n"
@@ -124,7 +124,7 @@ def test_agent_profile_parsing(tmp_path: Path) -> None:
     assert profile.model == "claude-sonnet-4-6"
     assert profile.skills == ("reviewing",)
     assert profile.allowed_tools == ("Read", "Grep")
-    assert profile.mcp_tools == ("run_list", "run_show")
+    assert profile.mcp_tools == ("spawn_list", "spawn_show")
     assert profile.variant_models == ("claude-opus-4-6",)
     assert "Review code." in profile.body
 
@@ -170,7 +170,7 @@ def test_agent_profile_mcp_tools_normalizes_and_warns_unknown(monkeypatch, tmp_p
             "---\n"
             "name: reviewer\n"
             "model: claude-sonnet-4-6\n"
-            "mcp-tools: [run_list, RUN_SHOW, run_list, unknown_tool]\n"
+            "mcp-tools: [spawn_list, SPAWN_SHOW, spawn_list, unknown_tool]\n"
             "---\n\n"
             "body\n"
         ),
@@ -188,7 +188,7 @@ def test_agent_profile_mcp_tools_normalizes_and_warns_unknown(monkeypatch, tmp_p
 
     profile = load_agent_profile("reviewer", repo_root=repo_root)
 
-    assert profile.mcp_tools == ("run_list", "run_show", "unknown_tool")
+    assert profile.mcp_tools == ("spawn_list", "spawn_show", "unknown_tool")
     assert any(
         message == "Agent profile 'reviewer' includes unknown MCP tool 'unknown_tool'."
         for message in stub_logger.messages

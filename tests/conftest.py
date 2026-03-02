@@ -38,11 +38,16 @@ def _clean_meridian_runtime_env(monkeypatch: pytest.MonkeyPatch) -> None:
     for key in tuple(os.environ):
         if key.startswith("MERIDIAN_"):
             monkeypatch.delenv(key, raising=False)
+    # Most direct operation tests do not set a space explicitly.
+    # Keep a default scoped space unless a test intentionally removes it.
+    monkeypatch.setenv("MERIDIAN_SPACE_ID", "s1")
 
 
 @pytest.fixture
 def cli_env(package_root: Path) -> dict[str, str]:
     env = os.environ.copy()
+    # Subprocess CLI tests should opt into agent mode explicitly.
+    env.pop("MERIDIAN_SPACE_ID", None)
     existing = env.get("PYTHONPATH", "")
     root = str(package_root / "src")
     env["PYTHONPATH"] = root if not existing else f"{root}:{existing}"
@@ -61,10 +66,13 @@ def cli_env(package_root: Path) -> dict[str, str]:
 @pytest.fixture
 def run_meridian(package_root: Path, cli_env: dict[str, str]) -> Callable[..., CliResult]:
     def _run(args: list[str], timeout: float = 15.0) -> CliResult:
+        env = dict(cli_env)
+        if "spawn" in args and "--space" not in args and "--space-id" not in args:
+            env["MERIDIAN_SPACE_ID"] = "s1"
         completed = subprocess.run(
             [sys.executable, "-m", "meridian", *args],
             cwd=package_root,
-            env=cli_env,
+            env=env,
             capture_output=True,
             text=True,
             check=False,

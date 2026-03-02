@@ -40,7 +40,7 @@ def dedupe_skill_contents(skills: Sequence[SkillContent]) -> tuple[SkillContent,
 
 
 @dataclass(frozen=True, slots=True)
-class RunPromptDefaults:
+class SpawnPromptDefaults:
     """Resolved model + agent body + skill names for prompt composition."""
 
     model: str
@@ -54,7 +54,7 @@ def resolve_run_defaults(
     *,
     profile: AgentProfile | None,
     default_model: str = DEFAULT_MODEL,
-) -> RunPromptDefaults:
+) -> SpawnPromptDefaults:
     """Merge explicit run options with agent-profile defaults."""
 
     merged = list(dedupe_skill_names(profile.skills)) if profile is not None else []
@@ -73,7 +73,7 @@ def resolve_run_defaults(
         # Unknown model or ambiguous alias: defer to harness routing validation.
         pass
 
-    return RunPromptDefaults(
+    return SpawnPromptDefaults(
         model=resolved_model,
         skills=dedupe_skill_names(merged),
         agent_body=profile.body.strip() if profile is not None else "",

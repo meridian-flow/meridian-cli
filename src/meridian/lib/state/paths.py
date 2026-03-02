@@ -6,7 +6,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from meridian.lib.types import RunId, SpaceId
+from meridian.lib.types import SpawnId, SpaceId
 
 _MERIDIAN_DIR = ".meridian"
 _SPACES_DIR = ".spaces"
@@ -25,13 +25,13 @@ class SpacePaths:
     space_dir: Path
     space_json: Path
     space_lock: Path
-    runs_jsonl: Path
-    runs_lock: Path
+    spawns_jsonl: Path
+    spawns_lock: Path
     sessions_jsonl: Path
     sessions_lock: Path
     sessions_dir: Path
     fs_dir: Path
-    runs_dir: Path
+    spawns_dir: Path
 
     @classmethod
     def from_space_dir(cls, space_dir: Path) -> SpacePaths:
@@ -41,13 +41,13 @@ class SpacePaths:
             space_dir=space_dir,
             space_json=space_dir / "space.json",
             space_lock=space_dir / "space.lock",
-            runs_jsonl=space_dir / "runs.jsonl",
-            runs_lock=space_dir / "runs.lock",
+            spawns_jsonl=space_dir / "spawns.jsonl",
+            spawns_lock=space_dir / "spawns.lock",
             sessions_jsonl=space_dir / "sessions.jsonl",
             sessions_lock=space_dir / "sessions.lock",
             sessions_dir=space_dir / "sessions",
             fs_dir=space_dir / "fs",
-            runs_dir=space_dir / "runs",
+            spawns_dir=space_dir / "spawns",
         )
 
 
@@ -57,7 +57,7 @@ class StatePaths:
 
     root_dir: Path
     artifacts_dir: Path
-    runs_dir: Path
+    spawns_dir: Path
     all_spaces_dir: Path
     active_spaces_dir: Path
     config_path: Path
@@ -84,7 +84,7 @@ def resolve_state_paths(repo_root: Path) -> StatePaths:
     return StatePaths(
         root_dir=root_dir,
         artifacts_dir=root_dir / "artifacts",
-        runs_dir=root_dir / "runs",
+        spawns_dir=root_dir / "spawns",
         all_spaces_dir=root_dir / _SPACES_DIR,
         active_spaces_dir=root_dir / "active-spaces",
         config_path=root_dir / "config.toml",
@@ -104,18 +104,20 @@ def resolve_space_dir(repo_root: Path, space_id: SpaceId | str) -> Path:
     return resolve_all_spaces_dir(repo_root) / str(space_id)
 
 
-def run_log_subpath(run_id: RunId | str, space_id: SpaceId | str | None) -> Path:
-    """Return run log path relative to the Meridian state root."""
+def spawn_log_subpath(spawn_id: SpawnId | str, space_id: SpaceId | str | None) -> Path:
+    """Return spawn log path relative to the Meridian state root."""
 
     if space_id is None:
-        return Path("runs") / str(run_id)
-    return Path(_SPACES_DIR) / str(space_id) / "runs" / str(run_id)
+        return Path("spawns") / str(spawn_id)
+    return Path(_SPACES_DIR) / str(space_id) / "spawns" / str(spawn_id)
 
 
-def resolve_run_log_dir(repo_root: Path, run_id: RunId | str, space_id: SpaceId | str | None) -> Path:
-    """Resolve absolute run log directory for run/space IDs."""
+def resolve_spawn_log_dir(
+    repo_root: Path, spawn_id: SpawnId | str, space_id: SpaceId | str | None
+) -> Path:
+    """Resolve absolute spawn log directory for spawn/space IDs."""
 
-    return resolve_state_paths(repo_root).root_dir / run_log_subpath(run_id, space_id)
+    return resolve_state_paths(repo_root).root_dir / spawn_log_subpath(spawn_id, space_id)
 
 
 def ensure_gitignore(repo_root: Path) -> Path:

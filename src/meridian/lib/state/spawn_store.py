@@ -1,4 +1,4 @@
-"""File-backed run event store for `.meridian/.spaces/<space-id>/runs.jsonl`."""
+"""File-backed spawn event store for `.meridian/.spaces/<space-id>/spawns.jsonl`."""
 
 from __future__ import annotations
 
@@ -10,9 +10,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping
 
-from meridian.lib.state.id_gen import next_run_id
+from meridian.lib.state.id_gen import next_spawn_id
 from meridian.lib.state.paths import SpacePaths
-from meridian.lib.types import RunId
+from meridian.lib.types import SpawnId
 
 type JSONScalar = str | int | float | bool | None
 type JSONValue = JSONScalar | list["JSONValue"] | dict[str, "JSONValue"]
@@ -20,8 +20,8 @@ type JSONRow = dict[str, JSONValue]
 
 
 @dataclass(frozen=True, slots=True)
-class RunRecord:
-    """Derived run state assembled from run JSONL events."""
+class SpawnRecord:
+    """Derived spawn state assembled from spawn JSONL events."""
 
     id: str
     chat_id: str | None
@@ -87,7 +87,7 @@ def _read_events(path: Path) -> list[JSONRow]:
     return rows
 
 
-def start_run(
+def start_spawn(
     space_dir: Path,
     *,
     chat_id: str,
@@ -95,21 +95,21 @@ def start_run(
     agent: str,
     harness: str,
     prompt: str,
-    run_id: RunId | str | None = None,
+    spawn_id: SpawnId | str | None = None,
     harness_session_id: str | None = None,
     started_at: str | None = None,
-) -> RunId:
-    """Append a run start event under `runs.lock` and return the run ID."""
+) -> SpawnId:
+    """Append a spawn start event under `spawns.lock` and return the spawn ID."""
 
     paths = SpacePaths.from_space_dir(space_dir)
     started = started_at or _utc_now_iso()
 
-    with _lock_file(paths.runs_lock):
-        resolved_run_id = RunId(str(run_id)) if run_id is not None else next_run_id(space_dir)
+    with _lock_file(paths.spawns_lock):
+        resolved_spawn_id = SpawnId(str(spawn_id)) if spawn_id is not None else next_spawn_id(space_dir)
         event: JSONRow = {
             "v": 1,
             "event": "start",
-            "id": str(resolved_run_id),
+            "id": str(resolved_spawn_id),
             "chat_id": chat_id,
             "model": model,
             "agent": agent,
@@ -120,13 +120,13 @@ def start_run(
         }
         if harness_session_id is not None:
             event["harness_session_id"] = harness_session_id
-        _append_event(paths.runs_jsonl, event)
-        return resolved_run_id
+        _append_event(paths.spawns_jsonl, event)
+        return resolved_spawn_id
 
 
-def finalize_run(
+def finalize_spawn(
     space_dir: Path,
-    run_id: RunId | str,
+    spawn_id: SpawnId | str,
     status: str,
     exit_code: int,
     *,
@@ -137,13 +137,13 @@ def finalize_run(
     finished_at: str | None = None,
     error: str | None = None,
 ) -> None:
-    """Append a run finalize event under `runs.lock`."""
+    """Append a spawn finalize event under `spawns.lock`."""
 
     paths = SpacePaths.from_space_dir(space_dir)
     event: JSONRow = {
         "v": 1,
         "event": "finalize",
-        "id": str(run_id),
+        "id": str(spawn_id),
         "status": status,
         "exit_code": exit_code,
         "finished_at": finished_at or _utc_now_iso(),
@@ -159,13 +159,13 @@ def finalize_run(
     if error is not None:
         event["error"] = error
 
-    with _lock_file(paths.runs_lock):
-        _append_event(paths.runs_jsonl, event)
+    with _lock_file(paths.spawns_lock):
+        _append_event(paths.spawns_jsonl, event)
 
 
-def _empty_record(run_id: str) -> RunRecord:
-    return RunRecord(
-        id=run_id,
+def _empty_record(spawn_id: str) -> SpawnRecord:
+    return SpawnRecord(
+        id=spawn_id,
         chat_id=None,
         model=None,
         agent=None,
@@ -184,19 +184,19 @@ def _empty_record(run_id: str) -> RunRecord:
     )
 
 
-def _record_from_events(events: list[JSONRow]) -> dict[str, RunRecord]:
-    records: dict[str, RunRecord] = {}
+def _record_from_events(events: list[JSONRow]) -> dict[str, SpawnRecord]:
+    records: dict[str, SpawnRecord] = {}
 
     for event in events:
-        run_id = str(event.get("id", ""))
-        if not run_id:
+        spawn_id = str(event.get("id", ""))
+        if not spawn_id:
             continue
-        current = records.get(run_id, _empty_record(run_id))
+        current = records.get(spawn_id, _empty_record(spawn_id))
         event_type = event.get("event")
 
         if event_type == "start":
-            records[run_id] = RunRecord(
-                id=run_id,
+            records[spawn_id] = SpawnRecord(
+                id=spawn_id,
                 chat_id=str(event["chat_id"]) if "chat_id" in event else current.chat_id,
                 model=str(event["model"]) if "model" in event else current.model,
                 agent=str(event["agent"]) if "agent" in event else current.agent,
@@ -240,8 +240,8 @@ def _record_from_events(events: list[JSONRow]) -> dict[str, RunRecord]:
             if "exit_code" in event:
                 exit_code = int(event["exit_code"])
 
-            records[run_id] = RunRecord(
-                id=run_id,
+            records[spawn_id] = SpawnRecord(
+                id=spawn_id,
                 chat_id=current.chat_id,
                 model=current.model,
                 agent=current.agent,
@@ -264,51 +264,51 @@ def _record_from_events(events: list[JSONRow]) -> dict[str, RunRecord]:
     return records
 
 
-def _run_sort_key(run: RunRecord) -> tuple[int, str]:
-    if run.id.startswith("r") and run.id[1:].isdigit():
-        return (int(run.id[1:]), run.id)
-    return (10**9, run.id)
+def _spawn_sort_key(spawn: SpawnRecord) -> tuple[int, str]:
+    if spawn.id.startswith("r") and spawn.id[1:].isdigit():
+        return (int(spawn.id[1:]), spawn.id)
+    return (10**9, spawn.id)
 
 
-def list_runs(space_dir: Path, filters: Mapping[str, Any] | None = None) -> list[RunRecord]:
-    """List derived run records with optional equality filters."""
+def list_spawns(space_dir: Path, filters: Mapping[str, Any] | None = None) -> list[SpawnRecord]:
+    """List derived spawn records with optional equality filters."""
 
     paths = SpacePaths.from_space_dir(space_dir)
-    runs = list(_record_from_events(_read_events(paths.runs_jsonl)).values())
+    spawns = list(_record_from_events(_read_events(paths.spawns_jsonl)).values())
 
     if filters:
-        filtered: list[RunRecord] = []
-        for run in runs:
+        filtered: list[SpawnRecord] = []
+        for spawn in spawns:
             keep = True
             for key, expected in filters.items():
                 if expected is None:
                     continue
-                if not hasattr(run, key):
+                if not hasattr(spawn, key):
                     continue
-                if getattr(run, key) != expected:
+                if getattr(spawn, key) != expected:
                     keep = False
                     break
             if keep:
-                filtered.append(run)
-        runs = filtered
+                filtered.append(spawn)
+        spawns = filtered
 
-    return sorted(runs, key=_run_sort_key)
+    return sorted(spawns, key=_spawn_sort_key)
 
 
-def get_run(space_dir: Path, run_id: RunId | str) -> RunRecord | None:
-    """Return one run by ID."""
+def get_spawn(space_dir: Path, spawn_id: SpawnId | str) -> SpawnRecord | None:
+    """Return one spawn by ID."""
 
-    wanted = str(run_id)
-    for run in list_runs(space_dir):
-        if run.id == wanted:
-            return run
+    wanted = str(spawn_id)
+    for spawn in list_spawns(space_dir):
+        if spawn.id == wanted:
+            return spawn
     return None
 
 
-def run_stats(space_dir: Path) -> dict[str, Any]:
-    """Aggregate high-level run stats from JSONL-derived records."""
+def spawn_stats(space_dir: Path) -> dict[str, Any]:
+    """Aggregate high-level spawn stats from JSONL-derived records."""
 
-    runs = list_runs(space_dir)
+    spawns = list_spawns(space_dir)
     by_status: dict[str, int] = {}
     by_model: dict[str, int] = {}
     total_duration_secs = 0.0
@@ -316,21 +316,21 @@ def run_stats(space_dir: Path) -> dict[str, Any]:
     total_input_tokens = 0
     total_output_tokens = 0
 
-    for run in runs:
-        by_status[run.status] = by_status.get(run.status, 0) + 1
-        if run.model is not None:
-            by_model[run.model] = by_model.get(run.model, 0) + 1
-        if run.duration_secs is not None:
-            total_duration_secs += run.duration_secs
-        if run.total_cost_usd is not None:
-            total_cost_usd += run.total_cost_usd
-        if run.input_tokens is not None:
-            total_input_tokens += run.input_tokens
-        if run.output_tokens is not None:
-            total_output_tokens += run.output_tokens
+    for spawn in spawns:
+        by_status[spawn.status] = by_status.get(spawn.status, 0) + 1
+        if spawn.model is not None:
+            by_model[spawn.model] = by_model.get(spawn.model, 0) + 1
+        if spawn.duration_secs is not None:
+            total_duration_secs += spawn.duration_secs
+        if spawn.total_cost_usd is not None:
+            total_cost_usd += spawn.total_cost_usd
+        if spawn.input_tokens is not None:
+            total_input_tokens += spawn.input_tokens
+        if spawn.output_tokens is not None:
+            total_output_tokens += spawn.output_tokens
 
     return {
-        "total_runs": len(runs),
+        "total_runs": len(spawns),
         "by_status": by_status,
         "by_model": by_model,
         "total_duration_secs": total_duration_secs,

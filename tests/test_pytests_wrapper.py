@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 
 def test_build_pytest_args_defaults() -> None:
-    args = pytests.build_pytest_args(["tests/test_cli_run_wait_multi.py"], include_last_failed=False)
+    args = pytests.build_pytest_args(["tests/test_cli_spawn_wait_multi.py"], include_last_failed=False)
     assert args == [
         "pytest",
         "-q",
@@ -23,7 +23,7 @@ def test_build_pytest_args_defaults() -> None:
         "-r",
         "fE",
         "--force-short-summary",
-        "tests/test_cli_run_wait_multi.py",
+        "tests/test_cli_spawn_wait_multi.py",
     ]
 
 

@@ -11,13 +11,13 @@ from meridian.lib.harness.claude import ClaudeAdapter
 from meridian.lib.harness.codex import CodexAdapter
 from meridian.lib.harness.opencode import OpenCodeAdapter
 from meridian.lib.state.artifact_store import InMemoryStore, make_artifact_key
-from meridian.lib.types import RunId
+from meridian.lib.types import SpawnId
 
 
 def test_adapters_extract_usage_from_cross_harness_payloads() -> None:
     artifacts = InMemoryStore()
 
-    run_claude = RunId("r-claude")
+    run_claude = SpawnId("r-claude")
     artifacts.put(
         make_artifact_key(run_claude, "tokens.json"),
         b'{"input_tokens": 1200, "output_tokens": 320, "total_cost_usd": 0.55}',
@@ -27,7 +27,7 @@ def test_adapters_extract_usage_from_cross_harness_payloads() -> None:
     assert claude_usage.output_tokens == 320
     assert claude_usage.total_cost_usd == 0.55
 
-    run_codex = RunId("r-codex")
+    run_codex = SpawnId("r-codex")
     artifacts.put(
         make_artifact_key(run_codex, "usage.json"),
         b'{"usage": {"prompt_tokens": "44", "completion_tokens": "12", "cost_usd": "0.04"}}',
@@ -37,7 +37,7 @@ def test_adapters_extract_usage_from_cross_harness_payloads() -> None:
     assert codex_usage.output_tokens == 12
     assert codex_usage.total_cost_usd == 0.04
 
-    run_opencode = RunId("r-opencode")
+    run_opencode = SpawnId("r-opencode")
     artifacts.put(
         make_artifact_key(run_opencode, "output.jsonl"),
         b'{"event":"response.completed","usage":{"input":9,"output":3},'
@@ -51,47 +51,47 @@ def test_adapters_extract_usage_from_cross_harness_payloads() -> None:
 
 def test_report_uses_last_assistant_message_when_report_missing() -> None:
     artifacts = InMemoryStore()
-    run_id = RunId("r-report-fallback")
+    spawn_id = SpawnId("r-report-fallback")
     artifacts.put(
-        make_artifact_key(run_id, "output.jsonl"),
+        make_artifact_key(spawn_id, "output.jsonl"),
         b'{"role":"assistant","content":"first answer"}\n'
         b'{"role":"user","content":"follow up"}\n'
         b'{"role":"assistant","content":[{"type":"text","text":"final assistant message"}]}\n',
     )
 
-    extracted = extract_or_fallback_report(artifacts, run_id)
+    extracted = extract_or_fallback_report(artifacts, spawn_id)
     assert extracted.source == "assistant_message"
     assert extracted.content == "final assistant message"
 
 
 def test_report_prefers_report_md_when_both_sources_exist() -> None:
     artifacts = InMemoryStore()
-    run_id = RunId("r-report-prefer-file")
+    spawn_id = SpawnId("r-report-prefer-file")
     artifacts.put(
-        make_artifact_key(run_id, "output.jsonl"),
+        make_artifact_key(spawn_id, "output.jsonl"),
         b'{"role":"assistant","content":"assistant summary"}\n',
     )
     artifacts.put(
-        make_artifact_key(run_id, "report.md"),
+        make_artifact_key(spawn_id, "report.md"),
         b"# File Report\n\nUse this one.\n",
     )
 
-    extracted = extract_or_fallback_report(artifacts, run_id)
+    extracted = extract_or_fallback_report(artifacts, spawn_id)
     assert extracted.source == "report_md"
     assert extracted.content == "# File Report\n\nUse this one."
 
 
 def test_extract_files_touched_from_structured_output_and_text() -> None:
     artifacts = InMemoryStore()
-    run_id = RunId("r-files")
+    spawn_id = SpawnId("r-files")
     artifacts.put(
-        make_artifact_key(run_id, "output.jsonl"),
+        make_artifact_key(spawn_id, "output.jsonl"),
         b'{"files_touched":["src/story/ch1.md","src/story/ch2.md"]}\n'
         b'{"role":"assistant","content":"Updated _docs/plans/roadmap.md"}\n'
         b"Touched path frontend/src/app.ts during cleanup.\n",
     )
 
-    touched = extract_files_touched(artifacts, run_id)
+    touched = extract_files_touched(artifacts, spawn_id)
     assert touched == (
         "src/story/ch1.md",
         "src/story/ch2.md",
@@ -102,9 +102,9 @@ def test_extract_files_touched_from_structured_output_and_text() -> None:
 
 def test_enrich_finalize_materializes_report_from_assistant_message(tmp_path: Path) -> None:
     artifacts = InMemoryStore()
-    run_id = RunId("r-finalize")
+    spawn_id = SpawnId("r-finalize")
     artifacts.put(
-        make_artifact_key(run_id, "output.jsonl"),
+        make_artifact_key(spawn_id, "output.jsonl"),
         b'{"role":"assistant","content":"updated src/chapters/ch03.md","session_id":"sess-42"}\n'
         b'{"role":"assistant","content":"final result"}\n',
     )
@@ -112,7 +112,7 @@ def test_enrich_finalize_materializes_report_from_assistant_message(tmp_path: Pa
     enrichment = enrich_finalize(
         artifacts=artifacts,
         adapter=ClaudeAdapter(),
-        run_id=run_id,
+        spawn_id=spawn_id,
         log_dir=tmp_path / "logs" / "r-finalize",
     )
 

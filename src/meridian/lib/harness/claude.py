@@ -26,11 +26,11 @@ from meridian.lib.harness.adapter import (
     HarnessCapabilities,
     McpConfig,
     PermissionResolver,
-    RunParams,
+    SpawnParams,
     StreamEvent,
 )
 from meridian.lib.safety.permissions import PermissionConfig
-from meridian.lib.types import HarnessId, RunId
+from meridian.lib.types import HarnessId, SpawnId
 
 
 def _iter_dicts(value: object) -> list[dict[str, object]]:
@@ -140,7 +140,7 @@ class ClaudeAdapter:
             supports_programmatic_tools=False,
         )
 
-    def build_command(self, run: RunParams, perms: PermissionResolver) -> list[str]:
+    def build_command(self, run: SpawnParams, perms: PermissionResolver) -> list[str]:
         mcp_config = self.mcp_config(run)
         command = build_harness_command(
             base_command=self.BASE_COMMAND,
@@ -166,14 +166,14 @@ class ClaudeAdapter:
             command.append("--fork-session")
         return command
 
-    def _mcp_config_path(self, run: RunParams) -> Path:
+    def _mcp_config_path(self, run: SpawnParams) -> Path:
         repo_root = (run.repo_root or "").strip() or "."
         fingerprint = hashlib.sha256(
             f"{repo_root}|{','.join(run.mcp_tools)}".encode("utf-8")
         ).hexdigest()[:16]
         return Path(tempfile.gettempdir()) / f"{self.MCP_CONFIG_PREFIX}-{fingerprint}.json"
 
-    def _write_mcp_config(self, run: RunParams) -> Path:
+    def _write_mcp_config(self, run: SpawnParams) -> Path:
         repo_root = (run.repo_root or "").strip() or "."
         payload = {
             "mcpServers": {
@@ -187,7 +187,7 @@ class ClaudeAdapter:
         path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
         return path
 
-    def mcp_config(self, run: RunParams) -> McpConfig | None:
+    def mcp_config(self, run: SpawnParams) -> McpConfig | None:
         if run.repo_root is None or not run.repo_root.strip():
             return None
         mcp_file = self._write_mcp_config(run)
@@ -214,11 +214,11 @@ class ClaudeAdapter:
             return None
         return categorize_stream_event(event, exact_map=self.EVENT_CATEGORY_MAP)
 
-    def extract_usage(self, artifacts: ArtifactStore, run_id: RunId):
-        return extract_usage_from_artifacts(artifacts, run_id)
+    def extract_usage(self, artifacts: ArtifactStore, spawn_id: SpawnId):
+        return extract_usage_from_artifacts(artifacts, spawn_id)
 
-    def extract_session_id(self, artifacts: ArtifactStore, run_id: RunId) -> str | None:
-        return extract_session_id_from_artifacts(artifacts, run_id)
+    def extract_session_id(self, artifacts: ArtifactStore, spawn_id: SpawnId) -> str | None:
+        return extract_session_id_from_artifacts(artifacts, spawn_id)
 
     def extract_tasks(self, event: StreamEvent) -> list[dict[str, str]] | None:
         tasks = _extract_todowrite_tasks(event.metadata)

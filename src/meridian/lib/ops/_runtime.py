@@ -14,8 +14,8 @@ from meridian.lib.state.paths import resolve_state_paths
 from meridian.lib.types import SpaceId
 
 SPACE_REQUIRED_ERROR = (
-    "ERROR [SPACE_REQUIRED]: No MERIDIAN_SPACE_ID set. "
-    "Next: run 'meridian run spawn' to auto-create a space."
+    "ERROR [SPACE_REQUIRED]: Spawn commands require explicit space context. "
+    "Set MERIDIAN_SPACE_ID or pass --space."
 )
 
 

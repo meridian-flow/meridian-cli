@@ -220,7 +220,7 @@ def _build_interactive_command(
         )
     resolved_tier = permission_tier_override or inferred_tier
     # Primary settings only apply to this primary agent launch path.
-    # Subagent runs are assembled in lib/ops/run.py and do not read this config.
+    # Subagent spawns are assembled in lib/ops/run.py and do not read this config.
     permission_config = build_permission_config(
         resolved_tier,
         unsafe=request.unsafe,

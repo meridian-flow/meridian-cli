@@ -23,7 +23,7 @@ def _write_skill(repo_root: Path, name: str, description: str) -> None:
     )
 
 
-def test_run_spawn_dry_run_auto_creates_state_dir(
+def test_spawn_dry_run_requires_explicit_space_context(
     package_root: Path,
     cli_env: dict[str, str],
     tmp_path: Path,
@@ -39,7 +39,6 @@ def test_run_spawn_dry_run_auto_creates_state_dir(
             "-m",
             "meridian",
             "--json",
-            "run",
             "spawn",
             "--dry-run",
             "--prompt",
@@ -53,11 +52,9 @@ def test_run_spawn_dry_run_auto_creates_state_dir(
         timeout=15,
     )
 
-    assert completed.returncode == 0, completed.stderr
-    payload = json.loads(completed.stdout)
-    assert payload["status"] == "dry-run"
-    assert "SPACE_AUTO_CREATED" in payload["warning"]
-    assert (repo_root / ".meridian" / ".spaces").exists()
+    assert completed.returncode != 0
+    assert "ERROR [SPACE_REQUIRED]" in completed.stderr
+    assert not (repo_root / ".meridian").exists()
 
 
 def test_skills_list_does_not_create_state_dir(

@@ -5,15 +5,15 @@ description: Supervisor workflow for multi-step tasks. Teaches planning, delegat
 
 # Orchestrate
 
-You are a supervisor. Your job is to break complex tasks into focused subtasks, delegate them to subagent runs, evaluate results, and iterate until done.
+You are a supervisor. Your job is to break complex tasks into focused subtasks, delegate them to subagent spawns, evaluate results, and iterate until done.
 
 **You do not do the work yourself.** You plan, delegate, and evaluate.
 
 ## Core Loop
 
 1. **Understand** — clarify what needs to be done. Research if the domain is unfamiliar.
-2. **Plan** — break work into focused steps. Each step should be completable in a single run.
-3. **Execute** — launch subagent runs for each step.
+2. **Plan** — break work into focused steps. Each step should be completable in a single spawn.
+3. **Execute** — launch subagent spawns for each step.
 4. **Evaluate** — read reports, check quality. Is the output sufficient?
 5. **Iterate** — if not, rework or try a different approach.
 
@@ -21,7 +21,7 @@ You are a supervisor. Your job is to break complex tasks into focused subtasks, 
 
 Before executing, plan the work:
 
-- Break large tasks into small, focused steps that can each be done in one run
+- Break large tasks into small, focused steps that can each be done in one spawn
 - Identify dependencies between steps (what must be sequential vs parallel)
 - Choose the right model for each step based on its nature
 - Estimate which steps need review and which are low-risk
@@ -30,14 +30,14 @@ When planning, collaborate with the user. Get alignment before executing. During
 
 ## Delegation
 
-Each run is: **model + prompt + context**. Compose good prompts:
+Each spawn is: **model + prompt + context**. Compose good prompts:
 
 - Be specific about what the subagent should produce
 - Include relevant context files (`-f path/to/file`)
-- Set clear boundaries — one step per run, not the whole plan
-- Tell the subagent to verify its own work within the run
+- Set clear boundaries — one step per spawn, not the whole plan
+- Tell the subagent to verify its own work within the spawn
 
-Use `meridian run spawn` for execution. See the `meridian-run` skill for CLI details.
+Use `meridian spawn` for execution. See the `meridian-spawn-agent` skill for CLI details.
 
 ## Model Selection
 
@@ -70,12 +70,12 @@ If reviewers disagree, run a tiebreak with a different model. If 3 rework cycles
 
 ## Parallel Execution
 
-Independent steps can run in parallel using background runs:
+Independent steps can run in parallel using background spawns:
 
 ```
-R1=$(meridian run spawn --background -m MODEL -p "Step A")
-R2=$(meridian run spawn --background -m MODEL -p "Step B")
-meridian run wait $R1 $R2
+R1=$(meridian spawn --background -m MODEL -p "Step A")
+R2=$(meridian spawn --background -m MODEL -p "Step B")
+meridian spawn wait $R1 $R2
 ```
 
 ## When to Stop

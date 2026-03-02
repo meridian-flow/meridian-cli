@@ -1,4 +1,4 @@
-"""run.wait multi-run polling and compatibility tests."""
+"""spawn.wait multi-run polling and compatibility tests."""
 
 from __future__ import annotations
 
@@ -8,18 +8,18 @@ from typing import cast
 
 import pytest
 
-from meridian.lib.ops import run as run_ops
-from meridian.lib.ops.run import RunDetailOutput, RunWaitInput
+from meridian.lib.ops import spawn as run_ops
+from meridian.lib.ops.spawn import SpawnDetailOutput, SpawnWaitInput
 
 
 def _detail_from_status(
-    run_id: str,
+    spawn_id: str,
     status: str,
     duration_secs: float | None,
     exit_code: int | None,
-) -> RunDetailOutput:
-    return RunDetailOutput(
-        run_id=run_id,
+) -> SpawnDetailOutput:
+    return SpawnDetailOutput(
+        spawn_id=spawn_id,
         status=status,
         model="gpt-5.3-codex",
         harness="codex",
@@ -60,40 +60,40 @@ def test_run_wait_sync_waits_for_all_runs_and_returns_ordered_summary(
         ],
     }
 
-    def fake_read_run_row(_: Path, run_id: str, _space: str | None = None) -> SimpleNamespace:
-        sequence = rows_by_id[run_id]
+    def fake_read_run_row(_: Path, spawn_id: str, _space: str | None = None) -> SimpleNamespace:
+        sequence = rows_by_id[spawn_id]
         if len(sequence) > 1:
             return sequence.pop(0)
         return sequence[0]
 
-    monkeypatch.setattr(run_ops, "_read_run_row", fake_read_run_row)
+    monkeypatch.setattr(run_ops, "_read_spawn_row", fake_read_run_row)
     monkeypatch.setattr(
         run_ops,
         "_detail_from_row",
         lambda repo_root, row, report, include_files, space_id=None: _detail_from_status(
-            run_id=str(row.id),
+            spawn_id=str(row.id),
             status=str(row.status),
             duration_secs=cast("float | None", row.duration_secs),
             exit_code=cast("int | None", row.exit_code),
         ),
     )
 
-    result = run_ops.run_wait_sync(
-        RunWaitInput(
-            run_ids=("r1", "r2"),
+    result = run_ops.spawn_wait_sync(
+        SpawnWaitInput(
+            spawn_ids=("r1", "r2"),
             timeout_secs=5.0,
             poll_interval_secs=0.0,
         )
     )
 
-    assert [run.run_id for run in result.runs] == ["r1", "r2"]
-    assert [run.status for run in result.runs] == ["succeeded", "failed"]
+    assert [run.spawn_id for run in result.spawns] == ["r1", "r2"]
+    assert [run.status for run in result.spawns] == ["succeeded", "failed"]
     assert result.total_runs == 2
     assert result.succeeded_runs == 1
     assert result.failed_runs == 1
     assert result.cancelled_runs == 0
     assert result.any_failed is True
-    assert result.run_id is None
+    assert result.spawn_id is None
     assert result.status is None
     assert result.exit_code is None
 
@@ -118,16 +118,16 @@ def test_run_wait_sync_timeout_is_global_across_all_runs(
     monkeypatch.setattr(run_ops.time, "monotonic", fake_monotonic)
     monkeypatch.setattr(
         run_ops,
-        "_read_run_row",
-        lambda _repo_root, run_id, _space=None: SimpleNamespace(
-            id=run_id, status="running", duration_secs=None, exit_code=None
+        "_read_spawn_row",
+        lambda _repo_root, spawn_id, _space=None: SimpleNamespace(
+            id=spawn_id, status="running", duration_secs=None, exit_code=None
         ),
     )
 
-    with pytest.raises(TimeoutError, match="Timed out waiting for run\\(s\\)"):
-        run_ops.run_wait_sync(
-            RunWaitInput(
-                run_ids=("r1", "r2"),
+    with pytest.raises(TimeoutError, match="Timed out waiting for spawn\\(s\\)"):
+        run_ops.spawn_wait_sync(
+            SpawnWaitInput(
+                spawn_ids=("r1", "r2"),
                 timeout_secs=1.0,
                 poll_interval_secs=0.1,
             )
@@ -144,24 +144,24 @@ def test_run_wait_sync_accepts_legacy_run_id_alias_for_single_run(
     )
     monkeypatch.setattr(
         run_ops,
-        "_read_run_row",
-        lambda _repo_root, run_id, _space=None: SimpleNamespace(
-            id=run_id, status="succeeded", duration_secs=1.0, exit_code=0
+        "_read_spawn_row",
+        lambda _repo_root, spawn_id, _space=None: SimpleNamespace(
+            id=spawn_id, status="succeeded", duration_secs=1.0, exit_code=0
         ),
     )
     monkeypatch.setattr(
         run_ops,
         "_detail_from_row",
         lambda repo_root, row, report, include_files, space_id=None: _detail_from_status(
-            run_id=str(row.id),
+            spawn_id=str(row.id),
             status=str(row.status),
             duration_secs=cast("float | None", row.duration_secs),
             exit_code=cast("int | None", row.exit_code),
         ),
     )
 
-    result = run_ops.run_wait_sync(RunWaitInput(run_id="legacy-run"))
+    result = run_ops.spawn_wait_sync(SpawnWaitInput(spawn_id="legacy-run"))
     assert result.total_runs == 1
-    assert result.run_id == "legacy-run"
+    assert result.spawn_id == "legacy-run"
     assert result.status == "succeeded"
     assert result.exit_code == 0

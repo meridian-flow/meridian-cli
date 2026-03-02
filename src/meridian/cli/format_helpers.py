@@ -33,7 +33,7 @@ def tabular(rows: list[list[str]], sep: str = "  ") -> str:
 def kv_block(pairs: list[tuple[str, str | None]]) -> str:
     """Render key: value pairs, skipping None values.
 
-    >>> kv_block([("Run", "r1"), ("Status", "done"), ("Cost", None)])
-    'Run: r1\\nStatus: done'
+    >>> kv_block([("Spawn", "r1"), ("Status", "done"), ("Cost", None)])
+    'Spawn: r1\\nStatus: done'
     """
     return "\n".join(f"{k}: {v}" for k, v in pairs if v is not None)

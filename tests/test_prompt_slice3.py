@@ -65,7 +65,7 @@ def test_skill_loading_order_and_dedup(tmp_path: Path) -> None:
     _write_skill(repo_root, "alpha", "alpha body")
     _write_skill(repo_root, "beta", "beta body")
 
-    registry = SkillRegistry(db_path=tmp_path / "runs.db", repo_root=repo_root)
+    registry = SkillRegistry(db_path=tmp_path / "spawns.db", repo_root=repo_root)
     registry.reindex()
 
     loaded = load_skill_contents(registry, ["alpha", "beta", "alpha"])

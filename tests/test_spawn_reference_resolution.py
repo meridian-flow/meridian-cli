@@ -1,4 +1,4 @@
-"""Run reference resolution tests for @latest/@last-failed/@last-completed."""
+"""Spawn reference resolution tests for @latest/@last-failed/@last-completed."""
 
 from __future__ import annotations
 
@@ -6,21 +6,21 @@ from pathlib import Path
 
 import pytest
 
-import meridian.lib.ops.run as run_ops
-from meridian.lib.ops._run_query import resolve_run_reference
-from meridian.lib.ops.run import (
-    RunActionOutput,
-    RunContinueInput,
-    RunShowInput,
-    RunWaitInput,
+import meridian.lib.ops.spawn as run_ops
+from meridian.lib.ops._spawn_query import resolve_spawn_reference
+from meridian.lib.ops.spawn import (
+    SpawnActionOutput,
+    SpawnContinueInput,
+    SpawnShowInput,
+    SpawnWaitInput,
 )
 from meridian.lib.space.space_file import create_space
-from meridian.lib.state import run_store
+from meridian.lib.state import spawn_store
 from meridian.lib.state.paths import resolve_space_dir
 
 
 def _create_run(space_dir: Path, *, prompt: str, status: str) -> str:
-    run_id = run_store.start_run(
+    spawn_id = spawn_store.start_spawn(
         space_dir,
         chat_id="c1",
         model="gpt-5.3-codex",
@@ -30,8 +30,8 @@ def _create_run(space_dir: Path, *, prompt: str, status: str) -> str:
     )
     if status != "running":
         exit_code = 0 if status == "succeeded" else 1
-        run_store.finalize_run(space_dir, run_id, status, exit_code)
-    return str(run_id)
+        spawn_store.finalize_spawn(space_dir, spawn_id, status, exit_code)
+    return str(spawn_id)
 
 
 def test_resolve_run_reference_selectors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -43,10 +43,10 @@ def test_resolve_run_reference_selectors(tmp_path: Path, monkeypatch: pytest.Mon
     run2 = _create_run(space_dir, prompt="second", status="failed")
     run3 = _create_run(space_dir, prompt="third", status="succeeded")
 
-    assert resolve_run_reference(tmp_path, "@latest") == run3
-    assert resolve_run_reference(tmp_path, "@last-failed") == run2
-    assert resolve_run_reference(tmp_path, "@last-completed") == run3
-    assert resolve_run_reference(tmp_path, run1) == run1
+    assert resolve_spawn_reference(tmp_path, "@latest") == run3
+    assert resolve_spawn_reference(tmp_path, "@last-failed") == run2
+    assert resolve_spawn_reference(tmp_path, "@last-completed") == run3
+    assert resolve_spawn_reference(tmp_path, run1) == run1
 
 
 def test_resolve_run_reference_raises_for_empty_unknown_or_missing_selector(
@@ -59,14 +59,14 @@ def test_resolve_run_reference_raises_for_empty_unknown_or_missing_selector(
 
     _ = _create_run(space_dir, prompt="only", status="succeeded")
 
-    with pytest.raises(ValueError, match="run_id is required"):
-        resolve_run_reference(tmp_path, "   ")
+    with pytest.raises(ValueError, match="spawn_id is required"):
+        resolve_spawn_reference(tmp_path, "   ")
 
-    with pytest.raises(ValueError, match="Unknown run reference '@nope'"):
-        resolve_run_reference(tmp_path, "@nope")
+    with pytest.raises(ValueError, match="Unknown spawn reference '@nope'"):
+        resolve_spawn_reference(tmp_path, "@nope")
 
-    with pytest.raises(ValueError, match="No runs found for reference '@last-failed'"):
-        resolve_run_reference(tmp_path, "@last-failed")
+    with pytest.raises(ValueError, match="No spawns found for reference '@last-failed'"):
+        resolve_spawn_reference(tmp_path, "@last-failed")
 
 
 def test_run_show_and_wait_accept_run_references(
@@ -80,19 +80,19 @@ def test_run_show_and_wait_accept_run_references(
     run1 = _create_run(space_dir, prompt="ok", status="succeeded")
     run2 = _create_run(space_dir, prompt="broken", status="failed")
 
-    shown_latest = run_ops.run_show_sync(
-        RunShowInput(run_id="@latest", repo_root=tmp_path.as_posix())
+    shown_latest = run_ops.spawn_show_sync(
+        SpawnShowInput(spawn_id="@latest", repo_root=tmp_path.as_posix())
     )
-    shown_failed = run_ops.run_show_sync(
-        RunShowInput(run_id="@last-failed", repo_root=tmp_path.as_posix())
+    shown_failed = run_ops.spawn_show_sync(
+        SpawnShowInput(spawn_id="@last-failed", repo_root=tmp_path.as_posix())
     )
-    waited = run_ops.run_wait_sync(
-        RunWaitInput(run_ids=("@latest",), repo_root=tmp_path.as_posix(), poll_interval_secs=0.0)
+    waited = run_ops.spawn_wait_sync(
+        SpawnWaitInput(spawn_ids=("@latest",), repo_root=tmp_path.as_posix(), poll_interval_secs=0.0)
     )
 
-    assert shown_latest.run_id == run2
-    assert shown_failed.run_id == run2
-    assert waited.run_id == run2
+    assert shown_latest.spawn_id == run2
+    assert shown_failed.spawn_id == run2
+    assert waited.spawn_id == run2
     assert waited.status == "failed"
     assert run1 != run2
 
@@ -105,25 +105,25 @@ def test_run_continue_and_retry_accept_latest_reference(
     space_dir = resolve_space_dir(tmp_path, space.id)
     monkeypatch.setenv("MERIDIAN_SPACE_ID", space.id)
 
-    run_id = _create_run(space_dir, prompt="stored prompt", status="succeeded")
+    spawn_id = _create_run(space_dir, prompt="stored prompt", status="succeeded")
 
     captured_payloads: list[object] = []
 
-    def fake_run_create_sync(payload: object) -> RunActionOutput:
+    def fake_run_create_sync(payload: object) -> SpawnActionOutput:
         captured_payloads.append(payload)
-        return RunActionOutput(
-            command="run.spawn",
+        return SpawnActionOutput(
+            command="spawn.create",
             status="succeeded",
-            run_id=f"r-next-{len(captured_payloads)}",
+            spawn_id=f"r-next-{len(captured_payloads)}",
         )
 
-    monkeypatch.setattr(run_ops, "run_create_sync", fake_run_create_sync)
+    monkeypatch.setattr(run_ops, "spawn_create_sync", fake_run_create_sync)
 
-    continued = run_ops.run_continue_sync(
-        RunContinueInput(run_id="@latest", prompt="", repo_root=tmp_path.as_posix())
+    continued = run_ops.spawn_continue_sync(
+        SpawnContinueInput(spawn_id="@latest", prompt="", repo_root=tmp_path.as_posix())
     )
 
-    assert continued.command == "run.continue"
+    assert continued.command == "spawn.continue"
     assert len(captured_payloads) == 1
     assert getattr(captured_payloads[0], "prompt") == "stored prompt"
-    assert resolve_run_reference(tmp_path, "@latest") == run_id
+    assert resolve_spawn_reference(tmp_path, "@latest") == spawn_id

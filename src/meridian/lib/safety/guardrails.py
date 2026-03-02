@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 from meridian.lib.config.settings import MeridianConfig
 
 if TYPE_CHECKING:
-    from meridian.lib.types import RunId
+    from meridian.lib.types import SpawnId
 
 
 DEFAULT_GUARDRAIL_TIMEOUT_SECONDS = MeridianConfig().guardrail_timeout_seconds
@@ -56,7 +56,7 @@ def normalize_guardrail_paths(paths: tuple[str, ...], *, repo_root: Path) -> tup
 def run_guardrails(
     guardrails: tuple[Path, ...],
     *,
-    run_id: RunId,
+    spawn_id: SpawnId,
     cwd: Path,
     env: Mapping[str, str] | None,
     report_path: Path | None,
@@ -76,7 +76,7 @@ def run_guardrails(
         if key.startswith("MERIDIAN_SECRET_"):
             child_env.pop(key, None)
 
-    child_env["MERIDIAN_GUARDRAIL_RUN_ID"] = str(run_id)
+    child_env["MERIDIAN_GUARDRAIL_RUN_ID"] = str(spawn_id)
     child_env["MERIDIAN_GUARDRAIL_OUTPUT_LOG"] = output_log_path.as_posix()
     if report_path is not None:
         child_env["MERIDIAN_GUARDRAIL_REPORT_PATH"] = report_path.as_posix()

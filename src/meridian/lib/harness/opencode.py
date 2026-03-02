@@ -23,11 +23,11 @@ from meridian.lib.harness.adapter import (
     HarnessCapabilities,
     McpConfig,
     PermissionResolver,
-    RunParams,
+    SpawnParams,
     StreamEvent,
 )
 from meridian.lib.safety.permissions import PermissionConfig, opencode_permission_json
-from meridian.lib.types import HarnessId, RunId
+from meridian.lib.types import HarnessId, SpawnId
 
 
 def _strip_opencode_prefix(model: str) -> str:
@@ -38,7 +38,7 @@ def _opencode_model_transform(value: object, args: list[str]) -> None:
     args.extend(["--model", _strip_opencode_prefix(str(value))])
 
 
-def _opencode_mcp_globs(run: RunParams) -> tuple[str, ...]:
+def _opencode_mcp_globs(run: SpawnParams) -> tuple[str, ...]:
     if run.mcp_tools:
         return tuple(f"mcp__meridian__{tool}" for tool in run.mcp_tools)
     return ("mcp__meridian__*",)
@@ -58,8 +58,8 @@ class OpenCodeAdapter:
     PROMPT_MODE: ClassVar[PromptMode] = PromptMode.POSITIONAL
     BASE_COMMAND: ClassVar[tuple[str, ...]] = ("opencode", "run")
     EVENT_CATEGORY_MAP: ClassVar[dict[str, str]] = {
-        "run.start": "sub-run",
-        "run.done": "sub-run",
+        "spawn.start": "sub-run",
+        "spawn.done": "sub-run",
         "tool.call": "tool-use",
         "assistant": "assistant",
         "thinking": "thinking",
@@ -80,7 +80,7 @@ class OpenCodeAdapter:
             supports_programmatic_tools=False,
         )
 
-    def build_command(self, run: RunParams, perms: PermissionResolver) -> list[str]:
+    def build_command(self, run: SpawnParams, perms: PermissionResolver) -> list[str]:
         mcp_config = self.mcp_config(run)
         command = build_harness_command(
             base_command=self.BASE_COMMAND,
@@ -99,7 +99,7 @@ class OpenCodeAdapter:
             command.append("--fork")
         return command
 
-    def mcp_config(self, run: RunParams) -> McpConfig | None:
+    def mcp_config(self, run: SpawnParams) -> McpConfig | None:
         repo_root = (run.repo_root or "").strip()
         if not repo_root:
             return None
@@ -129,11 +129,11 @@ class OpenCodeAdapter:
             return None
         return categorize_stream_event(event, exact_map=self.EVENT_CATEGORY_MAP)
 
-    def extract_usage(self, artifacts: ArtifactStore, run_id: RunId):
-        return extract_usage_from_artifacts(artifacts, run_id)
+    def extract_usage(self, artifacts: ArtifactStore, spawn_id: SpawnId):
+        return extract_usage_from_artifacts(artifacts, spawn_id)
 
-    def extract_session_id(self, artifacts: ArtifactStore, run_id: RunId) -> str | None:
-        return extract_session_id_from_artifacts(artifacts, run_id)
+    def extract_session_id(self, artifacts: ArtifactStore, spawn_id: SpawnId) -> str | None:
+        return extract_session_id_from_artifacts(artifacts, spawn_id)
 
     def extract_tasks(self, event: StreamEvent) -> list[dict[str, str]] | None:
         _ = event

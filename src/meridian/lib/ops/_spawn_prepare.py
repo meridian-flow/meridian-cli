@@ -1,4 +1,4 @@
-"""Run create-input validation and payload preparation helpers."""
+"""Spawn create-input validation and payload preparation helpers."""
 
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ from meridian.lib.safety.permissions import (
 )
 from meridian.lib.types import ModelId
 
-from ._run_models import RunCreateInput
+from ._spawn_models import SpawnCreateInput
 
 if TYPE_CHECKING:
     from meridian.lib.config.settings import MeridianConfig
@@ -146,7 +146,7 @@ def _validate_requested_model(
 
     if _looks_like_alias_identifier(normalized):
         message = (
-            f"Unknown model alias '{normalized}'. Run `meridian models list` to inspect aliases."
+            f"Unknown model alias '{normalized}'. Spawn `meridian models list` to inspect aliases."
         )
         if validation_context:
             message = f"{message}\n{validation_context}"
@@ -158,14 +158,14 @@ def _validate_requested_model(
     if routed.warning is None:
         return normalized, f"Model '{normalized}' is not in catalog. Routing to '{routed.harness_id}'."
 
-    message = f"Unknown model '{normalized}'. Run `meridian models list` to inspect supported models."
+    message = f"Unknown model '{normalized}'. Spawn `meridian models list` to inspect supported models."
     if validation_context:
         message = f"{message}\n{validation_context}"
 
     raise ValueError(message)
 
 
-def _validate_create_input(payload: RunCreateInput) -> tuple[RunCreateInput, str | None]:
+def _validate_create_input(payload: SpawnCreateInput) -> tuple[SpawnCreateInput, str | None]:
     if not payload.prompt.strip():
         raise ValueError("prompt required: use --prompt/-p with non-empty text.")
 
@@ -192,7 +192,7 @@ def _merge_warnings(primary: str | None, secondary: str | None) -> str | None:
 
 
 def _build_create_payload(
-    payload: RunCreateInput,
+    payload: SpawnCreateInput,
     *,
     runtime: OperationRuntime | None = None,
     preflight_warning: str | None = None,
@@ -260,7 +260,7 @@ def _build_create_payload(
     # --- Native agent passthrough for Claude ---
     # When the harness supports native agents, skip injecting agent body and
     # skill content into the composed prompt. Instead, pass agent name and
-    # skill names via RunParams so the harness loads them natively.
+    # skill names via SpawnParams so the harness loads them natively.
     # This keeps skills persistent across context compaction.
     native_agents = harness.capabilities.supports_native_agents
 
@@ -310,7 +310,7 @@ def _build_create_payload(
     warning = _merge_warnings(route_warning, missing_skills_warning)
     warning = _merge_warnings(warning, continuation_warning)
     warning = _merge_warnings(preflight_warning, warning)
-    from meridian.lib.harness.adapter import RunParams
+    from meridian.lib.harness.adapter import SpawnParams
 
     inferred_tier = resolve_permission_tier_from_profile(
         profile=profile,
@@ -355,7 +355,7 @@ def _build_create_payload(
 
     preview_command = tuple(
         harness.build_command(
-            RunParams(
+            SpawnParams(
                 prompt=composed_prompt,
                 model=ModelId(defaults.model),
                 skills=resolved_skills.skill_names,

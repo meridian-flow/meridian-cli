@@ -167,7 +167,7 @@ def test_skill_registry_scans_multi_path_and_first_match_wins_with_warning(
 
     registry = SkillRegistry(
         repo_root=repo_root,
-        db_path=repo_root / ".meridian" / "index" / "runs.db",
+        db_path=repo_root / ".meridian" / "index" / "spawns.db",
     )
 
     bundled_root = bundled_agents_root()

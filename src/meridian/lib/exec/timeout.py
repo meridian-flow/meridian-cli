@@ -11,12 +11,12 @@ from meridian.lib.exec.process_groups import signal_process_group
 DEFAULT_KILL_GRACE_SECONDS = MeridianConfig().kill_grace_seconds
 
 
-class RunTimeoutError(TimeoutError):
+class SpawnTimeoutError(TimeoutError):
     """Raised when a harness process exceeds the configured timeout."""
 
     def __init__(self, timeout_seconds: float) -> None:
         self.timeout_seconds = timeout_seconds
-        super().__init__(f"Run exceeded timeout after {timeout_seconds:.3f}s")
+        super().__init__(f"Spawn exceeded timeout after {timeout_seconds:.3f}s")
 
 
 async def terminate_process(
@@ -58,4 +58,4 @@ async def wait_for_process_exit(
         return await asyncio.wait_for(process.wait(), timeout=timeout_seconds)
     except TimeoutError as exc:
         await terminate_process(process, grace_seconds=kill_grace_seconds)
-        raise RunTimeoutError(timeout_seconds) from exc
+        raise SpawnTimeoutError(timeout_seconds) from exc

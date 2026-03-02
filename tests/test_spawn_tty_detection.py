@@ -1,17 +1,17 @@
-"""run.spawn blocking execution TTY/pipe behavior."""
+"""spawn.create blocking execution TTY/pipe behavior."""
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
 
-import meridian.lib.ops._run_execute as run_execute
-import meridian.lib.ops.run as run_ops
-from meridian.lib.ops.run import RunCreateInput
+import meridian.lib.ops._spawn_execute as run_execute
+import meridian.lib.ops.spawn as run_ops
+from meridian.lib.ops.spawn import SpawnCreateInput
 from meridian.lib.space.space_file import create_space
 
 
-def _run_with_captured_stream_flags(
+def _spawn_with_captured_stream_flags(
     *,
     monkeypatch,
     tmp_path: Path,
@@ -28,8 +28,8 @@ def _run_with_captured_stream_flags(
     monkeypatch.setattr(run_execute, "_stdout_is_tty", lambda: stdout_is_tty)
     monkeypatch.setenv("MERIDIAN_SPACE_ID", create_space(tmp_path, name="tty").id)
 
-    run_ops.run_create_sync(
-        RunCreateInput(
+    run_ops.spawn_create_sync(
+        SpawnCreateInput(
             prompt="tty behavior",
             model="gpt-5.3-codex",
             repo_root=tmp_path.as_posix(),
@@ -39,7 +39,7 @@ def _run_with_captured_stream_flags(
 
 
 def test_run_create_non_tty_uses_event_filter(monkeypatch, tmp_path: Path) -> None:
-    captured = _run_with_captured_stream_flags(
+    captured = _spawn_with_captured_stream_flags(
         monkeypatch=monkeypatch,
         tmp_path=tmp_path,
         stdout_is_tty=False,
@@ -51,7 +51,7 @@ def test_run_create_non_tty_uses_event_filter(monkeypatch, tmp_path: Path) -> No
 
 
 def test_run_create_tty_uses_terminal_event_observer(monkeypatch, tmp_path: Path) -> None:
-    captured = _run_with_captured_stream_flags(
+    captured = _spawn_with_captured_stream_flags(
         monkeypatch=monkeypatch,
         tmp_path=tmp_path,
         stdout_is_tty=True,

@@ -1,4 +1,4 @@
-"""CLI command handlers for run.* operations."""
+"""CLI command handlers for spawn.* operations."""
 
 from __future__ import annotations
 
@@ -9,22 +9,22 @@ from typing import Annotated, Any, cast
 from cyclopts import App, Parameter
 
 from meridian.cli.main import _agent_mode_enabled
-from meridian.lib.domain import RunStatus
+from meridian.lib.domain import SpawnStatus
 from meridian.lib.ops.registry import get_all_operations
-from meridian.lib.ops.run import (
-    RunActionOutput,
-    RunContinueInput,
-    RunCreateInput,
-    RunListInput,
-    RunShowInput,
-    RunStatsInput,
-    RunWaitInput,
-    run_continue_sync,
-    run_create_sync,
-    run_list_sync,
-    run_show_sync,
-    run_stats_sync,
-    run_wait_sync,
+from meridian.lib.ops.spawn import (
+    SpawnActionOutput,
+    SpawnContinueInput,
+    SpawnCreateInput,
+    SpawnListInput,
+    SpawnShowInput,
+    SpawnStatsInput,
+    SpawnWaitInput,
+    spawn_continue_sync,
+    spawn_create_sync,
+    spawn_list_sync,
+    spawn_show_sync,
+    spawn_stats_sync,
+    spawn_wait_sync,
 )
 
 # In agent mode (MERIDIAN_SPACE_ID set), hide human-only flags from --help.
@@ -34,7 +34,7 @@ _HUMAN_ONLY = not _agent_mode_enabled()
 Emitter = Callable[[Any], None]
 
 
-def _run_create_exit_code(result: RunActionOutput) -> int:
+def _spawn_create_exit_code(result: SpawnActionOutput) -> int:
     if result.exit_code is not None:
         return result.exit_code
     if result.status in {"succeeded", "running", "dry-run"}:
@@ -42,7 +42,7 @@ def _run_create_exit_code(result: RunActionOutput) -> int:
     return 1
 
 
-def _run_create(
+def _spawn_create(
     emit: Any,
     prompt: Annotated[
         str,
@@ -116,8 +116,8 @@ def _run_create(
         Parameter(name="--permission", help="Permission tier for harness execution."),
     ] = None,
 ) -> None:
-    result = run_create_sync(
-        RunCreateInput(
+    result = spawn_create_sync(
+        SpawnCreateInput(
             prompt=prompt,
             model=model,
             files=references,
@@ -135,16 +135,16 @@ def _run_create(
         )
     )
     emit(result)
-    exit_code = _run_create_exit_code(result)
+    exit_code = _spawn_create_exit_code(result)
     if exit_code != 0:
         raise SystemExit(exit_code)
 
 
-def _run_list(
+def _spawn_list(
     emit: Any,
     space: Annotated[
         str | None,
-        Parameter(name=["--space-id", "--space"], help="Only list runs from this space."),
+        Parameter(name=["--space-id", "--space"], help="Only list spawns from this space."),
     ] = None,
     status: Annotated[
         str | None,
@@ -157,25 +157,25 @@ def _run_list(
         str | None,
         Parameter(name="--model", help="Filter by model id."),
     ] = None,
-    limit: Annotated[int, Parameter(name="--limit", help="Maximum number of runs to return.")] = 20,
+    limit: Annotated[int, Parameter(name="--limit", help="Maximum number of spawns to return.")] = 20,
     no_space: Annotated[
         bool,
-        Parameter(name="--no-space", help="Only include runs without a space."),
+        Parameter(name="--no-space", help="Only include spawns without a space."),
     ] = False,
     failed: Annotated[
         bool,
         Parameter(name="--failed", help="Shortcut for status=failed."),
     ] = False,
 ) -> None:
-    normalized_status: RunStatus | None = None
+    normalized_status: SpawnStatus | None = None
     if status is not None and status.strip():
         candidate = status.strip()
         if candidate not in {"queued", "running", "succeeded", "failed", "cancelled"}:
             raise ValueError(f"Unsupported run status '{status}'")
-        normalized_status = cast("RunStatus", candidate)
+        normalized_status = cast("SpawnStatus", candidate)
 
-    result = run_list_sync(
-        RunListInput(
+    result = spawn_list_sync(
+        SpawnListInput(
             space=space,
             status=normalized_status,
             model=model,
@@ -187,9 +187,9 @@ def _run_list(
     emit(result)
 
 
-def _run_show(
+def _spawn_show(
     emit: Any,
-    run_id: str,
+    spawn_id: str,
     report: Annotated[
         bool,
         Parameter(name="--report", help="Include run report content in output."),
@@ -204,9 +204,9 @@ def _run_show(
     ] = None,
 ) -> None:
     emit(
-        run_show_sync(
-            RunShowInput(
-                run_id=run_id,
+        spawn_show_sync(
+            SpawnShowInput(
+                spawn_id=spawn_id,
                 report=report,
                 include_files=include_files,
                 space=space,
@@ -215,20 +215,20 @@ def _run_show(
     )
 
 
-def _run_stats(
+def _spawn_stats(
     emit: Any,
     session: Annotated[
         str | None,
-        Parameter(name="--session", help="Only include runs for this session id."),
+        Parameter(name="--session", help="Only include spawns for this session id."),
     ] = None,
     space: Annotated[
         str | None,
-        Parameter(name=["--space-id", "--space"], help="Only include runs from this space."),
+        Parameter(name=["--space-id", "--space"], help="Only include spawns from this space."),
     ] = None,
 ) -> None:
     emit(
-        run_stats_sync(
-            RunStatsInput(
+        spawn_stats_sync(
+            SpawnStatsInput(
                 session=session,
                 space=space,
             )
@@ -236,9 +236,9 @@ def _run_stats(
     )
 
 
-def _run_continue(
+def _spawn_continue(
     emit: Any,
-    run_id: str,
+    spawn_id: str,
     prompt: Annotated[
         str,
         Parameter(name=["--prompt", "-p"], help="Follow-up prompt text."),
@@ -261,9 +261,9 @@ def _run_continue(
     ] = None,
 ) -> None:
     emit(
-        run_continue_sync(
-            RunContinueInput(
-                run_id=run_id,
+        spawn_continue_sync(
+            SpawnContinueInput(
+                spawn_id=spawn_id,
                 prompt=prompt,
                 model=model,
                 fork=fork,
@@ -274,11 +274,11 @@ def _run_continue(
     )
 
 
-def _run_wait(
+def _spawn_wait(
     emit: Any,
-    run_ids: Annotated[
+    spawn_ids: Annotated[
         tuple[str, ...],
-        Parameter(name="run_id", help="Run IDs to wait for."),
+        Parameter(name="spawn_id", help="Spawn IDs to wait for."),
     ],
     timeout_secs: Annotated[
         float | None,
@@ -294,12 +294,12 @@ def _run_wait(
     ] = False,
     space: Annotated[
         str | None,
-        Parameter(name=["--space-id", "--space"], help="Space id containing the runs."),
+        Parameter(name=["--space-id", "--space"], help="Space id containing the spawns."),
     ] = None,
 ) -> None:
-    result = run_wait_sync(
-        RunWaitInput(
-            run_ids=run_ids,
+    result = spawn_wait_sync(
+        SpawnWaitInput(
+            spawn_ids=spawn_ids,
             timeout_secs=timeout_secs,
             report=report,
             include_files=include_files,
@@ -311,23 +311,23 @@ def _run_wait(
         raise SystemExit(1)
 
 
-def register_run_commands(app: App, emit: Emitter) -> tuple[set[str], dict[str, str]]:
-    """Register run CLI commands using registry metadata as source of truth."""
+def register_spawn_commands(app: App, emit: Emitter) -> tuple[set[str], dict[str, str]]:
+    """Register spawn CLI commands using registry metadata as source of truth."""
 
     handlers: dict[str, Callable[[], Callable[..., None]]] = {
-        "run.spawn": lambda: partial(_run_create, emit),
-        "run.list": lambda: partial(_run_list, emit),
-        "run.stats": lambda: partial(_run_stats, emit),
-        "run.show": lambda: partial(_run_show, emit),
-        "run.continue": lambda: partial(_run_continue, emit),
-        "run.wait": lambda: partial(_run_wait, emit),
+        "spawn.create": lambda: partial(_spawn_create, emit),
+        "spawn.list": lambda: partial(_spawn_list, emit),
+        "spawn.stats": lambda: partial(_spawn_stats, emit),
+        "spawn.show": lambda: partial(_spawn_show, emit),
+        "spawn.continue": lambda: partial(_spawn_continue, emit),
+        "spawn.wait": lambda: partial(_spawn_wait, emit),
     }
 
     registered: set[str] = set()
     descriptions: dict[str, str] = {}
 
     for op in get_all_operations():
-        if op.cli_group != "run" or op.mcp_only:
+        if op.cli_group != "spawn" or op.mcp_only:
             continue
         handler_factory = handlers.get(op.name)
         if handler_factory is None:
@@ -338,5 +338,5 @@ def register_run_commands(app: App, emit: Emitter) -> tuple[set[str], dict[str, 
         registered.add(f"{op.cli_group}.{op.cli_name}")
         descriptions[op.name] = op.description
 
-    app.default(partial(_run_create, emit))
+    app.default(partial(_spawn_create, emit))
     return registered, descriptions

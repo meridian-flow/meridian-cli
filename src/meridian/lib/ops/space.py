@@ -12,7 +12,7 @@ from meridian.lib.space import crud as space_crud
 from meridian.lib.space import space_file
 from meridian.lib.space.launch import SpaceLaunchRequest, launch_primary
 from meridian.lib.space.summary import generate_space_summary
-from meridian.lib.state import run_store
+from meridian.lib.state import spawn_store
 from meridian.lib.state.paths import resolve_space_dir
 from meridian.lib.types import SpaceId
 
@@ -125,7 +125,7 @@ class SpaceDetailOutput:
     name: str | None
     summary_path: str | None
     pinned_files: tuple[str, ...]
-    run_ids: tuple[str, ...]
+    spawn_ids: tuple[str, ...]
 
     def format_text(self, ctx: FormatContext | None = None) -> str:
         """Key-value detail view for text output mode. Omits None/empty fields."""
@@ -136,7 +136,7 @@ class SpaceDetailOutput:
             ("State", self.state),
             ("Name", self.name),
             ("Pinned", ", ".join(self.pinned_files) if self.pinned_files else None),
-            ("Runs", ", ".join(self.run_ids) if self.run_ids else None),
+            ("Runs", ", ".join(self.spawn_ids) if self.spawn_ids else None),
         ]
         return kv_block(pairs)
 
@@ -277,7 +277,7 @@ def space_show_sync(payload: SpaceShowInput) -> SpaceDetailOutput:
         raise ValueError(f"Space '{space_id}' not found")
 
     space_dir = resolve_space_dir(runtime.repo_root, space_id)
-    runs = run_store.list_runs(space_dir)
+    spawns = spawn_store.list_spawns(space_dir)
     summary_candidate = generate_space_summary(repo_root=runtime.repo_root, space_id=space_id)
     summary_path: str | None = summary_candidate.as_posix() if summary_candidate.is_file() else None
 
@@ -287,7 +287,7 @@ def space_show_sync(payload: SpaceShowInput) -> SpaceDetailOutput:
         name=space.name,
         summary_path=summary_path,
         pinned_files=(),
-        run_ids=tuple(run.id for run in runs),
+        spawn_ids=tuple(run.id for run in spawns),
     )
 
 

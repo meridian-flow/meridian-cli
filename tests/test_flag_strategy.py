@@ -5,7 +5,7 @@ from __future__ import annotations
 import dataclasses
 from pathlib import Path
 
-from meridian.lib.harness.adapter import PermissionResolver, RunParams
+from meridian.lib.harness.adapter import PermissionResolver, SpawnParams
 from meridian.lib.harness.claude import ClaudeAdapter
 from meridian.lib.harness.codex import CodexAdapter
 from meridian.lib.harness.opencode import OpenCodeAdapter
@@ -18,8 +18,8 @@ class StubPermissionResolver(PermissionResolver):
         return ["--perm", str(harness_id)]
 
 
-def _sample_run(*, model: str) -> RunParams:
-    return RunParams(
+def _sample_run(*, model: str) -> SpawnParams:
+    return SpawnParams(
         prompt="Implement feature X.",
         model=ModelId(model),
         skills=("reviewing",),
@@ -30,7 +30,7 @@ def _sample_run(*, model: str) -> RunParams:
 
 def test_every_run_params_field_is_mapped_for_each_adapter() -> None:
     skip = {"prompt", "extra_args", "repo_root", "mcp_tools", "adhoc_agent_json"}
-    required = {field.name for field in dataclasses.fields(RunParams)} - skip
+    required = {field.name for field in dataclasses.fields(SpawnParams)} - skip
     adapter_classes = (ClaudeAdapter, CodexAdapter, OpenCodeAdapter)
 
     for adapter_class in adapter_classes:
@@ -65,7 +65,7 @@ def test_claude_build_command_adhoc_agent_json() -> None:
 
     adhoc = _json.dumps({"meridian-adhoc": {"skills": ["review"]}})
     command = ClaudeAdapter().build_command(
-        RunParams(
+        SpawnParams(
             prompt="Review code.",
             model=ModelId("claude-opus-4-6"),
             agent="meridian-adhoc",
@@ -101,7 +101,7 @@ def test_codex_build_command_drops_agent_and_uses_positional_prompt() -> None:
 
 def test_claude_build_command_resume_and_fork() -> None:
     command = ClaudeAdapter().build_command(
-        RunParams(
+        SpawnParams(
             prompt="Follow up.",
             model=ModelId("claude-opus-4-6"),
             continue_harness_session_id="session-123",
@@ -117,7 +117,7 @@ def test_claude_build_command_resume_and_fork() -> None:
 
 def test_codex_build_command_uses_resume_subcommand_when_session_available() -> None:
     command = CodexAdapter().build_command(
-        RunParams(
+        SpawnParams(
             prompt="Retry this task.",
             model=ModelId("gpt-5.3-codex"),
             continue_harness_session_id="session-456",
@@ -153,7 +153,7 @@ def test_opencode_build_command_strips_model_prefix_and_uses_positional_prompt()
 
 def test_opencode_build_command_resume_and_fork() -> None:
     command = OpenCodeAdapter().build_command(
-        RunParams(
+        SpawnParams(
             prompt="Retry this task.",
             model=ModelId("opencode-gpt-5.3-codex"),
             continue_harness_session_id="session-789",

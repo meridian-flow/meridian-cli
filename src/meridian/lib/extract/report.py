@@ -1,4 +1,4 @@
-"""Run report extraction from assistant output with report.md preference."""
+"""Spawn report extraction from assistant output with report.md preference."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import Literal, cast
 
 from meridian.lib.extract._io import _read_artifact_text
 from meridian.lib.state.artifact_store import ArtifactStore
-from meridian.lib.types import RunId
+from meridian.lib.types import SpawnId
 
 ReportSource = Literal["report_md", "assistant_message"]
 
@@ -104,14 +104,14 @@ def _extract_last_assistant_message(output_lines: str) -> str | None:
     return last_text_line
 
 
-def extract_or_fallback_report(artifacts: ArtifactStore, run_id: RunId) -> ExtractedReport:
+def extract_or_fallback_report(artifacts: ArtifactStore, spawn_id: SpawnId) -> ExtractedReport:
     """Extract report text from assistant output, preferring report.md when available."""
 
-    output_lines = _read_artifact_text(artifacts, run_id, "output.jsonl")
+    output_lines = _read_artifact_text(artifacts, spawn_id, "output.jsonl")
     assistant_message = _extract_last_assistant_message(output_lines)
     assistant_report = assistant_message.strip() if assistant_message else ""
 
-    report_content = _read_artifact_text(artifacts, run_id, "report.md").strip()
+    report_content = _read_artifact_text(artifacts, spawn_id, "report.md").strip()
     if report_content:
         return ExtractedReport(content=report_content, source="report_md")
 

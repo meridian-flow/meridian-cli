@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from meridian.lib.domain import Run, TokenUsage
+from meridian.lib.domain import Spawn, TokenUsage
 from meridian.lib.exec.spawn import execute_with_finalization
 from meridian.lib.harness._common import (
     extract_session_id_from_artifacts,
@@ -20,16 +20,16 @@ from meridian.lib.harness.adapter import (
 from meridian.lib.harness.adapter import (
     HarnessCapabilities,
     PermissionResolver,
-    RunParams,
+    SpawnParams,
     StreamEvent,
 )
 from meridian.lib.harness.registry import HarnessRegistry
 from meridian.lib.safety.permissions import PermissionConfig
 from meridian.lib.space.space_file import create_space
-from meridian.lib.state import run_store
+from meridian.lib.state import spawn_store
 from meridian.lib.state.artifact_store import LocalStore, make_artifact_key
 from meridian.lib.state.paths import resolve_space_dir
-from meridian.lib.types import HarnessId, ModelId, RunId, SpaceId
+from meridian.lib.types import HarnessId, ModelId, SpawnId, SpaceId
 
 
 class ScriptHarnessAdapter:
@@ -44,7 +44,7 @@ class ScriptHarnessAdapter:
     def capabilities(self) -> HarnessCapabilities:
         return HarnessCapabilities()
 
-    def build_command(self, run: RunParams, perms: PermissionResolver) -> list[str]:
+    def build_command(self, run: SpawnParams, perms: PermissionResolver) -> list[str]:
         return [*self._command, *perms.resolve_flags(self.id), *run.extra_args]
 
     def env_overrides(self, config: PermissionConfig) -> dict[str, str]:
@@ -55,17 +55,17 @@ class ScriptHarnessAdapter:
         _ = line
         return None
 
-    def extract_usage(self, artifacts: HarnessArtifactStore, run_id: RunId) -> TokenUsage:
-        return extract_usage_from_artifacts(artifacts, run_id)
+    def extract_usage(self, artifacts: HarnessArtifactStore, spawn_id: SpawnId) -> TokenUsage:
+        return extract_usage_from_artifacts(artifacts, spawn_id)
 
-    def extract_session_id(self, artifacts: HarnessArtifactStore, run_id: RunId) -> str | None:
-        return extract_session_id_from_artifacts(artifacts, run_id)
+    def extract_session_id(self, artifacts: HarnessArtifactStore, spawn_id: SpawnId) -> str | None:
+        return extract_session_id_from_artifacts(artifacts, spawn_id)
 
 
-def _create_run(repo_root: Path, *, prompt: str) -> tuple[Run, Path]:
+def _create_run(repo_root: Path, *, prompt: str) -> tuple[Spawn, Path]:
     space = create_space(repo_root, name="slice5")
-    run = Run(
-        run_id=RunId("r1"),
+    run = Spawn(
+        spawn_id=SpawnId("r1"),
         prompt=prompt,
         model=ModelId("gpt-5.3-codex"),
         status="queued",
@@ -74,8 +74,8 @@ def _create_run(repo_root: Path, *, prompt: str) -> tuple[Run, Path]:
     return run, resolve_space_dir(repo_root, space.id)
 
 
-def _fetch_run_row(space_dir: Path, run_id: RunId) -> run_store.RunRecord:
-    row = run_store.get_run(space_dir, run_id)
+def _fetch_run_row(space_dir: Path, spawn_id: SpawnId) -> spawn_store.SpawnRecord:
+    row = spawn_store.get_spawn(space_dir, spawn_id)
     assert row is not None
     return row
 
@@ -126,7 +126,7 @@ async def test_execute_retries_retryable_errors_up_to_max(tmp_path: Path) -> Non
 
     assert exit_code == 1
     assert counter.read_text(encoding="utf-8") == "4"
-    row = _fetch_run_row(space_dir, run.run_id)
+    row = _fetch_run_row(space_dir, run.spawn_id)
     assert row.status == "failed"
     assert row.error is None
 
@@ -204,7 +204,7 @@ async def test_execute_marks_empty_success_output_as_failed(tmp_path: Path) -> N
     )
 
     assert exit_code == 1
-    row = _fetch_run_row(space_dir, run.run_id)
+    row = _fetch_run_row(space_dir, run.spawn_id)
     assert row.status == "failed"
     assert row.error == "empty_output"
 
@@ -256,10 +256,10 @@ async def test_retry_does_not_reuse_stale_fallback_report(tmp_path: Path) -> Non
     )
 
     assert exit_code == 1
-    row = _fetch_run_row(space_dir, run.run_id)
+    row = _fetch_run_row(space_dir, run.spawn_id)
     assert row.status == "failed"
     assert row.error == "empty_output"
-    assert not artifacts.exists(make_artifact_key(run.run_id, "report.md"))
+    assert not artifacts.exists(make_artifact_key(run.spawn_id, "report.md"))
 
 
 @pytest.mark.asyncio
@@ -305,12 +305,12 @@ async def test_finalize_row_enriched_with_usage_cost_and_report(
     )
 
     assert exit_code == 0
-    row = _fetch_run_row(space_dir, run.run_id)
+    row = _fetch_run_row(space_dir, run.spawn_id)
     assert row.status == "succeeded"
     assert row.input_tokens == 22
     assert row.output_tokens == 7
     assert row.total_cost_usd == pytest.approx(0.014)
 
-    report_key = make_artifact_key(run.run_id, "report.md")
+    report_key = make_artifact_key(run.spawn_id, "report.md")
     assert artifacts.exists(report_key)
     assert "Final summary." in artifacts.get(report_key).decode("utf-8")

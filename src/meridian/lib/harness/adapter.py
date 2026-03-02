@@ -7,7 +7,7 @@ from typing import Protocol
 
 from meridian.lib.domain import TokenUsage
 from meridian.lib.safety.permissions import PermissionConfig
-from meridian.lib.types import ArtifactKey, HarnessId, ModelId, RunId
+from meridian.lib.types import ArtifactKey, HarnessId, ModelId, SpawnId
 
 
 def _empty_metadata() -> dict[str, object]:
@@ -31,7 +31,7 @@ class HarnessCapabilities:
 
 
 @dataclass(frozen=True, slots=True)
-class RunParams:
+class SpawnParams:
     """Inputs required to launch one harness run."""
 
     prompt: str
@@ -69,7 +69,7 @@ class StreamEvent:
 
 
 @dataclass(frozen=True, slots=True)
-class RunResult:
+class SpawnResult:
     """Result payload for one completed execution."""
 
     status: str
@@ -102,17 +102,17 @@ class HarnessAdapter(Protocol):
     @property
     def capabilities(self) -> HarnessCapabilities: ...
 
-    def build_command(self, run: RunParams, perms: PermissionResolver) -> list[str]: ...
+    def build_command(self, run: SpawnParams, perms: PermissionResolver) -> list[str]: ...
 
-    def mcp_config(self, run: RunParams) -> McpConfig | None: ...
+    def mcp_config(self, run: SpawnParams) -> McpConfig | None: ...
 
     def env_overrides(self, config: PermissionConfig) -> dict[str, str]: ...
 
     def parse_stream_event(self, line: str) -> StreamEvent | None: ...
 
-    def extract_usage(self, artifacts: ArtifactStore, run_id: RunId) -> TokenUsage: ...
+    def extract_usage(self, artifacts: ArtifactStore, spawn_id: SpawnId) -> TokenUsage: ...
 
-    def extract_session_id(self, artifacts: ArtifactStore, run_id: RunId) -> str | None: ...
+    def extract_session_id(self, artifacts: ArtifactStore, spawn_id: SpawnId) -> str | None: ...
 
     def extract_tasks(self, event: StreamEvent) -> list[dict[str, str]] | None:
         """Extract structured task updates from one stream event."""
@@ -133,7 +133,7 @@ class HarnessAdapter(Protocol):
         return None
 
 
-def resolve_mcp_config(adapter: HarnessAdapter, run: RunParams) -> McpConfig | None:
+def resolve_mcp_config(adapter: HarnessAdapter, run: SpawnParams) -> McpConfig | None:
     """Resolve adapter MCP config if the adapter implements the optional hook."""
 
     resolver = getattr(adapter, "mcp_config", None)
