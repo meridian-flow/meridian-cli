@@ -20,7 +20,6 @@ def test_help_lists_resource_first_groups(run_meridian) -> None:
         "skills",
         "models",
         "doctor",
-        "start",
     ]:
         assert expected in result.stdout
 
@@ -92,7 +91,7 @@ def test_serve_exits_cleanly_on_eof(package_root, cli_env) -> None:
 
 
 def test_json_and_format_flags_output_stdout_only(run_meridian) -> None:
-    result_format = run_meridian(["--format", "json", "start"])
+    result_format = run_meridian(["--format", "json"])
     assert result_format.returncode == 0
     payload_format = json.loads(result_format.stdout)
     assert payload_format["space_id"].startswith("s")
@@ -108,9 +107,9 @@ def test_json_and_format_flags_output_stdout_only(run_meridian) -> None:
 
 
 def test_yes_and_no_input_flags_are_wired(run_meridian) -> None:
-    start = run_meridian(["--format", "json", "start"])
-    assert start.returncode == 0
-    space_id = json.loads(start.stdout)["space_id"]
+    launch = run_meridian(["--format", "json"])
+    assert launch.returncode == 0
+    space_id = json.loads(launch.stdout)["space_id"]
 
     result = run_meridian(
         [

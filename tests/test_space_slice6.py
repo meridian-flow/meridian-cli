@@ -351,7 +351,7 @@ def test_doctor_keeps_running_spawn_when_background_pid_is_alive(
         process.wait(timeout=5)
 
 
-def test_start_command_launches_and_forwards_options(
+def test_root_command_launches_and_forwards_options(
     package_root: Path,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -363,7 +363,7 @@ def test_start_command_launches_and_forwards_options(
     monkeypatch.setattr(main_module, "resolve_repo_root", lambda: tmp_path)
 
     with pytest.raises(SystemExit) as exc:
-        main_module.app(["start", "--autocompact", "72", "--harness-arg", "enabled"])
+        main_module.app(["--autocompact", "72", "--harness-arg", "enabled"])
     assert int(exc.value.code) == 0
     captured = capsys.readouterr()
     assert "mock_harness.py" not in captured.out

@@ -8,7 +8,9 @@ Date: 2026-03-03
 1. Slice A: Delete unused primary flags (`timeout/budget/guardrail/secret`) - done
 - Commit: `ec5f806`
 - Verification: `uv run meridian start --help`, explicit unknown-flag failure smoke, targeted pytest, `uv run pytest-llm`
-2. Slice B: Root entry unification (`meridian` as primary entrypoint, remove `start`) - pending
+2. Slice B: Root entry unification (`meridian` as primary entrypoint, remove `start`) - done
+- Commit: TBD
+- Verification: `uv run meridian --help`, `uv run meridian --dry-run`, non-dry-run with mock harness, `uv run meridian start --dry-run` unknown command, targeted pytest, `uv run pytest-llm`
 3. Slice C: Continue contract (`--continue <session-ref>` string, not bool) - pending
 4. Slice D: Primary harness refactor (remove hardcoded Claude path) - pending
 5. Slice E: Session identity + resume UX output - pending

@@ -333,23 +333,80 @@ def root(
             show=False,
         ),
     ] = False,
+    new: Annotated[
+        bool,
+        Parameter(name="--new", help="Force create a new space before launch."),
+    ] = False,
+    space: Annotated[
+        str | None,
+        Parameter(name="--space", help="Use an explicit existing space id."),
+    ] = None,
+    continue_mode: Annotated[
+        bool,
+        Parameter(name="--continue", help="Continue mode (currently stubbed)."),
+    ] = False,
+    model: Annotated[
+        str,
+        Parameter(name="--model", help="Model id or alias for primary harness."),
+    ] = "",
+    agent: Annotated[
+        str | None,
+        Parameter(name=["--agent", "-a"], help="Agent profile name for the primary agent."),
+    ] = None,
+    permission_tier: Annotated[
+        str | None,
+        Parameter(name="--permission", help="Permission tier for harness execution."),
+    ] = None,
+    unsafe: Annotated[
+        bool,
+        Parameter(name="--unsafe", help="Allow unsafe execution mode."),
+    ] = False,
+    autocompact: Annotated[
+        int | None,
+        Parameter(name="--autocompact", help="Auto-compact threshold in messages."),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        Parameter(name="--dry-run", help="Preview launch command without starting harness."),
+    ] = False,
+    harness_args: Annotated[
+        tuple[str, ...],
+        Parameter(
+            name="--harness-arg",
+            help="Additional harness arguments (repeatable).",
+            negative_iterable=(),
+        ),
+    ] = (),
 ) -> None:
-    """Meridian root command with global options."""
+    """Resolve/start a space and launch the primary harness."""
 
-    resolved = normalize_output_format(
-        requested=output_format,
-        json_mode=json_mode,
-        porcelain_mode=porcelain,
-    )
-    _GLOBAL_OPTIONS.set(
-        GlobalOptions(
-            output=OutputConfig(format=resolved),
-            config_file=config_file,
-            yes=yes,
-            no_input=no_input,
+    if _GLOBAL_OPTIONS.get() is None:
+        resolved = normalize_output_format(
+            requested=output_format,
+            json_mode=json_mode,
+            porcelain_mode=porcelain,
         )
+        _GLOBAL_OPTIONS.set(
+            GlobalOptions(
+                output=OutputConfig(format=resolved),
+                config_file=config_file,
+                yes=yes,
+                no_input=no_input,
+            )
+        )
+
+    _run_primary_launch(
+        new=new,
+        space=space,
+        continue_mode=continue_mode,
+        model=model,
+        agent=agent,
+        permission_tier=permission_tier,
+        unsafe=unsafe,
+        autocompact=autocompact,
+        dry_run=dry_run,
+        harness_args=harness_args,
     )
-    app.help_print()
 
 
 @app.command(name="serve")
@@ -454,59 +511,25 @@ def _start_space_record(
     return space_file.create_space(repo_root)
 
 
-@app.command(name="start")
-def start(
-    new: Annotated[
-        bool,
-        Parameter(name="--new", help="Force create a new space before launch."),
-    ] = False,
-    space: Annotated[
-        str | None,
-        Parameter(name="--space", help="Use an explicit existing space id."),
-    ] = None,
-    continue_mode: Annotated[
-        bool,
-        Parameter(name="--continue", help="Continue mode (currently stubbed)."),
-    ] = False,
-    model: Annotated[
-        str,
-        Parameter(name="--model", help="Model id or alias for primary harness."),
-    ] = "",
-    agent: Annotated[
-        str | None,
-        Parameter(name=["--agent", "-a"], help="Agent profile name for the primary agent."),
-    ] = None,
-    permission_tier: Annotated[
-        str | None,
-        Parameter(name="--permission", help="Permission tier for harness execution."),
-    ] = None,
-    unsafe: Annotated[
-        bool,
-        Parameter(name="--unsafe", help="Allow unsafe execution mode."),
-    ] = False,
-    autocompact: Annotated[
-        int | None,
-        Parameter(name="--autocompact", help="Auto-compact threshold in messages."),
-    ] = None,
-    dry_run: Annotated[
-        bool,
-        Parameter(name="--dry-run", help="Preview launch command without starting harness."),
-    ] = False,
-    harness_args: Annotated[
-        tuple[str, ...],
-        Parameter(
-            name="--harness-arg",
-            help="Additional harness arguments (repeatable).",
-            negative_iterable=(),
-        ),
-    ] = (),
+def _run_primary_launch(
+    *,
+    new: bool,
+    space: str | None,
+    continue_mode: bool,
+    model: str,
+    agent: str | None,
+    permission_tier: str | None,
+    unsafe: bool,
+    autocompact: int | None,
+    dry_run: bool,
+    harness_args: tuple[str, ...],
 ) -> None:
-    """Resolve/start a space and launch the primary harness."""
+    """Shared primary launch flow for root command entry."""
 
     if continue_mode:
         raise ValueError(
             "ERROR [NOT_IMPLEMENTED]: --continue is not wired yet. "
-            "Next: use `meridian start` without --continue."
+            "Next: use `meridian` without --continue."
         )
 
     repo_root = resolve_repo_root()
@@ -620,13 +643,68 @@ def _emit_error(message: str, *, exit_code: int = 1) -> None:
         print(json.dumps({"error": message, "exit_code": exit_code}))
     raise SystemExit(exit_code)
 
+_TOP_LEVEL_VALUE_FLAGS = frozenset(
+    {
+        "--format",
+        "--config",
+        "--space",
+        "--model",
+        "--agent",
+        "-a",
+        "--permission",
+        "--autocompact",
+        "--harness-arg",
+    }
+)
+_TOP_LEVEL_BOOL_FLAGS = frozenset(
+    {
+        "--help",
+        "-h",
+        "--version",
+        "--json",
+        "--no-json",
+        "--porcelain",
+        "--no-porcelain",
+        "--yes",
+        "--no-yes",
+        "--no-input",
+        "--no-no-input",
+        "--human",
+        "--new",
+        "--no-new",
+        "--continue",
+        "--no-continue",
+        "--unsafe",
+        "--no-unsafe",
+        "--dry-run",
+        "--no-dry-run",
+    }
+)
+
+
 def _first_positional_token(argv: Sequence[str]) -> str | None:
-    for token in argv:
+    index = 0
+    while index < len(argv):
+        token = argv[index]
         if token == "--":
             return None
-        if token.startswith("-"):
+        if not token.startswith("-"):
+            return token
+        if "=" in token:
+            index += 1
             continue
-        return token
+        if token in _TOP_LEVEL_BOOL_FLAGS:
+            index += 1
+            continue
+        if token in _TOP_LEVEL_VALUE_FLAGS:
+            index += 2
+            continue
+        # Unknown option: best effort treat following non-flag as its value
+        # to avoid misclassifying that token as an unknown command.
+        if index + 1 < len(argv) and not argv[index + 1].startswith("-"):
+            index += 2
+            continue
+        index += 1
     return None
 
 

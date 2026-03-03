@@ -112,7 +112,6 @@ def test_start_dry_run_agent_flag_overrides_default_primary_agent(
             "-m",
             "meridian",
             "--json",
-            "start",
             "--dry-run",
             "--agent",
             "review-primary",
