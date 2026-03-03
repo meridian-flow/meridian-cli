@@ -1,35 +1,23 @@
 # Improvements
 
-UX and observability improvements.
+UX and observability improvements. Last verified: 2026-03-03.
 
-## High
+## Open
 
-### IMP-1: Failure summary fields for spawn diagnostics
-- **Source**: migration-notes UX observations
-- **Description**: When a spawn hangs or fails, one-command diagnosis is weak. Add deterministic failure summary fields: `failure_reason`, timeout/cancel marker, last phase reached.
-- **Direction**: Structured failure artifact emitted during finalization regardless of harness output.
+None.
 
-### IMP-2: Stderr verbosity tiers
-- **Source**: migration-notes p4 noise, UX observations
-- **Description**: Raw harness chatter (session headers, chain markers, shell echoes, MCP startup, per-command timing) buries actionable signal. Split user-facing summary from debug verbosity.
-- **Direction**: Default output shows `spawn_id`, `status`, `duration`, `exit_code`, concise failure reason. Verbose output (`--debug`) includes harness/provider headers, internal chain markers, echoed shell commands, timing chatter.
+## Archived (2026-03-03 backlog execution batch)
 
-## Medium
+| ID | Summary | Status | Resolution Commit(s) |
+|----|---------|--------|----------------------|
+| IMP-1 | Failure summary fields for spawn diagnostics | Closed | `c250e50` |
+| IMP-2 | Stderr verbosity tiers | Closed | `2daf83f` |
+| IMP-3 | Spawn cancel command | Closed | `7c8fa93` |
+| IMP-4 | Heartbeat/progress for long spawns | Closed | `980aabd` |
+| IMP-5 | Space-state rules at spawn entry | Closed | `6967664` |
+| IMP-6 | Terminology cleanup (`run` -> `spawn`) | Closed | `6ad3d42` |
 
-### IMP-3: Spawn cancel command
-- **Source**: migration-notes r2 weirdness
-- **Description**: No `meridian spawn cancel <id>` command exists. Background spawns that hang require manual SIGINT via process list inspection.
+## Archive Reference
 
-### IMP-4: Heartbeat/progress for long spawns
-- **Source**: migration-notes UX observations
-- **Description**: Long-running spawns provide no feedback until completion. Add running heartbeat or progress summaries.
-
-### IMP-5: Space-state rules at spawn entry
-- **Source**: migration-notes UX observations
-- **Description**: Space-state behavior is unclear from UX (closed vs active handling around spawn launch). Tighten and surface space-state rules at spawn entry point.
-
-## Low
-
-### IMP-6: Finish terminology cleanup (`run` → `spawn`)
-- **Source**: migration-notes UX observations
-- **Description**: `run` wording still appears in some help text and output while the command surface is `spawn`. Complete the rename across all user-facing strings.
+- Full batch archive: `backlog/archive/2026-03-03-backlog-execution.md`
+- Execution anomalies/workarounds: `plans/backlog-execution-anomalies.md`

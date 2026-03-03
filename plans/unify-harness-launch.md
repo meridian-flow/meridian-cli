@@ -1,10 +1,16 @@
 # Unify Harness Launch Pipeline
 
-**Status:** draft
+**Status:** in-progress (partially implemented)
+
+## Current Implementation Snapshot (2026-03-03)
+
+- Skill injection gap is fixed in `meridian start` (`launch.py` now appends `--append-system-prompt`).
+- Shared launch resolution helpers exist in `lib/launch_resolve.py` and are used by both launch paths.
+- Remaining work is structural: command assembly and session metadata resolution are still duplicated between `launch.py` and `_spawn_prepare.py`.
 
 ## Problem
 
-`meridian start` (`launch.py`) and `meridian run spawn` (`_run_prepare.py`) duplicate the same "resolve agent → resolve skills → resolve permissions → build harness command" pipeline. This caused a concrete bug: the skill injection workaround (`--append-system-prompt` for Claude Code issue #29902) was added to `_run_prepare.py` but never to `launch.py`, so `meridian start` silently drops all skills.
+`meridian start` (`launch.py`) and `meridian run spawn` (`_spawn_prepare.py`) duplicate the same "resolve agent -> resolve skills -> resolve permissions -> build harness command" pipeline. This duplication previously caused a concrete bug: the skill injection workaround (`--append-system-prompt` for Claude Code issue #29902) was added to `_spawn_prepare.py` but not to `launch.py`.
 
 The previous plan (`unified-launch-refactor.md`) completed Steps 0-1 (remove `--skills`, add shared flags) but Steps 2-4 were never done.
 

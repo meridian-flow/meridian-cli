@@ -5,6 +5,7 @@
 - Date: 2026-03-01
 - Goal: Define requirements only for integrating a web workspace viewer into Meridian workflows.
 - Non-goal: No implementation design, no framework selection, no migration steps.
+- Implementation state (2026-03-03): requirements-only; no production implementation tracked in `src/` yet.
 
 ## Scope
 This document defines:

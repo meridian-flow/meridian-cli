@@ -1,6 +1,12 @@
 # Bundled Default Skills
 
-**Status:** draft
+**Status:** partially implemented
+
+## Current Implementation Snapshot (2026-03-03)
+
+- Bundled skills currently shipped: `orchestrate`, `meridian-spawn-agent`.
+- Bundled `primary.md` defaults include both skills.
+- This doc's `meridian-run` naming/shape is still a proposed direction and is not fully aligned to current shipped skill names/content.
 
 ## Goal
 

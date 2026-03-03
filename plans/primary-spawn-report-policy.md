@@ -1,8 +1,15 @@
 # Primary Spawn + Report Policy Backlog
 
 Date added: 2026-03-02
-Status: `checkpoint-0-frozen`
+Status: `checkpoint-0 decisions implemented (follow-up docs cleanup pending)`
 Priority: `high`
+
+## Current Implementation Snapshot (2026-03-03)
+
+- Primary launch creates a root spawn with `kind=primary`.
+- Child spawns are created with `kind=child`.
+- `MERIDIAN_SPAWN_ID` is injected for primary and child process environments.
+- Finalization enforces report requirement for `child` and treats `primary` as optional.
 
 ## Checkpoint 0 Decision Freeze (Locked)
 

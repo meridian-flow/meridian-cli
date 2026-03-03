@@ -1,6 +1,14 @@
 # Native Agent Passthrough for Claude Harness
 
-**Status:** draft
+**Status:** partially implemented
+
+## Current Implementation Snapshot (2026-03-03)
+
+- Claude harness supports native agents (`supports_native_agents=True`) and uses `--agent`.
+- Spawn flow uses native-agent passthrough path in `_spawn_prepare.py` for Claude.
+- Claude adapter supports ad-hoc agent JSON via `--agents`.
+- `launch.py` primary flow uses `--agent` + `--append-system-prompt`.
+- Remaining work is cleanup/alignment in docs and edge-case behavior validation.
 
 ## Problem
 

@@ -1,6 +1,12 @@
 # Harness Materialization
 
-**Status:** approved
+**Status:** implemented (core path)
+
+## Current Implementation Snapshot (2026-03-03)
+
+- Materialization logic is implemented in `lib/harness/materialize.py`.
+- Both primary launch and spawn execution call materialization + cleanup flows.
+- Claude/Codex/OpenCode native directory layout mapping exists and is active.
 
 ## Problem
 

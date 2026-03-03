@@ -1,6 +1,12 @@
 # Space Plumbing Fix: Thread Space ID Explicitly
 
-**Status:** draft
+**Status:** partially implemented
+
+## Current Implementation Snapshot (2026-03-03)
+
+- Spawn query/list/stats/show/wait paths now accept explicit `space` and thread it through resolution helpers.
+- Canonical runtime helper `require_space_id(space)` exists and is used across spawn ops.
+- Remaining items in this doc should be treated as follow-up cleanup/revalidation, not fresh greenfield work.
 
 ## Problem
 
