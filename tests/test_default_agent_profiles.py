@@ -259,7 +259,7 @@ def test_space_primary_profile_unknown_sandbox_uses_default_permission_tier_with
     )
 
 
-def test_space_primary_profile_non_claude_model_raises_clear_error(tmp_path: Path) -> None:
+def test_space_primary_profile_non_claude_model_routes_to_matching_harness(tmp_path: Path) -> None:
     _write_config(
         tmp_path,
         "[defaults]\ndefault_primary_agent = 'lead-primary'\n",
@@ -272,20 +272,16 @@ def test_space_primary_profile_non_claude_model_raises_clear_error(tmp_path: Pat
         sandbox="workspace-write",
     )
 
-    with pytest.raises(
-        ValueError,
-        match=(
-            r"Primary agent only supports Claude harness models. "
-            "Model 'gpt-5.3-codex' routes to harness 'codex'."
-        ),
-    ):
-        _build_interactive_command(
-            repo_root=tmp_path,
-            request=SpaceLaunchRequest(space_id=SpaceId("w1")),
-            prompt="space prompt",
-            passthrough_args=(),
-            chat_id="c1",
-        )
+    command = _build_interactive_command(
+        repo_root=tmp_path,
+        request=SpaceLaunchRequest(space_id=SpaceId("w1")),
+        prompt="space prompt",
+        passthrough_args=(),
+        chat_id="c1",
+    )
+    assert command[:2] == ("codex", "exec")
+    assert "--model" in command
+    assert command[command.index("--model") + 1] == "gpt-5.3-codex"
 
 
 def test_agent_profile_parses_mcp_tools_and_defaults_to_empty_tuple(tmp_path: Path) -> None:

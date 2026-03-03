@@ -239,3 +239,55 @@ def test_build_interactive_command_rejects_missing_system_prompt_passthrough_val
             passthrough_args=("--append-system-prompt",),
             chat_id="c88",
         )
+
+
+def test_build_interactive_command_supports_codex_harness_override(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.delenv("MERIDIAN_HARNESS_COMMAND", raising=False)
+
+    request = SpaceLaunchRequest(
+        space_id=SpaceId("s99"),
+        model="gpt-5.3-codex",
+        harness="codex",
+        fresh=True,
+    )
+    prompt = build_primary_prompt(request)
+
+    command = _build_interactive_command(
+        repo_root=tmp_path,
+        request=request,
+        prompt=prompt,
+        passthrough_args=(),
+        chat_id="c99",
+    )
+
+    assert command[:2] == ("codex", "exec")
+    assert "--model" in command
+    assert command[command.index("--model") + 1] == "gpt-5.3-codex"
+    assert "# Meridian Space Session" in command[-1]
+
+
+def test_build_interactive_command_rejects_incompatible_harness_override(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.delenv("MERIDIAN_HARNESS_COMMAND", raising=False)
+
+    request = SpaceLaunchRequest(
+        space_id=SpaceId("s100"),
+        model="claude-opus-4-6",
+        harness="codex",
+        fresh=True,
+    )
+    prompt = build_primary_prompt(request)
+
+    with pytest.raises(ValueError, match="incompatible with model"):
+        _build_interactive_command(
+            repo_root=tmp_path,
+            request=request,
+            prompt=prompt,
+            passthrough_args=(),
+            chat_id="c100",
+        )

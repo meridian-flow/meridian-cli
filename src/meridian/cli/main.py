@@ -355,6 +355,10 @@ def root(
         str,
         Parameter(name="--model", help="Model id or alias for primary harness."),
     ] = "",
+    harness: Annotated[
+        str | None,
+        Parameter(name="--harness", help="Force harness id (claude, codex, or opencode)."),
+    ] = None,
     agent: Annotated[
         str | None,
         Parameter(name=["--agent", "-a"], help="Agent profile name for the primary agent."),
@@ -406,6 +410,7 @@ def root(
         space=space,
         continue_ref=continue_ref,
         model=model,
+        harness=harness,
         agent=agent,
         permission_tier=permission_tier,
         unsafe=unsafe,
@@ -523,6 +528,7 @@ def _run_primary_launch(
     space: str | None,
     continue_ref: str | None,
     model: str,
+    harness: str | None,
     agent: str | None,
     permission_tier: str | None,
     unsafe: bool,
@@ -545,6 +551,8 @@ def _run_primary_launch(
             raise ValueError("Cannot combine --continue with --new.")
         if model.strip():
             raise ValueError("Cannot combine --continue with --model.")
+        if harness is not None and harness.strip():
+            raise ValueError("Cannot combine --continue with --harness.")
         if agent is not None and agent.strip():
             raise ValueError("Cannot combine --continue with --agent.")
         resolved_continue = _resolve_continue_target(
@@ -576,6 +584,7 @@ def _run_primary_launch(
         request=SpaceLaunchRequest(
             space_id=SpaceId(selected.id),
             model=model,
+            harness=harness,
             agent=agent,
             autocompact=autocompact,
             passthrough_args=harness_args,
@@ -726,6 +735,7 @@ _TOP_LEVEL_VALUE_FLAGS = frozenset(
         "--space",
         "--continue",
         "--model",
+        "--harness",
         "--agent",
         "-a",
         "--permission",

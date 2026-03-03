@@ -480,3 +480,65 @@ def test_root_continue_space_mismatch_errors(
     assert int(exc.value.code) == 1
     captured = capsys.readouterr()
     assert f"not found in space '{first.id}'" in captured.err
+
+
+def test_root_harness_override_builds_codex_command(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    main_module = importlib.import_module("meridian.cli.main")
+    monkeypatch.delenv("MERIDIAN_HARNESS_COMMAND", raising=False)
+    monkeypatch.setattr(main_module, "resolve_repo_root", lambda: tmp_path)
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.app(
+            [
+                "--model",
+                "gpt-5.3-codex",
+                "--harness",
+                "codex",
+                "--dry-run",
+            ]
+        )
+    assert int(exc.value.code) == 0
+    captured = capsys.readouterr()
+    assert "codex exec" in captured.out
+
+
+def test_root_harness_override_rejects_incompatible_model(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    main_module = importlib.import_module("meridian.cli.main")
+    monkeypatch.setattr(main_module, "resolve_repo_root", lambda: tmp_path)
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main(
+            [
+                "--model",
+                "claude-opus-4-6",
+                "--harness",
+                "codex",
+                "--dry-run",
+            ]
+        )
+    assert int(exc.value.code) == 1
+    captured = capsys.readouterr()
+    assert "incompatible with model" in captured.err
+
+
+def test_root_continue_rejects_harness_override(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    main_module = importlib.import_module("meridian.cli.main")
+    monkeypatch.setattr(main_module, "resolve_repo_root", lambda: tmp_path)
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main(["--continue", "any-session", "--harness", "claude", "--dry-run"])
+    assert int(exc.value.code) == 1
+    captured = capsys.readouterr()
+    assert "Cannot combine --continue with --harness." in captured.err

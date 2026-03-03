@@ -53,6 +53,7 @@ class SpaceLaunchRequest:
 
     space_id: SpaceId
     model: str = ""
+    harness: str | None = None
     agent: str | None = None
     fresh: bool = False
     autocompact: int | None = None
@@ -167,7 +168,7 @@ def _build_interactive_command(
         profile=profile,
     )
     model = ModelId(defaults.model)
-    harness = _resolve_harness(model=model)
+    harness = _resolve_harness(model=model, harness_override=request.harness)
     resolved_skills = resolve_skills_from_profile(
         profile_skills=defaults.skills,
         repo_root=resolved_root,
@@ -191,10 +192,30 @@ def _build_interactive_command(
         dry_run=request.dry_run,
     )
 
-    command: list[str] = ["claude"]
-    if materialized.agent_name:
+    passthrough_args, passthrough_prompt_fragments = _normalize_system_prompt_passthrough_args(
+        passthrough_args
+    )
+    command: list[str]
+    harness_session_id = (
+        request.continue_harness_session_id.strip()
+        if request.continue_harness_session_id is not None
+        else ""
+    )
+    if harness == HarnessId("codex") and harness_session_id:
+        command = ["codex", "exec", "resume", harness_session_id]
+    elif harness == HarnessId("codex"):
+        command = ["codex", "exec"]
+    elif harness == HarnessId("opencode"):
+        command = ["opencode", "run"]
+    else:
+        command = [str(harness)]
+
+    if harness == HarnessId("claude") and materialized.agent_name:
         command.extend(["--agent", materialized.agent_name])
-    command.extend(["--model", str(model)])
+    model_value = str(model)
+    if harness == HarnessId("opencode") and model_value.startswith("opencode-"):
+        model_value = model_value[len("opencode-") :]
+    command.extend(["--model", model_value])
     primary_default_tier = resolved_config.primary.permission_tier
     inferred_tier = resolve_permission_tier_from_profile(
         profile=profile,
@@ -227,25 +248,24 @@ def _build_interactive_command(
         cli_permission_override=permission_tier_override is not None,
     )
     command.extend(resolver.resolve_flags(harness))
-    passthrough_args, passthrough_prompt_fragments = _normalize_system_prompt_passthrough_args(
-        passthrough_args
-    )
-    # Primary space context must always be present in Claude's system prompt.
-    # Skill content and passthrough system-prompt fragments are appended as
-    # additional sections when available.
+    # Primary space context must always be present for any harness.
+    # Claude gets this through --append-system-prompt; other harnesses receive
+    # an initial prompt argument.
     appended_parts = [prompt.strip()]
     appended_parts.extend(fragment.strip() for fragment in passthrough_prompt_fragments if fragment.strip())
     skill_injection = compose_skill_injections(resolved_skills.loaded_skills)
     if skill_injection:
         appended_parts.append(skill_injection)
-    command.extend(["--append-system-prompt", "\n\n".join(part for part in appended_parts if part)])
-    harness_session_id = (
-        request.continue_harness_session_id.strip()
-        if request.continue_harness_session_id is not None
-        else ""
-    )
-    if harness_session_id:
+    appended_prompt = "\n\n".join(part for part in appended_parts if part)
+    if harness == HarnessId("claude"):
+        command.extend(["--append-system-prompt", appended_prompt])
+    elif appended_prompt:
+        command.append(appended_prompt)
+
+    if harness == HarnessId("claude") and harness_session_id:
         command.extend(["--resume", harness_session_id])
+    elif harness == HarnessId("opencode") and harness_session_id:
+        command.extend(["--session", harness_session_id])
     command.extend(passthrough_args)
     return tuple(command)
 
@@ -322,7 +342,7 @@ def _resolve_primary_session_metadata(
         profile=profile,
     )
     model = ModelId(defaults.model)
-    harness = _resolve_harness(model=model)
+    harness = _resolve_harness(model=model, harness_override=request.harness)
 
     resolved_skills = resolve_skills_from_profile(
         profile_skills=defaults.skills,
@@ -355,19 +375,29 @@ def _resolve_primary_session_metadata(
     )
 
 
-def _resolve_harness(*, model: ModelId) -> HarnessId:
+def _resolve_harness(*, model: ModelId, harness_override: str | None = None) -> HarnessId:
     decision = route_model(str(model), mode="harness")
-    harness_id = decision.harness_id
-    if harness_id == HarnessId("claude"):
-        return harness_id
+    routed_harness_id = decision.harness_id
 
-    message = (
-        "Primary agent only supports Claude harness models. "
-        f"Model '{model}' routes to harness '{harness_id}'."
-    )
-    if decision.warning:
-        message = f"{message} {decision.warning}"
-    raise ValueError(message)
+    normalized_override = (harness_override or "").strip()
+    if not normalized_override:
+        return routed_harness_id
+
+    override_harness = HarnessId(normalized_override)
+    if override_harness not in {HarnessId("claude"), HarnessId("codex"), HarnessId("opencode")}:
+        raise ValueError(
+            f"Unsupported harness '{normalized_override}'. "
+            "Expected one of: claude, codex, opencode."
+        )
+    if override_harness != routed_harness_id:
+        message = (
+            f"Harness '{override_harness}' is incompatible with model '{model}' "
+            f"(routes to '{routed_harness_id}')."
+        )
+        if decision.warning:
+            message = f"{message} {decision.warning}"
+        raise ValueError(message)
+    return override_harness
 
 
 def _pid_exists(pid: int) -> bool:
