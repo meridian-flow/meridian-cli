@@ -50,6 +50,8 @@ def test_start_session_creates_start_event_and_lock_file(tmp_path):
     assert payload["v"] == 1
     assert payload["event"] == "start"
     assert payload["chat_id"] == "c1"
+    assert isinstance(payload["session_id"], str)
+    assert payload["session_id"]
     assert payload["harness"] == "codex"
     assert payload["harness_session_id"] == "hs-1"
     assert payload["model"] == "gpt-5.3-codex"
@@ -153,6 +155,7 @@ def test_resolve_session_ref_by_alias_and_harness_session_id(tmp_path):
 
     by_alias = resolve_session_ref(space_dir, c1)
     by_harness = resolve_session_ref(space_dir, "codex-thread-2")
+    by_session_id = resolve_session_ref(space_dir, by_alias.session_id if by_alias else "")
     missing = resolve_session_ref(space_dir, "unknown")
 
     assert by_alias is not None
@@ -161,6 +164,8 @@ def test_resolve_session_ref_by_alias_and_harness_session_id(tmp_path):
     assert by_harness is not None
     assert by_harness.chat_id == c2
     assert by_harness.harness == "codex"
+    assert by_session_id is not None
+    assert by_session_id.chat_id == c1
     assert get_session_harness_id(space_dir, c2) == "codex-thread-2"
     assert get_session_harness_id(space_dir, "c404") is None
     assert missing is None

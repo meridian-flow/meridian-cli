@@ -15,9 +15,11 @@ Date: 2026-03-03
 - Commit: `248b97d`
 - Verification: `uv run meridian --help`, `uv run meridian --json --continue <ref> --dry-run`, ambiguity/mismatch error smokes, targeted pytest, `uv run pytest-llm`
 4. Slice D: Primary harness refactor (remove hardcoded Claude path) - done
-- Commit: TBD
+- Commit: `2950a8b`
 - Verification: `uv run meridian --help`, `uv run meridian --json --model <model> --harness <id> --dry-run`, incompatibility error smoke, targeted pytest, `uv run pytest-llm`
-5. Slice E: Session identity + resume UX output - pending
+5. Slice E: Session identity + resume UX output - done
+- Commit: TBD
+- Verification: non-dry-run root output includes resume hint, JSON includes `session_id` and `resume_command`, continue resolution accepts session ids, targeted pytest, `uv run pytest-llm`
 6. Slice F: Docs/help/smoke hardening - pending
 
 ## Current Implementation Snapshot (2026-03-03)

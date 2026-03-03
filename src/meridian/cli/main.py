@@ -562,11 +562,6 @@ def _run_primary_launch(
         )
         selected = resolved_continue.space
         continue_harness_session_id = resolved_continue.session.harness_session_id.strip() or None
-        if continue_harness_session_id is None:
-            raise ValueError(
-                f"Session '{resume_target}' in space '{selected.id}' cannot be continued "
-                "because it has no harness session id."
-            )
         fresh = False
     else:
         selected = _start_space_record(
@@ -619,6 +614,12 @@ def _run_primary_launch(
             command=launch_result.command if dry_run else (),
             lock_path=launch_result.lock_path.as_posix(),
             summary_path=summary_path.as_posix(),
+            session_id=launch_result.session_id,
+            resume_command=(
+                f"meridian --continue {launch_result.session_id}"
+                if launch_result.session_id is not None
+                else None
+            ),
         )
     )
 

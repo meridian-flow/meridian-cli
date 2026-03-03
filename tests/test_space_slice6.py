@@ -368,6 +368,8 @@ def test_root_command_launches_and_forwards_options(
     assert int(exc.value.code) == 0
     captured = capsys.readouterr()
     assert "mock_harness.py" not in captured.out
+    assert "Resume this session with:" in captured.out
+    assert "meridian --continue " in captured.out
 
     payload = _capture_payload(capture)
     env = payload["env"]
@@ -423,7 +425,6 @@ def test_root_continue_dry_run_resolves_space_and_passes_resume_flag(
 def test_root_continue_requires_disambiguation_without_space(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
 ) -> None:
     main_module = importlib.import_module("meridian.cli.main")
     first = create_space(tmp_path, name="first")
@@ -448,17 +449,13 @@ def test_root_continue_requires_disambiguation_without_space(
 
     monkeypatch.setattr(main_module, "resolve_repo_root", lambda: tmp_path)
 
-    with pytest.raises(SystemExit) as exc:
-        main_module.main(["--continue", "c1", "--dry-run"])
-    assert int(exc.value.code) == 1
-    captured = capsys.readouterr()
-    assert "ambiguous across spaces" in captured.err
+    with pytest.raises(ValueError, match="ambiguous across spaces"):
+        main_module.app(["--continue", "c1", "--dry-run"])
 
 
 def test_root_continue_space_mismatch_errors(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
 ) -> None:
     main_module = importlib.import_module("meridian.cli.main")
     first = create_space(tmp_path, name="first")
@@ -475,11 +472,8 @@ def test_root_continue_space_mismatch_errors(
 
     monkeypatch.setattr(main_module, "resolve_repo_root", lambda: tmp_path)
 
-    with pytest.raises(SystemExit) as exc:
-        main_module.main(["--continue", "sess-second", "--space", first.id, "--dry-run"])
-    assert int(exc.value.code) == 1
-    captured = capsys.readouterr()
-    assert f"not found in space '{first.id}'" in captured.err
+    with pytest.raises(ValueError, match=f"not found in space '{first.id}'"):
+        main_module.app(["--continue", "sess-second", "--space", first.id, "--dry-run"])
 
 
 def test_root_harness_override_builds_codex_command(
@@ -509,13 +503,12 @@ def test_root_harness_override_builds_codex_command(
 def test_root_harness_override_rejects_incompatible_model(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
 ) -> None:
     main_module = importlib.import_module("meridian.cli.main")
     monkeypatch.setattr(main_module, "resolve_repo_root", lambda: tmp_path)
 
-    with pytest.raises(SystemExit) as exc:
-        main_module.main(
+    with pytest.raises(ValueError, match="incompatible with model"):
+        main_module.app(
             [
                 "--model",
                 "claude-opus-4-6",
@@ -524,21 +517,14 @@ def test_root_harness_override_rejects_incompatible_model(
                 "--dry-run",
             ]
         )
-    assert int(exc.value.code) == 1
-    captured = capsys.readouterr()
-    assert "incompatible with model" in captured.err
 
 
 def test_root_continue_rejects_harness_override(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
 ) -> None:
     main_module = importlib.import_module("meridian.cli.main")
     monkeypatch.setattr(main_module, "resolve_repo_root", lambda: tmp_path)
 
-    with pytest.raises(SystemExit) as exc:
-        main_module.main(["--continue", "any-session", "--harness", "claude", "--dry-run"])
-    assert int(exc.value.code) == 1
-    captured = capsys.readouterr()
-    assert "Cannot combine --continue with --harness." in captured.err
+    with pytest.raises(ValueError, match="Cannot combine --continue with --harness."):
+        main_module.app(["--continue", "any-session", "--harness", "claude", "--dry-run"])

@@ -33,7 +33,7 @@ from meridian.lib.safety.permissions import (
     build_permission_config,
     build_permission_resolver,
 )
-from meridian.lib.space.session_store import start_session, stop_session
+from meridian.lib.space.session_store import resolve_session_ref, start_session, stop_session
 from meridian.lib.space import space_file
 from meridian.lib.state import spawn_store
 from meridian.lib.state.paths import resolve_space_dir, resolve_state_paths
@@ -73,6 +73,7 @@ class SpaceLaunchResult:
     exit_code: int
     final_state: SpaceState
     lock_path: Path
+    session_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -549,10 +550,12 @@ def launch_primary(
             exit_code=0,
             final_state="active",
             lock_path=lock_path,
+            session_id=None,
         )
 
     command: tuple[str, ...] = ()
     chat_id: str | None = None
+    session_id: str | None = None
     primary_spawn_id: str | None = None
     primary_started = 0.0
     child_env: dict[str, str] | None = None
@@ -649,10 +652,15 @@ def launch_primary(
         if lock_path.exists():
             lock_path.unlink()
 
+    if chat_id is not None:
+        session = resolve_session_ref(space_dir, chat_id)
+        session_id = session.session_id if session is not None else chat_id
+
     final_state: SpaceState = "active"
     return SpaceLaunchResult(
         command=command,
         exit_code=exit_code,
         final_state=final_state,
         lock_path=lock_path,
+        session_id=session_id,
     )
