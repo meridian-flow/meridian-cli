@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from meridian.lib.ops.space import SpaceStartInput, space_start_sync
 from meridian.lib.types import SpaceId
 from meridian.lib.space.launch import (
@@ -179,3 +181,61 @@ def test_space_start_dry_run_returns_interactive_command(
     assert "--append-system-prompt" in result.command
     appended_prompt = result.command[result.command.index("--append-system-prompt") + 1]
     assert "# Meridian Space Session" in appended_prompt
+
+
+def test_build_interactive_command_merges_passthrough_system_prompt_flags(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.delenv("MERIDIAN_HARNESS_COMMAND", raising=False)
+
+    request = SpaceLaunchRequest(
+        space_id=SpaceId("s77"),
+        model="claude-opus-4-6",
+        fresh=True,
+    )
+    prompt = build_primary_prompt(request)
+
+    command = _build_interactive_command(
+        repo_root=tmp_path,
+        request=request,
+        prompt=prompt,
+        passthrough_args=(
+            "--append-system-prompt",
+            "first passthrough",
+            "--system-prompt=second passthrough",
+            "--permission-mode",
+            "acceptEdits",
+        ),
+        chat_id="c77",
+    )
+
+    assert command.count("--append-system-prompt") == 1
+    assert "--system-prompt" not in command
+    assert not any(token.startswith("--system-prompt=") for token in command)
+    assert command[command.index("--permission-mode") + 1] == "acceptEdits"
+    appended_prompt = command[command.index("--append-system-prompt") + 1]
+    assert "# Meridian Space Session" in appended_prompt
+    assert "Space: s77" in appended_prompt
+    assert "first passthrough" in appended_prompt
+    assert "second passthrough" in appended_prompt
+
+
+def test_build_interactive_command_rejects_missing_system_prompt_passthrough_value(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.delenv("MERIDIAN_HARNESS_COMMAND", raising=False)
+
+    with pytest.raises(ValueError, match="--append-system-prompt requires a value"):
+        _build_interactive_command(
+            repo_root=tmp_path,
+            request=SpaceLaunchRequest(
+                space_id=SpaceId("s88"),
+                model="claude-opus-4-6",
+                fresh=True,
+            ),
+            prompt="space prompt",
+            passthrough_args=("--append-system-prompt",),
+            chat_id="c88",
+        )

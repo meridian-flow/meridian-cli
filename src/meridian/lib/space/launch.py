@@ -234,15 +234,54 @@ def _build_interactive_command(
         cli_permission_override=permission_tier_override is not None,
     )
     command.extend(resolver.resolve_flags(harness))
+    passthrough_args, passthrough_prompt_fragments = _normalize_system_prompt_passthrough_args(
+        passthrough_args
+    )
     # Primary space context must always be present in Claude's system prompt.
-    # Skill content is appended as an additional section when available.
+    # Skill content and passthrough system-prompt fragments are appended as
+    # additional sections when available.
     appended_parts = [prompt.strip()]
+    appended_parts.extend(fragment.strip() for fragment in passthrough_prompt_fragments if fragment.strip())
     skill_injection = compose_skill_injections(resolved_skills.loaded_skills)
     if skill_injection:
         appended_parts.append(skill_injection)
     command.extend(["--append-system-prompt", "\n\n".join(part for part in appended_parts if part)])
     command.extend(passthrough_args)
     return tuple(command)
+
+
+def _normalize_system_prompt_passthrough_args(
+    passthrough_args: tuple[str, ...],
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Extract system-prompt passthroughs and return args without duplicate prompt flags."""
+
+    cleaned: list[str] = []
+    prompt_fragments: list[str] = []
+    index = 0
+    while index < len(passthrough_args):
+        token = passthrough_args[index]
+
+        if token in {"--append-system-prompt", "--system-prompt"}:
+            if index + 1 >= len(passthrough_args):
+                raise ValueError(f"{token} requires a value")
+            prompt_fragments.append(passthrough_args[index + 1])
+            index += 2
+            continue
+
+        if token.startswith("--append-system-prompt="):
+            prompt_fragments.append(token.partition("=")[2])
+            index += 1
+            continue
+
+        if token.startswith("--system-prompt="):
+            prompt_fragments.append(token.partition("=")[2])
+            index += 1
+            continue
+
+        cleaned.append(token)
+        index += 1
+
+    return tuple(cleaned), tuple(prompt_fragments)
 
 
 def _build_harness_command(
