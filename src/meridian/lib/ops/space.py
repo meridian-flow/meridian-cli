@@ -31,11 +31,6 @@ class SpaceStartInput:
     repo_root: str | None = None
     permission_tier: str | None = None
     unsafe: bool = False
-    timeout_secs: float | None = None
-    budget_per_run_usd: float | None = None
-    budget_per_space_usd: float | None = None
-    guardrails: tuple[str, ...] = ()
-    secrets: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,11 +44,6 @@ class SpaceResumeInput:
     repo_root: str | None = None
     permission_tier: str | None = None
     unsafe: bool = False
-    timeout_secs: float | None = None
-    budget_per_run_usd: float | None = None
-    budget_per_space_usd: float | None = None
-    guardrails: tuple[str, ...] = ()
-    secrets: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,11 +153,6 @@ def space_start_sync(payload: SpaceStartInput) -> SpaceActionOutput:
             dry_run=payload.dry_run,
             permission_tier=payload.permission_tier,
             unsafe=payload.unsafe,
-            timeout_secs=payload.timeout_secs,
-            budget_per_run_usd=payload.budget_per_run_usd,
-            budget_per_space_usd=payload.budget_per_space_usd,
-            guardrails=payload.guardrails,
-            secrets=payload.secrets,
         ),
     )
     transitioned = space_file.update_space_status(
@@ -216,11 +201,6 @@ def space_resume_sync(payload: SpaceResumeInput) -> SpaceActionOutput:
             pinned_context="",
             permission_tier=payload.permission_tier,
             unsafe=payload.unsafe,
-            timeout_secs=payload.timeout_secs,
-            budget_per_run_usd=payload.budget_per_run_usd,
-            budget_per_space_usd=payload.budget_per_space_usd,
-            guardrails=payload.guardrails,
-            secrets=payload.secrets,
         ),
     )
 

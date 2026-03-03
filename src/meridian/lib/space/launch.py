@@ -61,14 +61,6 @@ class SpaceLaunchRequest:
     dry_run: bool = False
     permission_tier: str | None = None
     unsafe: bool = False
-    # Future: timeout/budget/guardrails/secrets are declared for flag parity
-    # with run spawn but not yet wired into the primary launch path.
-    # They will be consumed when the execution layers are unified (Step 4).
-    timeout_secs: float | None = None
-    budget_per_run_usd: float | None = None
-    budget_per_space_usd: float | None = None
-    guardrails: tuple[str, ...] = ()
-    secrets: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
