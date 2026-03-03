@@ -68,6 +68,20 @@ Practical impact:
 - Meridian will use the previous id until you continue once with the new id
 - running `meridian --continue <new-claude-session-id>` binds/registers the new id for future runs
 
+## Gap-Closing TODOs
+
+1. Claude hooks integration
+- Use Claude Code hooks (`SessionStart`, `SessionEnd`) to detect clear boundaries and session-id rotation automatically.
+- Persist transitions in `sessions.jsonl` so both pre-clear and post-clear session ids remain resumable.
+
+2. OpenCode lifecycle tracking
+- Capture `sessionID` from OpenCode JSON stream events during primary runs.
+- Append/update session mapping when OpenCode rotates to a new session id.
+
+3. Codex limitation (current)
+- Codex CLI does not currently expose equivalent lifecycle hooks for interactive session transitions.
+- Keep manual fallback behavior: accept `meridian --continue <thread-id>` and bind on use.
+
 ## State Model (Files-as-Authority)
 
 ```text
