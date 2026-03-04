@@ -2,6 +2,7 @@
 
 from meridian.lib.harness.adapter import (
     ArtifactStore,
+    BaseHarnessAdapter,
     HarnessAdapter,
     HarnessCapabilities,
     McpConfig,
@@ -19,6 +20,7 @@ from meridian.lib.harness.registry import HarnessRegistry, get_default_harness_r
 
 __all__ = [
     "ArtifactStore",
+    "BaseHarnessAdapter",
     "ClaudeAdapter",
     "CodexAdapter",
     "DirectAdapter",

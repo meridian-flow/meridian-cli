@@ -25,6 +25,7 @@ from meridian.lib.harness._strategies import (
 )
 from meridian.lib.harness.adapter import (
     ArtifactStore,
+    BaseHarnessAdapter,
     HarnessCapabilities,
     McpConfig,
     PermissionResolver,
@@ -149,7 +150,7 @@ def _extract_todowrite_tasks(metadata: dict[str, object]) -> list[dict[str, str]
     return tasks
 
 
-class ClaudeAdapter:
+class ClaudeAdapter(BaseHarnessAdapter):
     """HarnessAdapter implementation for `claude`."""
 
     STRATEGIES: ClassVar[StrategyMap] = {
@@ -285,11 +286,3 @@ class ClaudeAdapter:
     def extract_tasks(self, event: StreamEvent) -> list[dict[str, str]] | None:
         tasks = _extract_todowrite_tasks(event.metadata)
         return tasks or None
-
-    def extract_findings(self, event: StreamEvent) -> list[dict[str, str]] | None:
-        _ = event
-        return None
-
-    def extract_summary(self, output: str) -> str | None:
-        _ = output
-        return None

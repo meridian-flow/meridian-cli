@@ -22,6 +22,7 @@ from meridian.lib.harness._strategies import (
 )
 from meridian.lib.harness.adapter import (
     ArtifactStore,
+    BaseHarnessAdapter,
     HarnessCapabilities,
     McpConfig,
     PermissionResolver,
@@ -46,7 +47,7 @@ def _opencode_mcp_globs(run: SpawnParams) -> tuple[str, ...]:
     return ("mcp__meridian__*",)
 
 
-class OpenCodeAdapter:
+class OpenCodeAdapter(BaseHarnessAdapter):
     """HarnessAdapter implementation for `opencode`."""
 
     STRATEGIES: ClassVar[StrategyMap] = {
@@ -158,14 +159,3 @@ class OpenCodeAdapter:
             text_patterns=self.SESSION_ID_TEXT_PATTERNS,
         )
 
-    def extract_tasks(self, event: StreamEvent) -> list[dict[str, str]] | None:
-        _ = event
-        return None
-
-    def extract_findings(self, event: StreamEvent) -> list[dict[str, str]] | None:
-        _ = event
-        return None
-
-    def extract_summary(self, output: str) -> str | None:
-        _ = output
-        return None

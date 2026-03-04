@@ -22,6 +22,7 @@ from meridian.lib.harness._strategies import (
 )
 from meridian.lib.harness.adapter import (
     ArtifactStore,
+    BaseHarnessAdapter,
     HarnessCapabilities,
     McpConfig,
     PermissionResolver,
@@ -32,7 +33,7 @@ from meridian.lib.safety.permissions import PermissionConfig
 from meridian.lib.types import HarnessId, SpawnId
 
 
-class CodexAdapter:
+class CodexAdapter(BaseHarnessAdapter):
     """HarnessAdapter implementation for `codex`."""
 
     STRATEGIES: ClassVar[StrategyMap] = {
@@ -164,14 +165,3 @@ class CodexAdapter:
             text_patterns=self.SESSION_ID_TEXT_PATTERNS,
         )
 
-    def extract_tasks(self, event: StreamEvent) -> list[dict[str, str]] | None:
-        _ = event
-        return None
-
-    def extract_findings(self, event: StreamEvent) -> list[dict[str, str]] | None:
-        _ = event
-        return None
-
-    def extract_summary(self, output: str) -> str | None:
-        _ = output
-        return None

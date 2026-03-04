@@ -137,6 +137,22 @@ class HarnessAdapter(Protocol):
         return None
 
 
+class BaseHarnessAdapter:
+    """Base with default no-op implementations for optional adapter methods."""
+
+    def extract_tasks(self, event: StreamEvent) -> list[dict[str, str]] | None:
+        _ = event
+        return None
+
+    def extract_findings(self, event: StreamEvent) -> list[dict[str, str]] | None:
+        _ = event
+        return None
+
+    def extract_summary(self, output: str) -> str | None:
+        _ = output
+        return None
+
+
 def resolve_mcp_config(adapter: HarnessAdapter, run: SpawnParams) -> McpConfig | None:
     """Resolve adapter MCP config if the adapter implements the optional hook."""
 

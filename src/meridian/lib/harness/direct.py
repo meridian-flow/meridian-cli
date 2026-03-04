@@ -13,6 +13,7 @@ from urllib import error, request
 from meridian.lib.domain import TokenUsage
 from meridian.lib.harness.adapter import (
     ArtifactStore,
+    BaseHarnessAdapter,
     HarnessCapabilities,
     McpConfig,
     PermissionResolver,
@@ -72,7 +73,7 @@ def _extract_text_blocks(content: object) -> str:
     return "\n".join(part for part in text_parts if part).strip()
 
 
-class DirectAdapter:
+class DirectAdapter(BaseHarnessAdapter):
     """HarnessAdapter implementation for Anthropic Messages API mode."""
 
     @property
@@ -112,18 +113,6 @@ class DirectAdapter:
 
     def extract_session_id(self, artifacts: ArtifactStore, spawn_id: SpawnId) -> str | None:
         _ = (artifacts, spawn_id)
-        return None
-
-    def extract_tasks(self, event: StreamEvent) -> list[dict[str, str]] | None:
-        _ = event
-        return None
-
-    def extract_findings(self, event: StreamEvent) -> list[dict[str, str]] | None:
-        _ = event
-        return None
-
-    def extract_summary(self, output: str) -> str | None:
-        _ = output
         return None
 
     @staticmethod
