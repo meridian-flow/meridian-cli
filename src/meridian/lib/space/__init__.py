@@ -1,11 +1,9 @@
 """Space service helpers."""
 
 from meridian.lib.space.crud import (
-    can_transition,
     create_space,
     get_space_or_raise,
     resolve_space_for_resume,
-    transition_space,
 )
 from meridian.lib.space.launch import (
     SpaceLaunchRequest,
@@ -24,7 +22,6 @@ from meridian.lib.space.space_file import (
     create_space as create_space_file,
     get_space,
     list_spaces,
-    update_space_status,
 )
 
 __all__ = [
@@ -32,7 +29,6 @@ __all__ = [
     "SpaceLaunchResult",
     "SpaceRecord",
     "build_primary_prompt",
-    "can_transition",
     "collect_space_markdown_artifacts",
     "create_space",
     "create_space_file",
@@ -42,8 +38,6 @@ __all__ = [
     "launch_primary",
     "list_spaces",
     "resolve_space_for_resume",
-    "transition_space",
-    "update_space_status",
     "space_lock_path",
     "space_summary_path",
 ]

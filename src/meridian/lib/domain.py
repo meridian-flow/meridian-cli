@@ -22,7 +22,6 @@ if TYPE_CHECKING:
     )
 
 SpawnStatus = Literal["queued", "running", "succeeded", "failed", "cancelled"]
-SpaceState = Literal["active", "closed"]
 
 
 def _empty_mapping() -> Mapping[str, Any]:
@@ -96,7 +95,7 @@ class SpaceCreateParams:
 class SpaceFilters:
     """Space list filter options."""
 
-    state: SpaceState | None = None
+    pass
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,9 +103,7 @@ class Space:
     """Space aggregate root."""
 
     space_id: SpaceId
-    state: SpaceState = "active"
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
-    finished_at: datetime | None = None
     name: str | None = None
 
 
@@ -115,8 +112,6 @@ class SpaceSummary:
     """Compact space list entry."""
 
     space_id: SpaceId
-    state: SpaceState
-    finished_at: datetime | None = None
     name: str | None = None
 
 

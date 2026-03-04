@@ -9,13 +9,10 @@ from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
 
 from meridian.lib.state.id_gen import next_space_id
 from meridian.lib.state.paths import SpacePaths, ensure_gitignore, resolve_all_spaces_dir, resolve_space_dir
 from meridian.lib.types import SpaceId
-
-type SpaceStatus = Literal["active", "closed"]
 
 _SPACE_SCHEMA_VERSION = 1
 
@@ -27,9 +24,7 @@ class SpaceRecord:
     schema_version: int
     id: str
     name: str | None
-    status: SpaceStatus
     created_at: str
-    finished_at: str | None
 
 
 def _utc_now_iso() -> str:
@@ -66,26 +61,16 @@ def _read_space_json(path: Path) -> SpaceRecord | None:
     if not isinstance(payload, dict):
         return None
 
-    status = payload.get("status")
-    if status not in {"active", "closed"}:
-        return None
-
     return SpaceRecord(
         schema_version=int(payload.get("schema_version", _SPACE_SCHEMA_VERSION)),
         id=str(payload.get("id")),
         name=payload.get("name") if payload.get("name") is None else str(payload.get("name")),
-        status=status,
         created_at=str(payload.get("created_at")),
-        finished_at=(
-            payload.get("finished_at")
-            if payload.get("finished_at") is None
-            else str(payload.get("finished_at"))
-        ),
     )
 
 
 def create_space(repo_root: Path, name: str | None = None) -> SpaceRecord:
-    """Create one new active space and write `space.json`."""
+    """Create one new space and write `space.json`."""
 
     spaces_dir = resolve_all_spaces_dir(repo_root)
     spaces_dir.mkdir(parents=True, exist_ok=True)
@@ -99,9 +84,7 @@ def create_space(repo_root: Path, name: str | None = None) -> SpaceRecord:
             schema_version=_SPACE_SCHEMA_VERSION,
             id=str(space_id),
             name=name,
-            status="active",
             created_at=_utc_now_iso(),
-            finished_at=None,
         )
         _write_space_json(paths.space_json, record)
 
@@ -131,37 +114,3 @@ def list_spaces(repo_root: Path) -> list[SpaceRecord]:
         if record is not None:
             records.append(record)
     return records
-
-
-def update_space_status(
-    repo_root: Path,
-    space_id: SpaceId | str,
-    new_status: SpaceStatus,
-) -> SpaceRecord:
-    """Update `space.json.status` with locked read-modify-write semantics."""
-
-    if new_status not in {"active", "closed"}:
-        raise ValueError("Space status must be 'active' or 'closed'.")
-
-    paths = SpacePaths.from_space_dir(resolve_space_dir(repo_root, space_id))
-    with _lock_file(paths.space_lock):
-        current = _read_space_json(paths.space_json)
-        if current is None:
-            raise ValueError(f"Space '{space_id}' not found or invalid.")
-
-        finished_at = current.finished_at
-        if new_status == "closed":
-            finished_at = finished_at or _utc_now_iso()
-        else:
-            finished_at = None
-
-        updated = SpaceRecord(
-            schema_version=current.schema_version,
-            id=current.id,
-            name=current.name,
-            status=new_status,
-            created_at=current.created_at,
-            finished_at=finished_at,
-        )
-        _write_space_json(paths.space_json, updated)
-        return updated

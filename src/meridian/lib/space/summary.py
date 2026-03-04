@@ -28,7 +28,6 @@ def _render_summary_markdown(
         f"# Space Summary: {record.id}",
         "",
         f"- Generated: {timestamp}",
-        f"- State: {record.status}",
         f"- Name: {record.name or '(unnamed)'}",
         f"- Total spawns: {len(spawns)}",
         "",

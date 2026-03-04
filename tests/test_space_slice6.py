@@ -26,8 +26,7 @@ from meridian.lib.ops.space import (
     space_resume_sync,
     space_start_sync,
 )
-from meridian.lib.space import crud as space_crud
-from meridian.lib.space.space_file import create_space, get_space
+from meridian.lib.space.space_file import create_space
 from meridian.lib.space.session_store import start_session, stop_session
 from meridian.lib.state import spawn_store
 from meridian.lib.state.paths import resolve_space_dir
@@ -67,7 +66,6 @@ def test_space_start_creates_lock_sets_env_and_forwards_passthrough(
     )
 
     assert result.space_id == "s1"
-    assert result.state == "active"
     assert result.exit_code == 0
     assert result.command == ()
     assert result.lock_path is not None
@@ -115,7 +113,6 @@ def test_space_resume_fresh_omits_continuation_guidance(
             repo_root=tmp_path.as_posix(),
         )
     )
-    assert result.state == "active"
     assert result.command == ()
 
     payload = _capture_payload(capture)
@@ -125,32 +122,6 @@ def test_space_resume_fresh_omits_continuation_guidance(
     assert isinstance(prompt, str)
     assert "Continuation Guidance" not in prompt
     assert "fresh primary conversation" in prompt
-
-
-def test_space_resume_allows_closed_space(tmp_path: Path) -> None:
-    """Resume should not reject a closed space — the state machine allows closed -> active."""
-    created = create_space(tmp_path, name="resume-closed")
-    space_crud.transition_space(tmp_path, created.id, "closed")
-
-    # Verify space is closed
-    space = space_crud.get_space_or_raise(tmp_path, created.id)
-    assert space.state == "closed"
-
-    # State machine should allow closed -> active (used by resume)
-    assert space_crud.can_transition("closed", "active")
-
-    # Transition directly to verify
-    result = space_crud.transition_space(tmp_path, created.id, "active")
-    assert result.state == "active"
-
-
-def test_space_state_machine_allows_closed_to_active_for_resume(tmp_path: Path) -> None:
-    """Closed spaces can transition back to active (for resume)."""
-    created = create_space(tmp_path, name="terminal")
-
-    space_crud.transition_space(tmp_path, created.id, "closed")
-    result = space_crud.transition_space(tmp_path, created.id, "active")
-    assert result.state == "active"
 
 
 @pytest.mark.parametrize(
@@ -280,12 +251,7 @@ def test_doctor_rebuilds_stale_state_and_orphan_runs(
     assert isinstance(repaired.ok, bool)
     assert "orphan_runs" in repaired.repaired
     assert "stale_session_locks" in repaired.repaired
-    assert "stale_space_status" in repaired.repaired
     assert not stale_lock.exists()
-
-    refreshed_space = get_space(tmp_path, created.id)
-    assert refreshed_space is not None
-    assert refreshed_space.status == "closed"
 
 
 def test_doctor_marks_running_spawn_orphan_when_background_pid_is_dead(
@@ -515,9 +481,8 @@ def test_root_continue_unknown_harness_session_binds_to_default_space(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     main_module = importlib.import_module("meridian.cli.main")
-    first = create_space(tmp_path, name="first")
+    _ = create_space(tmp_path, name="first")
     latest = create_space(tmp_path, name="latest")
-    space_crud.transition_space(tmp_path, first.id, "closed")
 
     monkeypatch.setattr(main_module, "resolve_repo_root", lambda: tmp_path)
 

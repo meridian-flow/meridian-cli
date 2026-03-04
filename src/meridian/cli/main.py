@@ -74,6 +74,12 @@ class _ResolvedContinueTarget:
     warning: str | None = None
 
 
+def _space_sort_key(record: space_file.SpaceRecord) -> tuple[str, int, str]:
+    suffix = record.id[1:] if record.id.startswith("s") else ""
+    numeric_id = int(suffix) if suffix.isdigit() else -1
+    return (record.created_at, numeric_id, record.id)
+
+
 def get_global_options() -> GlobalOptions:
     """Return parsed global options for current command."""
 
@@ -518,9 +524,8 @@ def _start_space_record(
         return space_file.create_space(repo_root)
 
     spaces = space_file.list_spaces(repo_root)
-    active = [record for record in spaces if record.status == "active"]
-    if active:
-        return max(active, key=lambda record: record.created_at)
+    if spaces:
+        return max(spaces, key=_space_sort_key)
     return space_file.create_space(repo_root)
 
 
@@ -597,15 +602,9 @@ def _run_primary_launch(
         harness_registry=get_default_harness_registry(),
     )
 
-    transitioned = space_file.update_space_status(
-        repo_root,
-        selected.id,
-        launch_result.final_state,
-    )
     emit(
         SpaceActionOutput(
             space_id=selected.id,
-            state=transitioned.status,
             message=(
                 "Resume dry-run."
                 if dry_run and resume_target is not None

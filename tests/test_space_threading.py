@@ -20,7 +20,7 @@ from meridian.lib.ops.spawn import (
     spawn_stats_sync,
     spawn_wait_sync,
 )
-from meridian.lib.space.space_file import create_space, update_space_status
+from meridian.lib.space.space_file import create_space
 from meridian.lib.state import spawn_store
 from meridian.lib.state.paths import resolve_space_dir
 
@@ -92,26 +92,6 @@ def test_run_create_sync_uses_explicit_space_without_env(
 
     assert result.status == "dry-run"
     assert result.warning is None or "WARNING [SPACE_AUTO_CREATED]" not in result.warning
-
-
-def test_run_create_sync_rejects_closed_space(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    space = create_space(tmp_path, name="closed-create")
-    update_space_status(tmp_path, space.id, "closed")
-    monkeypatch.delenv("MERIDIAN_SPACE_ID", raising=False)
-
-    with pytest.raises(ValueError, match="is closed"):
-        spawn_create_sync(
-            SpawnCreateInput(
-                prompt="test",
-                model="gpt-5.3-codex",
-                dry_run=True,
-                space=space.id,
-                repo_root=tmp_path.as_posix(),
-            )
-        )
 
 
 def test_run_list_sync_uses_payload_space_without_env(

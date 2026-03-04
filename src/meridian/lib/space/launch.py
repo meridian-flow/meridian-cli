@@ -18,7 +18,6 @@ from uuid import uuid4
 from meridian.lib.config._paths import resolve_repo_root
 from meridian.lib.config.routing import route_model
 from meridian.lib.config.settings import MeridianConfig, load_config
-from meridian.lib.domain import SpaceState
 from meridian.lib.exec.env import (
     HARNESS_ENV_PASS_THROUGH,
     build_harness_child_env,
@@ -36,12 +35,11 @@ from meridian.lib.prompt.assembly import resolve_run_defaults
 from meridian.lib.prompt.compose import compose_skill_injections
 from meridian.lib.safety.permissions import (
     PermissionConfig,
-    warn_profile_tier_escalation,
     build_permission_config,
     build_permission_resolver,
+    warn_profile_tier_escalation,
 )
 from meridian.lib.space.session_store import start_session, stop_session
-from meridian.lib.space import space_file
 from meridian.lib.state import spawn_store
 from meridian.lib.state.paths import resolve_space_dir, resolve_state_paths
 from meridian.lib.types import HarnessId, ModelId, SpaceId
@@ -78,7 +76,6 @@ class SpaceLaunchResult:
 
     command: tuple[str, ...]
     exit_code: int
-    final_state: SpaceState
     lock_path: Path
     continue_ref: str | None = None
 
@@ -452,25 +449,8 @@ def _pid_exists(pid: int) -> bool:
     return True
 
 
-def _transition_orphaned_space_states(
-    repo_root: Path,
-    space_ids: tuple[SpaceId, ...],
-) -> None:
-    if not space_ids:
-        return
-
-    for space_id in space_ids:
-        current = space_file.get_space(repo_root, space_id)
-        if current is None or current.status != "active":
-            continue
-        try:
-            space_file.update_space_status(repo_root, space_id, "closed")
-        except Exception:
-            logger.debug("failed to transition orphaned space", exc_info=True)
-
-
 def cleanup_orphaned_locks(repo_root: Path) -> tuple[SpaceId, ...]:
-    """Remove stale space locks and close orphaned active spaces."""
+    """Remove stale space locks."""
 
     lock_dir = resolve_state_paths(repo_root).active_spaces_dir
     if not lock_dir.exists():
@@ -506,7 +486,6 @@ def cleanup_orphaned_locks(repo_root: Path) -> tuple[SpaceId, ...]:
         SpaceId(space_id)
         for space_id in sorted({str(space_id) for space_id in orphaned})
     )
-    _transition_orphaned_space_states(repo_root, deduped)
     return deduped
 
 
@@ -604,7 +583,6 @@ def launch_primary(
         return SpaceLaunchResult(
             command=command,
             exit_code=0,
-            final_state="active",
             lock_path=lock_path,
             continue_ref=None,
         )
@@ -739,11 +717,9 @@ def launch_primary(
 
     continue_ref = seed_harness_session_id.strip() or None
 
-    final_state: SpaceState = "active"
     return SpaceLaunchResult(
         command=command,
         exit_code=exit_code,
-        final_state=final_state,
         lock_path=lock_path,
         continue_ref=continue_ref,
     )

@@ -59,15 +59,8 @@ class SpaceShowInput:
 
 
 @dataclass(frozen=True, slots=True)
-class SpaceCloseInput:
-    space: str
-    repo_root: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
 class SpaceActionOutput:
     space_id: str
-    state: str
     message: str
     exit_code: int | None = None
     command: tuple[str, ...] = ()
@@ -101,12 +94,11 @@ class SpaceActionOutput:
 @dataclass(frozen=True, slots=True)
 class SpaceListEntry:
     space_id: str
-    state: str
     name: str | None
 
     def as_row(self) -> list[str]:
         """Return columnar cells for tabular alignment."""
-        return [self.space_id, self.state, self.name if self.name is not None else "-"]
+        return [self.space_id, self.name if self.name is not None else "-"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,7 +117,6 @@ class SpaceListOutput:
 @dataclass(frozen=True, slots=True)
 class SpaceDetailOutput:
     space_id: str
-    state: str
     name: str | None
     summary_path: str | None
     pinned_files: tuple[str, ...]
@@ -137,7 +128,6 @@ class SpaceDetailOutput:
 
         pairs: list[tuple[str, str | None]] = [
             ("Space", self.space_id),
-            ("State", self.state),
             ("Name", self.name),
             ("Pinned", ", ".join(self.pinned_files) if self.pinned_files else None),
             ("Runs", ", ".join(self.spawn_ids) if self.spawn_ids else None),
@@ -170,15 +160,8 @@ def space_start_sync(payload: SpaceStartInput) -> SpaceActionOutput:
         ),
         harness_registry=runtime.harness_registry,
     )
-    transitioned = space_file.update_space_status(
-        runtime.repo_root,
-        space.id,
-        launch_result.final_state,
-    )
-
     return SpaceActionOutput(
         space_id=space.id,
-        state=transitioned.status,
         message=("Launch dry-run." if payload.dry_run else "Session finished."),
         exit_code=launch_result.exit_code,
         command=launch_result.command if payload.dry_run else (),
@@ -226,15 +209,8 @@ def space_resume_sync(payload: SpaceResumeInput) -> SpaceActionOutput:
         harness_registry=runtime.harness_registry,
     )
 
-    transitioned = space_file.update_space_status(
-        runtime.repo_root,
-        space.space_id,
-        launch_result.final_state,
-    )
-
     return SpaceActionOutput(
         space_id=str(space.space_id),
-        state=transitioned.status,
         message=("Session resumed (fresh)." if payload.fresh else "Session resumed."),
         exit_code=launch_result.exit_code,
         command=(),
@@ -265,7 +241,6 @@ def space_list_sync(payload: SpaceListInput) -> SpaceListOutput:
         spaces=tuple(
             SpaceListEntry(
                 space_id=space.id,
-                state=space.status,
                 name=space.name,
             )
             for space in summaries[:limit]
@@ -291,7 +266,6 @@ def space_show_sync(payload: SpaceShowInput) -> SpaceDetailOutput:
 
     return SpaceDetailOutput(
         space_id=space.id,
-        state=space.status,
         name=space.name,
         summary_path=summary_path,
         pinned_files=(),
@@ -301,27 +275,6 @@ def space_show_sync(payload: SpaceShowInput) -> SpaceDetailOutput:
 
 async def space_show(payload: SpaceShowInput) -> SpaceDetailOutput:
     return await asyncio.to_thread(space_show_sync, payload)
-
-
-def space_close_sync(payload: SpaceCloseInput) -> SpaceActionOutput:
-    runtime = build_runtime(payload.repo_root)
-    space_id = SpaceId(payload.space.strip())
-
-    transitioned = space_file.update_space_status(runtime.repo_root, space_id, "closed")
-    summary_path = generate_space_summary(
-        repo_root=runtime.repo_root,
-        space_id=space_id,
-    )
-    return SpaceActionOutput(
-        space_id=str(space_id),
-        state=transitioned.status,
-        message="Space closed.",
-        summary_path=summary_path.as_posix(),
-    )
-
-
-async def space_close(payload: SpaceCloseInput) -> SpaceActionOutput:
-    return await asyncio.to_thread(space_close_sync, payload)
 
 
 operation(
@@ -380,21 +333,6 @@ operation(
         cli_name="show",
         mcp_name="space_show",
         description="Show one space.",
-        cli_only=True,
-    )
-)
-
-operation(
-    OperationSpec[SpaceCloseInput, SpaceActionOutput](
-        name="space.close",
-        handler=space_close,
-        sync_handler=space_close_sync,
-        input_type=SpaceCloseInput,
-        output_type=SpaceActionOutput,
-        cli_group="space",
-        cli_name="close",
-        mcp_name="space_close",
-        description="Close a space.",
         cli_only=True,
     )
 )

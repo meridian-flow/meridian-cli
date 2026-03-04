@@ -132,7 +132,7 @@ def test_primary_settings_apply_to_harness_command_and_env(tmp_path: Path) -> No
     assert env["MERIDIAN_STATE_ROOT"] == (tmp_path / ".meridian").as_posix()
 
 
-def test_cleanup_orphaned_locks_removes_stale_lock_and_pauses_space(tmp_path: Path) -> None:
+def test_cleanup_orphaned_locks_removes_stale_lock(tmp_path: Path) -> None:
     space = create_space(tmp_path, name="orphaned")
 
     lock_path = tmp_path / ".meridian" / "active-spaces" / f"{space.id}.lock"
@@ -155,7 +155,6 @@ def test_cleanup_orphaned_locks_removes_stale_lock_and_pauses_space(tmp_path: Pa
 
     refreshed = get_space(tmp_path, space.id)
     assert refreshed is not None
-    assert refreshed.status == "closed"
 
 
 def test_space_start_dry_run_returns_interactive_command(
@@ -171,7 +170,6 @@ def test_space_start_dry_run_returns_interactive_command(
         )
     )
 
-    assert result.state == "active"
     assert result.exit_code == 0
     assert result.message == "Launch dry-run."
     assert result.lock_path is not None

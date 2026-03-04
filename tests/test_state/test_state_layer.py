@@ -12,7 +12,7 @@ import pytest
 
 from meridian.lib.domain import PinnedFile, Spawn, Space, Span, WorkflowEvent
 from meridian.lib.space.session_store import get_last_session, start_session, stop_session
-from meridian.lib.space.space_file import create_space, get_space, update_space_status
+from meridian.lib.space.space_file import create_space, get_space
 from meridian.lib.state.artifact_store import InMemoryStore, LocalStore, make_artifact_key
 from meridian.lib.state.id_gen import next_spawn_id, next_chat_id, next_space_id
 from meridian.lib.state.spawn_store import finalize_spawn, get_spawn, list_spawns, spawn_stats, start_spawn
@@ -80,18 +80,6 @@ def test_space_and_run_crud_with_file_backed_stores(tmp_path: Path) -> None:
 
     summaries = list_spawns(space_dir, filters={"model": "gpt-5.3-codex"})
     assert [summary.id for summary in summaries] == ["p2"]
-
-
-def test_space_status_transitions_and_finish_timestamp(tmp_path: Path) -> None:
-    space = create_space(tmp_path, name="status")
-
-    closed = update_space_status(tmp_path, space.id, "closed")
-    assert closed.status == "closed"
-    assert closed.finished_at is not None
-
-    reopened = update_space_status(tmp_path, space.id, "active")
-    assert reopened.status == "active"
-    assert reopened.finished_at is None
 
 
 def test_run_stats_aggregate_duration_cost_and_tokens(tmp_path: Path) -> None:

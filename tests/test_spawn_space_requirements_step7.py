@@ -9,24 +9,26 @@ from meridian.lib.ops.spawn import SpawnCreateInput, SpawnListInput, spawn_creat
 from meridian.lib.space.space_file import list_spaces
 
 
-def test_spawn_create_requires_space_context_without_env(
+def test_spawn_create_auto_creates_space_without_env(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
     monkeypatch.delenv("MERIDIAN_SPACE_ID", raising=False)
 
-    with pytest.raises(ValueError, match=r"ERROR \[SPACE_REQUIRED\]") as exc_info:
-        spawn_create_sync(
-            SpawnCreateInput(
-                prompt="auto-create",
-                model="gpt-5.3-codex",
-                dry_run=True,
-                repo_root=tmp_path.as_posix(),
-            )
+    result = spawn_create_sync(
+        SpawnCreateInput(
+            prompt="auto-create",
+            model="gpt-5.3-codex",
+            dry_run=True,
+            repo_root=tmp_path.as_posix(),
         )
+    )
 
-    assert str(exc_info.value) == SPACE_REQUIRED_ERROR
-    assert len(list_spaces(tmp_path)) == 0
+    spaces = list_spaces(tmp_path)
+    assert len(spaces) == 1
+    assert result.warning is not None
+    assert "Auto-created space" in result.warning
+    assert spaces[0].id in result.warning
 
 
 def test_non_spawn_commands_require_space_context(

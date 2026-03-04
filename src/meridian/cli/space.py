@@ -10,12 +10,10 @@ from cyclopts import App, Parameter
 
 from meridian.lib.ops.registry import get_all_operations
 from meridian.lib.ops.space import (
-    SpaceCloseInput,
     SpaceListInput,
     SpaceResumeInput,
     SpaceShowInput,
     SpaceStartInput,
-    space_close_sync,
     space_list_sync,
     space_resume_sync,
     space_show_sync,
@@ -120,17 +118,12 @@ def _space_show(emit: Any, space: str) -> None:
     emit(space_show_sync(SpaceShowInput(space=space)))
 
 
-def _space_close(emit: Any, space: str) -> None:
-    emit(space_close_sync(SpaceCloseInput(space=space)))
-
-
 def register_space_commands(app: App, emit: Any) -> tuple[set[str], dict[str, str]]:
     handlers: dict[str, Callable[[], Callable[..., None]]] = {
         "space.start": lambda: partial(_space_start, emit),
         "space.resume": lambda: partial(_space_resume, emit),
         "space.list": lambda: partial(_space_list, emit),
         "space.show": lambda: partial(_space_show, emit),
-        "space.close": lambda: partial(_space_close, emit),
     }
 
     registered: set[str] = set()

@@ -136,21 +136,6 @@ def _repair_orphan_runs(repo_root: Path) -> int:
     return repaired
 
 
-def _repair_stale_space_status(repo_root: Path) -> int:
-    repaired = 0
-    for space_dir in _space_dirs(repo_root):
-        record = space_file.get_space(repo_root, space_dir.name)
-        if record is None:
-            continue
-
-        active_sessions = list_active_sessions(space_dir)
-        desired = "active" if active_sessions else "closed"
-        if record.status != desired:
-            space_file.update_space_status(repo_root, record.id, desired)
-            repaired += 1
-    return repaired
-
-
 def doctor_sync(payload: DoctorInput) -> DoctorOutput:
     runtime = build_runtime(payload.repo_root)
 
@@ -166,10 +151,6 @@ def doctor_sync(payload: DoctorInput) -> DoctorOutput:
         orphan_runs = _repair_orphan_runs(runtime.repo_root)
         if orphan_runs > 0:
             repaired.append("orphan_runs")
-
-        stale_status = _repair_stale_space_status(runtime.repo_root)
-        if stale_status > 0:
-            repaired.append("stale_space_status")
 
     search_paths = runtime.config.search_paths
     agents_dirs = resolve_path_list(
@@ -200,9 +181,6 @@ def doctor_sync(payload: DoctorInput) -> DoctorOutput:
         record = space_file.get_space(runtime.repo_root, space_dir.name)
         if record is None:
             continue
-        active_sessions = list_active_sessions(space_dir)
-        if record.status == "active" and not active_sessions:
-            warnings.append(f"Space '{record.id}' is marked active with no live sessions.")
 
         running = [row.id for row in spawn_store.list_spawns(space_dir) if row.status == "running"]
         if running:
