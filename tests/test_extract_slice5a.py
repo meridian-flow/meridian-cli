@@ -136,3 +136,36 @@ def test_enrich_finalize_materializes_report_from_assistant_message(tmp_path: Pa
     assert enrichment.harness_session_id == "sess-42"
     assert enrichment.files_touched == ("src/chapters/ch03.md",)
     assert enrichment.output_is_empty is False
+
+
+def test_codex_extract_session_id_from_resume_text_line() -> None:
+    artifacts = InMemoryStore()
+    spawn_id = SpawnId("r-codex-resume-text")
+    artifacts.put(
+        make_artifact_key(spawn_id, "output.jsonl"),
+        b"To continue this session, run codex resume 019cb8d4-8d62-79d3-a925-d329f8310c5d\n",
+    )
+
+    session_id = CodexAdapter().extract_session_id(artifacts, spawn_id)
+    assert session_id == "019cb8d4-8d62-79d3-a925-d329f8310c5d"
+
+
+def test_opencode_extract_session_id_from_json_alias_and_resume_text() -> None:
+    artifacts = InMemoryStore()
+    json_spawn_id = SpawnId("r-opencode-sessionid-json")
+    artifacts.put(
+        make_artifact_key(json_spawn_id, "output.jsonl"),
+        b'{"type":"session.updated","sessionID":"oc_session_abc123"}\n',
+    )
+
+    json_session_id = OpenCodeAdapter().extract_session_id(artifacts, json_spawn_id)
+    assert json_session_id == "oc_session_abc123"
+
+    text_spawn_id = SpawnId("r-opencode-sessionid-text")
+    artifacts.put(
+        make_artifact_key(text_spawn_id, "output.jsonl"),
+        b"Continue with: opencode --session oc_session_xyz789\n",
+    )
+
+    text_session_id = OpenCodeAdapter().extract_session_id(artifacts, text_spawn_id)
+    assert text_session_id == "oc_session_xyz789"

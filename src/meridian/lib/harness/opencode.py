@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import replace
 from typing import ClassVar
 
 from meridian.lib.harness._common import (
     categorize_stream_event,
-    extract_session_id_from_artifacts,
+    extract_session_id_from_artifacts_with_patterns,
     extract_usage_from_artifacts,
     parse_json_stream_event,
 )
@@ -67,6 +68,17 @@ class OpenCodeAdapter:
         "thinking": "thinking",
         "error": "error",
     }
+    SESSION_ID_KEYS: ClassVar[tuple[str, ...]] = (
+        "session_id",
+        "sessionId",
+        "sessionID",
+    )
+    SESSION_ID_TEXT_PATTERNS: ClassVar[tuple[re.Pattern[str], ...]] = (
+        re.compile(
+            r"\bopencode\b[^\n]*?--session(?:=|\s+)([A-Za-z0-9][A-Za-z0-9._:-]{5,})\b",
+            re.IGNORECASE,
+        ),
+    )
 
     @property
     def id(self) -> HarnessId:
@@ -139,7 +151,12 @@ class OpenCodeAdapter:
         return extract_usage_from_artifacts(artifacts, spawn_id)
 
     def extract_session_id(self, artifacts: ArtifactStore, spawn_id: SpawnId) -> str | None:
-        return extract_session_id_from_artifacts(artifacts, spawn_id)
+        return extract_session_id_from_artifacts_with_patterns(
+            artifacts,
+            spawn_id,
+            json_keys=self.SESSION_ID_KEYS,
+            text_patterns=self.SESSION_ID_TEXT_PATTERNS,
+        )
 
     def extract_tasks(self, event: StreamEvent) -> list[dict[str, str]] | None:
         _ = event

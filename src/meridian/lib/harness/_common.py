@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from typing import cast
 
@@ -329,19 +330,57 @@ def extract_usage_from_artifacts(artifacts: ArtifactStore, spawn_id: SpawnId) ->
 
 
 def extract_session_id_from_artifacts(artifacts: ArtifactStore, spawn_id: SpawnId) -> str | None:
+    return extract_session_id_from_artifacts_with_patterns(artifacts, spawn_id)
+
+
+def extract_session_id_from_artifacts_with_patterns(
+    artifacts: ArtifactStore,
+    spawn_id: SpawnId,
+    *,
+    json_keys: tuple[str, ...] = ("session_id", "sessionId"),
+    text_patterns: tuple[re.Pattern[str], ...] = (),
+) -> str | None:
     key = ArtifactKey(f"{spawn_id}/session_id.txt")
-    if not artifacts.exists(key):
-        for payload in _iter_json_lines_artifact(artifacts, spawn_id, "output.jsonl"):
-            for nested in _iter_dicts(payload):
-                for key_name in ("session_id", "sessionId"):
-                    value = nested.get(key_name)
-                    if not isinstance(value, str):
-                        continue
-                    stripped = value.strip()
-                    if stripped:
-                        return stripped
+    if artifacts.exists(key):
+        raw = artifacts.get(key)
+        session_id = raw.decode("utf-8", errors="ignore").strip()
+        if session_id:
+            return session_id
+
+    output_key = ArtifactKey(f"{spawn_id}/output.jsonl")
+    if not artifacts.exists(output_key):
         return None
 
-    raw = artifacts.get(key)
-    session_id = raw.decode("utf-8", errors="ignore").strip()
-    return session_id or None
+    raw_output = artifacts.get(output_key).decode("utf-8", errors="ignore")
+    for line in raw_output.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        try:
+            payload_obj = json.loads(stripped)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(payload_obj, dict):
+            continue
+        payload = cast("dict[str, object]", payload_obj)
+        for nested in _iter_dicts(payload):
+            for key_name in json_keys:
+                value = nested.get(key_name)
+                if not isinstance(value, str):
+                    continue
+                session_id = value.strip()
+                if session_id:
+                    return session_id
+
+    if not text_patterns:
+        return None
+
+    for line in raw_output.splitlines():
+        for pattern in text_patterns:
+            match = pattern.search(line)
+            if match is None:
+                continue
+            session_id = match.group(1).strip()
+            if session_id:
+                return session_id
+    return None
