@@ -627,24 +627,19 @@ def launch_primary(
     primary_started_epoch = 0.0
     primary_started_local_iso: str | None = None
     child_env: dict[str, str] | None = None
-    seed_harness_session_id = (
+    explicit_session_id = (
         request.continue_harness_session_id.strip()
         if request.continue_harness_session_id is not None
         else ""
     )
+    is_claude = session_metadata.harness == "claude"
+    seed_harness_session_id = explicit_session_id or (str(uuid4()) if is_claude else "")
     resolved_harness_session_id = seed_harness_session_id
     command_request = request
     if (
-        not request.dry_run
-        and not seed_harness_session_id
-        and session_metadata.harness == "claude"
-    ):
-        seed_harness_session_id = str(uuid4())
-    resolved_harness_session_id = seed_harness_session_id
-    if (
-        seed_harness_session_id
-        and session_metadata.harness == "claude"
-        and not (request.continue_harness_session_id or "").strip()
+        is_claude
+        and seed_harness_session_id
+        and not explicit_session_id
         and not _has_passthrough_session_id(request.passthrough_args)
     ):
         command_request = replace(
