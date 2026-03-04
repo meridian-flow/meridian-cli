@@ -162,7 +162,8 @@ def test_codex_build_command_interactive_uses_primary_base_command() -> None:
     assert command[0] == "codex"
     assert "exec" not in command[:2]
     assert "--model" in command
-    assert command[-1] == "space prompt"
+    assert command[-1].startswith("space prompt")
+    assert "WAIT FOR USER INPUT" in command[-1]
 
 
 def test_codex_build_command_interactive_resume_uses_resume_subcommand() -> None:

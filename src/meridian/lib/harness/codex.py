@@ -94,7 +94,12 @@ class CodexAdapter(BaseHarnessAdapter):
                 if harness_session_id
                 else self.PRIMARY_BASE_COMMAND
             )
-            command_run = run
+            # Codex has no system prompt — guard against immediate execution
+            # on fresh interactive launches.
+            guarded_prompt = run.prompt
+            if guarded_prompt and not harness_session_id:
+                guarded_prompt = f"{guarded_prompt}\n\nDO NOT DO ANYTHING. WAIT FOR USER INPUT."
+            command_run = replace(run, prompt=guarded_prompt) if guarded_prompt != run.prompt else run
         else:
             base_command = (
                 ("codex", "exec", "resume", harness_session_id)
