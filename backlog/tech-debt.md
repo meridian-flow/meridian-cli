@@ -1,19 +1,27 @@
 # Tech Debt
 
-Code and test cleanup. Last verified: 2026-03-03.
+Code and test cleanup. Last verified: 2026-03-04.
 
 ## Open
 
 | ID | Summary | Priority | Status | Tracking |
 |----|---------|----------|--------|----------|
-| TD-7 | Deduplicate launch resolution/assembly across `launch.py` and spawn prepare path | High | In-progress (Step 0 done, Steps 1-2 remain) | `plans/unify-harness-launch.md` |
 | TD-9 | Finish space-plumbing follow-up cleanup (report-path semantics, artifact scoping) | Medium | In-progress (Steps 0+2 done, Steps 1+3 remain) | `plans/space-plumbing-fix.md` |
-| TD-10 | Align bundled skill content strategy (naming is correct: `meridian-spawn-agent`) | Medium | In-progress (skills shipped, content not fully rewritten) | `plans/bundled-skills.md` |
-| TD-11 | Validate/polish Claude native-agent passthrough edge cases and doc/code alignment | Low | Near-complete (feature done, doc/edge-case polish only) | `plans/native-agent-passthrough.md` |
-| TD-12 | Remove harness-id string branching for reference loading mode (`_spawn_prepare.py` uses `str(harness.id) == "codex"`) in favor of adapter-declared behavior | Medium | Open | `plans/unify-harness-launch.md` |
-| TD-13 | Remove Claude-specific allowed-tools merge from generic strategy builder (`_strategies.py`) and move harness-specific merge logic behind adapter hooks | Medium | Open | `plans/unify-harness-launch.md` |
-| TD-14 | Unify primary launch env wiring with adapter env/MCP env flow (`launch.py` vs `exec/spawn.py`) so primary/child harness setup is assembled from one pipeline | High | Open | `plans/unify-harness-launch.md` |
-| TD-15 | Replace hardcoded primary harness override allowlist in `launch.py:_resolve_harness()` with registry-derived validation to avoid dual updates when harnesses change | Medium | Open | `plans/unify-harness-launch.md` |
+
+Note: Steps 0 (thread space_id explicitly) and 2 (thread space into reference loading) are complete. Remaining work is Step 1 (report_path semantics) and Step 3 (space-aware artifact keys). File paths are now `_spawn_*.py` (not `_run_*.py`).
+
+## Archived (2026-03-04 cleanup batch)
+
+| ID | Summary | Status | Resolution Commit(s) |
+|----|---------|--------|----------------------|
+| TD-7 | Deduplicate launch resolution/assembly across `launch.py` and spawn prepare path | Closed | `bda59aa` |
+| TD-10 | Align bundled skill content strategy (naming, materialization, skill content) | Closed | `b1d859d`, `77cffef`, `d434984`, `a7ccecf` |
+| TD-11 | Validate/polish Claude native-agent passthrough edge cases and doc/code alignment | Closed | `e444f60`, `9f39e24`, `a28143b` |
+| TD-12 | Remove harness-id string branching for reference loading mode | Closed | `87af9f0` |
+| TD-13 | Remove Claude-specific allowed-tools merge from generic strategy builder | Closed | `87af9f0` |
+| TD-14 | Unify primary launch env wiring with adapter env/MCP env flow | Closed | `bda59aa` |
+| TD-15 | Replace hardcoded primary harness override allowlist with registry-derived validation | Closed | `87af9f0` |
+| TD-16 | Replace `_build_interactive_command` with adapter-delegated command building | Closed | `bda59aa` |
 
 ## Archived (2026-03-03 backlog execution batch)
 

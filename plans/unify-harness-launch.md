@@ -1,8 +1,12 @@
 # Unify Harness Launch Pipeline
 
-Status: proposed update (2026-03-03)
+Status: **completed** (2026-03-04)
 Owner: platform/runtime
 Backlog links: TD-7, TD-12, TD-13, TD-14, TD-15, TD-16
+
+Completion:
+- Checkpoint 1 (TD-12, TD-13, TD-15): `87af9f0`
+- Checkpoint 2 (TD-14, TD-16): `bda59aa`
 
 ## Goal
 

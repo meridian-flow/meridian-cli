@@ -1,12 +1,14 @@
 # Space Plumbing Fix: Thread Space ID Explicitly
 
-**Status:** partially implemented
+**Status:** partially implemented (Steps 0+2 complete, Steps 1+3 remain)
 
-## Current Implementation Snapshot (2026-03-03)
+## Current Implementation Snapshot (2026-03-04)
 
-- Spawn query/list/stats/show/wait paths now accept explicit `space` and thread it through resolution helpers.
+- Steps 0 and 2 are complete: spawn query/list/stats/show/wait paths accept explicit `space` and thread it through resolution helpers; reference loading accepts explicit `space_id`.
 - Canonical runtime helper `require_space_id(space)` exists and is used across spawn ops.
-- Remaining items in this doc should be treated as follow-up cleanup/revalidation, not fresh greenfield work.
+- File paths have been renamed: `_run_*.py` → `_spawn_*.py` (see updated references below).
+- Step 1B (CLI report scan) has been partially addressed.
+- Remaining work: Step 1 (report_path semantics) and Step 3 (space-aware artifact keys).
 
 ## Problem
 
@@ -20,15 +22,15 @@ Space ID resolution is env-coupled throughout the run query/execution layer. Fun
 
 ### Root cause
 
-`_run_query.py` defines `_require_space_id()` which reads `os.getenv("MERIDIAN_SPACE_ID")` directly. Every query function calls this instead of accepting an explicit space parameter. The execution path threads space correctly, but post-execution queries lose it.
+`_spawn_query.py` defines `_require_space_id()` which reads `os.getenv("MERIDIAN_SPACE_ID")` directly. Every query function calls this instead of accepting an explicit space parameter. The execution path threads space correctly, but post-execution queries lose it.
 
-## Step 0: Make `_run_query` accept explicit space_id (P0, localized)
+## Step 0: Make `_spawn_query` accept explicit space_id (P0, localized) — DONE
 
-The core fix. All query helpers currently derive space from env. Thread it explicitly.
+The core fix. All query helpers now accept explicit space. (Completed; references below are historical.)
 
 ### Files to change
 
-#### `src/meridian/lib/ops/_run_query.py`
+#### `src/meridian/lib/ops/_spawn_query.py`
 
 - **Change** `_require_space_id()` → `_resolve_space_id(space: str | None) -> str` — check `space` param first, then env fallback
 - **Change** `_space_dir(repo_root, space=None)` → accept optional space param
@@ -47,7 +49,7 @@ All callers that already have space context pass it; callers without still fall 
 - **Change** `run_show_sync` (line 231): thread space through `_read_run_row` and `_detail_from_row`
 - **Change** `run_wait_sync`: thread space through wait loop
 
-#### `src/meridian/lib/ops/_run_execute.py`
+#### `src/meridian/lib/ops/_spawn_execute.py`
 
 - **Change** `_execute_run_blocking` (line 736): pass resolved `space_id` to `_read_run_row` instead of relying on env
   - `space_id` is already resolved on line 672 via `_resolve_space(runtime.repo_root, payload.space)` — just thread it to the post-run read
@@ -77,19 +79,19 @@ All callers that already have space context pass it; callers without still fall 
 
 ### Files to change
 
-- `src/meridian/lib/ops/_run_prepare.py` — remove `report_path` from `_PreparedCreate` or change to relative-only
-- `src/meridian/lib/ops/_run_models.py` — evaluate `report_path` field on `RunActionOutput`
+- `src/meridian/lib/ops/_spawn_prepare.py` — remove `report_path` from `_PreparedCreate` or change to relative-only
+- `src/meridian/lib/ops/_spawn_models.py` — evaluate `report_path` field on `RunActionOutput`
 - `src/meridian/cli/main.py` — `_find_run_report_file` should prefer space from `RunActionOutput` metadata
 - `src/meridian/lib/prompt/compose.py` — `build_report_instruction` review
 
-## Step 2: Thread space into reference loading (P1, broader)
+## Step 2: Thread space into reference loading (P1, broader) — DONE
 
 `-f @name` references resolve against space artifacts but read `MERIDIAN_SPACE_ID` from env directly.
 
 ### Files to change
 
 - `src/meridian/lib/prompt/reference.py` (line 112) — accept explicit `space_id` parameter
-- `src/meridian/lib/ops/_run_prepare.py` — pass resolved space to `load_reference_files`
+- `src/meridian/lib/ops/_spawn_prepare.py` — pass resolved space to `load_reference_files`
 
 ## Step 3: Space-aware artifact keys (P1, broader refactor)
 
@@ -115,8 +117,8 @@ Run IDs are per-space (`r1`, `r2`...) but artifact keys are `{run_id}/...` with 
 
 - `src/meridian/lib/state/artifact_store.py` — scope to space
 - `src/meridian/lib/state/paths.py` — add per-space artifacts path
-- `src/meridian/lib/ops/_run_execute.py` — use space-scoped store
-- `src/meridian/lib/ops/_run_query.py` — use space-scoped store
+- `src/meridian/lib/ops/_spawn_execute.py` — use space-scoped store
+- `src/meridian/lib/ops/_spawn_query.py` — use space-scoped store
 - Migration: move existing global artifacts into space dirs (or ignore — no real user data)
 
 ## Implementation Order

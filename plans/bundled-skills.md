@@ -1,12 +1,13 @@
 # Bundled Default Skills
 
-**Status:** partially implemented
+**Status:** completed (2026-03-04)
 
-## Current Implementation Snapshot (2026-03-03)
+## Implementation Snapshot
 
-- Bundled skills currently shipped: `orchestrate`, `meridian-spawn-agent`.
-- Bundled `primary.md` defaults include both skills.
-- This doc's `meridian-run` naming/shape is still a proposed direction and is not fully aligned to current shipped skill names/content.
+- Bundled skills shipped: `orchestrate`, `meridian-spawn-agent` (later renamed/expanded via `a7ccecf`).
+- Bundled agent profiles (`primary.md`, `agent.md`) include default skills.
+- Harness materialization copies agents/skills into harness-native dirs.
+- Key commits: `b1d859d`, `77cffef`, `d434984`, `e8a5816`, `731d972`, `a7ccecf`.
 
 ## Goal
 

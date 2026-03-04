@@ -1,10 +1,11 @@
 # Backlog
 
-Central backlog for cross-cutting work not tied to a single implementation plan. Last verified: 2026-03-03.
+Central backlog for cross-cutting work not tied to a single implementation plan. Last verified: 2026-03-04.
 
 ## Current Status
 
-- Open items: `8` (tech-debt follow-up items)
+- Open items: `1` (TD-9: space-plumbing Steps 1+3)
+- Archived from 2026-03-04 cleanup batch: `8` (TD-7, TD-10–TD-16)
 - Archived from backlog-execution batch: `17`
 - Previously closed (pre-batch): `2` (`BUG-2`, `BUG-7`)
 
@@ -36,12 +37,22 @@ Central backlog for cross-cutting work not tied to a single implementation plan.
 | TD-5 | Remove overlapping streaming tests | `tech-debt.md` | Medium | Closed (archived) |
 | TD-6 | Centralize subprocess test helpers | `tech-debt.md` | Medium | Closed (archived) |
 
+## Priority Index (Archived on 2026-03-04)
+
+| ID | Item | File | Priority | Status |
+|----|------|------|----------|--------|
+| TD-7 | Deduplicate launch resolution/assembly | `tech-debt.md` | High | Closed (archived) |
+| TD-10 | Align bundled skill content strategy | `tech-debt.md` | Medium | Closed (archived) |
+| TD-11 | Claude native-agent passthrough polish | `tech-debt.md` | Low | Closed (archived) |
+| TD-12 | Remove harness-id string branching in spawn prepare | `tech-debt.md` | Medium | Closed (archived) |
+| TD-13 | Remove Claude allowed-tools merge from strategy builder | `tech-debt.md` | Medium | Closed (archived) |
+| TD-14 | Unify primary launch env wiring with adapter flow | `tech-debt.md` | High | Closed (archived) |
+| TD-15 | Replace hardcoded primary harness allowlist | `tech-debt.md` | Medium | Closed (archived) |
+| TD-16 | Replace `_build_interactive_command` with adapter delegation | `tech-debt.md` | High | Closed (archived) |
+
 ## Active Plans (items tracked there, not here)
 
-- Primary CLI root entry + real continue flow (still pending) -> `plans/primary-cli-redesign.md`
-- Launch pipeline deduplication follow-up (partial implementation exists) -> `plans/unify-harness-launch.md`
-- Space-plumbing follow-up cleanup/revalidation -> `plans/space-plumbing-fix.md`
-- Bundled skills naming/content alignment (`meridian-spawn-agent` vs proposed `meridian-run`) -> `plans/bundled-skills.md`
+- Space-plumbing follow-up cleanup/revalidation (Steps 1+3 remain) -> `plans/space-plumbing-fix.md`
 - Remote workspace viewer is requirements-only so far -> `plans/remote-workspace/requirements.md`
 
 ## Structure
