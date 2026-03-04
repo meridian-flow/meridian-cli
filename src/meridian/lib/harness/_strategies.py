@@ -56,53 +56,6 @@ def _append_cli_flag(*, args: list[str], flag: str, value: object) -> None:
     args.extend([flag, str(value)])
 
 
-def _split_csv(value: str) -> list[str]:
-    return [item.strip() for item in value.split(",") if item.strip()]
-
-
-def _dedupe_preserving_order(items: list[str]) -> tuple[str, ...]:
-    ordered: list[str] = []
-    seen: set[str] = set()
-    for item in items:
-        if item in seen:
-            continue
-        seen.add(item)
-        ordered.append(item)
-    return tuple(ordered)
-
-
-def _merge_claude_allowed_tools(
-    flags: list[str],
-    mcp_allowed_tools: tuple[str, ...],
-) -> list[str]:
-    if not mcp_allowed_tools:
-        return flags
-
-    preserved: list[str] = []
-    permission_allowed_tools: list[str] = []
-    index = 0
-    while index < len(flags):
-        token = flags[index]
-        if token != "--allowedTools":
-            preserved.append(token)
-            index += 1
-            continue
-        if index + 1 >= len(flags):
-            preserved.append(token)
-            index += 1
-            continue
-        permission_allowed_tools.extend(_split_csv(flags[index + 1]))
-        index += 2
-
-    merged_allowed_tools = _dedupe_preserving_order(
-        [*permission_allowed_tools, *list(mcp_allowed_tools)]
-    )
-    if not merged_allowed_tools:
-        return preserved
-    preserved.extend(["--allowedTools", ",".join(merged_allowed_tools)])
-    return preserved
-
-
 def build_harness_command(
     *,
     base_command: tuple[str, ...],
@@ -146,11 +99,6 @@ def build_harness_command(
         command.append(run.prompt)
     command.extend(strategy_args)
     permission_flags = perms.resolve_flags(harness_id)
-    if mcp_config is not None and harness_id == HarnessId("claude"):
-        permission_flags = _merge_claude_allowed_tools(
-            permission_flags,
-            mcp_config.claude_allowed_tools,
-        )
     command.extend(permission_flags)
     if mcp_config is not None:
         command.extend(mcp_config.command_args)

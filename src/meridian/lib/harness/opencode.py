@@ -80,6 +80,7 @@ class OpenCodeAdapter:
             supports_session_fork=True,
             supports_native_skills=True,
             supports_programmatic_tools=False,
+            supports_primary_launch=True,
         )
 
     def build_command(self, run: SpawnParams, perms: PermissionResolver) -> list[str]:

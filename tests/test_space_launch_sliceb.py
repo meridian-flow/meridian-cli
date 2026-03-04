@@ -171,7 +171,7 @@ def test_space_start_dry_run_returns_interactive_command(
 
     assert result.state == "active"
     assert result.exit_code == 0
-    assert result.message == "Space launch dry-run."
+    assert result.message == "Launch dry-run."
     assert result.lock_path is not None
     assert not Path(result.lock_path).exists()
     assert result.command[0] == "claude"

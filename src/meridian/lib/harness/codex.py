@@ -65,6 +65,8 @@ class CodexAdapter:
             supports_session_resume=True,
             supports_native_skills=True,
             supports_programmatic_tools=False,
+            supports_primary_launch=True,
+            reference_input_mode="paths",
         )
 
     def build_command(self, run: SpawnParams, perms: PermissionResolver) -> list[str]:

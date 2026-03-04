@@ -20,6 +20,7 @@ from meridian.lib.config.routing import route_model
 from meridian.lib.config.settings import MeridianConfig, load_config
 from meridian.lib.domain import SpaceState
 from meridian.lib.exec.spawn import HARNESS_ENV_PASS_THROUGH, sanitize_child_env
+from meridian.lib.harness.registry import HarnessRegistry, get_default_harness_registry
 from meridian.lib.harness.materialize import cleanup_materialized, materialize_for_harness
 from meridian.lib.launch_resolve import (
     load_agent_profile_with_fallback,
@@ -384,18 +385,38 @@ def _resolve_primary_session_metadata(
 
 
 def _resolve_harness(*, model: ModelId, harness_override: str | None = None) -> HarnessId:
+    return _resolve_harness_with_registry(
+        model=model,
+        harness_override=harness_override,
+        harness_registry=get_default_harness_registry(),
+    )
+
+
+def _resolve_harness_with_registry(
+    *,
+    model: ModelId,
+    harness_override: str | None,
+    harness_registry: HarnessRegistry,
+) -> HarnessId:
     decision = route_model(str(model), mode="harness")
     routed_harness_id = decision.harness_id
+    supported_primary_harnesses = tuple(
+        harness_id
+        for harness_id in harness_registry.ids()
+        if harness_registry.get(harness_id).capabilities.supports_primary_launch
+    )
+    supported_primary_set = set(supported_primary_harnesses)
 
     normalized_override = (harness_override or "").strip()
     if not normalized_override:
         return routed_harness_id
 
     override_harness = HarnessId(normalized_override)
-    if override_harness not in {HarnessId("claude"), HarnessId("codex"), HarnessId("opencode")}:
+    if override_harness not in supported_primary_set:
+        supported_text = ", ".join(str(harness_id) for harness_id in supported_primary_harnesses)
         raise ValueError(
             f"Unsupported harness '{normalized_override}'. "
-            "Expected one of: claude, codex, opencode."
+            f"Expected one of: {supported_text}."
         )
     if override_harness != routed_harness_id:
         message = (

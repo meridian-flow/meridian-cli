@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Literal, Protocol
 
 from meridian.lib.domain import TokenUsage
 from meridian.lib.safety.permissions import PermissionConfig
@@ -29,6 +29,8 @@ class HarnessCapabilities:
     supports_native_skills: bool = False
     supports_native_agents: bool = False
     supports_programmatic_tools: bool = False
+    supports_primary_launch: bool = False
+    reference_input_mode: Literal["inline", "paths"] = "inline"
 
 
 @dataclass(frozen=True, slots=True)

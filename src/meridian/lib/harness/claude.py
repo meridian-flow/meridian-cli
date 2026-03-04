@@ -47,6 +47,62 @@ def _iter_dicts(value: object) -> list[dict[str, object]]:
     return nested
 
 
+def _split_csv(value: str) -> list[str]:
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _dedupe_preserving_order(items: list[str]) -> tuple[str, ...]:
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        if item in seen:
+            continue
+        seen.add(item)
+        ordered.append(item)
+    return tuple(ordered)
+
+
+def _merge_claude_allowed_tools(
+    flags: list[str],
+    mcp_allowed_tools: tuple[str, ...],
+) -> list[str]:
+    if not mcp_allowed_tools:
+        return flags
+
+    preserved: list[str] = []
+    permission_allowed_tools: list[str] = []
+    index = 0
+    while index < len(flags):
+        token = flags[index]
+        if token != "--allowedTools":
+            preserved.append(token)
+            index += 1
+            continue
+        if index + 1 >= len(flags):
+            preserved.append(token)
+            index += 1
+            continue
+        permission_allowed_tools.extend(_split_csv(flags[index + 1]))
+        index += 2
+
+    merged_allowed_tools = _dedupe_preserving_order(
+        [*permission_allowed_tools, *list(mcp_allowed_tools)]
+    )
+    if not merged_allowed_tools:
+        return preserved
+    preserved.extend(["--allowedTools", ",".join(merged_allowed_tools)])
+    return preserved
+
+
+class _StaticPermissionResolver:
+    def __init__(self, flags: list[str]) -> None:
+        self._flags = tuple(flags)
+
+    def resolve_flags(self, harness_id: HarnessId) -> list[str]:
+        _ = harness_id
+        return list(self._flags)
+
+
 def _normalize_task(item: object) -> dict[str, str] | None:
     if not isinstance(item, dict):
         return None
@@ -140,17 +196,25 @@ class ClaudeAdapter:
             supports_native_skills=True,
             supports_native_agents=True,
             supports_programmatic_tools=False,
+            supports_primary_launch=True,
         )
 
     def build_command(self, run: SpawnParams, perms: PermissionResolver) -> list[str]:
         mcp_config = self.mcp_config(run)
+        permission_flags = perms.resolve_flags(self.id)
+        if mcp_config is not None:
+            permission_flags = _merge_claude_allowed_tools(
+                permission_flags,
+                mcp_config.claude_allowed_tools,
+            )
+        merged_perms = _StaticPermissionResolver(permission_flags)
         command_run = replace(run, prompt="-")
         command = build_harness_command(
             base_command=self.BASE_COMMAND,
             prompt_mode=self.PROMPT_MODE,
             run=command_run,
             strategies=self.STRATEGIES,
-            perms=perms,
+            perms=merged_perms,
             harness_id=self.id,
             mcp_config=mcp_config,
         )
