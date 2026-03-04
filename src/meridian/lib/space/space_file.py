@@ -61,11 +61,18 @@ def _read_space_json(path: Path) -> SpaceRecord | None:
     if not isinstance(payload, dict):
         return None
 
+    raw_id = payload.get("id")
+    raw_created = payload.get("created_at")
+    if not isinstance(raw_id, str) or not raw_id.strip():
+        return None
+    if not isinstance(raw_created, str) or not raw_created.strip():
+        return None
+
     return SpaceRecord(
         schema_version=int(payload.get("schema_version", _SPACE_SCHEMA_VERSION)),
-        id=str(payload.get("id")),
+        id=raw_id,
         name=payload.get("name") if payload.get("name") is None else str(payload.get("name")),
-        created_at=str(payload.get("created_at")),
+        created_at=raw_created,
     )
 
 

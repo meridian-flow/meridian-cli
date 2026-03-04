@@ -10,7 +10,7 @@ from pathlib import Path
 from tests.helpers.fixtures import write_skill as _write_skill
 
 
-def test_spawn_dry_run_requires_explicit_space_context(
+def test_spawn_dry_run_auto_creates_space(
     package_root: Path,
     cli_env: dict[str, str],
     tmp_path: Path,
@@ -39,9 +39,11 @@ def test_spawn_dry_run_requires_explicit_space_context(
         timeout=15,
     )
 
-    assert completed.returncode != 0
-    assert "ERROR [SPACE_REQUIRED]" in completed.stderr
-    assert not (repo_root / ".meridian").exists()
+    assert completed.returncode == 0
+    output = json.loads(completed.stdout)
+    assert output["status"] == "dry-run"
+    assert "Auto-created space" in output.get("warning", "")
+    assert (repo_root / ".meridian").exists()
 
 
 def test_skills_list_does_not_create_state_dir(

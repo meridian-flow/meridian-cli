@@ -69,3 +69,12 @@ def require_space_id(space: str | None) -> SpaceId:
     if not resolved:
         raise ValueError(SPACE_REQUIRED_ERROR)
     return SpaceId(resolved)
+
+
+def resolve_space_id_or_none(space: str | None) -> str | None:
+    """Resolve space ID from explicit value or env var, returning None if absent."""
+
+    resolved = space.strip() if space is not None else ""
+    if not resolved:
+        resolved = os.getenv("MERIDIAN_SPACE_ID", "").strip()
+    return resolved or None

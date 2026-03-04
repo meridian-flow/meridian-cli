@@ -4,7 +4,7 @@ Central backlog for cross-cutting work not tied to a single implementation plan.
 
 ## Current Status
 
-- Open items: `5` (tech-debt follow-up items)
+- Open items: `8` (tech-debt follow-up items)
 - Archived from backlog-execution batch: `17`
 - Previously closed (pre-batch): `2` (`BUG-2`, `BUG-7`)
 

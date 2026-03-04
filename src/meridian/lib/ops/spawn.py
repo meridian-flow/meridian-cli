@@ -15,6 +15,7 @@ from meridian.lib.ops._runtime import (
     build_runtime_from_root_and_config,
     require_space_id,
     resolve_runtime_root_and_config,
+    resolve_space_id_or_none,
 )
 from meridian.lib.ops.registry import OperationSpec, operation
 from meridian.lib.safety.permissions import (
@@ -65,6 +66,18 @@ def _resolve_space_dir(repo_root: Path, space: str | None = None) -> tuple[str, 
     return str(space_id), resolve_space_dir(repo_root, space_id)
 
 
+def _resolve_or_create_space(explicit: str | None, repo_root: Path) -> tuple[str, bool]:
+    """Resolve space from explicit value / env, or auto-create one.
+
+    Returns (space_id, auto_created).
+    """
+    resolved = resolve_space_id_or_none(explicit)
+    if resolved is not None:
+        return resolved, False
+    record = space_file.create_space(repo_root)
+    return record.id, True
+
+
 def _non_empty_space(space: str | None) -> str | None:
     if space is None:
         return None
@@ -84,13 +97,12 @@ def spawn_create_sync(payload: SpawnCreateInput) -> SpawnActionOutput:
     _spawn_execute_module.logger = logger
 
     payload, preflight_warning = _validate_create_input(payload)
-    payload = replace(payload, space=str(require_space_id(payload.space)))
     resolved_root, config = resolve_runtime_root_and_config(payload.repo_root)
-    space = space_file.get_space(resolved_root, payload.space)
-    if space is not None and space.status == "closed":
-        raise ValueError(
-            f"Space '{payload.space}' is closed. Resume the space before creating spawns."
-        )
+    space_id_str, auto_created = _resolve_or_create_space(payload.space, resolved_root)
+    payload = replace(payload, space=space_id_str)
+    if auto_created:
+        auto_warning = f"Auto-created space {space_id_str}. Pass --space {space_id_str} to add more spawns to this space."
+        preflight_warning = f"{preflight_warning}\n{auto_warning}" if preflight_warning else auto_warning
 
     runtime = None
     if not payload.dry_run:
