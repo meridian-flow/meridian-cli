@@ -110,6 +110,7 @@ def resolve_codex_primary_session_id(repo_root: Path, started_at_epoch: float) -
         try:
             resolved = resolve_codex_rollout_session_id(path, resolved_repo)
         except OSError:
+            logger.debug("Failed to read codex rollout %s", path, exc_info=True)
             continue
         if resolved is not None:
             return resolved
@@ -139,6 +140,7 @@ def resolve_opencode_primary_session_id(
         try:
             lines = candidate.read_text(encoding="utf-8", errors="ignore").splitlines()
         except OSError:
+            logger.debug("Failed to read opencode log %s", candidate, exc_info=True)
             continue
         for line in lines:
             match = OPENCODE_SESSION_CREATED_RE.match(line)

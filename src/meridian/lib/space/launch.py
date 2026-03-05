@@ -506,7 +506,7 @@ def cleanup_orphaned_locks(repo_root: Path) -> tuple[SpaceId, ...]:
                 if isinstance(raw_child_pid, int):
                     child_pid = raw_child_pid
         except (OSError, json.JSONDecodeError, TypeError):
-            pass
+            logger.debug("Failed to parse lock file %s", lock_file, exc_info=True)
 
         if child_pid > 0 and _pid_exists(child_pid):
             continue
@@ -752,6 +752,7 @@ def _run_harness_process(
             else:
                 exit_code = 130
     except FileNotFoundError:
+        logger.debug("Harness command not found", exc_info=True)
         exit_code = 2
     finally:
         if primary_spawn_id is not None:
@@ -787,8 +788,11 @@ def _run_harness_process(
                     harness_id=ctx.session_metadata.harness,
                     chat_id=chat_id,
                 )
-        if ctx.lock_path.exists():
-            ctx.lock_path.unlink()
+        try:
+            if ctx.lock_path.exists():
+                ctx.lock_path.unlink()
+        except OSError:
+            logger.debug("Failed to clean up lock file %s", ctx.lock_path, exc_info=True)
 
     return _ProcessOutcome(
         command=command,
