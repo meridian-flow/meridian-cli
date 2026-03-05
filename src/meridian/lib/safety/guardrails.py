@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from meridian.lib.types import SpawnId
 
 
-DEFAULT_GUARDRAIL_TIMEOUT_SECONDS = MeridianConfig().guardrail_timeout_seconds
+DEFAULT_GUARDRAIL_TIMEOUT_SECONDS = MeridianConfig().guardrail_timeout_minutes * 60.0
 
 
 @dataclass(frozen=True, slots=True)

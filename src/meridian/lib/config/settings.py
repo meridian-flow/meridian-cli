@@ -66,9 +66,9 @@ class MeridianConfig:
     max_depth: int = 3
     max_retries: int = 3
     retry_backoff_seconds: float = 0.25
-    kill_grace_seconds: float = 2.0
-    guardrail_timeout_seconds: float = 30.0
-    wait_timeout_seconds: float = 1800.0
+    kill_grace_minutes: float = 2.0 / 60.0
+    guardrail_timeout_minutes: float = 0.5
+    wait_timeout_minutes: float = 30.0
     default_permission_tier: str = "read-only"
     default_primary_agent: str = "primary"
     default_agent: str = "agent"
@@ -109,11 +109,11 @@ _SECTION_KEY_MAP: dict[str, dict[str, str]] = {
         "default_model": "default_model",
     },
     "timeouts": {
-        "kill_grace_seconds": "kill_grace_seconds",
-        "guardrail_seconds": "guardrail_timeout_seconds",
-        "guardrail_timeout_seconds": "guardrail_timeout_seconds",
-        "wait_seconds": "wait_timeout_seconds",
-        "wait_timeout_seconds": "wait_timeout_seconds",
+        "kill_grace_minutes": "kill_grace_minutes",
+        "guardrail_minutes": "guardrail_timeout_minutes",
+        "guardrail_timeout_minutes": "guardrail_timeout_minutes",
+        "wait_minutes": "wait_timeout_minutes",
+        "wait_timeout_minutes": "wait_timeout_minutes",
     },
     "permissions": {
         "default_tier": "default_permission_tier",
@@ -125,9 +125,9 @@ _TOP_LEVEL_KEY_MAP: dict[str, str] = {
     "max_depth": "max_depth",
     "max_retries": "max_retries",
     "retry_backoff_seconds": "retry_backoff_seconds",
-    "kill_grace_seconds": "kill_grace_seconds",
-    "guardrail_timeout_seconds": "guardrail_timeout_seconds",
-    "wait_timeout_seconds": "wait_timeout_seconds",
+    "kill_grace_minutes": "kill_grace_minutes",
+    "guardrail_timeout_minutes": "guardrail_timeout_minutes",
+    "wait_timeout_minutes": "wait_timeout_minutes",
     "default_permission_tier": "default_permission_tier",
     "default_primary_agent": "default_primary_agent",
     "primary_agent": "default_primary_agent",
@@ -139,9 +139,9 @@ _ENV_OVERRIDE_MAP: dict[str, str] = {
     "MERIDIAN_MAX_DEPTH": "max_depth",
     "MERIDIAN_MAX_RETRIES": "max_retries",
     "MERIDIAN_RETRY_BACKOFF_SECONDS": "retry_backoff_seconds",
-    "MERIDIAN_KILL_GRACE_SECONDS": "kill_grace_seconds",
-    "MERIDIAN_GUARDRAIL_TIMEOUT_SECONDS": "guardrail_timeout_seconds",
-    "MERIDIAN_WAIT_TIMEOUT_SECONDS": "wait_timeout_seconds",
+    "MERIDIAN_KILL_GRACE_MINUTES": "kill_grace_minutes",
+    "MERIDIAN_GUARDRAIL_TIMEOUT_MINUTES": "guardrail_timeout_minutes",
+    "MERIDIAN_WAIT_TIMEOUT_MINUTES": "wait_timeout_minutes",
     "MERIDIAN_DEFAULT_PERMISSION_TIER": "default_permission_tier",
     "MERIDIAN_PRIMARY_AGENT": "default_primary_agent",
     "MERIDIAN_DEFAULT_PRIMARY_AGENT": "default_primary_agent",
@@ -166,9 +166,9 @@ def _expected_type_name(field_name: str) -> str:
         return "int"
     if field_name in {
         "retry_backoff_seconds",
-        "kill_grace_seconds",
-        "guardrail_timeout_seconds",
-        "wait_timeout_seconds",
+        "kill_grace_minutes",
+        "guardrail_timeout_minutes",
+        "wait_timeout_minutes",
     }:
         return "float"
     return "str"
@@ -576,9 +576,9 @@ def _build_config(values: dict[str, object]) -> MeridianConfig:
         max_depth=cast("int", values["max_depth"]),
         max_retries=cast("int", values["max_retries"]),
         retry_backoff_seconds=cast("float", values["retry_backoff_seconds"]),
-        kill_grace_seconds=cast("float", values["kill_grace_seconds"]),
-        guardrail_timeout_seconds=cast("float", values["guardrail_timeout_seconds"]),
-        wait_timeout_seconds=cast("float", values["wait_timeout_seconds"]),
+        kill_grace_minutes=cast("float", values["kill_grace_minutes"]),
+        guardrail_timeout_minutes=cast("float", values["guardrail_timeout_minutes"]),
+        wait_timeout_minutes=cast("float", values["wait_timeout_minutes"]),
         default_permission_tier=cast("str", values["default_permission_tier"]),
         default_primary_agent=cast("str", values["default_primary_agent"]),
         default_agent=cast("str", values["default_agent"]),

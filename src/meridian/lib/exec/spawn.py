@@ -59,7 +59,7 @@ DEFAULT_INFRA_EXIT_CODE = 2
 _DEFAULT_CONFIG = MeridianConfig()
 DEFAULT_MAX_RETRIES = _DEFAULT_CONFIG.max_retries
 DEFAULT_RETRY_BACKOFF_SECONDS = _DEFAULT_CONFIG.retry_backoff_seconds
-DEFAULT_GUARDRAIL_TIMEOUT_SECONDS = _DEFAULT_CONFIG.guardrail_timeout_seconds
+DEFAULT_GUARDRAIL_TIMEOUT_SECONDS = _DEFAULT_CONFIG.guardrail_timeout_minutes * 60.0
 logger = structlog.get_logger(__name__)
 
 # Backward-compatible re-export for existing callers/tests.

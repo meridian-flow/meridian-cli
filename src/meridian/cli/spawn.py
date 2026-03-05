@@ -44,12 +44,6 @@ def _spawn_create_exit_code(result: SpawnActionOutput) -> int:
     return 1
 
 
-def _normalize_timeout(timeout_minutes: float | None) -> float | None:
-    if timeout_minutes is None:
-        return None
-    return timeout_minutes * 60.0
-
-
 def _spawn_create(
     emit: Any,
     prompt: Annotated[
@@ -143,7 +137,7 @@ def _spawn_create(
             stream=stream,
             background=background,
             space=space,
-            timeout=_normalize_timeout(timeout),
+            timeout=timeout,
             permission_tier=permission_tier,
         )
     )
@@ -283,7 +277,7 @@ def _spawn_continue(
                 prompt=prompt,
                 model=model,
                 fork=fork,
-                timeout=_normalize_timeout(timeout),
+                timeout=timeout,
                 space=space,
             )
         )
@@ -346,7 +340,7 @@ def _spawn_wait(
     result = spawn_wait_sync(
         SpawnWaitInput(
             spawn_ids=spawn_ids,
-            timeout=_normalize_timeout(timeout),
+            timeout=timeout,
             verbose=verbose,
             quiet=quiet,
             report=report,

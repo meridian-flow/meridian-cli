@@ -50,9 +50,9 @@ Canonical keys accepted by `meridian config set/get/reset`:
 | `defaults.primary_agent` | str | Primary profile name |
 | `defaults.agent` | str | Default non-primary profile |
 | `defaults.model` | str | Default model for spawn when unset |
-| `timeouts.kill_grace_seconds` | float | Grace before force-kill |
-| `timeouts.guardrail_seconds` | float | Guardrail timeout |
-| `timeouts.wait_seconds` | float | Default `run wait` timeout |
+| `timeouts.kill_grace_minutes` | float | Grace before force-kill (minutes) |
+| `timeouts.guardrail_minutes` | float | Guardrail timeout (minutes) |
+| `timeouts.wait_minutes` | float | Default `spawn wait` timeout (minutes) |
 | `permissions.default_tier` | str | Default non-primary permission tier |
 | `harness.claude` | str | Default model for Claude harness |
 | `harness.codex` | str | Default model for Codex harness |
@@ -127,9 +127,9 @@ cost_tier = "$$"
 
 - `MERIDIAN_MAX_RETRIES`
 - `MERIDIAN_RETRY_BACKOFF_SECONDS`
-- `MERIDIAN_KILL_GRACE_SECONDS`
-- `MERIDIAN_GUARDRAIL_TIMEOUT_SECONDS`
-- `MERIDIAN_WAIT_TIMEOUT_SECONDS`
+- `MERIDIAN_KILL_GRACE_MINUTES`
+- `MERIDIAN_GUARDRAIL_TIMEOUT_MINUTES`
+- `MERIDIAN_WAIT_TIMEOUT_MINUTES`
 - `MERIDIAN_DEFAULT_PERMISSION_TIER`
 - `MERIDIAN_PRIMARY_AGENT`
 - `MERIDIAN_DEFAULT_AGENT`

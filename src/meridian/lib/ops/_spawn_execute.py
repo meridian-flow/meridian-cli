@@ -61,6 +61,12 @@ _BACKGROUND_STDOUT_FILENAME = "background-launcher.stdout.log"
 _BACKGROUND_STDERR_FILENAME = "background-launcher.stderr.log"
 
 
+def _minutes_to_seconds(timeout_minutes: float | None) -> float | None:
+    if timeout_minutes is None:
+        return None
+    return timeout_minutes * 60.0
+
+
 class _PreparedCreateLike(Protocol):
     model: str
     harness_id: str
@@ -452,8 +458,10 @@ async def _execute_existing_spawn(
             permission_resolver=resolver,
             permission_config=permission_config,
             cwd=runtime.repo_root,
-            timeout_seconds=timeout,
-            kill_grace_seconds=runtime.config.kill_grace_seconds,
+            timeout_seconds=_minutes_to_seconds(timeout),
+            kill_grace_seconds=(
+                _minutes_to_seconds(runtime.config.kill_grace_minutes) or 0.0
+            ),
             skills=skills,
             agent=session_context.resolved_agent_name,
             mcp_tools=mcp_tools,
@@ -673,8 +681,10 @@ def _execute_spawn_blocking(
                 permission_resolver=prepared.permission_resolver,
                 permission_config=prepared.permission_config,
                 cwd=runtime.repo_root,
-                timeout_seconds=payload.timeout,
-                kill_grace_seconds=runtime.config.kill_grace_seconds,
+                timeout_seconds=_minutes_to_seconds(payload.timeout),
+                kill_grace_seconds=(
+                    _minutes_to_seconds(runtime.config.kill_grace_minutes) or 0.0
+                ),
                 skills=prepared.skills,
                 agent=session_context.resolved_agent_name,
                 mcp_tools=prepared.mcp_tools,

@@ -8,7 +8,7 @@ import signal
 from meridian.lib.config.settings import MeridianConfig
 from meridian.lib.exec.process_groups import signal_process_group
 
-DEFAULT_KILL_GRACE_SECONDS = MeridianConfig().kill_grace_seconds
+DEFAULT_KILL_GRACE_SECONDS = MeridianConfig().kill_grace_minutes * 60.0
 
 
 class SpawnTimeoutError(TimeoutError):

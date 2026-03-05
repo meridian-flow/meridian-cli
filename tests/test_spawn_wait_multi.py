@@ -45,7 +45,7 @@ def test_run_wait_sync_waits_for_all_runs_and_returns_ordered_summary(
     monkeypatch.setattr(
         run_ops,
         "resolve_runtime_root_and_config",
-        lambda _: (Path("/tmp/repo"), SimpleNamespace(wait_timeout_seconds=30.0, retry_backoff_seconds=0.0)),
+        lambda _: (Path("/tmp/repo"), SimpleNamespace(wait_timeout_minutes=0.5, retry_backoff_seconds=0.0)),
     )
     monkeypatch.setattr(run_ops.time, "sleep", lambda _: None)
 
@@ -81,7 +81,7 @@ def test_run_wait_sync_waits_for_all_runs_and_returns_ordered_summary(
     result = run_ops.spawn_wait_sync(
         SpawnWaitInput(
             spawn_ids=("r1", "r2"),
-            timeout=5.0,
+            timeout=5.0 / 60.0,
             poll_interval_secs=0.0,
         )
     )
@@ -104,7 +104,10 @@ def test_run_wait_sync_timeout_is_global_across_all_runs(
     monkeypatch.setattr(
         run_ops,
         "resolve_runtime_root_and_config",
-        lambda _: (Path("/tmp/repo"), SimpleNamespace(wait_timeout_seconds=1.0, retry_backoff_seconds=0.1)),
+        lambda _: (
+            Path("/tmp/repo"),
+            SimpleNamespace(wait_timeout_minutes=1.0 / 60.0, retry_backoff_seconds=0.1),
+        ),
     )
     monkeypatch.setattr(run_ops.time, "sleep", lambda _: None)
 
@@ -128,7 +131,7 @@ def test_run_wait_sync_timeout_is_global_across_all_runs(
         run_ops.spawn_wait_sync(
             SpawnWaitInput(
                 spawn_ids=("r1", "r2"),
-                timeout=1.0,
+                timeout=1.0 / 60.0,
                 poll_interval_secs=0.1,
             )
         )
@@ -140,7 +143,10 @@ def test_run_wait_sync_accepts_legacy_run_id_alias_for_single_run(
     monkeypatch.setattr(
         run_ops,
         "resolve_runtime_root_and_config",
-        lambda _: (Path("/tmp/repo"), SimpleNamespace(wait_timeout_seconds=5.0, retry_backoff_seconds=0.1)),
+        lambda _: (
+            Path("/tmp/repo"),
+            SimpleNamespace(wait_timeout_minutes=5.0 / 60.0, retry_backoff_seconds=0.1),
+        ),
     )
     monkeypatch.setattr(
         run_ops,
@@ -176,7 +182,7 @@ def test_run_wait_sync_emits_heartbeat_with_default_verbosity(
         lambda _: (
             Path("/tmp/repo"),
             SimpleNamespace(
-                wait_timeout_seconds=5.0,
+                wait_timeout_minutes=5.0 / 60.0,
                 retry_backoff_seconds=0.1,
                 output=SimpleNamespace(verbosity="normal"),
             ),
@@ -220,7 +226,7 @@ def test_run_wait_sync_emits_heartbeat_with_default_verbosity(
     result = run_ops.spawn_wait_sync(
         SpawnWaitInput(
             spawn_ids=("r1",),
-            timeout=5.0,
+            timeout=5.0 / 60.0,
             poll_interval_secs=0.1,
         )
     )
@@ -238,7 +244,7 @@ def test_run_wait_sync_suppresses_heartbeat_when_quiet(
         lambda _: (
             Path("/tmp/repo"),
             SimpleNamespace(
-                wait_timeout_seconds=5.0,
+                wait_timeout_minutes=5.0 / 60.0,
                 retry_backoff_seconds=0.1,
                 output=SimpleNamespace(verbosity="verbose"),
             ),
@@ -282,7 +288,7 @@ def test_run_wait_sync_suppresses_heartbeat_when_quiet(
     result = run_ops.spawn_wait_sync(
         SpawnWaitInput(
             spawn_ids=("r1",),
-            timeout=5.0,
+            timeout=5.0 / 60.0,
             poll_interval_secs=0.1,
             quiet=True,
         )

@@ -7,9 +7,9 @@ agent = "worker-agent"
 model = "gpt-5.2-high"
 
 [timeouts]
-kill_grace_seconds = 1.5
-guardrail_seconds = 45.0
-wait_seconds = 900.0
+kill_grace_minutes = 0.025
+guardrail_minutes = 0.75
+wait_minutes = 15.0
 
 [permissions]
 default_tier = "workspace-write"

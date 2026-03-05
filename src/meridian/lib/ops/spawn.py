@@ -61,6 +61,12 @@ from ._spawn_query import (
 _WAIT_HEARTBEAT_INTERVAL_SECS = 5.0
 
 
+def _minutes_to_seconds(timeout_minutes: float | None) -> float | None:
+    if timeout_minutes is None:
+        return None
+    return timeout_minutes * 60.0
+
+
 def _resolve_space_dir(repo_root: Path, space: str | None = None) -> tuple[str, Path]:
     space_id = require_space_id(space)
     return str(space_id), resolve_space_dir(repo_root, space_id)
@@ -384,11 +390,12 @@ def spawn_wait_sync(payload: SpawnWaitInput) -> SpawnWaitMultiOutput:
     repo_root, config = resolve_runtime_root_and_config(payload.repo_root)
     resolved_space = _non_empty_space(payload.space)
     spawn_ids = resolve_spawn_references(repo_root, _normalize_wait_spawn_ids(payload), resolved_space)
-    timeout = (
-        payload.timeout if payload.timeout is not None else config.wait_timeout_seconds
+    timeout_minutes = (
+        payload.timeout if payload.timeout is not None else config.wait_timeout_minutes
     )
+    timeout_seconds = _minutes_to_seconds(timeout_minutes) or 0.0
     started = time.monotonic()
-    deadline = started + max(timeout, 0.0)
+    deadline = started + max(timeout_seconds, 0.0)
     poll = (
         payload.poll_interval_secs
         if payload.poll_interval_secs is not None

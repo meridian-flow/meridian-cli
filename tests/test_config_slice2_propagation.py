@@ -17,7 +17,7 @@ def _clear_config_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "MERIDIAN_DEPTH",
         "MERIDIAN_MAX_DEPTH",
         "MERIDIAN_MAX_RETRIES",
-        "MERIDIAN_KILL_GRACE_SECONDS",
+        "MERIDIAN_KILL_GRACE_MINUTES",
         "MERIDIAN_DEFAULT_PERMISSION_TIER",
     ):
         monkeypatch.delenv(env_name, raising=False)
@@ -98,14 +98,14 @@ def test_custom_default_permission_tier_flows_through_build_permission_config(
     assert captured["default_tier"] == "workspace-write"
 
 
-def test_custom_kill_grace_seconds_flows_to_execute_with_finalization(
+def test_custom_kill_grace_minutes_flows_to_execute_with_finalization(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     _clear_config_env(monkeypatch)
     _write_config(
         tmp_path,
-        "[timeouts]\nkill_grace_seconds = 4.5\n",
+        "[timeouts]\nkill_grace_minutes = 4.5\n",
     )
     monkeypatch.setenv("MERIDIAN_SPACE_ID", create_space(tmp_path, name="cfg-prop").id)
 
@@ -126,7 +126,7 @@ def test_custom_kill_grace_seconds_flows_to_execute_with_finalization(
         )
     )
 
-    assert captured["kill_grace_seconds"] == 4.5
+    assert captured["kill_grace_seconds"] == pytest.approx(270.0)
 
 
 def test_run_spawn_rejects_danger_permission_tier_without_unsafe_override(
