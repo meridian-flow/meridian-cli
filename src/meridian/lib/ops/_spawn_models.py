@@ -258,6 +258,7 @@ class SpawnContinueInput:
     prompt: str
     model: str = ""
     fork: bool = False
+    dry_run: bool = False
     timeout: float | None = None
     space: str | None = None
     repo_root: str | None = None

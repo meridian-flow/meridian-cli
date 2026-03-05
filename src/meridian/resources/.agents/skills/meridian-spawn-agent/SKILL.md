@@ -132,6 +132,23 @@ meridian spawn stats
 meridian spawn stats --session ID
 ```
 
+## Debugging & Logs
+
+Each spawn writes logs to `.meridian/.spaces/<space-id>/spawns/<spawn-id>/`. The `log_path` field in `spawn show` output points to the stderr log:
+
+```bash
+# Get the log path for a spawn
+meridian spawn show SPAWN_ID
+# → look for "log_path" in the JSON output
+
+# Read the full harness stderr log directly
+cat ".meridian/.spaces/$MERIDIAN_SPACE_ID/spawns/SPAWN_ID/stderr.log"
+
+# Tail a running spawn's log
+tail -f ".meridian/.spaces/$MERIDIAN_SPACE_ID/spawns/SPAWN_ID/stderr.log"
+```
+
+The stderr log contains the full harness session trace — every tool call, exec command, and reasoning step. Use it to diagnose stuck, slow, or failed spawns.
 ## Model Selection
 
 Use model discovery commands before creating spawns:

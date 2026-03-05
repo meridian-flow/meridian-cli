@@ -650,6 +650,7 @@ def spawn_continue_sync(
         prompt=derived_prompt,
         model=_model_for_follow_up(source_spawn, payload.model),
         repo_root=payload.repo_root,
+        dry_run=payload.dry_run,
         timeout=payload.timeout,
         space=resolved_space,
         continue_harness_session_id=source_session_id,
@@ -679,7 +680,6 @@ operation(
         cli_group="spawn",
         cli_name="create",
         mcp_name="spawn_create",
-        mcp_only=True,
         description="Create and start a spawn.",
     )
 )
