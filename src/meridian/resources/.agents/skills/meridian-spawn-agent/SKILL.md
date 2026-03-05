@@ -121,8 +121,8 @@ meridian spawn wait SPAWN_ID
 meridian spawn wait SPAWN_ID --report
 
 # Continue an existing spawn
-meridian spawn continue SPAWN_ID -p "Follow up instruction"
-meridian spawn continue SPAWN_ID -p "Try alternate approach" --fork
+meridian spawn --continue SPAWN_ID -p "Follow up instruction"
+meridian spawn --continue SPAWN_ID --fork -p "Try alternate approach"
 
 # Cancel a running spawn
 meridian spawn cancel SPAWN_ID

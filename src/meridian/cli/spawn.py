@@ -122,26 +122,47 @@ def _spawn_create(
         str | None,
         Parameter(name="--permission", help="Permission tier for harness execution."),
     ] = None,
+    continue_from: Annotated[
+        str | None,
+        Parameter(name="--continue", help="Continue from a previous spawn ID."),
+    ] = None,
+    fork: Annotated[
+        bool,
+        Parameter(name="--fork", help="Fork a new branch when continuing (use with --continue)."),
+    ] = False,
 ) -> None:
-    result = spawn_create_sync(
-        SpawnCreateInput(
-            prompt=prompt,
-            model=model,
-            files=references,
-            template_vars=template_vars,
-            agent=agent,
-            report_path=report_path,
-            dry_run=dry_run,
-            verbose=verbose,
-            quiet=quiet,
-            stream=stream,
-            background=background,
-            space=space,
-            timeout=timeout,
-            permission_tier=permission_tier,
-        ),
-        sink=current_output_sink(),
-    )
+    if continue_from is not None:
+        result = spawn_continue_sync(
+            SpawnContinueInput(
+                spawn_id=continue_from,
+                prompt=prompt,
+                model=model,
+                fork=fork,
+                timeout=timeout,
+                space=space,
+            ),
+            sink=current_output_sink(),
+        )
+    else:
+        result = spawn_create_sync(
+            SpawnCreateInput(
+                prompt=prompt,
+                model=model,
+                files=references,
+                template_vars=template_vars,
+                agent=agent,
+                report_path=report_path,
+                dry_run=dry_run,
+                verbose=verbose,
+                quiet=quiet,
+                stream=stream,
+                background=background,
+                space=space,
+                timeout=timeout,
+                permission_tier=permission_tier,
+            ),
+            sink=current_output_sink(),
+        )
     emit(result)
     exit_code = _spawn_create_exit_code(result)
     if exit_code != 0:
@@ -247,48 +268,6 @@ def _spawn_stats(
     )
 
 
-def _spawn_continue(
-    emit: Any,
-    spawn_id: str,
-    prompt: Annotated[
-        str,
-        Parameter(name=["--prompt", "-p"], help="Follow-up prompt text."),
-    ],
-    model: Annotated[
-        str,
-        Parameter(name=["--model", "-m"], help="Override model for continuation."),
-    ] = "",
-    fork: Annotated[
-        bool,
-        Parameter(name="--fork", help="Fork a new branch from the source harness session."),
-    ] = False,
-    timeout: Annotated[
-        float | None,
-        Parameter(
-            name="--timeout",
-            help="Maximum runtime in minutes before timeout.",
-        ),
-    ] = None,
-    space: Annotated[
-        str | None,
-        Parameter(name=["--space-id", "--space"], help="Space id containing the source spawn."),
-    ] = None,
-) -> None:
-    emit(
-        spawn_continue_sync(
-            SpawnContinueInput(
-                spawn_id=spawn_id,
-                prompt=prompt,
-                model=model,
-                fork=fork,
-                timeout=timeout,
-                space=space,
-            ),
-            sink=current_output_sink(),
-        )
-    )
-
-
 def _spawn_cancel(
     emit: Any,
     spawn_id: str,
@@ -364,12 +343,10 @@ def register_spawn_commands(app: App, emit: Emitter) -> tuple[set[str], dict[str
     """Register spawn CLI commands using registry metadata as source of truth."""
 
     handlers: dict[str, Callable[[], Callable[..., None]]] = {
-        "spawn.create": lambda: partial(_spawn_create, emit),
         "spawn.list": lambda: partial(_spawn_list, emit),
         "spawn.stats": lambda: partial(_spawn_stats, emit),
         "spawn.show": lambda: partial(_spawn_show, emit),
         "spawn.cancel": lambda: partial(_spawn_cancel, emit),
-        "spawn.continue": lambda: partial(_spawn_continue, emit),
         "spawn.wait": lambda: partial(_spawn_wait, emit),
     }
 
