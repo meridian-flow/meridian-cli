@@ -584,13 +584,39 @@ def _cleanup_launch_materialized(*, repo_root: Path, harness_id: str, chat_id: s
         )
 
 
-def launch_primary(
-    *,
+@dataclass(frozen=True, slots=True)
+class _LaunchContext:
+    """Resolved configuration for one primary launch."""
+
+    config: MeridianConfig
+    prompt: str
+    session_metadata: _PrimarySessionMetadata
+    space_dir: Path
+    lock_path: Path
+    seed_harness_session_id: str
+    command_request: SpaceLaunchRequest
+
+
+@dataclass(frozen=True, slots=True)
+class _ProcessOutcome:
+    """Result of running the harness subprocess."""
+
+    command: tuple[str, ...]
+    exit_code: int
+    chat_id: str | None
+    primary_spawn_id: str | None
+    primary_started: float
+    primary_started_epoch: float
+    primary_started_local_iso: str | None
+    resolved_harness_session_id: str
+
+
+def _prepare_launch_context(
     repo_root: Path,
     request: SpaceLaunchRequest,
     harness_registry: HarnessRegistry,
-) -> SpaceLaunchResult:
-    """Launch primary agent process and wait for exit."""
+) -> _LaunchContext:
+    """Config loading, prompt building, session-ID seeding, command-request patching."""
 
     config = load_config(repo_root)
     prompt = build_primary_prompt(request)
@@ -603,30 +629,6 @@ def launch_primary(
     space_dir = resolve_space_dir(repo_root, request.space_id)
     lock_path = space_lock_path(repo_root, request.space_id)
 
-    if request.dry_run:
-        command = _build_harness_command(
-            repo_root=repo_root,
-            request=request,
-            prompt=prompt,
-            harness_registry=harness_registry,
-            chat_id="dry-run",
-            config=config,
-        )
-        return SpaceLaunchResult(
-            command=command,
-            exit_code=0,
-            lock_path=lock_path,
-            continue_ref=None,
-        )
-
-    command: tuple[str, ...] = ()
-    chat_id: str | None = None
-    continue_ref: str | None = None
-    primary_spawn_id: str | None = None
-    primary_started = 0.0
-    primary_started_epoch = 0.0
-    primary_started_local_iso: str | None = None
-    child_env: dict[str, str] | None = None
     explicit_session_id = (
         request.continue_harness_session_id.strip()
         if request.continue_harness_session_id is not None
@@ -634,7 +636,6 @@ def launch_primary(
     )
     is_claude = session_metadata.harness == "claude"
     seed_harness_session_id = explicit_session_id or (str(uuid4()) if is_claude else "")
-    resolved_harness_session_id = seed_harness_session_id
     command_request = request
     if (
         is_claude
@@ -651,30 +652,56 @@ def launch_primary(
             ),
         )
 
+    return _LaunchContext(
+        config=config,
+        prompt=prompt,
+        session_metadata=session_metadata,
+        space_dir=space_dir,
+        lock_path=lock_path,
+        seed_harness_session_id=seed_harness_session_id,
+        command_request=command_request,
+    )
+
+
+def _run_harness_process(
+    repo_root: Path,
+    request: SpaceLaunchRequest,
+    ctx: _LaunchContext,
+    harness_registry: HarnessRegistry,
+) -> _ProcessOutcome:
+    """Start session, spawn tracking, launch process, wait for exit."""
+
+    command: tuple[str, ...] = ()
+    chat_id: str | None = None
+    primary_spawn_id: str | None = None
+    primary_started = 0.0
+    primary_started_epoch = 0.0
+    primary_started_local_iso: str | None = None
+    resolved_harness_session_id = ctx.seed_harness_session_id
+
     # Always use Popen (not execvp) so the finally block can clean up
     # materialized harness files after the child exits.
     exit_code = 2
-    process: subprocess.Popen[str] | None = None
     try:
         chat_id = start_session(
-            space_dir,
-            harness=session_metadata.harness,
-            harness_session_id=seed_harness_session_id,
-            model=session_metadata.model,
-            agent=session_metadata.agent,
-            agent_path=session_metadata.agent_path,
-            skills=session_metadata.skills,
-            skill_paths=session_metadata.skill_paths,
+            ctx.space_dir,
+            harness=ctx.session_metadata.harness,
+            harness_session_id=ctx.seed_harness_session_id,
+            model=ctx.session_metadata.model,
+            agent=ctx.session_metadata.agent,
+            agent_path=ctx.session_metadata.agent_path,
+            skills=ctx.session_metadata.skills,
+            skill_paths=ctx.session_metadata.skill_paths,
         )
         primary_spawn_id = str(
             spawn_store.start_spawn(
-                space_dir,
+                ctx.space_dir,
                 chat_id=chat_id,
-                model=session_metadata.model,
-                agent=session_metadata.agent,
-                harness=session_metadata.harness,
+                model=ctx.session_metadata.model,
+                agent=ctx.session_metadata.agent,
+                harness=ctx.session_metadata.harness,
                 kind="primary",
-                prompt=prompt,
+                prompt=ctx.prompt,
             )
         )
         primary_started = time.monotonic()
@@ -682,23 +709,23 @@ def launch_primary(
         primary_started_local_iso = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
         harness_context = _build_harness_context(
             repo_root=repo_root,
-            request=command_request,
-            prompt=prompt,
+            request=ctx.command_request,
+            prompt=ctx.prompt,
             harness_registry=harness_registry,
             chat_id=chat_id,
-            config=config,
+            config=ctx.config,
         )
         command = harness_context.command
         child_env = _build_space_env(
             repo_root,
             request,
-            prompt,
-            default_autocompact_pct=config.primary.autocompact_pct,
+            ctx.prompt,
+            default_autocompact_pct=ctx.config.primary.autocompact_pct,
             spawn_id=primary_spawn_id,
             harness_context=harness_context,
         )
         _write_lock(
-            path=lock_path,
+            path=ctx.lock_path,
             space_id=request.space_id,
             command=command,
             child_pid=None,
@@ -710,7 +737,7 @@ def launch_primary(
             text=True,
         )
         _write_lock(
-            path=lock_path,
+            path=ctx.lock_path,
             space_id=request.space_id,
             command=command,
             child_pid=process.pid,
@@ -730,7 +757,7 @@ def launch_primary(
         if primary_spawn_id is not None:
             duration = max(0.0, time.monotonic() - primary_started) if primary_started > 0.0 else None
             spawn_store.finalize_spawn(
-                space_dir,
+                ctx.space_dir,
                 primary_spawn_id,
                 status="succeeded" if exit_code == 0 else "failed",
                 exit_code=exit_code,
@@ -741,7 +768,7 @@ def launch_primary(
                 observed_harness_session_id = None
                 if primary_started_epoch > 0.0:
                     observed_harness_session_id = detect_primary_harness_session_id(
-                        harness_id=session_metadata.harness,
+                        harness_id=ctx.session_metadata.harness,
                         repo_root=repo_root,
                         started_at_epoch=primary_started_epoch,
                         started_at_local_iso=primary_started_local_iso,
@@ -752,22 +779,61 @@ def launch_primary(
                     and observed_harness_session_id.strip() != resolved_harness_session_id.strip()
                 ):
                     resolved_harness_session_id = observed_harness_session_id.strip()
-                    update_session_harness_id(space_dir, chat_id, resolved_harness_session_id)
-                stop_session(space_dir, chat_id)
+                    update_session_harness_id(ctx.space_dir, chat_id, resolved_harness_session_id)
+                stop_session(ctx.space_dir, chat_id)
             finally:
                 _cleanup_launch_materialized(
                     repo_root=repo_root,
-                    harness_id=session_metadata.harness,
+                    harness_id=ctx.session_metadata.harness,
                     chat_id=chat_id,
                 )
-        if lock_path.exists():
-            lock_path.unlink()
+        if ctx.lock_path.exists():
+            ctx.lock_path.unlink()
 
-    continue_ref = resolved_harness_session_id.strip() or None
-
-    return SpaceLaunchResult(
+    return _ProcessOutcome(
         command=command,
         exit_code=exit_code,
-        lock_path=lock_path,
+        chat_id=chat_id,
+        primary_spawn_id=primary_spawn_id,
+        primary_started=primary_started,
+        primary_started_epoch=primary_started_epoch,
+        primary_started_local_iso=primary_started_local_iso,
+        resolved_harness_session_id=resolved_harness_session_id,
+    )
+
+
+def launch_primary(
+    *,
+    repo_root: Path,
+    request: SpaceLaunchRequest,
+    harness_registry: HarnessRegistry,
+) -> SpaceLaunchResult:
+    """Launch primary agent process and wait for exit."""
+
+    ctx = _prepare_launch_context(repo_root, request, harness_registry)
+
+    if request.dry_run:
+        command = _build_harness_command(
+            repo_root=repo_root,
+            request=request,
+            prompt=ctx.prompt,
+            harness_registry=harness_registry,
+            chat_id="dry-run",
+            config=ctx.config,
+        )
+        return SpaceLaunchResult(
+            command=command,
+            exit_code=0,
+            lock_path=ctx.lock_path,
+            continue_ref=None,
+        )
+
+    outcome = _run_harness_process(repo_root, request, ctx, harness_registry)
+    continue_ref = outcome.resolved_harness_session_id.strip() or None
+
+    return SpaceLaunchResult(
+        command=outcome.command,
+        exit_code=outcome.exit_code,
+        lock_path=ctx.lock_path,
         continue_ref=continue_ref,
     )
