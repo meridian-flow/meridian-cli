@@ -307,8 +307,11 @@ def _spawn_wait(
     ] = False,
     report: Annotated[
         bool,
-        Parameter(name="--report", help="Include spawn report content in output."),
-    ] = False,
+        Parameter(
+            name="--report",
+            help="Include spawn report in output (default: on). Use --no-report to omit.",
+        ),
+    ] = True,
     include_files: Annotated[
         bool,
         Parameter(name="--include-files", help="Include spawn file metadata in output."),

@@ -689,7 +689,7 @@ operation(
         cli_group="spawn",
         cli_name="list",
         mcp_name="spawn_list",
-        description="List spawns with optional filters.",
+        description="List recent spawns. Filter by --status, --model, or --space.",
     )
 )
 
@@ -703,7 +703,7 @@ operation(
         cli_group="spawn",
         cli_name="stats",
         mcp_name="spawn_stats",
-        description="Show aggregate spawn statistics with optional filters.",
+        description="Show total runs, success/fail counts, cost, and duration.",
     )
 )
 
@@ -717,7 +717,7 @@ operation(
         cli_group="spawn",
         cli_name="show",
         mcp_name="spawn_show",
-        description="Show spawn details.",
+        description="Show spawn status, duration, model, and report. Use --report to include report text.",
     )
 )
 
@@ -760,6 +760,6 @@ operation(
         cli_group="spawn",
         cli_name="wait",
         mcp_name="spawn_wait",
-        description="Wait until a spawn reaches terminal status.",
+        description="Block until spawn(s) complete. Returns status and report by default.",
     )
 )

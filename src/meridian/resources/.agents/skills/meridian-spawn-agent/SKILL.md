@@ -81,7 +81,7 @@ meridian spawn wait SPAWN_ID_A SPAWN_ID_B
 
 # Or extract spawn_id from JSON output programmatically
 SID=$(meridian spawn -m MODEL -p "Task" | jq -r .spawn_id)
-meridian spawn wait "$SID" --report
+meridian spawn wait "$SID"
 ```
 
 ## Shared Filesystem
@@ -115,7 +115,7 @@ meridian spawn show SPAWN_ID --include-files
 
 # Wait for completion
 meridian spawn wait SPAWN_ID
-meridian spawn wait SPAWN_ID --report
+meridian spawn wait SPAWN_ID
 
 # Continue an existing spawn
 meridian spawn --continue SPAWN_ID -p "Follow up instruction"

@@ -55,7 +55,7 @@ Multi-agent orchestration across Claude, Codex, and OpenCode.
 
 Quick start:
   meridian spawn -m MODEL -p "prompt"   Create a subagent run
-  meridian spawn wait ID --report        Wait for results
+  meridian spawn wait ID                  Wait for results
   meridian models list                   See available models
 
 Run 'meridian spawn -h' for full usage.
@@ -383,13 +383,15 @@ space_app = App(name="space", help="Space lifecycle commands", help_formatter="p
 spawn_app = App(
     name="spawn",
     help=(
-        "Run subagents with a model and prompt. Returns immediately with a spawn_id.\n\n"
+        "Run subagents with a model and prompt. Returns immediately with a spawn_id.\n"
+        "Spawns run in background by default. Auto-creates a space if\n"
+        "MERIDIAN_SPACE_ID is not set. Use --foreground to block."
+    ),
+    help_epilogue=(
         "Examples:\n"
         '  meridian spawn -m gpt-5.3-codex -p "Fix the bug in auth.py"\n'
         '  meridian spawn -m claude-sonnet-4-6 -p "Review" -f src/main.py\n'
-        "  meridian spawn wait SPAWN_ID --report\n\n"
-        "Spawns run in background by default. Auto-creates a space if\n"
-        "MERIDIAN_SPACE_ID is not set. Use --foreground to block."
+        "  meridian spawn wait SPAWN_ID\n"
     ),
     help_formatter="plain",
 )
