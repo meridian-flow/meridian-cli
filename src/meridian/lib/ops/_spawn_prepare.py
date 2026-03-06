@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from meridian.lib.config import load_model_guidance
 from meridian.lib.config.catalog import load_merged_aliases, resolve_model
 from meridian.lib.harness.registry import get_default_harness_registry
 from meridian.lib.launch_resolve import (
@@ -154,13 +153,6 @@ def _validate_create_input(payload: SpawnCreateInput) -> tuple[SpawnCreateInput,
     return payload, model_warning
 
 
-def _load_model_guidance_text(repo_root: Path | None = None) -> str:
-    try:
-        return load_model_guidance(repo_root=repo_root).content
-    except FileNotFoundError:
-        return ""
-
-
 def _build_create_payload(
     payload: SpawnCreateInput,
     *,
@@ -227,16 +219,6 @@ def _build_create_payload(
         space_id=payload.space,
     )
     parsed_template_vars = parse_template_assignments(payload.template_vars)
-
-    # Model guidance is coupled to the run-agent skill (it lives under
-    # run-agent/references/).  Only inject it when run-agent is actually
-    # loaded — keeps trivial prompts small.
-    loaded_skill_names = set(resolved_skills.skill_names)
-    model_guidance = (
-        _load_model_guidance_text(repo_root=runtime_view.repo_root)
-        if "run-agent" in loaded_skill_names
-        else ""
-    )
     # --- Native agent passthrough for Claude ---
     # When the harness supports native agents, skip injecting agent body and
     # skill content into the composed prompt. Instead, pass agent name and
@@ -254,7 +236,6 @@ def _build_create_payload(
         references=loaded_references,
         user_prompt=payload.prompt,
         agent_body="" if native_agents else defaults.agent_body,
-        model_guidance=model_guidance,
         template_variables=parsed_template_vars,
         reference_mode=reference_mode,
     )

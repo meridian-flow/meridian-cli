@@ -612,7 +612,7 @@ def _scaffold_template() -> str:
         "[defaults]",
         "# Maximum agent nesting depth (int).",
         f"# max_depth = {defaults['defaults.max_depth']}",
-        "# Retry attempts per failed run-agent call (int).",
+        "# Retry attempts per failed spawn (int).",
         f"# max_retries = {defaults['defaults.max_retries']}",
         "# Delay multiplier between retries in seconds (float).",
         f"# retry_backoff_seconds = {defaults['defaults.retry_backoff_seconds']}",

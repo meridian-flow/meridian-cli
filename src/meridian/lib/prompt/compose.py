@@ -78,7 +78,6 @@ def compose_run_prompt(
     references: Sequence[ReferenceFile],
     user_prompt: str,
     agent_body: str = "",
-    model_guidance: str = "",
     template_variables: Mapping[str, str | Path] | None = None,
     prior_output: str | None = None,
     reference_mode: Literal["inline", "paths"] = "inline",
@@ -88,11 +87,10 @@ def compose_run_prompt(
     Prompt assembly order:
     1) Skill content
     2) Agent profile body
-    3) Model guidance
-    4) Reference files
-    5) Template variable substitution
-    6) Report path instruction
-    7) User prompt
+    3) Reference files
+    4) Template variable substitution
+    5) Report path instruction
+    6) User prompt
     """
 
     skill_sections = _render_skill_blocks(skills)
@@ -103,15 +101,6 @@ def compose_run_prompt(
     if agent_body_text:
         non_skill_sections.append(
             _render_templated_section(f"# Agent Profile\n\n{agent_body_text}", resolved_variables)
-        )
-
-    model_guidance_text = model_guidance.strip()
-    if model_guidance_text:
-        non_skill_sections.append(
-            _render_templated_section(
-                f"# Model Guidance\n\n{model_guidance_text}",
-                resolved_variables,
-            )
         )
 
     if reference_mode == "paths":
@@ -149,7 +138,6 @@ def compose_run_prompt_text(
     references: Sequence[ReferenceFile],
     user_prompt: str,
     agent_body: str = "",
-    model_guidance: str = "",
     template_variables: Mapping[str, str | Path] | None = None,
     prior_output: str | None = None,
     reference_mode: Literal["inline", "paths"] = "inline",
@@ -161,7 +149,6 @@ def compose_run_prompt_text(
         references=references,
         user_prompt=user_prompt,
         agent_body=agent_body,
-        model_guidance=model_guidance,
         template_variables=template_variables,
         prior_output=prior_output,
         reference_mode=reference_mode,

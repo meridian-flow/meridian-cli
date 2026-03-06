@@ -33,8 +33,11 @@ def test_start_session_creates_start_event_and_lock_file(tmp_path):
         model="gpt-5.3-codex",
         agent="coder",
         agent_path="/tmp/agents/coder.md",
-        skills=("run-agent", "orchestrate"),
-        skill_paths=("/tmp/skills/run-agent/SKILL.md", "/tmp/skills/orchestrate/SKILL.md"),
+        skills=("meridian-spawn-agent", "orchestrate"),
+        skill_paths=(
+            "/tmp/skills/meridian-spawn-agent/SKILL.md",
+            "/tmp/skills/orchestrate/SKILL.md",
+        ),
         params=("--system-prompt", "Be concise."),
     )
 
@@ -52,9 +55,9 @@ def test_start_session_creates_start_event_and_lock_file(tmp_path):
     assert payload["model"] == "gpt-5.3-codex"
     assert payload["agent"] == "coder"
     assert payload["agent_path"] == "/tmp/agents/coder.md"
-    assert payload["skills"] == ["run-agent", "orchestrate"]
+    assert payload["skills"] == ["meridian-spawn-agent", "orchestrate"]
     assert payload["skill_paths"] == [
-        "/tmp/skills/run-agent/SKILL.md",
+        "/tmp/skills/meridian-spawn-agent/SKILL.md",
         "/tmp/skills/orchestrate/SKILL.md",
     ]
     assert payload["params"] == ["--system-prompt", "Be concise."]

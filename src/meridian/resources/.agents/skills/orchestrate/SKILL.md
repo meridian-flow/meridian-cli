@@ -47,7 +47,7 @@ Different models have different strengths. General heuristics:
 - **Strong reasoning models** — good for complex analysis, architecture decisions, nuanced review
 - **Use model diversity for review** — different model families catch different issues
 
-Load model guidance if available (check for model guidance references in your skill configuration). Adapt model choices to what's available in your environment.
+Run `meridian models list` to see available models, including roles and strengths. Adapt model choices to what's available in your environment.
 
 ## Review & Rework
 
@@ -74,8 +74,8 @@ Independent steps can run in parallel using background spawns:
 
 ```bash
 # Launch background spawns (output is JSON with spawn_id field)
-meridian spawn --background -m MODEL -p "Step A"
-meridian spawn --background -m MODEL -p "Step B"
+meridian spawn -m MODEL -p "Step A"
+meridian spawn -m MODEL -p "Step B"
 
 # Wait for them by ID
 meridian spawn wait SPAWN_ID_A SPAWN_ID_B

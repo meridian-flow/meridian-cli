@@ -48,6 +48,8 @@ class ModelsListOutput:
                 m.harness,
                 f"({m.alias})" if m.alias else "",
                 m.role,
+                m.strengths,
+                m.cost_tier,
             ]
             for m in self.models
         ]
