@@ -69,7 +69,7 @@ def resolve_run_defaults(
 
         catalog_entry = resolve_model(resolved_model)
         resolved_model = str(catalog_entry.model_id)
-    except KeyError:
+    except ValueError:
         # Unknown model or ambiguous alias: defer to harness routing validation.
         pass
 

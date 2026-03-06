@@ -33,7 +33,7 @@ def _resolve_harness(
     try:
         resolved = resolve_model(str(model), repo_root=repo_root)
         routed_harness_id = resolved.harness
-    except KeyError:
+    except ValueError:
         decision = route_model(str(model), mode="harness")
         routed_harness_id = decision.harness_id
         warning = decision.warning

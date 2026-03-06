@@ -89,7 +89,10 @@ def test_fetch_from_models_dev_filters_and_maps_models(
         },
     }
 
-    monkeypatch.setattr(discovery.request, "urlopen", lambda *_args, **_kwargs: _FakeResponse(payload))
+    def _urlopen(*_args: object, **_kwargs: object) -> _FakeResponse:
+        return _FakeResponse(payload)
+
+    monkeypatch.setattr(discovery.request, "urlopen", _urlopen)
 
     models = discovery.fetch_from_models_dev()
 

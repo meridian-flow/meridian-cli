@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 import structlog
 
 from meridian.lib.config import load_model_guidance
-from meridian.lib.config.catalog import load_model_catalog, resolve_model
+from meridian.lib.config.catalog import load_merged_aliases, resolve_model
 from meridian.lib.config.routing import route_model
 from meridian.lib.harness.registry import get_default_harness_registry
 from meridian.lib.launch_resolve import (
@@ -86,31 +86,24 @@ def _model_validation_context(
     *,
     repo_root: Path | None,
 ) -> str:
-    catalog = load_model_catalog(repo_root=repo_root)
-    if not catalog:
+    aliases = load_merged_aliases(repo_root=repo_root)
+    if not aliases:
         return ""
 
     available_models = ", ".join(
-        f"{entry.model_id} [{entry.harness}]"
-        for entry in catalog
+        f"{entry.alias} -> {entry.model_id} [{entry.harness}]"
+        for entry in aliases
     )
 
-    alias_to_model: dict[str, str] = {}
     candidates: list[str] = []
-    for entry in catalog:
-        model_id = str(entry.model_id)
-        candidates.append(model_id)
-        for alias in entry.aliases:
-            alias = alias.strip()
-            if not alias:
-                continue
-            candidates.append(alias)
-            alias_to_model.setdefault(alias, model_id)
+    for entry in aliases:
+        candidates.append(entry.alias)
+        candidates.append(str(entry.model_id))
 
     suggestion: str | None = None
     close = get_close_matches(requested_model, candidates, n=1, cutoff=0.5)
     if close:
-        suggestion = alias_to_model.get(close[0], close[0])
+        suggestion = close[0]
     else:
         for candidate in candidates:
             lowered_candidate = candidate.lower()
@@ -118,7 +111,7 @@ def _model_validation_context(
             if lowered_candidate.startswith(lowered_requested) or lowered_requested.startswith(
                 lowered_candidate
             ):
-                suggestion = alias_to_model.get(candidate, candidate)
+                suggestion = candidate
                 break
 
     context_lines = [f"Available models: {available_models}"]
@@ -137,34 +130,31 @@ def _validate_requested_model(
         return "", None
 
     explicit_root = Path(repo_root).expanduser().resolve() if repo_root else None
-    try:
-        return str(resolve_model(normalized, repo_root=explicit_root).model_id), None
-    except KeyError:
-        pass
-
-    validation_context = _model_validation_context(normalized, repo_root=explicit_root)
-
     if _looks_like_alias_identifier(normalized):
-        message = (
-            f"Unknown model alias '{normalized}'. Spawn `meridian models list` to inspect aliases."
-        )
-        if validation_context:
-            message = f"{message}\n{validation_context}"
-        raise ValueError(
-            message
-        )
+        try:
+            resolved = resolve_model(normalized, repo_root=explicit_root)
+        except ValueError:
+            resolved = None
+        if resolved is not None and resolved.alias:
+            return str(resolved.model_id), None
 
     try:
-        routed = route_model(normalized)
+        route_model(normalized)
     except ValueError:
-        message = (
-            f"Unknown model '{normalized}'. Spawn `meridian models list` to inspect supported models."
-        )
+        validation_context = _model_validation_context(normalized, repo_root=explicit_root)
+        if _looks_like_alias_identifier(normalized):
+            message = (
+                f"Unknown model alias '{normalized}'. Spawn `meridian models list` to inspect aliases."
+            )
+        else:
+            message = (
+                f"Unknown model '{normalized}'. Spawn `meridian models list` to inspect supported models."
+            )
         if validation_context:
             message = f"{message}\n{validation_context}"
         raise ValueError(message) from None
 
-    return normalized, f"Model '{normalized}' is not in catalog. Routing to '{routed.harness_id}'."
+    return normalized, None
 
 
 def _validate_create_input(payload: SpawnCreateInput) -> tuple[SpawnCreateInput, str | None]:

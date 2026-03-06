@@ -388,7 +388,7 @@ def _normalize_model_identifier(model: str, *, repo_root: Path) -> str:
         from meridian.lib.config.catalog import resolve_model
 
         return str(resolve_model(normalized, repo_root=repo_root).model_id)
-    except KeyError:
+    except ValueError:
         # Unknown model IDs are allowed here and validated during launch.
         return normalized
 

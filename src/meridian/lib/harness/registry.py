@@ -55,12 +55,8 @@ class HarnessRegistry:
         if mode == "harness":
             from meridian.lib.config.catalog import resolve_model
 
-            try:
-                resolved = resolve_model(model, repo_root=repo_root)
-            except KeyError:
-                pass
-            else:
-                return self.get(resolved.harness), None
+            resolved = resolve_model(model, repo_root=repo_root)
+            return self.get(resolved.harness), None
 
         decision = route_model(model=model, mode=mode)
         return self.get(decision.harness_id), decision.warning
