@@ -1,39 +1,19 @@
-# Built-in model aliases. Users override in .meridian/models.toml.
+# Built-in model aliases. Users can add more in .meridian/models.toml.
+#
+# Example user alias:
+#   [aliases]
+#   fast = "claude-sonnet-4-6"
 
 [aliases]
 opus = "claude-opus-4-6"
-sonnet = "claude-sonnet-4-6"
-haiku = "claude-haiku-4-5"
 codex = "gpt-5.3-codex"
-gpt52h = "gpt-5.2-high"
-gemini = "gemini-3.1-pro"
 
 [metadata.opus]
 role = "Default / all-rounder"
 strengths = "Best primary agent brain"
 cost_tier = "$$$"
 
-[metadata.sonnet]
-role = "Fast generalist"
-strengths = "UI iteration and fast implementation"
-cost_tier = "$$"
-
-[metadata.haiku]
-role = "Quick transforms"
-strengths = "Commit messages and quick transforms"
-cost_tier = "$"
-
 [metadata.codex]
 role = "Executor / correctness"
 strengths = "Repo implementation and correctness passes"
 cost_tier = "$"
-
-[metadata.gpt52h]
-role = "Escalation solver"
-strengths = "Strong generalist reasoning plus coding"
-cost_tier = "$$"
-
-[metadata.gemini]
-role = "Researcher / multimodal"
-strengths = "Knowledge breadth and multimodal tasks"
-cost_tier = "$$"
