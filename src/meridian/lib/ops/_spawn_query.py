@@ -91,7 +91,7 @@ def resolve_spawn_references(
     )
 
 
-def _read_spawn_row(
+def read_spawn_row(
     repo_root: Path,
     spawn_id: str,
     space: str | None = None,
@@ -235,7 +235,7 @@ def _read_files_touched(
     return extract_files_touched(artifacts, SpawnId(spawn_id))
 
 
-def _detail_from_row(
+def detail_from_row(
     *,
     repo_root: Path,
     row: spawn_store.SpawnRecord,

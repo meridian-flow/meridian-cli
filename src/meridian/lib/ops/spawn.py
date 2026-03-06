@@ -53,8 +53,8 @@ from ._spawn_models import (
 )
 from ._spawn_prepare import _build_create_payload, _validate_create_input
 from ._spawn_query import (
-    _detail_from_row,
-    _read_spawn_row,
+    detail_from_row,
+    read_spawn_row,
     resolve_spawn_reference,
     resolve_spawn_references,
 )
@@ -327,10 +327,10 @@ def spawn_show_sync(
         space_id=_context_space_id(str(runtime_context.space_id or "")),
     )
     spawn_id = resolve_spawn_reference(repo_root, payload.spawn_id, resolved_space)
-    row = _read_spawn_row(repo_root, spawn_id, resolved_space)
+    row = read_spawn_row(repo_root, spawn_id, resolved_space)
     if row is None:
         raise ValueError(f"Spawn '{spawn_id}' not found")
-    return _detail_from_row(
+    return detail_from_row(
         repo_root=repo_root,
         row=row,
         report=payload.report,
@@ -380,7 +380,7 @@ def spawn_cancel_sync(
         resolved_space,
         space_id=_context_space_id(str(runtime_context.space_id or "")),
     )
-    row = _read_spawn_row(repo_root, spawn_id, current_space_id)
+    row = read_spawn_row(repo_root, spawn_id, current_space_id)
     if row is None:
         raise ValueError(f"Spawn '{spawn_id}' not found")
 
@@ -542,7 +542,7 @@ def spawn_wait_sync(
 
     while True:
         for spawn_id in tuple(pending):
-            row = _read_spawn_row(repo_root, spawn_id, resolved_space)
+            row = read_spawn_row(repo_root, spawn_id, resolved_space)
             if row is None:
                 raise ValueError(f"Spawn '{spawn_id}' not found")
 
@@ -552,7 +552,7 @@ def spawn_wait_sync(
 
         if not pending:
             details = tuple(
-                _detail_from_row(
+                detail_from_row(
                     repo_root=repo_root,
                     row=completed_rows[spawn_id],
                     report=payload.report,
@@ -597,7 +597,7 @@ def _source_spawn_for_follow_up(
 ) -> tuple[str, spawn_store.SpawnRecord]:
     resolved_space = _non_empty_space(space, space_id=context_space_id)
     resolved_spawn_id = resolve_spawn_reference(repo_root, payload_spawn_id, resolved_space)
-    row = _read_spawn_row(repo_root, resolved_spawn_id, resolved_space)
+    row = read_spawn_row(repo_root, resolved_spawn_id, resolved_space)
     if row is None:
         raise ValueError(f"Spawn '{resolved_spawn_id}' not found")
     return resolved_spawn_id, row

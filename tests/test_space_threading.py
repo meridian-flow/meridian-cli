@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 
-from meridian.lib.ops._spawn_query import _read_spawn_row
 from meridian.lib.ops._runtime import SPACE_REQUIRED_ERROR, require_space_id
 from meridian.lib.ops.spawn import (
     SpawnCreateInput,
@@ -67,4 +66,3 @@ def test_run_list_sync_uses_payload_space_without_env(
     assert len(result.spawns) == 1
     assert result.spawns[0].spawn_id == first_run
     assert result.spawns[0].space_id == first.id
-

@@ -51,7 +51,7 @@ from meridian.lib.state.paths import resolve_spawn_log_dir, resolve_space_dir
 from meridian.lib.types import ModelId, SpawnId, SpaceId
 
 from ._spawn_models import SpawnActionOutput, SpawnCreateInput
-from ._spawn_query import _read_spawn_row
+from ._spawn_query import read_spawn_row
 
 _BACKGROUND_TASKS: set[asyncio.Task[None]] = set()
 logger = structlog.get_logger(__name__)
@@ -745,7 +745,7 @@ def _execute_spawn_blocking(
             )
         )
     duration = time.monotonic() - started
-    row = _read_spawn_row(runtime.repo_root, str(spawn.spawn_id), space=space_id_str)
+    row = read_spawn_row(runtime.repo_root, str(spawn.spawn_id), space=space_id_str)
     status = "failed"
     if row is not None:
         status = row.status

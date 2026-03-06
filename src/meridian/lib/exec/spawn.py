@@ -634,9 +634,7 @@ async def execute_with_finalization(
             if exit_code == 0 and _spawn_kind(space_dir, run.spawn_id) == "child":
                 if extracted.report.content is None:
                     # Child spawns must produce a report directly or via fallback extraction.
-                    exit_code = 1
                     failure_reason = "missing_report"
-                    break
 
             if extracted.output_is_empty:
                 if exit_code == 0:

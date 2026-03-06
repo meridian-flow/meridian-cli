@@ -223,18 +223,18 @@ class SpawnDetailOutput:
         duration_value: str | None
         if self.duration_secs is None:
             duration_value = None
-        elif isinstance(self.duration_secs, int | float):
-            duration_value = f"{self.duration_secs:.1f}s"
         else:
-            duration_value = str(self.duration_secs)
+            duration_value = f"{self.duration_secs:.1f}s"
 
         cost_value: str | None
         if self.cost_usd is None:
             cost_value = None
-        elif isinstance(self.cost_usd, int | float):
-            cost_value = f"${self.cost_usd:.4f}"
         else:
-            cost_value = str(self.cost_usd)
+            cost_value = f"${self.cost_usd:.4f}"
+
+        failure_label: str | None = None
+        if self.failure_reason is not None:
+            failure_label = "Warning" if self.status == "succeeded" else "Failure"
 
         pairs: list[tuple[str, str | None]] = [
             ("Spawn", self.spawn_id),
@@ -242,7 +242,7 @@ class SpawnDetailOutput:
             ("Model", f"{self.model} ({self.harness})"),
             ("Duration", duration_value),
             ("Space", self.space_id),
-            ("Failure", self.failure_reason),
+            (failure_label or "Failure", self.failure_reason),
             ("Cost", cost_value),
             ("Report", self.report_path),
             ("Last message", self.last_message),
