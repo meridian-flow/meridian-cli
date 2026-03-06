@@ -53,6 +53,7 @@ class SpawnActionOutput:
     reference_files: tuple[str, ...] = ()
     template_vars: dict[str, str] = field(default_factory=_empty_template_vars)
     report_path: str | None = None
+    report: str | None = None
     composed_prompt: str | None = None
     cli_command: tuple[str, ...] = ()
     exit_code: int | None = None
