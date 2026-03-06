@@ -51,13 +51,20 @@ logger = logging.getLogger(__name__)
 
 _AGENT_ROOT_HELP = """Usage: meridian COMMAND [ARGS]
 
-Meridian orchestrator CLI
+Multi-agent orchestration across Claude, Codex, and OpenCode.
+
+Quick start:
+  meridian spawn -m MODEL -p "prompt"   Create a subagent run
+  meridian spawn wait ID --report        Wait for results
+  meridian models list                   See available models
+
+Run 'meridian spawn -h' for full usage.
 
 Commands:
-  spawn: Spawn and manage subagents
-  report: Manage spawn reports
-  models: Model catalog commands
-  skills: Skills catalog commands
+  spawn   Create and manage subagent runs
+  report  Manage spawn reports
+  models  Model catalog
+  skills  Skills catalog
 """
 
 
@@ -235,7 +242,10 @@ def _agent_sink_enabled(*, output_explicit: bool) -> bool:
 
 app = App(
     name="meridian",
-    help="Meridian orchestrator CLI",
+    help=(
+        "Multi-agent orchestration across Claude, Codex, and OpenCode.\n\n"
+        'Run "meridian spawn -h" for subagent usage.'
+    ),
     version=__version__,
     help_formatter="plain",
 )
@@ -370,7 +380,19 @@ def serve() -> None:
 
 
 space_app = App(name="space", help="Space lifecycle commands", help_formatter="plain")
-spawn_app = App(name="spawn", help="Spawn management commands", help_formatter="plain")
+spawn_app = App(
+    name="spawn",
+    help=(
+        "Run subagents with a model and prompt. Returns immediately with a spawn_id.\n\n"
+        "Examples:\n"
+        '  meridian spawn -m gpt-5.3-codex -p "Fix the bug in auth.py"\n'
+        '  meridian spawn -m claude-sonnet-4-6 -p "Review" -f src/main.py\n'
+        "  meridian spawn wait SPAWN_ID --report\n\n"
+        "Spawns run in background by default. Auto-creates a space if\n"
+        "MERIDIAN_SPACE_ID is not set. Use --foreground to block."
+    ),
+    help_formatter="plain",
+)
 report_app = App(name="report", help="Report management commands", help_formatter="plain")
 skills_app = App(name="skills", help="Skills catalog commands", help_formatter="plain")
 models_app = App(name="models", help="Model catalog commands", help_formatter="plain")
