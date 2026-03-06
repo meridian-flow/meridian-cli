@@ -294,11 +294,24 @@ def root(
     ] = None,
     permission_tier: Annotated[
         str | None,
-        Parameter(name="--permission", help="Permission tier for harness execution."),
+        Parameter(
+            name="--permission",
+            help="Tool access tier: read-only, workspace-write, or full-access.",
+        ),
     ] = None,
-    unsafe: Annotated[
+    approval: Annotated[
+        Literal["confirm", "auto"],
+        Parameter(
+            name="--approval",
+            help="Approval mode: confirm (ask before acting) or auto (auto-approve all).",
+        ),
+    ] = "confirm",
+    yolo: Annotated[
         bool,
-        Parameter(name="--unsafe", help="Allow unsafe execution mode."),
+        Parameter(
+            name="--yolo",
+            help="Shortcut for --permission full-access --approval auto.",
+        ),
     ] = False,
     autocompact: Annotated[
         int | None,
@@ -341,7 +354,8 @@ def root(
         harness=harness,
         agent=agent,
         permission_tier=permission_tier,
-        unsafe=unsafe,
+        approval=approval,
+        yolo=yolo,
         autocompact=autocompact,
         dry_run=dry_run,
         harness_args=harness_args,
@@ -458,7 +472,8 @@ def _run_primary_launch(
     harness: str | None,
     agent: str | None,
     permission_tier: str | None,
-    unsafe: bool,
+    approval: str,
+    yolo: bool,
     autocompact: int | None,
     dry_run: bool,
     harness_args: tuple[str, ...],
@@ -469,6 +484,11 @@ def _run_primary_launch(
     explicit_space = space.strip() if space is not None and space.strip() else None
     normalized_continue_ref = continue_ref.strip() if continue_ref is not None else ""
     resume_target = normalized_continue_ref if normalized_continue_ref else None
+    resolved_permission_tier = permission_tier
+    resolved_approval = approval
+    if yolo:
+        resolved_permission_tier = "full-access"
+        resolved_approval = "auto"
 
     selected: space_file.SpaceRecord
     continue_harness_session_id: str | None = None
@@ -517,8 +537,8 @@ def _run_primary_launch(
             fresh=fresh,
             pinned_context="",
             dry_run=dry_run,
-            permission_tier=permission_tier,
-            unsafe=unsafe,
+            permission_tier=resolved_permission_tier,
+            approval=resolved_approval,
             continue_harness_session_id=continue_harness_session_id,
         ),
         harness_registry=get_default_harness_registry(),
@@ -737,6 +757,7 @@ _TOP_LEVEL_VALUE_FLAGS = frozenset(
         "--agent",
         "-a",
         "--permission",
+        "--approval",
         "--autocompact",
         "--harness-arg",
     }
@@ -755,8 +776,8 @@ _TOP_LEVEL_BOOL_FLAGS = frozenset(
         "--human",
         "--new",
         "--no-new",
-        "--unsafe",
-        "--no-unsafe",
+        "--yolo",
+        "--no-yolo",
         "--dry-run",
         "--no-dry-run",
     }

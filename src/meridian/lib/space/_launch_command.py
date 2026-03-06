@@ -37,7 +37,7 @@ from meridian.lib.safety.permissions import (
 from meridian.lib.space._launch_resolve import _resolve_harness
 from meridian.lib.space._launch_types import SpaceLaunchRequest
 from meridian.lib.state.paths import resolve_state_paths
-from meridian.lib.types import HarnessId, ModelId
+from meridian.lib.types import ModelId
 
 logger = logging.getLogger(__name__)
 
@@ -188,7 +188,7 @@ def _build_harness_context(
     resolved_tier = permission_tier_override or inferred_tier
     permission_config = build_permission_config(
         resolved_tier,
-        unsafe=request.unsafe,
+        approval=request.approval,
         default_tier=primary_default_tier,
     )
     resolver = build_permission_resolver(

@@ -30,7 +30,7 @@ class SpaceStartInput:
     dry_run: bool = False
     repo_root: str | None = None
     permission_tier: str | None = None
-    unsafe: bool = False
+    approval: str = "confirm"
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,7 +43,7 @@ class SpaceResumeInput:
     harness_args: tuple[str, ...] = ()
     repo_root: str | None = None
     permission_tier: str | None = None
-    unsafe: bool = False
+    approval: str = "confirm"
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,7 +156,7 @@ def space_start_sync(payload: SpaceStartInput) -> SpaceActionOutput:
             pinned_context="",
             dry_run=payload.dry_run,
             permission_tier=payload.permission_tier,
-            unsafe=payload.unsafe,
+            approval=payload.approval,
         ),
         harness_registry=runtime.harness_registry,
     )
@@ -201,7 +201,7 @@ def space_resume_sync(payload: SpaceResumeInput) -> SpaceActionOutput:
             fresh=payload.fresh,
             pinned_context="",
             permission_tier=payload.permission_tier,
-            unsafe=payload.unsafe,
+            approval=payload.approval,
         ),
         harness_registry=runtime.harness_registry,
     )

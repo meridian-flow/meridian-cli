@@ -113,7 +113,10 @@ def _spawn_create(
     ] = None,
     permission_tier: Annotated[
         str | None,
-        Parameter(name="--permission", help="Permission tier for harness execution."),
+        Parameter(
+            name="--permission",
+            help="Tool access tier: read-only, workspace-write, or full-access.",
+        ),
     ] = None,
     continue_from: Annotated[
         str | None,

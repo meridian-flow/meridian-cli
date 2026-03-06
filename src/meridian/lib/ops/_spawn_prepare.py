@@ -335,7 +335,7 @@ def _build_create_payload(
         )
     permission_config = build_permission_config(
         payload.permission_tier or inferred_tier,
-        unsafe=False,
+        approval="confirm",
         default_tier=runtime_view.config.default_permission_tier,
     )
     warning = merge_warnings(

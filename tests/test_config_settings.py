@@ -88,7 +88,7 @@ def test_load_config_rejects_danger_default_tier(tmp_path: Path) -> None:
         "default_tier = 'danger'\n",
     )
 
-    with pytest.raises(ValueError, match="default_permission_tier"):
+    with pytest.raises(ValueError, match="Unsupported permission tier 'danger'"):
         load_config(repo_root)
 
 def test_load_config_rejects_danger_primary_permission_tier(tmp_path: Path) -> None:
@@ -99,7 +99,7 @@ def test_load_config_rejects_danger_primary_permission_tier(tmp_path: Path) -> N
         "permission_tier = 'danger'\n",
     )
 
-    with pytest.raises(ValueError, match=r"primary\.permission_tier"):
+    with pytest.raises(ValueError, match="Unsupported permission tier 'danger'"):
         load_config(repo_root)
 
 def test_load_config_rejects_type_errors(

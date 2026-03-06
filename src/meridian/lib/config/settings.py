@@ -156,9 +156,18 @@ _OUTPUT_VERBOSITY_PRESETS = frozenset({"quiet", "normal", "verbose", "debug"})
 _SEARCH_PATH_KEYS = frozenset({"agents", "skills", "global_agents", "global_skills"})
 _PRIMARY_KEYS = frozenset({"autocompact_pct", "permission_tier"})
 _HARNESS_KEYS = frozenset({"claude", "codex", "opencode"})
+_PERMISSION_TIERS = ("read-only", "workspace-write", "full-access")
 _PRIMARY_AUTOCOMPACT_PCT_MIN = 1
 _PRIMARY_AUTOCOMPACT_PCT_MAX = 100
 _USER_CONFIG_ENV_VAR = "MERIDIAN_CONFIG"
+
+
+def _validate_permission_tier(raw: str) -> None:
+    normalized = raw.strip().lower()
+    if normalized in _PERMISSION_TIERS:
+        return
+    allowed = ", ".join(_PERMISSION_TIERS)
+    raise ValueError(f"Unsupported permission tier '{raw}'. Expected: {allowed}.")
 
 
 def _expected_type_name(field_name: str) -> str:
@@ -362,11 +371,7 @@ def _coerce_primary_config(
             raise ValueError(
                 f"Invalid value for '{source}.permission_tier': expected non-empty string."
             )
-        if normalized.lower() == "danger":
-            raise ValueError(
-                f"Invalid value for '{source}.permission_tier': 'danger' is not allowed in "
-                "config."
-            )
+        _validate_permission_tier(normalized)
         permission_tier = normalized
 
     return PrimaryConfig(
@@ -588,8 +593,8 @@ def _build_config(values: dict[str, object]) -> MeridianConfig:
         output=cast("OutputConfig", values["output"]),
         search_paths=cast("SearchPathConfig", values["search_paths"]),
     )
-    if config.default_permission_tier.strip().lower() == "danger":
-        raise ValueError("Invalid default_permission_tier: 'danger' is not allowed in config.")
+    _validate_permission_tier(config.default_permission_tier)
+    _validate_permission_tier(config.primary.permission_tier)
     return config
 
 

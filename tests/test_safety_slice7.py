@@ -91,15 +91,19 @@ def _write_script(path: Path, source: str, *, executable: bool = False) -> None:
         mode = path.stat().st_mode
         path.chmod(mode | stat.S_IXUSR)
 
-def test_danger_permission_requires_unsafe() -> None:
-    with pytest.raises(ValueError, match="requires explicit --unsafe"):
-        build_permission_config("danger", unsafe=False)
-
-    config = build_permission_config("danger", unsafe=True)
-    assert config.tier is PermissionTier.DANGER
+def test_auto_approval_bypass_and_invalid_approval() -> None:
+    config = build_permission_config("full-access", approval="auto")
+    assert config.tier is PermissionTier.FULL_ACCESS
+    assert config.approval == "auto"
     assert permission_flags_for_harness(HarnessId("claude"), config) == [
         "--dangerously-skip-permissions"
     ]
+    assert permission_flags_for_harness(HarnessId("codex"), config) == [
+        "--dangerously-bypass-approvals-and-sandbox"
+    ]
+
+    with pytest.raises(ValueError, match="Unsupported approval mode"):
+        build_permission_config("full-access", approval="sometimes")
 
 @pytest.mark.asyncio
 

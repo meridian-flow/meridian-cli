@@ -20,6 +20,7 @@ from meridian.lib.config.settings import (
     load_config,
 )
 from meridian.lib.ops.registry import OperationSpec, operation
+from meridian.lib.safety.permissions import parse_permission_tier
 from meridian.lib.serialization import to_jsonable
 from meridian.lib.state.paths import resolve_state_paths
 
@@ -406,8 +407,8 @@ def _parse_toml_value(spec: _ConfigKeySpec, raw_value: object, source: str) -> o
             )
         return lowered
 
-    if spec.canonical_key == "permissions.default_tier" and normalized.lower() == "danger":
-        raise ValueError("Invalid default_permission_tier: 'danger' is not allowed in config.")
+    if spec.canonical_key == "permissions.default_tier":
+        parse_permission_tier(normalized)
 
     return normalized
 
@@ -472,8 +473,8 @@ def _parse_cli_value(spec: _ConfigKeySpec, raw_value: str) -> object:
             )
         return lowered
 
-    if spec.canonical_key == "permissions.default_tier" and normalized.lower() == "danger":
-        raise ValueError("Invalid default_permission_tier: 'danger' is not allowed in config.")
+    if spec.canonical_key == "permissions.default_tier":
+        parse_permission_tier(normalized)
 
     return normalized
 
@@ -638,7 +639,7 @@ def _scaffold_template() -> str:
         "# -- Permission defaults ----------------------------------------------------",
         "[permissions]",
         "# Default permission tier for non-primary sessions (str; valid: read-only,",
-        "# workspace-write, full-access; 'danger' is not allowed in config).",
+        "# workspace-write, full-access).",
         f"# default_tier = {_toml_literal(cast('str', defaults['permissions.default_tier']))}",
         "",
         "# -- Harness default models ------------------------------------------------",
@@ -655,7 +656,7 @@ def _scaffold_template() -> str:
         "# Context compaction threshold for the primary agent (int 1-100).",
         f"# autocompact_pct = {primary_defaults.autocompact_pct}",
         "# Permission tier for primary sessions (str; valid: read-only,",
-        "# workspace-write, full-access; 'danger' is not allowed in config).",
+        "# workspace-write, full-access).",
         f"# permission_tier = {_toml_literal(primary_defaults.permission_tier)}",
         "",
         "# -- Output streaming -------------------------------------------------------",
@@ -665,7 +666,7 @@ def _scaffold_template() -> str:
         "# Output verbosity preset (str; valid: quiet, normal, verbose, debug).",
         (
             "# verbosity = "
-            f"{_toml_literal(cast('str', output_verbosity))}"
+            f"{_toml_literal(output_verbosity)}"
             if isinstance(output_verbosity, str)
             else "# verbosity = \"normal\"  # example override; default is unset"
         ),

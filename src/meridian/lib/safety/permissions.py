@@ -27,18 +27,14 @@ class PermissionTier(StrEnum):
     READ_ONLY = "read-only"
     WORKSPACE_WRITE = "workspace-write"
     FULL_ACCESS = "full-access"
-    DANGER = "danger"
 
 
 _TIER_RANKS = {
     "read-only": 0,
     "workspace-write": 1,
     "full-access": 2,
-    "danger": 3,
 }
-_OPENCODE_DANGER_FALLBACK_WARNING = (
-    "OpenCode has no danger-bypass flag; DANGER falls back to FULL_ACCESS."
-)
+_APPROVAL_MODES = frozenset({"confirm", "auto"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,7 +42,7 @@ class PermissionConfig:
     """Resolved permission configuration for one run."""
 
     tier: PermissionTier = PermissionTier.READ_ONLY
-    unsafe: bool = False
+    approval: str = "confirm"
 
 
 def parse_permission_tier(
@@ -98,6 +94,14 @@ def _parse_permission_tier_value(raw: str | PermissionTier) -> PermissionTier:
     raise ValueError(f"Unsupported permission tier '{raw}'. Expected: {allowed}.")
 
 
+def _parse_approval_value(raw: str) -> str:
+    normalized = raw.strip().lower()
+    if normalized in _APPROVAL_MODES:
+        return normalized
+    allowed = ", ".join(sorted(_APPROVAL_MODES))
+    raise ValueError(f"Unsupported approval mode '{raw}'. Expected: {allowed}.")
+
+
 def warn_profile_tier_escalation(
     *,
     profile: AgentProfile | None,
@@ -124,20 +128,15 @@ def warn_profile_tier_escalation(
 def build_permission_config(
     tier: str | PermissionTier | None,
     *,
-    unsafe: bool,
+    approval: str = "confirm",
     default_tier: str | PermissionTier = PermissionTier.READ_ONLY,
 ) -> PermissionConfig:
     """Build and validate a permission configuration."""
 
-    resolved = PermissionConfig(
+    return PermissionConfig(
         tier=parse_permission_tier(tier, default_tier=default_tier),
-        unsafe=unsafe,
+        approval=_parse_approval_value(approval),
     )
-    if resolved.tier is PermissionTier.DANGER and not resolved.unsafe:
-        raise ValueError(
-            "Permission tier 'danger' requires explicit --unsafe confirmation."
-        )
-    return resolved
 
 
 def validate_permission_config_for_harness(
@@ -147,14 +146,8 @@ def validate_permission_config_for_harness(
 ) -> str | None:
     """Validate one permission config against harness-specific capability limits."""
 
-    if harness_id == HarnessId("opencode") and config.tier is PermissionTier.DANGER:
-        logger.warning(
-            _OPENCODE_DANGER_FALLBACK_WARNING,
-            harness_id=str(harness_id),
-            requested_tier=config.tier.value,
-            effective_tier=PermissionTier.FULL_ACCESS.value,
-        )
-        return _OPENCODE_DANGER_FALLBACK_WARNING
+    _ = harness_id
+    _ = config
     return None
 
 
@@ -184,7 +177,9 @@ def _claude_allowed_tools(tier: PermissionTier) -> tuple[str, ...]:
         return read_only
     if tier is PermissionTier.WORKSPACE_WRITE:
         return workspace_write
-    return full_access
+    if tier is PermissionTier.FULL_ACCESS:
+        return full_access
+    raise ValueError(f"Unsupported Claude permission tier: {tier!r}")
 
 
 def opencode_permission_json(tier: PermissionTier) -> str:
@@ -210,9 +205,6 @@ def opencode_permission_json(tier: PermissionTier) -> str:
         }
     elif tier is PermissionTier.FULL_ACCESS:
         permissions = {"*": "allow"}
-    elif tier is PermissionTier.DANGER:
-        logger.warning(_OPENCODE_DANGER_FALLBACK_WARNING, tier=tier.value)
-        permissions = {"*": "allow"}
     else:  # pragma: no cover - enum exhaustive guard
         raise ValueError(f"Unsupported OpenCode permission tier: {tier!r}")
 
@@ -226,15 +218,12 @@ def permission_flags_for_harness(
     """Translate one tier into harness-specific CLI flags."""
 
     tier = config.tier
-    if tier is PermissionTier.DANGER:
-        if not config.unsafe:
-            raise ValueError("Danger tier requested without --unsafe.")
+    if config.approval == "auto":
         if harness_id == HarnessId("claude"):
             return ["--dangerously-skip-permissions"]
         if harness_id == HarnessId("codex"):
             return ["--dangerously-bypass-approvals-and-sandbox"]
         # OpenCode currently has no equivalent global bypass flag.
-        return []
 
     if harness_id == HarnessId("claude"):
         return ["--allowedTools", ",".join(_claude_allowed_tools(tier))]
@@ -244,7 +233,9 @@ def permission_flags_for_harness(
             return ["--sandbox", "read-only"]
         if tier is PermissionTier.WORKSPACE_WRITE:
             return ["--sandbox", "workspace-write"]
-        return ["--sandbox", "danger-full-access"]
+        if tier is PermissionTier.FULL_ACCESS:
+            return ["--sandbox", "danger-full-access"]
+        raise ValueError(f"Unsupported Codex permission tier: {tier!r}")
 
     # OpenCode permission controls vary by backend provider; keep default behavior for
     # safe tiers until a stable CLI surface is available.

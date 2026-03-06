@@ -9,7 +9,6 @@ from pathlib import Path
 
 import pytest
 
-import meridian.lib.safety.permissions as permissions_module
 from meridian.lib.domain import Spawn, TokenUsage
 from meridian.lib.exec.spawn import execute_with_finalization
 from meridian.lib.harness.adapter import (
@@ -30,7 +29,6 @@ from meridian.lib.safety.permissions import (
     PermissionTier,
     TieredPermissionResolver,
     opencode_permission_json,
-    validate_permission_config_for_harness,
 )
 from meridian.lib.space.space_file import create_space
 from meridian.lib.state.artifact_store import LocalStore, make_artifact_key
@@ -92,7 +90,6 @@ class _EnvOverrideHarness:
             },
         ),
         (PermissionTier.FULL_ACCESS, {"*": "allow"}),
-        (PermissionTier.DANGER, {"*": "allow"}),
     ),
 )
 def test_opencode_permission_json_matches_expected_mappings(
@@ -101,55 +98,8 @@ def test_opencode_permission_json_matches_expected_mappings(
 ) -> None:
     assert json.loads(opencode_permission_json(tier)) == expected
 
-def test_opencode_permission_json_warns_when_danger_equals_full_access(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    warnings: list[dict[str, object]] = []
-
-    def _warning(message: str, **kwargs: object) -> None:
-        warnings.append({"message": message, "kwargs": kwargs})
-
-    monkeypatch.setattr(permissions_module.logger, "warning", _warning)
-
-    payload = json.loads(opencode_permission_json(PermissionTier.DANGER))
-    assert payload == {"*": "allow"}
-    assert warnings == [
-        {
-            "message": "OpenCode has no danger-bypass flag; DANGER falls back to FULL_ACCESS.",
-            "kwargs": {"tier": "danger"},
-        }
-    ]
-
-def test_validate_permission_config_for_harness_warns_on_opencode_danger(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    warnings: list[dict[str, object]] = []
-
-    def _warning(message: str, **kwargs: object) -> None:
-        warnings.append({"message": message, "kwargs": kwargs})
-
-    monkeypatch.setattr(permissions_module.logger, "warning", _warning)
-
-    config = PermissionConfig(tier=PermissionTier.DANGER, unsafe=True)
-    warning = validate_permission_config_for_harness(
-        harness_id=HarnessId("opencode"),
-        config=config,
-    )
-
-    assert warning == "OpenCode has no danger-bypass flag; DANGER falls back to FULL_ACCESS."
-    assert warnings == [
-        {
-            "message": "OpenCode has no danger-bypass flag; DANGER falls back to FULL_ACCESS.",
-            "kwargs": {
-                "harness_id": "opencode",
-                "requested_tier": "danger",
-                "effective_tier": "full-access",
-            },
-        }
-    ]
-
 def test_standard_harnesses_only_opencode_sets_env_overrides() -> None:
-    config = PermissionConfig(tier=PermissionTier.WORKSPACE_WRITE, unsafe=False)
+    config = PermissionConfig(tier=PermissionTier.WORKSPACE_WRITE, approval="confirm")
 
     assert ClaudeAdapter().env_overrides(config) == {}
     assert CodexAdapter().env_overrides(config) == {}

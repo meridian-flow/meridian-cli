@@ -926,7 +926,7 @@ def _background_worker_main(
 
     permission_config = PermissionConfig(
         tier=parse_permission_tier(parsed.permission_tier),
-        unsafe=False,
+        approval="confirm",
     )
     allowed_tools = tuple(str(item) for item in parsed.allowed_tool)
     return asyncio.run(
