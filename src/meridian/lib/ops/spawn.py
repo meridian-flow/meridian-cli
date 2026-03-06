@@ -58,14 +58,9 @@ from ._spawn_query import (
     resolve_spawn_reference,
     resolve_spawn_references,
 )
+from ._utils import minutes_to_seconds
 
 _WAIT_HEARTBEAT_INTERVAL_SECS = 5.0
-
-
-def _minutes_to_seconds(timeout_minutes: float | None) -> float | None:
-    if timeout_minutes is None:
-        return None
-    return timeout_minutes * 60.0
 
 
 def _runtime_context(ctx: RuntimeContext | None) -> RuntimeContext:
@@ -518,7 +513,7 @@ def spawn_wait_sync(
     timeout_minutes = (
         payload.timeout if payload.timeout is not None else config.wait_timeout_minutes
     )
-    timeout_seconds = _minutes_to_seconds(timeout_minutes) or 0.0
+    timeout_seconds = minutes_to_seconds(timeout_minutes) or 0.0
     started = time.monotonic()
     deadline = started + max(timeout_seconds, 0.0)
     poll = (

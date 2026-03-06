@@ -130,7 +130,6 @@ def emit(payload: object) -> None:
 
 def _extract_global_options(argv: Sequence[str]) -> tuple[list[str], GlobalOptions]:
     json_mode = False
-    porcelain_mode = False
     output_format: str | None = None
     config_file: str | None = None
     yes = False
@@ -147,15 +146,6 @@ def _extract_global_options(argv: Sequence[str]) -> tuple[list[str], GlobalOptio
             i += 1
             continue
         if arg == "--no-json":
-            output_explicit = True
-            i += 1
-            continue
-        if arg == "--porcelain":
-            porcelain_mode = True
-            output_explicit = True
-            i += 1
-            continue
-        if arg == "--no-porcelain":
             output_explicit = True
             i += 1
             continue
@@ -206,7 +196,6 @@ def _extract_global_options(argv: Sequence[str]) -> tuple[list[str], GlobalOptio
     resolved = normalize_output_format(
         requested=output_format,
         json_mode=json_mode,
-        porcelain_mode=porcelain_mode,
     )
     return cleaned, GlobalOptions(
         output=OutputConfig(format=resolved),
@@ -261,20 +250,12 @@ def root(
     ] = False,
     output_format: Annotated[
         str | None,
-        Parameter(name="--format", help="Set output format: text, json, or porcelain."),
+        Parameter(name="--format", help="Set output format: text or json."),
     ] = None,
     config_file: Annotated[
         str | None,
         Parameter(name="--config", help="Path to a user config TOML overlay."),
     ] = None,
-    porcelain: Annotated[
-        bool,
-        Parameter(
-            name="--porcelain",
-            help="Emit stable tab-separated key/value output.",
-            show=False,
-        ),
-    ] = False,
     yes: Annotated[
         bool,
         Parameter(name="--yes", help="Auto-approve prompts when supported.", show=False),
@@ -342,7 +323,6 @@ def root(
         resolved = normalize_output_format(
             requested=output_format,
             json_mode=json_mode,
-            porcelain_mode=porcelain,
         )
         _GLOBAL_OPTIONS.set(
             GlobalOptions(
@@ -768,8 +748,6 @@ _TOP_LEVEL_BOOL_FLAGS = frozenset(
         "--version",
         "--json",
         "--no-json",
-        "--porcelain",
-        "--no-porcelain",
         "--yes",
         "--no-yes",
         "--no-input",
@@ -845,9 +823,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     args = list(sys.argv[1:] if argv is None else argv)
 
     # Configure logging early so structlog warnings go to stderr, not stdout.
-    # Check if structured output is requested — only JSON format suppresses
-    # human-readable log formatting.  "--format text" or "--format porcelain"
-    # should NOT switch logging to JSON mode.
+    # Check if structured output is requested. Only JSON format suppresses
+    # human-readable log formatting; "--format text" should not switch logging
+    # to JSON mode.
     json_mode = "--json" in args
     if not json_mode and "--format" in args:
         try:

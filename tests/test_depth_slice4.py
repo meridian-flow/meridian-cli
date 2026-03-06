@@ -92,9 +92,7 @@ async def test_mcp_run_spawn_refuses_when_depth_limit_reached(
     payload = _payload_from_result(raw)
     assert payload["status"] == "failed"
     assert payload["error"] == "max_depth_exceeded"
-    assert payload["current_depth"] == 3
-    assert payload["max_depth"] == 3
-    assert payload["spawn_id"] is None
+    assert "spawn_id" not in payload  # omitted when None via to_wire()
     assert not (repo_root / ".meridian" / ".spaces").exists()
 
 def test_run_child_env_increments_depth(monkeypatch: pytest.MonkeyPatch) -> None:

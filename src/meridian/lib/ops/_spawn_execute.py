@@ -47,6 +47,7 @@ from meridian.lib.state import spawn_store
 from meridian.lib.state.paths import resolve_spawn_log_dir, resolve_space_dir
 from meridian.lib.types import ModelId, SpawnId, SpaceId
 
+from ._utils import minutes_to_seconds
 from ._spawn_models import SpawnActionOutput, SpawnCreateInput
 from ._spawn_query import _read_report_text, read_spawn_row  # pyright: ignore[reportPrivateUsage]
 
@@ -56,12 +57,6 @@ _BACKGROUND_SUBMIT_MESSAGE = "Background spawn submitted."
 _BACKGROUND_PID_FILENAME = "background.pid"
 _BACKGROUND_STDOUT_FILENAME = "background-launcher.stdout.log"
 _BACKGROUND_STDERR_FILENAME = "background-launcher.stderr.log"
-
-
-def _minutes_to_seconds(timeout_minutes: float | None) -> float | None:
-    if timeout_minutes is None:
-        return None
-    return timeout_minutes * 60.0
 
 
 class _PreparedCreateLike(Protocol):
@@ -556,9 +551,9 @@ async def _execute_existing_spawn(
             permission_resolver=resolver,
             permission_config=permission_config,
             cwd=runtime.repo_root,
-            timeout_seconds=_minutes_to_seconds(timeout),
+            timeout_seconds=minutes_to_seconds(timeout),
             kill_grace_seconds=(
-                _minutes_to_seconds(runtime.config.kill_grace_minutes) or 0.0
+                minutes_to_seconds(runtime.config.kill_grace_minutes) or 0.0
             ),
             skills=skills,
             agent=session_context.resolved_agent_name,
@@ -777,9 +772,9 @@ def _execute_spawn_blocking(
                 permission_resolver=prepared.permission_resolver,
                 permission_config=prepared.permission_config,
                 cwd=runtime.repo_root,
-                timeout_seconds=_minutes_to_seconds(payload.timeout),
+                timeout_seconds=minutes_to_seconds(payload.timeout),
                 kill_grace_seconds=(
-                    _minutes_to_seconds(runtime.config.kill_grace_minutes) or 0.0
+                    minutes_to_seconds(runtime.config.kill_grace_minutes) or 0.0
                 ),
                 skills=prepared.skills,
                 agent=session_context.resolved_agent_name,

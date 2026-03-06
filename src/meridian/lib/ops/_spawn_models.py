@@ -80,37 +80,6 @@ class SpawnActionOutput:
                 wire["cli_command"] = list(self.cli_command)
         return wire
 
-    def format_text(self, ctx: FormatContext | None = None) -> str:
-        """Compact single-line summary for text output mode."""
-        # Intentionally omit composed_prompt/cli_command from text output.
-        # Background submissions print only the run ID so callers can capture
-        # it via R1=$(meridian spawn spawn --background ...).
-        if self.background and self.spawn_id is not None and self.status == "running":
-            return self.spawn_id
-        parts: list[str] = [self.command, self.status]
-        if self.spawn_id is not None:
-            parts.append(self.spawn_id)
-        if self.model is not None:
-            parts.append(f"model={self.model}")
-        if self.harness_id is not None:
-            parts.append(f"harness={self.harness_id}")
-        if self.duration_secs is not None:
-            parts.append(f"{self.duration_secs:.1f}s")
-        if self.exit_code is not None:
-            parts.append(f"exit={self.exit_code}")
-        if self.message is not None:
-            parts.append(self.message)
-        if self.error is not None:
-            parts.append(f"error={self.error}")
-        if self.warning is not None:
-            parts.append(f"warning={self.warning}")
-        summary = "  ".join(parts)
-        # For dry-run, append the full command so it can be copy-pasted.
-        if self.status == "dry-run" and self.cli_command:
-            import shlex
-            summary = f"{summary}\n{shlex.join(self.cli_command)}"
-        return summary
-
 
 @dataclass(frozen=True, slots=True)
 class SpawnListInput:

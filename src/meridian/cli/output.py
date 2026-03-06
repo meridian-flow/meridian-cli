@@ -11,7 +11,7 @@ from meridian.lib.formatting import FormatContext, TextFormattable
 from meridian.lib.sink import NullSink, OutputSink
 from meridian.lib.serialization import to_jsonable
 
-OutputFormat = Literal["text", "json", "porcelain"]
+OutputFormat = Literal["text", "json"]
 type JSONScalar = str | int | float | bool | None
 type JSONValue = JSONScalar | list["JSONValue"] | dict[str, "JSONValue"]
 
@@ -35,47 +35,19 @@ def normalize_output_format(
     *,
     requested: str | None,
     json_mode: bool,
-    porcelain_mode: bool,
 ) -> OutputFormat:
     """Resolve final output format from global output flags."""
 
     if json_mode:
         return "json"
-    if porcelain_mode:
-        return "porcelain"
 
     if requested is None or requested == "":
         return "text"
 
     normalized = requested.strip().lower()
-    if normalized in {"text", "json", "porcelain"}:
+    if normalized in {"text", "json"}:
         return cast("OutputFormat", normalized)
-    raise SystemExit("--format must be one of: text, json, porcelain")
-
-
-def _porcelain_value(value: JSONValue) -> str:
-    if isinstance(value, (dict, list)):
-        return json.dumps(value, sort_keys=True)
-    return str(value)
-
-
-def _porcelain_line(payload: dict[str, JSONValue]) -> str:
-    return "\t".join(f"{key}={_porcelain_value(payload[key])}" for key in sorted(payload))
-
-
-def _porcelain_lines(value: Any) -> tuple[str, ...]:
-    payload = _to_json_value(value)
-    if isinstance(payload, list):
-        lines: list[str] = []
-        for item in cast("list[JSONValue]", payload):
-            if isinstance(item, dict):
-                lines.append(_porcelain_line(cast("dict[str, JSONValue]", item)))
-            else:
-                lines.append(str(item))
-        return tuple(lines)
-    if isinstance(payload, dict):
-        return (_porcelain_line(cast("dict[str, JSONValue]", payload)),)
-    return (str(payload),)
+    raise SystemExit("--format must be one of: text, json")
 
 
 def _render_text(value: Any) -> str:
@@ -99,10 +71,6 @@ class TextSink:
         self._stderr = sys.stderr if stderr is None else stderr
 
     def result(self, payload: Any) -> None:
-        if self._format == "porcelain":
-            for line in _porcelain_lines(payload):
-                print(line, file=self._stdout)
-            return
         if isinstance(payload, str):
             print(payload, file=self._stdout)
             return
@@ -213,7 +181,7 @@ def create_sink(config: OutputConfig, *, agent_mode: bool = False) -> OutputSink
         if agent_mode:
             return AgentSink()
         return JsonSink()
-    if config.format in {"text", "porcelain"}:
+    if config.format == "text":
         return TextSink(format=config.format)
     return _NULL_SINK
 
