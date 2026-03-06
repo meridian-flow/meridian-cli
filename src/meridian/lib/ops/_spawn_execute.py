@@ -25,11 +25,6 @@ from meridian.lib.config.agent import (
 from meridian.lib.context import RuntimeContext
 from meridian.lib.domain import Spawn
 from meridian.lib.exec.spawn import execute_with_finalization
-from meridian.lib.exec.terminal import (
-    TerminalEventFilter,
-    format_stderr_for_terminal,
-    resolve_visible_categories,
-)
 from meridian.lib.harness.adapter import PermissionResolver
 from meridian.lib.harness.materialize import cleanup_materialized, materialize_for_harness
 from meridian.lib.ops._runtime import (
@@ -756,22 +751,9 @@ def _execute_spawn_blocking(
         logger.warning("Failed to write params.json", spawn_id=str(spawn.spawn_id), exc_info=True)
     started = time.monotonic()
     space_id_str = str(context.space_id)
-    event_observer = None
-    # --stream: raw firehose (stdout+stderr piped to terminal), no filtering.
-    # Otherwise (TTY or not): use TerminalEventFilter for structured output.
-    # Non-TTY callers (CI, parent agents) should never get raw dumps.
     stream_stdout_to_terminal = payload.stream
-    if not payload.stream:
-        event_filter = TerminalEventFilter(
-            visible_categories=resolve_visible_categories(
-                verbose=payload.verbose,
-                quiet=payload.quiet,
-                config=runtime.config.output,
-            ),
-            output_stream=sys.stderr,
-            root_depth=runtime_context.depth,
-        )
-        event_observer = event_filter.observe
+    event_observer = None
+    # Spawn execution stays silent unless --stream is explicitly enabled.
 
     with _session_execution_context(
         space_dir=context.space_dir,
@@ -813,7 +795,7 @@ def _execute_spawn_blocking(
                 continue_fork=prepared.continue_fork,
                 event_observer=event_observer,
                 stream_stdout_to_terminal=stream_stdout_to_terminal,
-                stream_stderr_to_terminal=payload.stream or payload.verbose,
+                stream_stderr_to_terminal=payload.stream,
                 harness_session_id_observer=session_context.harness_session_id_observer,
             )
         )
@@ -823,18 +805,6 @@ def _execute_spawn_blocking(
     status = "failed"
     if row is not None:
         status = row.status
-
-    if status == "failed" and not payload.stream and not payload.verbose:
-        stderr_path = resolve_spawn_log_dir(runtime.repo_root, spawn.spawn_id, context.space_id) / "stderr.log"
-        if stderr_path.is_file():
-            stderr_text = stderr_path.read_text(encoding="utf-8", errors="ignore")
-            rendered_stderr = format_stderr_for_terminal(
-                stderr_text,
-                verbose=payload.verbose,
-                quiet=payload.quiet,
-            )
-            if rendered_stderr is not None:
-                runtime.sink.status(rendered_stderr)
     done_secs = duration
     tokens_total: int | None = None
     if row is not None:
