@@ -13,12 +13,10 @@ In agent mode, all CLI output is JSON.
 Before spawning, ensure you have a space:
 
 ```bash
-# First spawn auto-creates a space, but you must export the ID for subsequent commands
-export MERIDIAN_SPACE_ID=my-task
-
-# Or let the first spawn auto-create, then export the hint it prints
-meridian spawn -m MODEL -p "first task" --background
-# hint: export MERIDIAN_SPACE_ID=s1
+# First spawn auto-creates a space and returns immediately by default.
+# Capture/export the returned space_id for subsequent commands.
+meridian spawn -m MODEL -p "first task"
+# JSON output includes spawn_id and a warning with the auto-created space hint
 export MERIDIAN_SPACE_ID=s1
 ```
 
@@ -62,11 +60,10 @@ meridian spawn --dry-run -m MODEL -p "Plan the migration"
 | `--file`, `-f` | Add reference files | Repeatable; content included in prompt context |
 | `--agent`, `-a` | Use an agent profile | Applies profile model/skills/sandbox defaults |
 | `--prompt-var` | Template vars (`KEY=VALUE`) | Repeatable; replaces `{{KEY}}` in prompt |
-| `--background` | Return immediately with spawn id | Use with `meridian spawn wait` |
+| `--foreground` | Run spawn in foreground | Spawns run in background by default; use this to block |
 | `--dry-run` | Preview composed spawn | No harness execution |
 | `--timeout` | Runtime timeout in minutes | Integer minutes |
 | `--permission` | Override permission tier | Example: `read-only`, `workspace-write` |
-| `--report-path` | Relative report output path | Default `report.md` |
 | `--verbose` | Enable verbose spawn logging | |
 | `--quiet` | Reduce non-essential output | |
 | `--space-id` | Spawn within a specific space | Also `--space` |
@@ -75,15 +72,15 @@ meridian spawn --dry-run -m MODEL -p "Plan the migration"
 
 Launch independent spawns in the background, then wait for all:
 ```bash
-# Each --background spawn returns JSON with a spawn_id field
-meridian spawn --background -m MODEL -p "Step A"
-meridian spawn --background -m MODEL -p "Step B"
+# Each spawn returns JSON with a spawn_id field
+meridian spawn -m MODEL -p "Step A"
+meridian spawn -m MODEL -p "Step B"
 
 # Wait for specific spawns by ID
 meridian spawn wait SPAWN_ID_A SPAWN_ID_B
 
 # Or extract spawn_id from JSON output programmatically
-SID=$(meridian spawn --background -m MODEL -p "Task" | jq -r .spawn_id)
+SID=$(meridian spawn -m MODEL -p "Task" | jq -r .spawn_id)
 meridian spawn wait "$SID" --report
 ```
 

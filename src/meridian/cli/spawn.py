@@ -93,10 +93,11 @@ def _spawn_create(
         bool,
         Parameter(name="--stream", help="Stream raw harness output to terminal (debug only).", show=False),
     ] = False,
-    background: Annotated[
+    foreground: Annotated[
         bool,
         Parameter(
-            name="--background", help="Submit spawn and return immediately with spawn ID."
+            name="--foreground",
+            help="Run in foreground and wait for spawn completion.",
         ),
     ] = False,
     space: Annotated[
@@ -148,7 +149,7 @@ def _spawn_create(
                 verbose=verbose,
                 quiet=quiet,
                 stream=stream,
-                background=background,
+                background=not foreground,
                 space=space,
                 timeout=timeout,
                 permission_tier=permission_tier,

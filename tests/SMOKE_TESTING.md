@@ -1046,7 +1046,7 @@ test $EXIT -ne 0 && echo "PASS: non-zero harness exit propagated" || echo "FAIL:
 ### 5.4 Background Spawn [NICE-TO-HAVE]
 
 ```bash
-uv run meridian --json spawn create --background --space "$SPACE_ID" -p "Background task" 2>&1 | python3 -c "
+uv run meridian --json spawn create --space "$SPACE_ID" -p "Background task" 2>&1 | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
 assert d['status'] in ('running', 'succeeded', 'failed')
