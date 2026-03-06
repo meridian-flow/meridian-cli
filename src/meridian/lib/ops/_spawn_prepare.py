@@ -11,7 +11,6 @@ import structlog
 
 from meridian.lib.config import load_model_guidance
 from meridian.lib.config.catalog import load_merged_aliases, resolve_model
-from meridian.lib.config.routing import route_model
 from meridian.lib.harness.registry import get_default_harness_registry
 from meridian.lib.launch_resolve import (
     load_agent_profile_with_fallback,
@@ -77,10 +76,6 @@ class _CreateRuntimeView:
     harness_registry: HarnessRegistry
 
 
-def _looks_like_alias_identifier(candidate: str) -> bool:
-    return "/" not in candidate and "-" not in candidate and "." not in candidate
-
-
 def _model_validation_context(
     requested_model: str,
     *,
@@ -130,30 +125,19 @@ def _validate_requested_model(
         return "", None
 
     explicit_root = Path(repo_root).expanduser().resolve() if repo_root else None
-    if _looks_like_alias_identifier(normalized):
-        try:
-            resolved = resolve_model(normalized, repo_root=explicit_root)
-        except ValueError:
-            resolved = None
-        if resolved is not None and resolved.alias:
-            return str(resolved.model_id), None
-
     try:
-        route_model(normalized)
+        resolved = resolve_model(normalized, repo_root=explicit_root)
     except ValueError:
         validation_context = _model_validation_context(normalized, repo_root=explicit_root)
-        if _looks_like_alias_identifier(normalized):
-            message = (
-                f"Unknown model alias '{normalized}'. Spawn `meridian models list` to inspect aliases."
-            )
-        else:
-            message = (
-                f"Unknown model '{normalized}'. Spawn `meridian models list` to inspect supported models."
-            )
+        message = (
+            f"Unknown model '{normalized}'. Spawn `meridian models list` to inspect supported models."
+        )
         if validation_context:
             message = f"{message}\n{validation_context}"
         raise ValueError(message) from None
 
+    if resolved.alias:
+        return str(resolved.model_id), None
     return normalized, None
 
 

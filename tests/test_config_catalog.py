@@ -81,6 +81,35 @@ fast = "gpt-5.3-codex"
     assert direct.harness == "codex"
 
 
+def test_resolve_model_hyphenated_alias_name(tmp_path: Path) -> None:
+    _write_user_aliases(
+        tmp_path,
+        """
+[aliases]
+my-fast = "claude-sonnet-4-6"
+""".strip(),
+    )
+
+    resolved = resolve_model("my-fast", repo_root=tmp_path)
+
+    assert resolved.alias == "my-fast"
+    assert str(resolved.model_id) == "claude-sonnet-4-6"
+    assert resolved.harness == "claude"
+
+
+def test_load_user_aliases_empty_aliases_section_returns_empty_list(tmp_path: Path) -> None:
+    _write_user_aliases(
+        tmp_path,
+        """
+[aliases]
+""".strip(),
+    )
+
+    entries = load_user_aliases(repo_root=tmp_path)
+
+    assert entries == []
+
+
 def test_resolve_model_unknown_family_raises_value_error(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
         _ = resolve_model("unknown-model-x", repo_root=tmp_path)
