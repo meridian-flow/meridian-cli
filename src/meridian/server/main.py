@@ -32,6 +32,8 @@ def _build_tool_handler(op: OperationSpec[Any, Any]) -> Any:
     async def _tool(**kwargs: object) -> object:
         payload = coerce_input_payload(op.input_type, kwargs)
         result = await op.handler(payload)
+        if hasattr(result, "to_wire"):
+            return result.to_wire()
         return to_jsonable(result)
 
     _tool.__name__ = f"tool_{op.mcp_name}"

@@ -60,6 +60,28 @@ class SpawnActionOutput:
     duration_secs: float | None = None
     background: bool = False
 
+    def to_wire(self) -> dict[str, object]:
+        """Project minimal external JSON shape. Omit nulls and input echo."""
+        wire: dict[str, object] = {"status": self.status}
+        if self.spawn_id is not None:
+            wire["spawn_id"] = self.spawn_id
+        if self.duration_secs is not None:
+            wire["duration_secs"] = round(self.duration_secs, 2)
+        if self.report is not None:
+            wire["report"] = self.report
+        if self.error is not None:
+            wire["error"] = self.error
+        if self.warning is not None:
+            wire["warning"] = self.warning
+        if self.exit_code is not None:
+            wire["exit_code"] = self.exit_code
+        if self.status == "dry-run":
+            if self.composed_prompt is not None:
+                wire["composed_prompt"] = self.composed_prompt
+            if self.cli_command:
+                wire["cli_command"] = list(self.cli_command)
+        return wire
+
     def format_text(self, ctx: FormatContext | None = None) -> str:
         """Compact single-line summary for text output mode."""
         # Intentionally omit composed_prompt/cli_command from text output.

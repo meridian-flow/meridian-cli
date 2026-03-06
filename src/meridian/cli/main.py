@@ -48,8 +48,6 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
 logger = logging.getLogger(__name__)
-_SPAWN_ERROR_TEXT_LIMIT = 2000
-_SPAWN_ERROR_TRUNCATED_SUFFIX = "... [truncated, full output in spawn logs]"
 
 _AGENT_ROOT_HELP = """Usage: meridian COMMAND [ARGS]
 
@@ -115,125 +113,13 @@ def current_output_sink() -> OutputSink:
     return sink
 
 
-def _spawn_spawn_metadata_line(payload: SpawnActionOutput) -> str:
-    duration = f"{payload.duration_secs:.1f}s" if payload.duration_secs is not None else "-"
-    exit_code = str(payload.exit_code) if payload.exit_code is not None else "-"
-    return " ".join(
-        (
-            f"spawn_id={payload.spawn_id or '-'}",
-            f"model={payload.model or '-'}",
-            f"harness={payload.harness_id or '-'}",
-            f"status={payload.status}",
-            f"duration={duration}",
-            f"exit_code={exit_code}",
-        )
-    )
-
-
-def _find_spawn_report_file(spawn_id: str) -> Path | None:
-    try:
-        repo_root = resolve_repo_root()
-    except Exception:
-        return None
-
-    selected_space = os.getenv("MERIDIAN_SPACE_ID", "").strip()
-    if selected_space:
-        selected_path = resolve_space_dir(repo_root, selected_space) / "spawns" / spawn_id / "report.md"
-        if selected_path.is_file():
-            return selected_path
-
-    spaces_dir = resolve_all_spaces_dir(repo_root)
-    if not spaces_dir.is_dir():
-        return None
-    for space_dir in sorted(spaces_dir.iterdir()):
-        if not space_dir.is_dir():
-            continue
-        candidate = space_dir / "spawns" / spawn_id / "report.md"
-        if candidate.is_file():
-            return candidate
-    return None
-
-
-def _read_spawn_report_text(spawn_id: str) -> str | None:
-    report_file = _find_spawn_report_file(spawn_id)
-    if report_file is None:
-        return None
-    text = report_file.read_text(encoding="utf-8", errors="ignore").strip()
-    return text or None
-
-
-def _truncate_spawn_error_text(text: str) -> str:
-    normalized = text.strip()
-    if len(normalized) <= _SPAWN_ERROR_TEXT_LIMIT:
-        return normalized
-    keep = max(_SPAWN_ERROR_TEXT_LIMIT - len(_SPAWN_ERROR_TRUNCATED_SUFFIX), 0)
-    return f"{normalized[:keep].rstrip()}{_SPAWN_ERROR_TRUNCATED_SUFFIX}"
-
-
-def _truncate_spawn_failure_fields(payload: SpawnActionOutput) -> SpawnActionOutput:
-    if payload.status != "failed":
-        return payload
-    message = (
-        _truncate_spawn_error_text(payload.message) if payload.message is not None else None
-    )
-    error = _truncate_spawn_error_text(payload.error) if payload.error is not None else None
-    return replace(payload, message=message, error=error)
-
-
-def _emit_spawn_text(payload: SpawnActionOutput, *, sink: OutputSink) -> None:
-    sink.status(_spawn_spawn_metadata_line(payload))
-    if payload.warning:
-        sink.warning(payload.warning)
-
-    if payload.background and payload.status == "running" and payload.spawn_id is not None:
-        sink.result(payload.spawn_id)
-        return
-
-    if payload.spawn_id is None:
-        # No stable spawn ID to resolve report from (e.g. preflight failure); defer to default emit.
-        emit_output(payload, sink=sink)
-        return
-
-    report_text = _read_spawn_report_text(payload.spawn_id)
-    if report_text is None:
-        sink.warning(f"no report extracted for spawn '{payload.spawn_id}'")
-        if payload.status == "failed":
-            fallback_parts: list[str] = []
-            if payload.message is not None and payload.message.strip():
-                fallback_parts.append(payload.message.strip())
-            if payload.error is not None and payload.error.strip():
-                fallback_parts.append(f"error={payload.error.strip()}")
-            if fallback_parts:
-                sink.status(_truncate_spawn_error_text("  ".join(fallback_parts)))
-        return
-    if payload.status == "failed":
-        report_text = _truncate_spawn_error_text(report_text)
-    sink.result(report_text)
-
-
-def _emit_spawn_dry_run_text(payload: SpawnActionOutput, *, sink: OutputSink) -> None:
-    rendered = payload
-    if payload.warning:
-        sink.warning(payload.warning)
-        rendered = replace(payload, warning=None)
-    emit_output(rendered, sink=sink)
-
-
 def emit(payload: object) -> None:
     """Write command output using current output format settings."""
     options = get_global_options()
     sink, flush_after = _resolve_sink(options)
-    if (
-        options.output.format == "text"
-        and isinstance(payload, SpawnActionOutput)
-        and payload.command == "spawn.create"
-    ):
-        if payload.status == "dry-run":
-            _emit_spawn_dry_run_text(payload, sink=sink)
-        elif payload.spawn_id is not None:
-            _emit_spawn_text(payload, sink=sink)
-        else:
-            emit_output(_truncate_spawn_failure_fields(payload), sink=sink)
+    if isinstance(payload, SpawnActionOutput):
+        wire = payload.to_wire()
+        emit_output(wire, sink=sink)
         if flush_after:
             flush_sink(sink)
         return
