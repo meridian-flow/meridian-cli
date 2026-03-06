@@ -2,10 +2,6 @@
 
 Meridian works without config files, but you can override defaults in `.meridian/config.toml`.
 
-Developer note:
-- Canonical domain term is `spawn` (see [Developer Terminology](developer-terminology.md)).
-- This page includes current `run` names where they reflect active config keys or env vars.
-
 ## Quick Start
 
 ```bash
@@ -32,7 +28,7 @@ meridian config reset defaults.max_retries
         space.json
         spawns.jsonl
         sessions.jsonl
-        spawns/<run-id>/
+        spawns/<spawn-id>/
         fs/
 ```
 
@@ -117,11 +113,13 @@ cost_tier = "$$"
 | `MERIDIAN_REPO_ROOT` | Force repo root resolution |
 | `MERIDIAN_CONFIG` | User config overlay path |
 | `MERIDIAN_STATE_ROOT` | Override state root (default `.meridian`) |
-| `MERIDIAN_SPACE_ID` | Default space scope for run/spawn operations |
+| `MERIDIAN_SPACE_ID` | Default space scope for spawn operations |
+| `MERIDIAN_SPAWN_ID` | Current spawn ID in nested execution |
 | `MERIDIAN_CHAT_ID` | Current chat/session id in nested execution |
 | `MERIDIAN_DEPTH` | Current nesting depth |
 | `MERIDIAN_MAX_DEPTH` | Max nesting depth override |
-| `MERIDIAN_PARENT_RUN_ID` | Parent run linkage for nested execution |
+| `MERIDIAN_PARENT_SPAWN_ID` | Parent spawn linkage for nested execution |
+| `MERIDIAN_HARNESS_COMMAND` | Override harness command resolution |
 
 ### Config Overrides
 

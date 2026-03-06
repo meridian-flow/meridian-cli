@@ -1,19 +1,13 @@
 # Spaces
 
-Spaces are the top-level coordination unit. A space owns spawn history (currently stored as `run` records), harness-session history, and a shared `fs/` working tree.
-
-Developer note:
-- Canonical domain term is `spawn` (see [Developer Terminology](developer-terminology.md)).
-- Current filenames and commands may still use `run` during migration.
+Spaces are the top-level coordination unit. A space owns spawn history, harness-session history, and a shared `fs/` working tree.
 
 ## Lifecycle
 
 ```mermaid
 stateDiagram-v2
     [*] --> active : space start
-    active --> closed : space close
-    closed --> active : space resume
-    closed --> [*]
+    active --> active : space resume
 ```
 
 Commands:
@@ -23,7 +17,6 @@ meridian space start [--name NAME] [--model MODEL]
 meridian space resume [--space sN] [--fresh]
 meridian space list [--limit N]
 meridian space show sN
-meridian space close sN
 ```
 
 Top-level shortcut:
@@ -110,14 +103,14 @@ Practical impact:
 
 ## Environment and Scoping
 
-`MERIDIAN_SPACE_ID` scopes run/spawn commands to one space.
+`MERIDIAN_SPACE_ID` scopes spawn commands to one space.
 
 ```bash
 export MERIDIAN_SPACE_ID=s12
 meridian spawn -p "Implement the parser"
 meridian spawn list
 ```
-Spawn creation requires explicit space context (`MERIDIAN_SPACE_ID` or `--space`).
+Set `MERIDIAN_SPACE_ID` to scope spawns to an existing space. Without it, spawn auto-creates a new space.
 
 ## Locking
 

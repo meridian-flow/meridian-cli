@@ -25,13 +25,13 @@ Minimal MCP config:
 
 Current MCP tools:
 
-- `spawn_create`, `spawn_list`, `spawn_show`, `spawn_continue`, `spawn_wait`, `spawn_stats`
+- `spawn_create`, `spawn_list`, `spawn_show`, `spawn_continue`, `spawn_cancel`, `spawn_wait`, `spawn_stats`
 - `report_create`, `report_show`, `report_search`
 - `models_list`, `models_show`
 - `skills_list`, `skills_show`
 - `doctor`
 
-Not MCP-exposed (CLI-only): `space_*`, `config_*`, `skills_search`.
+Not MCP-exposed (CLI-only): space_*, config_*, skills_search.
 
 ## Spawn Tools
 
@@ -44,8 +44,6 @@ Not MCP-exposed (CLI-only): `space_*`, `config_*`, `skills_search`.
   "files": ["docs/spec.md"],
   "template_vars": ["TARGET=auth"],
   "agent": "coder",
-  "report_path": "report.md",
-  "background": true,
   "space": "s12",
   "permission_tier": "workspace-write"
 }

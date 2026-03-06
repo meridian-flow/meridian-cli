@@ -28,13 +28,13 @@ Use one of these modes depending on what you are validating.
 Editable local install (best default for active coding):
 
 ```bash
-uv tool install --force --editable .
+uv tool install --force --editable . --no-cache
 ```
 
 Local snapshot install (non-editable, deployed-like behavior from current checkout):
 
 ```bash
-uv tool install --force .
+uv tool install --force . --no-cache
 ```
 
 Wheel install (closest to published artifact behavior):
@@ -65,8 +65,9 @@ Useful targeted test patterns during development:
 
 ```bash
 uv run pytest tests/test_cli_smoke.py -q
-uv run pytest tests/test_space*.py -q
-uv run pytest tests/test_run*.py -q
+uv run pytest tests/test_space -q
+uv run pytest tests/test_config*.py -q
+uv run pytest tests/test_spawn*.py -q
 ```
 
 ## 5) Validate CLI Behavior in the Repo Context

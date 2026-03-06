@@ -1,4 +1,4 @@
-# Developer Terminology: Spawn vs Spawn
+# Developer Terminology: Spawn
 
 This document defines the canonical language for Meridian contributors.
 
@@ -13,7 +13,7 @@ That overlap caused ambiguous UX (`meridian spawn spawn`) and confusing code rev
 
 ## Canonical Definitions
 
-- `Primary agent`: the interactive agent launched by a human (`meridian start`).
+- `Primary agent`: the interactive agent launched by a human (`meridian` or `meridian space start`).
 - `Spawn`: a delegated child-agent task created by a primary agent.
 - `Harness process`: the concrete CLI process (`claude`, `codex`, `opencode`) used to execute one spawn.
 - `Space`: the coordination boundary containing spawn/session/filesystem state.
@@ -57,25 +57,10 @@ Not allowed:
 
 ## Explicit Space Context Rule
 
-Spawns require explicit space context:
+Spawns resolve space context in this order:
 
-- `MERIDIAN_SPACE_ID` must be set, or
-- caller must pass `--space` / `space` input explicitly.
+- If `--space` / `space` input is provided, Meridian uses that.
+- Otherwise, if `MERIDIAN_SPACE_ID` is set, Meridian uses that.
+- If neither is set, spawn auto-creates a space and prints a hint to export `MERIDIAN_SPACE_ID`.
 
-Auto-creating a space during spawn is not allowed in the target model.
-
-## Compatibility and Transition
-
-During migration, temporary compatibility aliases may exist. Rules:
-
-1. Prefer emitting `spawn` names in all new output.
-2. Keep compatibility only where explicitly required by tests or rollout plan.
-3. Remove compatibility aliases as soon as downstream docs/tests are updated.
-
-## PR Checklist (Spawn Migration Work)
-
-- Public names use `spawn`, not `run`.
-- Help text and examples match canonical names.
-- Error messages use explicit space guidance (no auto-create wording).
-- Docs and tests updated in the same change.
-- No new `run_*` public identifiers added.
+Best practice: set `MERIDIAN_SPACE_ID` explicitly when you want repeatable routing to one space.

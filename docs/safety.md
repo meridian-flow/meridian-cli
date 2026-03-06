@@ -28,8 +28,7 @@ meridian spawn -p "Spawn broadly" --permission full-access
 
 Notes:
 
-- `spawn` does not expose an `--unsafe` override; requesting `--permission danger` is rejected.
-- OpenCode has no danger-bypass flag; danger is validated and falls back to full-access behavior there in paths that still support it.
+- `--approval auto` is available on the root `meridian` command (primary launch), not on `meridian spawn`; for supported harnesses it maps to Claude `--dangerously-skip-permissions` or Codex `--dangerously-bypass-approvals-and-sandbox`.
 
 ### Agent profile mapping
 
@@ -37,10 +36,23 @@ Notes:
 
 - `read-only` -> `read-only`
 - `workspace-write` -> `workspace-write`
+- `full-access` -> `full-access`
 - `danger-full-access` -> `full-access`
 - `unrestricted` -> `full-access`
 
 CLI `--permission` overrides profile defaults.
+
+## Approval Mode
+
+Permission and approval are separate controls:
+
+- `--permission` controls tool access tier (`read-only`, `workspace-write`, `full-access`).
+- `--approval` controls whether the harness asks before acting.
+- `--approval confirm` (default): harness asks before acting.
+- `--approval auto`: harness auto-approves all tool use.
+- `--yolo` is shorthand for `--permission full-access --approval auto`.
+
+These flags are only on the root `meridian` command for primary-agent launch. Subagent `meridian spawn` runs are unattended and do not have an approval mode.
 
 ## Cost Budgets
 `spawn` no longer exposes budget flags. Budget enforcement is available only in execution-layer integrations that explicitly wire it.
@@ -63,9 +75,9 @@ Secret values are injected as `MERIDIAN_SECRET_<KEY>` and redacted in persisted 
 
 Redaction applies to:
 
-- `spawns/<run-id>/output.jsonl`
-- `spawns/<run-id>/stderr.log`
-- `spawns/<run-id>/report.md`
+- `spawns/<spawn-id>/output.jsonl`
+- `spawns/<spawn-id>/stderr.log`
+- `spawns/<spawn-id>/report.md`
 
 Guardrail scripts do not receive `MERIDIAN_SECRET_*` values.
 

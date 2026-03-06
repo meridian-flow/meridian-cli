@@ -2,10 +2,6 @@
 
 Meridian routes spawns to harness adapters instead of calling model APIs directly in normal CLI flow.
 
-Developer note:
-- Canonical domain term is `spawn` (see [Developer Terminology](developer-terminology.md)).
-- This document uses some current `run` wording where it mirrors present code/CLI names.
-
 ## Routing
 
 Model -> harness routing:
@@ -50,7 +46,7 @@ Model -> harness routing:
 
 ## Primary Agent Launch (Space)
 
-`meridian space start/resume` and `meridian start` launch a primary Claude harness session.
+`meridian space start/resume` and bare `meridian` launch a primary harness session.
 
 If the selected primary profile is an on-disk user profile, Meridian uses Claude native profile passthrough:
 
@@ -60,7 +56,7 @@ Otherwise Meridian composes the prompt and passes it via `--system-prompt`.
 
 ## Session Continuation Fields
 
-For spawn continuation (`spawn continue`), Meridian resolves and passes harness session context as:
+For spawn continuation (`meridian spawn --continue SPAWN_ID` with optional `--fork`), Meridian resolves and passes harness session context as:
 
 - `continue_harness_session_id`
 - `continue_fork`
