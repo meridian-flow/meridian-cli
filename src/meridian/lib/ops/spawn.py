@@ -680,6 +680,7 @@ operation(
         cli_group="spawn",
         cli_name="create",
         mcp_name="spawn_create",
+        mcp_only=True,
         description="Create and start a spawn.",
     )
 )

@@ -344,7 +344,6 @@ def register_spawn_commands(app: App, emit: Emitter) -> tuple[set[str], dict[str
     """Register spawn CLI commands using registry metadata as source of truth."""
 
     handlers: dict[str, Callable[[], Callable[..., None]]] = {
-        "spawn.create": lambda: partial(_spawn_create, emit),
         "spawn.list": lambda: partial(_spawn_list, emit),
         "spawn.stats": lambda: partial(_spawn_stats, emit),
         "spawn.show": lambda: partial(_spawn_show, emit),
