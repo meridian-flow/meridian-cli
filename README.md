@@ -1,29 +1,72 @@
 # meridian-channel
 
-NOTE THIS IS POTENTIALLY UNSTABLE RIGHT NOW
-
 [![PyPI](https://img.shields.io/pypi/v/meridian-channel)](https://pypi.org/project/meridian-channel/)
 [![Python](https://img.shields.io/pypi/pyversions/meridian-channel)](https://pypi.org/project/meridian-channel/)
 [![License](https://img.shields.io/github/license/haowjy/meridian-channel)](LICENSE)
 [![CI](https://github.com/haowjy/meridian-channel/actions/workflows/meridian-ci.yml/badge.svg)](https://github.com/haowjy/meridian-channel/actions)
 
-Multi-model agent orchestrator with one primary agent per space and portable run tooling across Claude, Codex, and OpenCode harnesses.
+> **Alpha** - API may change between releases.
 
-## What it does
+Multi-model agent orchestration CLI and MCP server.
 
-`meridian` provides one interface for:
+One interface across Claude, Codex, and OpenCode.
 
-- Spawning model runs (`meridian run spawn`)
-- Managing space lifecycle (`meridian space start/resume/close/...`)
-- Serving the same operations over MCP (`meridian serve`)
-- Tracking state in files under `.meridian/.spaces/<space-id>/` (no SQLite authority)
+## Why Meridian?
+
+AI agent CLIs are useful, but each harness comes with its own command surface,
+session model, and operational workflow. `meridian` provides one coordination
+layer across them:
+
+- **Harness-agnostic**: choose a model and let Meridian route to the right harness.
+- **File-backed state**: inspectable state lives under `.meridian/`, not in a database.
+- **Spaces for coordination**: shared per-space history, sessions, and filesystem context.
+- **MCP-native**: the same system can be exposed over `meridian serve`.
+
+## Architecture
+
+```mermaid
+graph TB
+    User([You])
+    User --> CLI
+
+    subgraph Meridian["meridian CLI / MCP Server"]
+        CLI["meridian spawn -m MODEL -p PROMPT"]
+        Router{"Model Router"}
+        CLI --> Router
+    end
+
+    Router -->|"claude-*
+sonnet*, opus*"| Claude["Claude CLI"]
+    Router -->|"gpt-*, codex*
+o3*, o4*"| Codex["Codex CLI"]
+    Router -->|"gemini-*
+opencode-*"| OpenCode["OpenCode"]
+
+    Claude --> Space
+    Codex --> Space
+    OpenCode --> Space
+
+    subgraph Space[".meridian/.spaces/s1/"]
+        SpaceJson["space.json"]
+        SpawnsJsonl["spawns.jsonl"]
+        SessionsJsonl["sessions.jsonl"]
+        SpawnDirs["spawns/p1, p2, ..."]
+        Fs["fs/ (shared workspace)"]
+    end
+```
 
 ## Install
 
-Requires **Python 3.12+** and at least one harness CLI:
-[Claude CLI](https://docs.anthropic.com/en/docs/claude-code),
-[Codex CLI](https://github.com/openai/codex), or
-[OpenCode](https://opencode.ai).
+### One-line installer
+
+```bash
+curl -LsSf https://raw.githubusercontent.com/haowjy/meridian-channel/main/install.sh | sh
+```
+
+This installs `uv` if needed, installs `meridian-channel`, and prints the next
+steps.
+
+### Manual install
 
 ```bash
 uv tool install meridian-channel
@@ -40,53 +83,93 @@ uv sync --extra dev
 uv run meridian --help
 ```
 
-## Usage
+### Prerequisites
 
+You need at least one harness CLI installed:
 
-### Run in background + inspect
+| Harness | Typical model prefixes | Install |
+|---|---|---|
+| Claude CLI | `claude-*`, `sonnet*`, `opus*` | https://docs.anthropic.com/en/docs/claude-code |
+| Codex CLI | `gpt-*`, `codex*`, `o3*`, `o4*` | https://github.com/openai/codex |
+| OpenCode | `gemini-*`, `opencode-*` | https://opencode.ai |
 
-```bash
-RUN_ID=$(meridian run spawn -p "Refactor auth module" -m gpt-5.3-codex)
-meridian run wait "$RUN_ID"
-meridian run show "$RUN_ID" --report
-```
-
-### Run a in the forground
-
-```bash
-meridian run spawn --foreground -p "Fix the failing test" -m claude-sonnet-4-6
-```
-
-### Use skills and references
+After installation, run:
 
 ```bash
-meridian run spawn -p "Review this code" -m claude-opus-4-6 -s review -f src/main.py
+meridian doctor
 ```
 
-### Continue a run
+## Quick Start
 
 ```bash
-meridian run continue @latest -p "Also add tests"
+meridian config init
+meridian --new
+
+# In another shell, use the space id reported by Meridian.
+export MERIDIAN_SPACE_ID=s1
+
+meridian spawn -m gpt-5.3-codex -p "Refactor auth flow"
+meridian spawn wait p1
+meridian spawn show p1 --report
 ```
 
-### Spaces
+## Usage Examples
+
+### Spawn background work
+
+```bash
+meridian spawn -m gpt-5.3-codex -p "Fix the auth regression"
+meridian spawn wait p1
+```
+
+### Run in foreground
+
+```bash
+meridian spawn --foreground -m claude-sonnet-4-6 -p "Debug the flaky test"
+```
+
+### Include reference files
+
+```bash
+meridian spawn -m claude-opus-4-6 -p "Review this code" -f src/main.py
+```
+
+### Continue a spawn
+
+```bash
+meridian spawn --continue p1 -p "Also add regression coverage"
+```
+
+### Work in a named space
 
 ```bash
 meridian space start --name auth-refactor
 export MERIDIAN_SPACE_ID=s1
-meridian run spawn -p "Research current implementation" -s research
-meridian run spawn -p "Implement changes" -m gpt-5.3-codex
-meridian space close s1
+meridian spawn -p "Research the current implementation"
+meridian spawn -m gpt-5.3-codex -p "Implement the refactor"
+meridian space show s1
 ```
 
-### Search state files
+### Start the MCP server
 
 ```bash
-meridian grep "ERROR \[SPACE_REQUIRED\]"
-meridian grep "run.spawn" --space s1 --type runs
+meridian serve
 ```
 
-### Config
+Minimal MCP config:
+
+```json
+{
+  "mcpServers": {
+    "meridian": {
+      "command": "meridian",
+      "args": ["serve"]
+    }
+  }
+}
+```
+
+### Configure defaults
 
 ```bash
 meridian config init
@@ -94,29 +177,46 @@ meridian config set defaults.max_retries 5
 meridian config show
 ```
 
-### MCP server
+### Run diagnostics
 
 ```bash
-meridian serve
+meridian doctor
 ```
+
+## Commands
+
+| Command | Description |
+|---|---|
+| `meridian` | Launch the primary agent session |
+| `meridian spawn` | Create or continue a delegated spawn |
+| `meridian spawn list`, `show`, `wait`, `cancel`, `stats` | Manage spawns |
+| `meridian space start`, `resume`, `list`, `show` | Manage spaces |
+| `meridian report create`, `show`, `search` | Manage spawn reports |
+| `meridian models list`, `show` | Inspect the model catalog |
+| `meridian skills list`, `show` | Inspect the skills catalog |
+| `meridian config init`, `set`, `get`, `show`, `reset` | Configure the repo |
+| `meridian serve` | Start the FastMCP server |
+| `meridian doctor` | Run diagnostics checks |
 
 ## State Layout
 
-All authoritative run/space/session state is file-backed:
+Authoritative state is file-backed:
 
 ```text
 .meridian/
   .spaces/
     <space-id>/
       space.json
-      runs.jsonl
+      spawns.jsonl
       sessions.jsonl
-      runs/<run-id>/
-        output.jsonl
-        stderr.log
-        report.md
+      spawns/
+        <spawn-id>/
+          output.jsonl
+          stderr.log
+          report.md
+      sessions/
+        <chat-id>.lock
       fs/
-        space-summary.md
   active-spaces/<space-id>.lock
   config.toml
   models.toml
@@ -124,18 +224,15 @@ All authoritative run/space/session state is file-backed:
 
 Writes use lock files plus atomic tmp+rename semantics in the state layer.
 
-## Docs
+## Documentation
 
-- [CLI Reference](docs/cli-reference.md)
-- [Development Install](docs/development-install.md)
-- [Developer Terminology (Spawn vs Run)](docs/developer-terminology.md)
-- [Agent CLI Spec (Target)](_docs/cli-spec-agent.md)
-- [Human CLI Spec (Target)](_docs/cli-spec-human.md)
-- [Spaces](docs/spaces.md)
-- [Configuration](docs/configuration.md)
-- [Safety](docs/safety.md)
-- [MCP Tools](docs/mcp-tools.md)
-- [Harness Adapters](docs/harness-adapters.md)
+- [Development Install](docs/development-install.md) - install from source and run local checks.
+- [Developer Terminology](docs/developer-terminology.md) - canonical `spawn` terminology.
+- [Spaces](docs/spaces.md) - space lifecycle, continuation rules, and state layout.
+- [Configuration](docs/configuration.md) - config keys, overrides, and environment variables.
+- [Safety](docs/safety.md) - permission tiers and operational safety model.
+- [MCP Tools](docs/mcp-tools.md) - FastMCP tool surface and payload examples.
+- [Harness Adapters](docs/harness-adapters.md) - how Meridian maps models and sessions to harness CLIs.
 
 ## Development
 
@@ -145,6 +242,8 @@ uv run pytest-llm
 uv run pyright
 ```
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
+
 ## License
 
-MIT
+[MIT](LICENSE)
