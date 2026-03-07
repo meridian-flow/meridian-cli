@@ -1,5 +1,7 @@
 # Spawn Output Overhaul
 
+**Status:** completed (Steps 1-11, 2026-03-06). Step 12/13 (CLI command refinements) deferred as follow-up.
+
 ## Philosophy
 
 Agents are consumers, not debuggers. The spawn output answers one question: **"what happened?"** — status, report, done. Everything else is noise for the consumer and belongs in files for whoever needs to dig deeper.

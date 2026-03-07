@@ -1,5 +1,7 @@
 # Model Discovery Overhaul
 
+**Status:** completed (Steps 1-7, 2026-03-06)
+
 ## Summary
 
 Replace the hardcoded 6-model catalog with:

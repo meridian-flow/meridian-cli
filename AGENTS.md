@@ -53,4 +53,4 @@ uv run pyright
 
 ## Current Focus
 
-Spawn output overhaul — see `plans/spawn-output-overhaul.md`
+See `backlog/` for open items and `plans/` for active plans.
