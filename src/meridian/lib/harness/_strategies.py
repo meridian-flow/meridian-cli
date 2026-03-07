@@ -42,7 +42,7 @@ type StrategyMap = dict[str, FlagStrategy]
 
 
 _SKIP_FIELDS = frozenset(
-    {"prompt", "extra_args", "repo_root", "mcp_tools", "adhoc_agent_json", "interactive"}
+    {"prompt", "extra_args", "repo_root", "mcp_tools", "adhoc_agent_json", "interactive", "report_output_path"}
 )
 
 

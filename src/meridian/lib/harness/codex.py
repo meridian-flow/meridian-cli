@@ -113,6 +113,13 @@ class CodexAdapter(BaseHarnessAdapter):
             )
             # Codex supports prompt-from-stdin via "-" and this avoids argv length limits.
             command_run = replace(run, prompt="-")
+            # Codex -o writes the agent's final response to a file, giving us a clean
+            # report without fragile JSONL parsing.
+            if run.report_output_path:
+                command_run = replace(
+                    command_run,
+                    extra_args=command_run.extra_args + ("-o", run.report_output_path),
+                )
         return build_harness_command(
             base_command=base_command,
             prompt_mode=self.PROMPT_MODE,

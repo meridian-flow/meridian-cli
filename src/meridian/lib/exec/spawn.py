@@ -487,6 +487,7 @@ async def execute_with_finalization(
         mcp_tools=mcp_tools,
         continue_harness_session_id=continue_harness_session_id,
         continue_fork=continue_fork,
+        report_output_path=report_path.as_posix(),
     )
     prompt_stdin = run.prompt if harness.capabilities.supports_stdin_prompt else None
 

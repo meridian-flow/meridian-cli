@@ -52,6 +52,7 @@ class SpawnParams:
     continue_harness_session_id: str | None = None
     continue_fork: bool = False
     appended_system_prompt: str | None = None
+    report_output_path: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

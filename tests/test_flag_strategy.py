@@ -27,7 +27,7 @@ def _sample_run(*, model: str, extra_args: tuple[str, ...] = ()) -> SpawnParams:
 
 
 def test_every_run_params_field_is_mapped_for_each_adapter() -> None:
-    skip = {"prompt", "extra_args", "repo_root", "mcp_tools", "adhoc_agent_json", "interactive"}
+    skip = {"prompt", "extra_args", "repo_root", "mcp_tools", "adhoc_agent_json", "interactive", "report_output_path"}
     required = {field.name for field in dataclasses.fields(SpawnParams)} - skip
     adapter_classes = (ClaudeAdapter, CodexAdapter, OpenCodeAdapter)
 
@@ -182,6 +182,45 @@ def test_codex_build_command_interactive_resume_uses_resume_subcommand() -> None
 
     assert command[:3] == ["codex", "resume", "session-456"]
     assert "--model" in command
+
+
+def test_codex_build_command_includes_output_flag_when_report_path_set() -> None:
+    command = CodexAdapter().build_command(
+        SpawnParams(
+            prompt="Task.",
+            model=ModelId("gpt-5.3-codex"),
+            report_output_path="/tmp/spawns/r1/report.md",
+        ),
+        StubPermissionResolver(),
+    )
+
+    assert "-o" in command
+    assert "/tmp/spawns/r1/report.md" in command
+    idx = command.index("-o")
+    assert command[idx + 1] == "/tmp/spawns/r1/report.md"
+
+
+def test_codex_build_command_omits_output_flag_when_no_report_path() -> None:
+    command = CodexAdapter().build_command(
+        _sample_run(model="gpt-5.3-codex"),
+        StubPermissionResolver(),
+    )
+
+    assert "-o" not in command
+
+
+def test_codex_build_command_omits_output_flag_for_interactive() -> None:
+    command = CodexAdapter().build_command(
+        SpawnParams(
+            prompt="space prompt",
+            model=ModelId("gpt-5.3-codex"),
+            interactive=True,
+            report_output_path="/tmp/spawns/r1/report.md",
+        ),
+        StubPermissionResolver(),
+    )
+
+    assert "-o" not in command
 
 
 def test_opencode_build_command_strips_model_prefix_and_uses_positional_prompt() -> None:
