@@ -87,6 +87,7 @@ class ModelsListOutput:
             return "(no models)"
         from meridian.cli.format_helpers import tabular
 
+        header = ["MODEL", "HARNESS", "ALIAS", "PROVIDER", "COST", "RELEASED"]
         rows = [
             [
                 str(model.model_id),
@@ -98,7 +99,7 @@ class ModelsListOutput:
             ]
             for model in self.models
         ]
-        return tabular(rows)
+        return tabular([header] + rows)
 
 
 @dataclass(frozen=True, slots=True)
