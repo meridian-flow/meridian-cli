@@ -13,6 +13,7 @@ There are no users and there is no real user data. No need for backwards compati
 3. **Explicit Over Implicit**: MERIDIAN_SPACE_ID required; no auto-creation or implicit context
 4. **Agent Profiles Own Skills**: Static skill definitions in agent profiles, loaded fresh on agent launch/resume
 5. **Minimal Constraints**: Agents organize `.meridian/.spaces/<space-id>/fs/` however they want; Meridian provides container only
+6. **Result Over Metadata**: Spawn output answers "what happened?" — status, report, done. Input echo, null fields, and ceremony are noise. Detailed metadata (params, logs, tokens) lives in the spawn directory for those who need to dig deeper.
 
 ### Architecture
 
@@ -52,4 +53,4 @@ uv run pyright
 
 ## Current Focus
 
-Files-as-authority refactor — see `plans/new-philosophy/implementation/plan.md`
+Spawn output overhaul — see `plans/spawn-output-overhaul.md`

@@ -42,18 +42,19 @@ uv run meridian --help
 
 ## Usage
 
-### Run a task
-
-```bash
-meridian run spawn -p "Fix the failing test" -m claude-sonnet-4-6
-```
 
 ### Run in background + inspect
 
 ```bash
-RUN_ID=$(meridian run spawn --background -p "Refactor auth module" -m gpt-5.3-codex)
+RUN_ID=$(meridian run spawn -p "Refactor auth module" -m gpt-5.3-codex)
 meridian run wait "$RUN_ID"
 meridian run show "$RUN_ID" --report
+```
+
+### Run a in the forground
+
+```bash
+meridian run spawn --foreground -p "Fix the failing test" -m claude-sonnet-4-6
 ```
 
 ### Use skills and references

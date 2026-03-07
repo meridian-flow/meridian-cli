@@ -20,5 +20,5 @@ tmp/
 err
 out
 
-.agents/_meridian-*
-.claude/_meridian-*
+.agents/*/_meridian-*
+.claude/*/_meridian-*
