@@ -9,7 +9,8 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from meridian.lib.config.catalog import load_merged_aliases, resolve_model
+from meridian.lib.config.aliases import load_merged_aliases, resolve_model
+from meridian.lib.config.discovery import load_discovered_models
 from meridian.lib.harness.registry import get_default_harness_registry
 from meridian.lib.launch_resolve import (
     load_agent_profile_with_fallback,
@@ -41,6 +42,7 @@ if TYPE_CHECKING:
     from meridian.lib.harness.registry import HarnessRegistry
 
 logger = structlog.get_logger(__name__)
+_DISCOVERED_MODEL_CONTEXT_LIMIT = 12
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,15 +82,24 @@ def _model_validation_context(
     repo_root: Path | None,
 ) -> str:
     aliases = load_merged_aliases(repo_root=repo_root)
-    if not aliases:
+    discovered_models = load_discovered_models()
+    if not aliases and not discovered_models:
         return ""
 
-    available_models = ", ".join(
+    available_aliases = ", ".join(
         f"{entry.alias} -> {entry.model_id} [{entry.harness}]"
         for entry in aliases
     )
 
-    candidates: list[str] = []
+    discovered_model_ids = sorted({model.id for model in discovered_models})
+    if len(discovered_model_ids) > _DISCOVERED_MODEL_CONTEXT_LIMIT:
+        preview = ", ".join(discovered_model_ids[:_DISCOVERED_MODEL_CONTEXT_LIMIT])
+        remaining = len(discovered_model_ids) - _DISCOVERED_MODEL_CONTEXT_LIMIT
+        available_discovered_models = f"{preview}, ... (+{remaining} more)"
+    else:
+        available_discovered_models = ", ".join(discovered_model_ids)
+
+    candidates: list[str] = discovered_model_ids.copy()
     for entry in aliases:
         candidates.append(entry.alias)
         candidates.append(str(entry.model_id))
@@ -107,7 +118,11 @@ def _model_validation_context(
                 suggestion = candidate
                 break
 
-    context_lines = [f"Available models: {available_models}"]
+    context_lines: list[str] = []
+    if available_aliases:
+        context_lines.append(f"Available aliases: {available_aliases}")
+    if available_discovered_models:
+        context_lines.append(f"Discovered models: {available_discovered_models}")
     if suggestion is not None:
         context_lines.append(f"Did you mean: {suggestion}?")
     return "\n".join(context_lines)

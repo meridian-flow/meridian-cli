@@ -387,7 +387,7 @@ def _normalize_model_identifier(model: str, *, repo_root: Path) -> str:
     if not normalized:
         return normalized
     try:
-        from meridian.lib.config.catalog import resolve_model
+        from meridian.lib.config.aliases import resolve_model
 
         return str(resolve_model(normalized, repo_root=repo_root).model_id)
     except ValueError:

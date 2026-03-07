@@ -1,7 +1,7 @@
 """Configuration discovery and parsing helpers."""
 
 from meridian.lib.config.agent import AgentProfile, load_agent_profile, scan_agent_profiles
-from meridian.lib.config.catalog import (
+from meridian.lib.config.aliases import (
     AliasEntry,
     CatalogModel,
     load_merged_aliases,
