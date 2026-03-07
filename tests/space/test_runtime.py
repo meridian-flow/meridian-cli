@@ -1,5 +1,3 @@
-"""Space threading checks for run query and spawn.list operations."""
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -7,21 +5,11 @@ from pathlib import Path
 import pytest
 
 from meridian.lib.ops._runtime import SPACE_REQUIRED_ERROR, require_space_id
-from meridian.lib.ops.spawn import (
-    SpawnCreateInput,
-    SpawnListInput,
-    SpawnShowInput,
-    SpawnStatsInput,
-    SpawnWaitInput,
-    spawn_create_sync,
-    spawn_list_sync,
-    spawn_show_sync,
-    spawn_stats_sync,
-    spawn_wait_sync,
-)
+from meridian.lib.ops.spawn import SpawnListInput, spawn_list_sync
 from meridian.lib.space.space_file import create_space
 from meridian.lib.state import spawn_store
 from meridian.lib.state.paths import resolve_space_dir
+
 
 def _start_run(space_dir: Path, *, prompt: str) -> str:
     spawn_id = spawn_store.start_spawn(
@@ -34,12 +22,18 @@ def _start_run(space_dir: Path, *, prompt: str) -> str:
     )
     return str(spawn_id)
 
-def test_require_space_id_uses_explicit_value_without_env(monkeypatch: pytest.MonkeyPatch) -> None:
+
+def test_require_space_id_uses_explicit_value_without_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.delenv("MERIDIAN_SPACE_ID", raising=False)
 
     assert require_space_id("s1") == "s1"
 
-def test_require_space_id_raises_without_explicit_or_env(monkeypatch: pytest.MonkeyPatch) -> None:
+
+def test_require_space_id_raises_without_explicit_or_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.delenv("MERIDIAN_SPACE_ID", raising=False)
 
     with pytest.raises(ValueError, match=r"ERROR \[SPACE_REQUIRED\]") as exc_info:
@@ -47,7 +41,8 @@ def test_require_space_id_raises_without_explicit_or_env(monkeypatch: pytest.Mon
 
     assert str(exc_info.value) == SPACE_REQUIRED_ERROR
 
-def test_run_list_sync_uses_payload_space_without_env(
+
+def test_spawn_list_uses_explicit_space_without_env(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -57,7 +52,7 @@ def test_run_list_sync_uses_payload_space_without_env(
     second_dir = resolve_space_dir(tmp_path, second.id)
 
     first_run = _start_run(first_dir, prompt="first")
-    _ = _start_run(second_dir, prompt="second")
+    _start_run(second_dir, prompt="second")
 
     monkeypatch.delenv("MERIDIAN_SPACE_ID", raising=False)
 

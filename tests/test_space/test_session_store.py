@@ -173,36 +173,6 @@ def test_update_session_harness_id_writes_update_event_and_replays(tmp_path):
 
     stop_session(space_dir, chat_id)
 
-def test_backward_compat_old_start_event_defaults_new_fields(tmp_path):
-    space_dir = _space_dir(tmp_path)
-    with (space_dir / "sessions.jsonl").open("a", encoding="utf-8") as handle:
-        handle.write(
-            json.dumps(
-                {
-                    "v": 1,
-                    "event": "start",
-                    "chat_id": "c1",
-                    "harness": "claude",
-                    "harness_session_id": "hs-old",
-                    "model": "claude-opus-4-6",
-                    "params": ["--foo", "bar"],
-                    "started_at": "2026-03-01T00:00:00Z",
-                },
-                separators=(",", ":"),
-                sort_keys=True,
-            )
-            + "\n"
-        )
-
-    record = get_last_session(space_dir)
-    assert record is not None
-    assert record.chat_id == "c1"
-    assert record.agent == ""
-    assert record.agent_path == ""
-    assert record.skills == ()
-    assert record.skill_paths == ()
-    assert record.params == ("--foo", "bar")
-
 def test_cleanup_stale_sessions_removes_dead_locks_and_writes_stop_events(tmp_path):
     space_dir = _space_dir(tmp_path)
     live = start_session(

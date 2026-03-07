@@ -1,5 +1,3 @@
-"""Slice 4 execution engine tests."""
-
 from __future__ import annotations
 
 import asyncio
@@ -22,10 +20,8 @@ from meridian.lib.exec.signals import (
     map_process_exit_code,
     signal_to_exit_code,
 )
-from meridian.lib.exec.spawn import SafeDefaultPermissionResolver, execute_with_finalization
-from meridian.lib.harness.adapter import (
-    ArtifactStore as HarnessArtifactStore,
-)
+from meridian.lib.exec.spawn import execute_with_finalization
+from meridian.lib.harness.adapter import ArtifactStore as HarnessArtifactStore
 from meridian.lib.harness.adapter import (
     HarnessCapabilities,
     PermissionResolver,
@@ -36,22 +32,12 @@ from meridian.lib.harness.registry import HarnessRegistry
 from meridian.lib.safety.permissions import PermissionConfig
 from meridian.lib.space.space_file import create_space
 from meridian.lib.state import spawn_store
-from meridian.lib.state.artifact_store import LocalStore, make_artifact_key
+from meridian.lib.state.artifact_store import LocalStore
 from meridian.lib.state.paths import resolve_space_dir
 from meridian.lib.types import HarnessId, ModelId, SpawnId, SpaceId
 
-class RecordingPermissionResolver(PermissionResolver):
-    def __init__(self, *, flags: tuple[str, ...] = ()) -> None:
-        self.flags = flags
-        self.seen_harness_ids: list[HarnessId] = []
-
-    def resolve_flags(self, harness_id: HarnessId) -> list[str]:
-        self.seen_harness_ids.append(harness_id)
-        return list(self.flags)
 
 class MockHarnessAdapter:
-    """Test harness adapter that shells out to tests/mock_harness.py."""
-
     def __init__(
         self,
         *,
@@ -62,8 +48,6 @@ class MockHarnessAdapter:
         self._script = script
         self._base_args = base_args
         self._command_override = command_override
-        self.build_calls = 0
-        self.last_params: SpawnParams | None = None
 
     @property
     def id(self) -> HarnessId:
@@ -74,17 +58,10 @@ class MockHarnessAdapter:
         return HarnessCapabilities()
 
     def build_command(self, run: SpawnParams, perms: PermissionResolver) -> list[str]:
-        self.build_calls += 1
-        self.last_params = run
-
         if self._command_override is not None:
             command = [*self._command_override]
         else:
-            command = [
-                sys.executable,
-                str(self._script),
-                *self._base_args,
-            ]
+            command = [sys.executable, str(self._script), *self._base_args]
         command.extend(perms.resolve_flags(self.id))
         command.extend(run.extra_args)
         return command
@@ -102,18 +79,12 @@ class MockHarnessAdapter:
         return TokenUsage()
 
     def extract_session_id(self, artifacts: HarnessArtifactStore, spawn_id: SpawnId) -> str | None:
-        key = make_artifact_key(spawn_id, "session_id.txt")
-        if artifacts.exists(key):
-            return artifacts.get(key).decode("utf-8").strip()
+        _ = (artifacts, spawn_id)
         return None
 
-class StdinMockHarnessAdapter(MockHarnessAdapter):
-    @property
-    def capabilities(self) -> HarnessCapabilities:
-        return HarnessCapabilities(supports_stdin_prompt=True)
 
 def _create_run(repo_root: Path, *, prompt: str) -> tuple[Spawn, Path]:
-    space = create_space(repo_root, name="slice4")
+    space = create_space(repo_root, name="signals")
     run = Spawn(
         spawn_id=SpawnId("r1"),
         prompt=prompt,
@@ -123,31 +94,6 @@ def _create_run(repo_root: Path, *, prompt: str) -> tuple[Spawn, Path]:
     )
     return run, resolve_space_dir(repo_root, space.id)
 
-def _fetch_run_row(space_dir: Path, spawn_id: SpawnId) -> spawn_store.SpawnRecord:
-    row = spawn_store.get_spawn(space_dir, spawn_id)
-    assert row is not None
-    return row
-
-def _pid_exists(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
-
-@pytest.mark.asyncio
-
-@pytest.mark.asyncio
-
-@pytest.mark.asyncio
-
-@pytest.mark.asyncio
-
-@pytest.mark.asyncio
-
-@pytest.mark.asyncio
 
 @pytest.mark.asyncio
 async def test_execute_with_finalization_ignores_sigterm_during_finalize_write(
@@ -160,7 +106,7 @@ async def test_execute_with_finalization_ignores_sigterm_during_finalize_write(
     artifacts = LocalStore(root_dir=tmp_path / ".artifacts")
     adapter = MockHarnessAdapter(
         script=tmp_path / "unused.py",
-        command_override=("definitely-missing-binary-for-slice4",),
+        command_override=("definitely-missing-binary-for-signals",),
     )
     registry = HarnessRegistry()
     registry.register(adapter)
@@ -208,6 +154,7 @@ async def test_execute_with_finalization_ignores_sigterm_during_finalize_write(
     assert finalize_called is True
     assert transitioned_mask_states == [True, False]
 
+
 def test_signal_forwarder_forwards_sigint_and_sigterm(monkeypatch: pytest.MonkeyPatch) -> None:
     import meridian.lib.exec.signals as signals_module
 
@@ -235,10 +182,10 @@ def test_signal_forwarder_forwards_sigint_and_sigterm(monkeypatch: pytest.Monkey
 
     assert sent_signals == [signal.SIGINT, signal.SIGTERM, signal.SIGKILL]
     assert forwarder.received_signal == signal.SIGTERM
-
     assert signal_to_exit_code(signal.SIGINT) == 130
     assert signal_to_exit_code(signal.SIGTERM) == 143
     assert map_process_exit_code(raw_return_code=0, received_signal=signal.SIGTERM) == 143
+
 
 def test_signal_coordinator_dispatches_signal_to_all_active_forwarders(
     monkeypatch: pytest.MonkeyPatch,
@@ -249,9 +196,6 @@ def test_signal_coordinator_dispatches_signal_to_all_active_forwarders(
         def __init__(self) -> None:
             self.pid = 12345
             self.returncode: int | None = None
-
-        def kill(self) -> None:
-            self.returncode = -9
 
     installed_handlers: dict[signal.Signals, object] = {}
 
@@ -291,11 +235,12 @@ def test_signal_coordinator_dispatches_signal_to_all_active_forwarders(
 
     assert sent_signals == [signal.SIGTERM, signal.SIGTERM]
 
+
 def test_kill_running_parent_process_still_finalizes_run(
     package_root: Path,
     tmp_path: Path,
 ) -> None:
-    worker_path = tmp_path / "slice4_worker.py"
+    worker_path = tmp_path / "signals_worker.py"
     repo_root = tmp_path / "repo"
     repo_root.mkdir(parents=True, exist_ok=True)
     mock_harness = package_root / "tests" / "mock_harness.py"
@@ -369,9 +314,7 @@ def test_kill_running_parent_process_still_finalizes_run(
                     status="queued",
                     space_id=SpaceId(space.id),
                 )
-                artifacts = LocalStore(
-                    root_dir=Path("{(tmp_path / '.artifacts-worker').as_posix()}")
-                )
+                artifacts = LocalStore(root_dir=Path("{(tmp_path / '.artifacts-worker').as_posix()}"))
                 registry = HarnessRegistry()
                 registry.register(WorkerAdapter())
                 return await execute_with_finalization(

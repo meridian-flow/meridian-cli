@@ -1,5 +1,3 @@
-"""Slice 5a error classification tests."""
-
 from __future__ import annotations
 
 import pytest
@@ -8,7 +6,7 @@ from meridian.lib.exec.errors import ErrorCategory, classify_error, should_retry
 
 
 @pytest.mark.parametrize(
-    "error_message,expected",
+    ("error_message", "expected"),
     [
         pytest.param(
             "Request failed: token limit exceeded for this model.",
@@ -37,45 +35,33 @@ def test_classify_error_categories(error_message: str, expected: ErrorCategory) 
 
 
 def test_should_retry_honors_retryable_and_max_limit() -> None:
-    assert (
-        should_retry(
-            exit_code=1,
-            stderr="network error: connection reset",
-            retries_attempted=0,
-            max_retries=3,
-        )
-        is True
+    assert should_retry(
+        exit_code=1,
+        stderr="network error: connection reset",
+        retries_attempted=0,
+        max_retries=3,
     )
-    assert (
-        should_retry(
-            exit_code=1,
-            stderr="network error: connection reset",
-            retries_attempted=3,
-            max_retries=3,
-        )
-        is False
+    assert not should_retry(
+        exit_code=1,
+        stderr="network error: connection reset",
+        retries_attempted=3,
+        max_retries=3,
     )
-    assert (
-        should_retry(
-            exit_code=1,
-            stderr="model not found",
-            retries_attempted=0,
-            max_retries=3,
-        )
-        is False
+    assert not should_retry(
+        exit_code=1,
+        stderr="model not found",
+        retries_attempted=0,
+        max_retries=3,
     )
 
 
 def test_should_retry_never_retries_timeouts() -> None:
-    assert (
-        should_retry(
-            exit_code=3,
-            stderr="",
-            timed_out=True,
-            retries_attempted=0,
-            max_retries=3,
-        )
-        is False
+    assert not should_retry(
+        exit_code=3,
+        stderr="",
+        timed_out=True,
+        retries_attempted=0,
+        max_retries=3,
     )
 
 

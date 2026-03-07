@@ -1,4 +1,4 @@
-"""Running-spawn stderr parser regression checks."""
+"""Running-spawn query parser regressions."""
 
 from __future__ import annotations
 

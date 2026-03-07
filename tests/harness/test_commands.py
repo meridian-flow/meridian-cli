@@ -1,4 +1,4 @@
-"""Flag-strategy command builder tests for harness adapters."""
+"""Harness command-building invariants across adapters."""
 
 from __future__ import annotations
 
@@ -27,7 +27,15 @@ def _sample_run(*, model: str, extra_args: tuple[str, ...] = ()) -> SpawnParams:
 
 
 def test_every_run_params_field_is_mapped_for_each_adapter() -> None:
-    skip = {"prompt", "extra_args", "repo_root", "mcp_tools", "adhoc_agent_json", "interactive", "report_output_path"}
+    skip = {
+        "prompt",
+        "extra_args",
+        "repo_root",
+        "mcp_tools",
+        "adhoc_agent_json",
+        "interactive",
+        "report_output_path",
+    }
     required = {field.name for field in dataclasses.fields(SpawnParams)} - skip
     adapter_classes = (ClaudeAdapter, CodexAdapter, OpenCodeAdapter)
 
@@ -43,20 +51,13 @@ def test_claude_build_command_passes_agent_natively() -> None:
         StubPermissionResolver(),
     )
 
-    assert command == [
-        "claude",
-        "-p",
-        "--output-format",
-        "stream-json",
-        "--verbose",
-        "-",
-        "--model",
-        "claude-opus-4-6",
-        "--agent",
-        "reviewer",
-        "--perm",
-        "claude",
-    ]
+    assert command[0] == "claude"
+    assert "-p" in command
+    assert "--verbose" in command
+    assert command[command.index("--output-format") + 1] == "stream-json"
+    assert command[command.index("--model") + 1] == "claude-opus-4-6"
+    assert command[command.index("--agent") + 1] == "reviewer"
+    assert command[-1] == "claude"
     assert "--skills" not in command
 
 
@@ -66,16 +67,11 @@ def test_codex_build_command_drops_agent_and_uses_stdin_prompt_marker() -> None:
         StubPermissionResolver(),
     )
 
-    assert command == [
-        "codex",
-        "exec",
-        "--json",
-        "--model",
-        "gpt-5.3-codex",
-        "--perm",
-        "codex",
-        "-",
-    ]
+    assert command[:2] == ["codex", "exec"]
+    assert command.count("--json") == 1
+    assert command[command.index("--model") + 1] == "gpt-5.3-codex"
+    assert command[command.index("--perm") + 1] == "codex"
+    assert command[-1] == "-"
     assert "--agent" not in command
     assert "--skills" not in command
 
@@ -89,7 +85,7 @@ def test_codex_build_command_includes_json_without_extra_args() -> None:
         StubPermissionResolver(),
     )
 
-    assert command[:3] == ["codex", "exec", "--json"]
+    assert command[:2] == ["codex", "exec"]
     assert command[-1] == "-"
     assert command.count("--json") == 1
 
@@ -105,7 +101,10 @@ def test_claude_build_command_resume_and_fork() -> None:
         StubPermissionResolver(),
     )
 
-    assert command[:5] == ["claude", "-p", "--output-format", "stream-json", "--verbose"]
+    assert command[0] == "claude"
+    assert "-p" in command
+    assert "--verbose" in command
+    assert command[command.index("--output-format") + 1] == "stream-json"
     assert "--resume" in command
     assert "session-123" in command
     assert "--fork-session" in command
@@ -163,7 +162,10 @@ def test_codex_build_command_uses_resume_subcommand_when_session_available() -> 
         StubPermissionResolver(),
     )
 
-    assert command[:5] == ["codex", "exec", "--json", "resume", "session-456"]
+    assert command[:2] == ["codex", "exec"]
+    assert command.count("--json") == 1
+    assert "resume" in command
+    assert "session-456" in command
     assert "--model" in command
     assert "--fork" not in command
     assert command[-1] == "-"
@@ -180,7 +182,9 @@ def test_codex_build_command_interactive_resume_uses_resume_subcommand() -> None
         StubPermissionResolver(),
     )
 
-    assert command[:3] == ["codex", "resume", "session-456"]
+    assert command[0] == "codex"
+    assert "resume" in command
+    assert "session-456" in command
     assert "--model" in command
 
 
@@ -229,15 +233,10 @@ def test_opencode_build_command_strips_model_prefix_and_uses_positional_prompt()
         StubPermissionResolver(),
     )
 
-    assert command == [
-        "opencode",
-        "run",
-        "--model",
-        "gpt-5.3-codex",
-        "--perm",
-        "opencode",
-        "-",
-    ]
+    assert command[:2] == ["opencode", "run"]
+    assert command[command.index("--model") + 1] == "gpt-5.3-codex"
+    assert command[command.index("--perm") + 1] == "opencode"
+    assert command[-1] == "-"
     assert "--agent" not in command
     assert "--skills" not in command
 

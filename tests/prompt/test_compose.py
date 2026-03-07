@@ -1,4 +1,4 @@
-"""Slice 3 prompt composition tests."""
+"""Prompt assembly and reference isolation invariants."""
 
 from __future__ import annotations
 
@@ -19,30 +19,6 @@ from meridian.lib.prompt.reference import (
 )
 from tests.helpers.fixtures import write_skill as _write_skill
 
-_STALE_FILE_PATH_INSTRUCTION = """
-# Report
-
-**IMPORTANT - As your FINAL action**, write a report of your work to: `/tmp/old/report.md`
-
-Include: what was done.
-
-Use plain markdown. This file is read by the orchestrator to understand
-what you did without parsing verbose logs.
-
-Fix the bug in parser.py.
-"""
-
-_STALE_FINAL_MESSAGE_INSTRUCTION = """
-# Report
-
-**IMPORTANT - As your final action, create the run report with Meridian.**
-
-Include: what was done.
-
-Run `meridian report create --stdin` with plain markdown content.
-
-Follow-up request for the same task.
-"""
 
 def test_skill_loading_order_and_dedup(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
@@ -54,6 +30,7 @@ def test_skill_loading_order_and_dedup(tmp_path: Path) -> None:
 
     loaded = load_skill_contents(registry, ["alpha", "beta", "alpha"])
     assert [skill.name for skill in loaded] == ["alpha", "beta"]
+
 
 def test_run_defaults_merge_agent_profile_defaults() -> None:
     profile = AgentProfile(
@@ -71,20 +48,18 @@ def test_run_defaults_merge_agent_profile_defaults() -> None:
         raw_content="",
     )
 
-    defaults = resolve_run_defaults(
-        "",
-        profile=profile,
-    )
+    defaults = resolve_run_defaults("", profile=profile)
+
     assert defaults.model == "gpt-5.3-codex"
     assert defaults.skills == ("reviewing", "agent")
     assert defaults.agent_body == "Profile body"
 
+
 def test_run_defaults_resolves_builtin_alias_for_old_callers() -> None:
-    defaults = resolve_run_defaults(
-        "codex",
-        profile=None,
-    )
+    defaults = resolve_run_defaults("codex", profile=None)
+
     assert defaults.model == "gpt-5.3-codex"
+
 
 def test_template_substitution_with_literals_and_file_values(tmp_path: Path) -> None:
     value_file = tmp_path / "context.txt"
@@ -96,6 +71,7 @@ def test_template_substitution_with_literals_and_file_values(tmp_path: Path) -> 
 
     with pytest.raises(TemplateVariableError, match="MISSING"):
         substitute_template_variables("{{MISSING}}", resolved)
+
 
 def test_compose_prompt_keeps_context_isolated_and_sanitized(tmp_path: Path) -> None:
     safe_ref = tmp_path / "safe.md"
@@ -128,6 +104,7 @@ def test_compose_prompt_keeps_context_isolated_and_sanitized(tmp_path: Path) -> 
     assert "/tmp/stale.md" not in composed
     assert "Safe context {{CTX}}" in composed
     assert "Implement the change with context." in composed
+
 
 def test_compose_prompt_does_not_fail_on_unknown_reference_placeholders(tmp_path: Path) -> None:
     reference_file = tmp_path / "source.ts"

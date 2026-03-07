@@ -1,5 +1,3 @@
-"""Slice 5a execution/finalization behavior tests."""
-
 from __future__ import annotations
 
 import asyncio
@@ -16,9 +14,7 @@ from meridian.lib.harness._common import (
     extract_session_id_from_artifacts,
     extract_usage_from_artifacts,
 )
-from meridian.lib.harness.adapter import (
-    ArtifactStore as HarnessArtifactStore,
-)
+from meridian.lib.harness.adapter import ArtifactStore as HarnessArtifactStore
 from meridian.lib.harness.adapter import (
     HarnessCapabilities,
     PermissionResolver,
@@ -33,13 +29,14 @@ from meridian.lib.state.artifact_store import LocalStore, make_artifact_key
 from meridian.lib.state.paths import resolve_space_dir
 from meridian.lib.types import HarnessId, ModelId, SpawnId, SpaceId
 
+
 class ScriptHarnessAdapter:
     def __init__(self, *, command: tuple[str, ...]) -> None:
         self._command = command
 
     @property
     def id(self) -> HarnessId:
-        return HarnessId("slice5-script")
+        return HarnessId("exec-script")
 
     @property
     def capabilities(self) -> HarnessCapabilities:
@@ -62,8 +59,9 @@ class ScriptHarnessAdapter:
     def extract_session_id(self, artifacts: HarnessArtifactStore, spawn_id: SpawnId) -> str | None:
         return extract_session_id_from_artifacts(artifacts, spawn_id)
 
-def _create_run(repo_root: Path, *, prompt: str) -> tuple[Spawn, Path]:
-    space = create_space(repo_root, name="slice5")
+
+def _create_run(repo_root: Path, *, prompt: str, name: str = "exec") -> tuple[Spawn, Path]:
+    space = create_space(repo_root, name=name)
     run = Spawn(
         spawn_id=SpawnId("r1"),
         prompt=prompt,
@@ -73,26 +71,23 @@ def _create_run(repo_root: Path, *, prompt: str) -> tuple[Spawn, Path]:
     )
     return run, resolve_space_dir(repo_root, space.id)
 
+
 def _fetch_run_row(space_dir: Path, spawn_id: SpawnId) -> spawn_store.SpawnRecord:
     row = spawn_store.get_spawn(space_dir, spawn_id)
     assert row is not None
     return row
 
+
 def _write_script(path: Path, source: str) -> None:
     path.write_text(textwrap.dedent(source), encoding="utf-8")
+
 
 def _read_output_payload(artifacts: LocalStore, spawn_id: SpawnId) -> dict[str, object]:
     raw = artifacts.get(make_artifact_key(spawn_id, "output.jsonl")).decode("utf-8")
     return json.loads(raw.strip())
 
-def _read_finalize_event(space_dir: Path, spawn_id: SpawnId) -> dict[str, object]:
-    rows = (space_dir / "spawns.jsonl").read_text(encoding="utf-8").splitlines()
-    events = [json.loads(row) for row in rows if row.strip()]
-    for event in reversed(events):
-        if event.get("event") == "finalize" and event.get("id") == str(spawn_id):
-            return event
-    raise AssertionError(f"Finalize event for spawn '{spawn_id}' not found")
 
+@pytest.mark.asyncio
 async def test_execute_retries_retryable_errors_up_to_max(tmp_path: Path) -> None:
     run, space_dir = _create_run(tmp_path, prompt="retry me")
     artifacts = LocalStore(root_dir=tmp_path / ".artifacts")
@@ -138,8 +133,10 @@ async def test_execute_retries_retryable_errors_up_to_max(tmp_path: Path) -> Non
     assert row.status == "failed"
     assert row.error is None
 
+
+@pytest.mark.asyncio
 async def test_execute_does_not_retry_unrecoverable_errors(tmp_path: Path) -> None:
-    run, space_dir = _create_run(tmp_path, prompt="fail once")
+    run, _space_dir = _create_run(tmp_path, prompt="fail once")
     artifacts = LocalStore(root_dir=tmp_path / ".artifacts")
 
     counter = tmp_path / "unrecoverable-count.txt"
@@ -168,7 +165,7 @@ async def test_execute_does_not_retry_unrecoverable_errors(tmp_path: Path) -> No
     exit_code = await execute_with_finalization(
         run,
         repo_root=tmp_path,
-        space_dir=space_dir,
+        space_dir=resolve_space_dir(tmp_path, "s1"),
         artifacts=artifacts,
         registry=registry,
         harness_id=adapter.id,
@@ -180,15 +177,6 @@ async def test_execute_does_not_retry_unrecoverable_errors(tmp_path: Path) -> No
     assert exit_code == 1
     assert counter.read_text(encoding="utf-8") == "1"
 
-@pytest.mark.asyncio
-
-@pytest.mark.asyncio
-
-@pytest.mark.asyncio
-
-@pytest.mark.asyncio
-
-@pytest.mark.asyncio
 
 @pytest.mark.asyncio
 async def test_execute_sets_timeout_failure_reason(tmp_path: Path) -> None:
@@ -226,13 +214,13 @@ async def test_execute_sets_timeout_failure_reason(tmp_path: Path) -> None:
     row = _fetch_run_row(space_dir, run.spawn_id)
     assert row.status == "failed"
     assert row.error == "timeout"
-    payload = _read_output_payload(artifacts, run.spawn_id)
-    assert payload == {
+    assert _read_output_payload(artifacts, run.spawn_id) == {
         "error_code": "harness_empty_output",
         "failure_reason": "timeout",
         "exit_code": 3,
         "timed_out": True,
     }
+
 
 @pytest.mark.asyncio
 async def test_execute_sets_cancelled_failure_reason(tmp_path: Path) -> None:
@@ -274,4 +262,3 @@ async def test_execute_sets_cancelled_failure_reason(tmp_path: Path) -> None:
     row = _fetch_run_row(space_dir, run.spawn_id)
     assert row.status == "failed"
     assert row.error == "cancelled"
-

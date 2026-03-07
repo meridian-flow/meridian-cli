@@ -64,10 +64,10 @@ uv run pyright
 Useful targeted test patterns during development:
 
 ```bash
-uv run pytest tests/test_cli_smoke.py -q
-uv run pytest tests/test_space -q
-uv run pytest tests/test_config*.py -q
-uv run pytest tests/test_spawn*.py -q
+uv run pytest tests/config -q
+uv run pytest tests/space tests/test_space -q
+uv run pytest tests/harness tests/prompt tests/exec -q
+uv run pytest tests/ops tests/test_state -q
 ```
 
 ## 5) Validate CLI Behavior in the Repo Context

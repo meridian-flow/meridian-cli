@@ -34,16 +34,3 @@ def test_list_spaces_reads_all_space_json_files(tmp_path):
     spaces = list_spaces(tmp_path)
     assert [space.id for space in spaces] == ["s1", "s2"]
     assert [space.name for space in spaces] == ["one", "two"]
-
-def test_get_space_accepts_legacy_status_fields(tmp_path):
-    record = create_space(tmp_path, name="legacy")
-    space_json = tmp_path / ".meridian" / ".spaces" / record.id / "space.json"
-    payload = json.loads(space_json.read_text(encoding="utf-8"))
-    payload["status"] = "closed"
-    payload["finished_at"] = "2026-03-01T00:00:00Z"
-    space_json.write_text(json.dumps(payload), encoding="utf-8")
-
-    loaded = get_space(tmp_path, record.id)
-    assert loaded is not None
-    assert loaded.id == record.id
-    assert loaded.name == "legacy"

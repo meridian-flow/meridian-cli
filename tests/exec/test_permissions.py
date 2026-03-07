@@ -1,5 +1,3 @@
-"""Slice 7 safety features: permissions, budgets, guardrails, and redaction."""
-
 from __future__ import annotations
 
 import json
@@ -16,29 +14,30 @@ from meridian.lib.harness._common import (
     extract_session_id_from_artifacts,
     extract_usage_from_artifacts,
 )
-from meridian.lib.harness.adapter import (
-    ArtifactStore as HarnessArtifactStore,
-)
+from meridian.lib.harness.adapter import ArtifactStore as HarnessArtifactStore
 from meridian.lib.harness.adapter import (
     HarnessCapabilities,
     PermissionResolver,
     SpawnParams,
     StreamEvent,
 )
+from meridian.lib.harness.claude import ClaudeAdapter
+from meridian.lib.harness.codex import CodexAdapter
+from meridian.lib.harness.opencode import OpenCodeAdapter
 from meridian.lib.harness.registry import HarnessRegistry
-from meridian.lib.safety.budget import Budget
 from meridian.lib.safety.permissions import (
     PermissionConfig,
     PermissionTier,
     build_permission_config,
+    opencode_permission_json,
     permission_flags_for_harness,
 )
-from meridian.lib.safety.redaction import SecretSpec
 from meridian.lib.space.space_file import create_space
 from meridian.lib.state import spawn_store
 from meridian.lib.state.artifact_store import LocalStore, make_artifact_key
 from meridian.lib.state.paths import resolve_space_dir
 from meridian.lib.types import HarnessId, ModelId, SpawnId, SpaceId
+
 
 class ScriptHarnessAdapter:
     def __init__(self, *, command: tuple[str, ...]) -> None:
@@ -46,7 +45,7 @@ class ScriptHarnessAdapter:
 
     @property
     def id(self) -> HarnessId:
-        return HarnessId("slice7-script")
+        return HarnessId("exec-permissions")
 
     @property
     def capabilities(self) -> HarnessCapabilities:
@@ -69,8 +68,9 @@ class ScriptHarnessAdapter:
     def extract_session_id(self, artifacts: HarnessArtifactStore, spawn_id: SpawnId) -> str | None:
         return extract_session_id_from_artifacts(artifacts, spawn_id)
 
+
 def _create_run(repo_root: Path, *, prompt: str, spawn_id: str = "r1") -> tuple[Spawn, Path]:
-    space = create_space(repo_root, name="slice7")
+    space = create_space(repo_root, name="permissions")
     run = Spawn(
         spawn_id=SpawnId(spawn_id),
         prompt=prompt,
@@ -80,16 +80,13 @@ def _create_run(repo_root: Path, *, prompt: str, spawn_id: str = "r1") -> tuple[
     )
     return run, resolve_space_dir(repo_root, space.id)
 
-def _fetch_run_row(space_dir: Path, spawn_id: SpawnId) -> spawn_store.SpawnRecord:
-    row = spawn_store.get_spawn(space_dir, spawn_id)
-    assert row is not None
-    return row
 
 def _write_script(path: Path, source: str, *, executable: bool = False) -> None:
     path.write_text(textwrap.dedent(source), encoding="utf-8")
     if executable:
         mode = path.stat().st_mode
         path.chmod(mode | stat.S_IXUSR)
+
 
 def test_auto_approval_bypass_and_invalid_approval() -> None:
     config = build_permission_config("full-access", approval="auto")
@@ -105,13 +102,51 @@ def test_auto_approval_bypass_and_invalid_approval() -> None:
     with pytest.raises(ValueError, match="Unsupported approval mode"):
         build_permission_config("full-access", approval="sometimes")
 
-@pytest.mark.asyncio
 
-@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("tier", "expected"),
+    (
+        (
+            PermissionTier.READ_ONLY,
+            {"*": "deny", "read": "allow", "grep": "allow", "glob": "allow", "list": "allow"},
+        ),
+        (
+            PermissionTier.WORKSPACE_WRITE,
+            {
+                "*": "deny",
+                "read": "allow",
+                "grep": "allow",
+                "glob": "allow",
+                "list": "allow",
+                "edit": "allow",
+                "bash": "deny",
+            },
+        ),
+        (PermissionTier.FULL_ACCESS, {"*": "allow"}),
+    ),
+)
+def test_opencode_permission_json_matches_expected_mappings(
+    tier: PermissionTier,
+    expected: dict[str, str],
+) -> None:
+    assert json.loads(opencode_permission_json(tier)) == expected
 
-@pytest.mark.asyncio
 
-@pytest.mark.asyncio
+def test_standard_harnesses_only_opencode_sets_env_overrides() -> None:
+    config = PermissionConfig(tier=PermissionTier.WORKSPACE_WRITE, approval="confirm")
+
+    assert ClaudeAdapter().env_overrides(config) == {}
+    assert CodexAdapter().env_overrides(config) == {}
+    assert json.loads(OpenCodeAdapter().env_overrides(config)["OPENCODE_PERMISSION"]) == {
+        "*": "deny",
+        "read": "allow",
+        "grep": "allow",
+        "glob": "allow",
+        "list": "allow",
+        "edit": "allow",
+        "bash": "deny",
+    }
+
 
 def test_sanitize_child_env_filters_parent_secrets_and_keeps_explicit_overrides() -> None:
     base_env = {
@@ -147,6 +182,7 @@ def test_sanitize_child_env_filters_parent_secrets_and_keeps_explicit_overrides(
     assert "EXAMPLE_TOKEN" not in sanitized
     assert "EXAMPLE_KEY" not in sanitized
 
+
 def test_sanitize_child_env_does_not_leak_primary_autocompact_override() -> None:
     sanitized = sanitize_child_env(
         base_env={
@@ -161,14 +197,15 @@ def test_sanitize_child_env_does_not_leak_primary_autocompact_override() -> None
     assert sanitized["MERIDIAN_DEPTH"] == "2"
     assert "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE" not in sanitized
 
+
 @pytest.mark.asyncio
 async def test_execute_with_finalization_passes_required_credentials_only(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "slice7c-needed")
-    monkeypatch.setenv("SLICE7C_UNRELATED_TOKEN", "slice7c-blocked")
-    monkeypatch.setenv("SLICE7C_MISC_VALUE", "slice7c-drop")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "needed")
+    monkeypatch.setenv("UNRELATED_TOKEN", "blocked")
+    monkeypatch.setenv("MISC_VALUE", "drop")
 
     run, space_dir = _create_run(tmp_path, prompt="env-policy")
     artifacts = LocalStore(root_dir=tmp_path / ".artifacts")
@@ -184,8 +221,8 @@ async def test_execute_with_finalization_passes_required_credentials_only(
             json.dumps(
                 {
                     "anthropic": os.getenv("ANTHROPIC_API_KEY"),
-                    "unrelated_token": os.getenv("SLICE7C_UNRELATED_TOKEN"),
-                    "misc": os.getenv("SLICE7C_MISC_VALUE"),
+                    "unrelated_token": os.getenv("UNRELATED_TOKEN"),
+                    "misc": os.getenv("MISC_VALUE"),
                 },
                 sort_keys=True,
             ),
@@ -210,9 +247,8 @@ async def test_execute_with_finalization_passes_required_credentials_only(
 
     assert exit_code == 0
     output_text = artifacts.get(make_artifact_key(run.spawn_id, "output.jsonl")).decode("utf-8")
-    payload = json.loads(output_text.strip())
-    assert payload == {
-        "anthropic": "slice7c-needed",
+    assert json.loads(output_text.strip()) == {
+        "anthropic": "needed",
         "misc": None,
         "unrelated_token": None,
     }

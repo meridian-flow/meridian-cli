@@ -1,10 +1,8 @@
-"""Depth limiting checks for Slice 4 spawn safeguards."""
+"""Depth limit and child environment invariants for spawn creation."""
 
 from __future__ import annotations
 
 import json
-import subprocess
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +11,7 @@ import pytest
 from meridian.lib.ops._spawn_execute import _spawn_child_env
 from meridian.lib.ops.spawn import SpawnCreateInput, spawn_create, spawn_create_sync
 from meridian.server.main import mcp
+
 
 def _payload_from_result(result: Any) -> dict[str, Any]:
     if isinstance(result, dict):
@@ -28,6 +27,7 @@ def _payload_from_result(result: Any) -> dict[str, Any]:
         if isinstance(payload, dict):
             return payload
     raise AssertionError("Tool result did not include a JSON object payload")
+
 
 def test_run_create_sync_refuses_when_depth_limit_reached(
     monkeypatch: pytest.MonkeyPatch,
@@ -50,6 +50,7 @@ def test_run_create_sync_refuses_when_depth_limit_reached(
     assert result.max_depth == 3
     assert result.spawn_id is None
     assert not (tmp_path / ".meridian" / ".spaces").exists()
+
 
 @pytest.mark.asyncio
 async def test_run_create_async_refuses_when_depth_limit_reached(
@@ -74,6 +75,7 @@ async def test_run_create_async_refuses_when_depth_limit_reached(
     assert result.spawn_id is None
     assert not (tmp_path / ".meridian" / ".spaces").exists()
 
+
 @pytest.mark.asyncio
 async def test_mcp_run_spawn_refuses_when_depth_limit_reached(
     monkeypatch: pytest.MonkeyPatch,
@@ -92,12 +94,12 @@ async def test_mcp_run_spawn_refuses_when_depth_limit_reached(
     payload = _payload_from_result(raw)
     assert payload["status"] == "failed"
     assert payload["error"] == "max_depth_exceeded"
-    assert "spawn_id" not in payload  # omitted when None via to_wire()
+    assert "spawn_id" not in payload
     assert not (repo_root / ".meridian" / ".spaces").exists()
+
 
 def test_run_child_env_increments_depth(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MERIDIAN_DEPTH", "2")
     env = _spawn_child_env("s9")
     assert env["MERIDIAN_DEPTH"] == "3"
     assert env["MERIDIAN_SPACE_ID"] == "s9"
-
