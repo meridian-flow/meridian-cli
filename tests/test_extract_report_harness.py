@@ -6,6 +6,7 @@ from meridian.lib.extract.report import extract_or_fallback_report
 from meridian.lib.harness.claude import ClaudeAdapter
 from meridian.lib.harness.codex import CodexAdapter
 from meridian.lib.harness.opencode import OpenCodeAdapter
+from meridian.lib.harness.adapter import ArtifactStore
 from meridian.lib.state.artifact_store import InMemoryStore, make_artifact_key
 from meridian.lib.types import SpawnId
 
@@ -15,7 +16,7 @@ class _StubCodexAdapter(CodexAdapter):
         self._report = report
         self._raises = raises
 
-    def extract_report(self, artifacts: InMemoryStore, spawn_id: SpawnId) -> str | None:
+    def extract_report(self, artifacts: ArtifactStore, spawn_id: SpawnId) -> str | None:
         _ = artifacts, spawn_id
         if self._raises is not None:
             raise self._raises
