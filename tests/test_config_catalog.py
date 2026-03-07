@@ -23,7 +23,10 @@ def test_load_builtin_aliases_from_resource() -> None:
     by_alias = {entry.alias: entry for entry in entries}
 
     assert str(by_alias["opus"].model_id) == "claude-opus-4-6"
-    assert by_alias["opus"].role == "Default / all-rounder"
+    assert str(by_alias["haiku"].model_id) == "claude-haiku-4-5"
+    assert str(by_alias["gpt52h"].model_id) == "gpt-5.2-high"
+    assert str(by_alias["gemini"].model_id) == "gemini-3.1-pro"
+    assert by_alias["opus"].role == ""
     assert by_alias["codex"].harness == "codex"
 
 
