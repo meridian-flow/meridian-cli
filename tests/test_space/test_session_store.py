@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from meridian.lib.space.session_store import (
+    collect_active_chat_ids,
     cleanup_stale_sessions,
     get_last_session,
     get_session_harness_id,
@@ -297,3 +298,27 @@ def test_cleanup_stale_sessions_removes_materialized_scope_for_stale_chat(tmp_pa
     assert (tmp_path / ".claude" / "skills" / "_meridian-c3-alpha").is_dir()
 
     stop_session(space_dir, live)
+
+
+def test_collect_active_chat_ids_across_spaces(tmp_path):
+    first_space = _space_dir(tmp_path)
+    second_space = tmp_path / ".meridian" / ".spaces" / "s2"
+    second_space.mkdir(parents=True, exist_ok=True)
+
+    c1 = start_session(
+        first_space,
+        harness="claude",
+        harness_session_id="hs-1",
+        model="claude-opus-4-6",
+    )
+    c2 = start_session(
+        second_space,
+        harness="codex",
+        harness_session_id="hs-2",
+        model="gpt-5.3-codex",
+    )
+    stop_session(second_space, c2)
+
+    assert collect_active_chat_ids(tmp_path) == frozenset({c1})
+
+    stop_session(first_space, c1)

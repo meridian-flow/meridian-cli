@@ -9,7 +9,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import BinaryIO
+from typing import BinaryIO, cast
 
 from meridian.lib.harness.materialize import cleanup_materialized
 from meridian.lib.state.id_gen import next_chat_id
@@ -80,7 +80,7 @@ def _read_events(path: Path) -> list[JSONRow]:
                 continue
             continue
         if isinstance(payload, dict):
-            rows.append(payload)
+            rows.append(cast("JSONRow", payload))
     return rows
 
 
@@ -344,6 +344,58 @@ def get_session_harness_id(space_dir: Path, chat_id: str) -> str | None:
     return record.harness_session_id
 
 
+def collect_active_chat_ids(repo_root: Path) -> frozenset[str] | None:
+    """Collect chat IDs from all spaces with start events that lack a stop event."""
+
+    from meridian.lib.state.paths import resolve_all_spaces_dir
+
+    try:
+        spaces_dir = resolve_all_spaces_dir(repo_root)
+        if not spaces_dir.is_dir():
+            return frozenset()
+
+        active_ids: set[str] = set()
+        for space_dir in spaces_dir.iterdir():
+            if not space_dir.is_dir():
+                continue
+            sessions_file = space_dir / "sessions.jsonl"
+            if not sessions_file.is_file():
+                continue
+
+            try:
+                started: set[str] = set()
+                stopped: set[str] = set()
+                for line in sessions_file.read_text(encoding="utf-8").splitlines():
+                    stripped = line.strip()
+                    if not stripped:
+                        continue
+                    try:
+                        record = json.loads(stripped)
+                    except json.JSONDecodeError:
+                        continue
+                    if not isinstance(record, dict):
+                        continue
+                    row = cast("dict[object, object]", record)
+
+                    event = row.get("event", "")
+                    chat_id_val = row.get("chat_id", "")
+                    if not isinstance(chat_id_val, str) or not chat_id_val:
+                        continue
+
+                    if event == "start":
+                        started.add(chat_id_val)
+                    elif event == "stop":
+                        stopped.add(chat_id_val)
+
+                active_ids.update(started - stopped)
+            except OSError:
+                continue
+
+        return frozenset(active_ids)
+    except OSError:
+        return None
+
+
 def _infer_repo_root_from_space_dir(space_dir: Path) -> Path | None:
     resolved = space_dir.expanduser().resolve()
     if resolved.parent.name != ".spaces":
@@ -412,9 +464,10 @@ def cleanup_stale_sessions(space_dir: Path, repo_root: Path | None = None) -> li
                 cleanup_materialized(harness_id, cleanup_root, chat_id)
             except Exception:
                 logger.warning(
-                    "Failed to cleanup stale-session materialized resources.",
-                    harness_id=harness_id,
-                    chat_id=chat_id,
+                    "Failed to cleanup stale-session materialized resources "
+                    "(harness=%s, chat=%s).",
+                    harness_id,
+                    chat_id,
                     exc_info=True,
                 )
 

@@ -32,6 +32,20 @@ def _materialized_name(chat_id: str, name: str) -> str:
     return f"_meridian-{chat_id}-{name}"
 
 
+def _extract_chat_id_from_materialized(name: str) -> str | None:
+    """Extract the chat scope from a materialized artifact name."""
+
+    prefix = "_meridian-"
+    if not name.startswith(prefix):
+        return None
+
+    rest = name[len(prefix) :]
+    dash_idx = rest.find("-")
+    if dash_idx <= 0:
+        return None
+    return rest[:dash_idx]
+
+
 def _rewrite_agent_skills(raw_content: str, skill_mapping: dict[str, str]) -> str:
     """Rewrite `skills:` frontmatter values using python-frontmatter round-trip."""
     import frontmatter  # type: ignore[import-untyped]
@@ -292,3 +306,39 @@ def cleanup_all_materialized(harness_id: str, repo_root: Path) -> int:
         agents_pattern="_meridian-*.md",
         skills_pattern="_meridian-*",
     )
+
+
+def cleanup_orphaned_materializations(
+    harness_id: str,
+    repo_root: Path,
+    active_chat_ids: frozenset[str],
+) -> int:
+    """Remove materialized files not owned by any active session."""
+
+    layout = harness_layout(harness_id)
+    if layout is None:
+        return 0
+
+    removed = 0
+
+    agents_dir = materialization_target_agents(layout, repo_root)
+    if agents_dir.is_dir():
+        for candidate in agents_dir.glob("_meridian-*.md"):
+            if not candidate.is_file():
+                continue
+            chat_id = _extract_chat_id_from_materialized(candidate.stem)
+            if chat_id is not None and chat_id not in active_chat_ids:
+                candidate.unlink()
+                removed += 1
+
+    skills_dir = materialization_target_skills(layout, repo_root)
+    if skills_dir.is_dir():
+        for candidate in skills_dir.glob("_meridian-*"):
+            if not candidate.is_dir():
+                continue
+            chat_id = _extract_chat_id_from_materialized(candidate.name)
+            if chat_id is not None and chat_id not in active_chat_ids:
+                shutil.rmtree(candidate)
+                removed += 1
+
+    return removed
