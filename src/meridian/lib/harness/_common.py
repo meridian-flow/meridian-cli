@@ -292,6 +292,91 @@ def _iter_json_lines_artifact(
     return payloads
 
 
+def _extract_text(value: object) -> str:
+    if isinstance(value, str):
+        return value.strip()
+
+    if isinstance(value, list):
+        parts = [_extract_text(item) for item in cast("list[object]", value)]
+        return "\n".join(part for part in parts if part).strip()
+
+    if isinstance(value, dict):
+        payload = cast("dict[str, object]", value)
+        parts: list[str] = []
+        for key in ("text", "message", "output", "content", "result"):
+            if key in payload:
+                text = _extract_text(payload[key])
+                if text:
+                    parts.append(text)
+        return "\n".join(parts).strip()
+
+    return ""
+
+
+def extract_codex_report(artifacts: ArtifactStore, spawn_id: SpawnId) -> str | None:
+    last_message: str | None = None
+    for payload in _iter_json_lines_artifact(artifacts, spawn_id, "output.jsonl"):
+        event_type = str(payload.get("type", "")).strip().lower()
+        if event_type != "item.completed":
+            continue
+
+        item = payload.get("item")
+        if not isinstance(item, dict):
+            continue
+
+        item_payload = cast("dict[str, object]", item)
+        if str(item_payload.get("type", "")).strip().lower() != "agent_message":
+            continue
+
+        text = _extract_text(item_payload.get("text"))
+        if text:
+            last_message = text
+    return last_message
+
+
+def _extract_claude_assistant_content(payload: dict[str, object]) -> str:
+    content = _extract_text(payload.get("content"))
+    if content:
+        return content
+
+    message = payload.get("message")
+    if isinstance(message, dict):
+        return _extract_text(cast("dict[str, object]", message).get("content"))
+    return ""
+
+
+def extract_claude_report(artifacts: ArtifactStore, spawn_id: SpawnId) -> str | None:
+    result_text: str | None = None
+    assistant_text: str | None = None
+
+    for payload in _iter_json_lines_artifact(artifacts, spawn_id, "output.jsonl"):
+        event_type = str(payload.get("type", payload.get("event", ""))).strip().lower()
+        if event_type == "result":
+            candidate = _extract_text(payload.get("result"))
+            if candidate:
+                result_text = candidate
+            continue
+
+        if event_type == "assistant":
+            candidate = _extract_claude_assistant_content(payload)
+            if candidate:
+                assistant_text = candidate
+
+    return result_text or assistant_text
+
+
+def extract_opencode_report(artifacts: ArtifactStore, spawn_id: SpawnId) -> str | None:
+    last_message: str | None = None
+    for payload in _iter_json_lines_artifact(artifacts, spawn_id, "output.jsonl"):
+        event_type = str(payload.get("type", payload.get("event", ""))).strip().lower()
+        if event_type != "assistant":
+            continue
+        message = _extract_text(payload.get("message"))
+        if message:
+            last_message = message
+    return last_message
+
+
 def extract_usage_from_artifacts(artifacts: ArtifactStore, spawn_id: SpawnId) -> TokenUsage:
     candidates: list[_UsageCandidate] = []
 
