@@ -10,6 +10,7 @@ from meridian.lib.harness.codex import CodexAdapter
 from meridian.lib.harness.opencode import OpenCodeAdapter
 from meridian.lib.types import HarnessId, ModelId
 
+
 class StubPermissionResolver(PermissionResolver):
     def resolve_flags(self, harness_id: HarnessId) -> list[str]:
         return ["--perm", str(harness_id)]
@@ -24,6 +25,7 @@ def _sample_run(*, model: str, extra_args: tuple[str, ...] = ()) -> SpawnParams:
         extra_args=extra_args,
     )
 
+
 def test_every_run_params_field_is_mapped_for_each_adapter() -> None:
     skip = {"prompt", "extra_args", "repo_root", "mcp_tools", "adhoc_agent_json", "interactive"}
     required = {field.name for field in dataclasses.fields(SpawnParams)} - skip
@@ -33,6 +35,7 @@ def test_every_run_params_field_is_mapped_for_each_adapter() -> None:
         mapped = set(adapter_class.STRATEGIES)
         missing = required - mapped
         assert not missing, f"{adapter_class.__name__} missing strategy for {sorted(missing)}"
+
 
 def test_claude_build_command_passes_agent_natively() -> None:
     command = ClaudeAdapter().build_command(
@@ -107,6 +110,7 @@ def test_claude_build_command_resume_and_fork() -> None:
     assert "session-123" in command
     assert "--fork-session" in command
 
+
 def test_claude_build_command_interactive_omits_dash_p_and_uses_append_prompt() -> None:
     command = ClaudeAdapter().build_command(
         SpawnParams(
@@ -122,6 +126,31 @@ def test_claude_build_command_interactive_omits_dash_p_and_uses_append_prompt() 
     assert "-p" not in command
     assert "--append-system-prompt" in command
     assert command[command.index("--append-system-prompt") + 1] == "space prompt"
+
+
+def test_claude_filter_launch_content_suppresses_skill_injection() -> None:
+    policy = ClaudeAdapter().filter_launch_content(
+        prompt="space prompt",
+        skill_injection="# Skill: orchestrate\n\nSkill content here",
+        is_resume=False,
+        harness_session_id="",
+    )
+
+    assert policy.prompt == "space prompt"
+    assert policy.skill_injection == ""
+
+
+def test_claude_filter_launch_content_resume_suppresses_all() -> None:
+    policy = ClaudeAdapter().filter_launch_content(
+        prompt="space prompt",
+        skill_injection="skill content",
+        is_resume=True,
+        harness_session_id="session-123",
+    )
+
+    assert policy.prompt == ""
+    assert policy.skill_injection is None
+
 
 def test_codex_build_command_uses_resume_subcommand_when_session_available() -> None:
     command = CodexAdapter().build_command(
@@ -139,6 +168,7 @@ def test_codex_build_command_uses_resume_subcommand_when_session_available() -> 
     assert "--fork" not in command
     assert command[-1] == "-"
 
+
 def test_codex_build_command_interactive_resume_uses_resume_subcommand() -> None:
     command = CodexAdapter().build_command(
         SpawnParams(
@@ -152,6 +182,7 @@ def test_codex_build_command_interactive_resume_uses_resume_subcommand() -> None
 
     assert command[:3] == ["codex", "resume", "session-456"]
     assert "--model" in command
+
 
 def test_opencode_build_command_strips_model_prefix_and_uses_positional_prompt() -> None:
     command = OpenCodeAdapter().build_command(
@@ -171,6 +202,7 @@ def test_opencode_build_command_strips_model_prefix_and_uses_positional_prompt()
     assert "--agent" not in command
     assert "--skills" not in command
 
+
 def test_opencode_build_command_interactive_uses_primary_base_command() -> None:
     command = OpenCodeAdapter().build_command(
         SpawnParams(
@@ -185,6 +217,7 @@ def test_opencode_build_command_interactive_uses_primary_base_command() -> None:
     assert "run" not in command[:2]
     assert "--model" in command
     assert command[-1] == "space prompt"
+
 
 def test_opencode_build_command_resume_and_fork() -> None:
     command = OpenCodeAdapter().build_command(

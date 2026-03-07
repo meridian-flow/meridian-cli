@@ -19,7 +19,6 @@ from meridian.lib.launch_resolve import (
 from meridian.lib.ops._runtime import OperationRuntime, build_runtime, resolve_runtime_root_and_config
 from meridian.lib.prompt import (
     compose_run_prompt_text,
-    compose_skill_injections,
     load_reference_files,
     parse_template_assignments,
     resolve_run_defaults,
@@ -306,13 +305,8 @@ def _build_create_payload(
         cli_permission_override=payload.permission_tier is not None,
     )
 
-    # Workaround: Claude Code --agent does not preload skills (issue #29902).
-    # Inject skill content explicitly via --append-system-prompt.
-    appended_system_prompt = (
-        compose_skill_injections(resolved_skills.loaded_skills)
-        if native_agents
-        else None
-    )
+    # Claude loads skills natively via --agent; no explicit injection needed.
+    appended_system_prompt = None
 
     preview_command = tuple(
         harness.build_command(

@@ -332,7 +332,11 @@ class ClaudeAdapter(BaseHarnessAdapter):
         _ = harness_session_id
         if is_resume:
             return PromptPolicy()
-        return PromptPolicy(prompt=prompt, skill_injection=skill_injection)
+        # Claude loads skills natively via --agent profile. Keep the prompt on the
+        # appended-system-prompt path for interactive primary launches, but suppress
+        # explicit skill injection to avoid duplicating profile-provided skills.
+        _ = skill_injection
+        return PromptPolicy(prompt=prompt, skill_injection="")
 
     def extract_tasks(self, event: StreamEvent) -> list[dict[str, str]] | None:
         tasks = _extract_todowrite_tasks(event.metadata)
