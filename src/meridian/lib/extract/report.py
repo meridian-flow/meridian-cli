@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from typing import Literal, cast
 
 from meridian.lib.extract._io import _read_artifact_text
+from meridian.lib.harness.adapter import HarnessAdapter
 from meridian.lib.state.artifact_store import ArtifactStore
 from meridian.lib.types import SpawnId
 
 ReportSource = Literal["report_md", "assistant_message"]
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,17 +107,35 @@ def _extract_last_assistant_message(output_lines: str) -> str | None:
     return last_text_line
 
 
-def extract_or_fallback_report(artifacts: ArtifactStore, spawn_id: SpawnId) -> ExtractedReport:
+def extract_or_fallback_report(
+    artifacts: ArtifactStore,
+    spawn_id: SpawnId,
+    *,
+    adapter: HarnessAdapter | None = None,
+) -> ExtractedReport:
     """Extract report text from assistant output, preferring report.md when available."""
-
-    output_lines = _read_artifact_text(artifacts, spawn_id, "output.jsonl")
-    assistant_message = _extract_last_assistant_message(output_lines)
-    assistant_report = assistant_message.strip() if assistant_message else ""
 
     report_content = _read_artifact_text(artifacts, spawn_id, "report.md").strip()
     if report_content:
         return ExtractedReport(content=report_content, source="report_md")
 
+    if adapter is not None:
+        try:
+            adapted_report = adapter.extract_report(artifacts, spawn_id)
+        except Exception:
+            _LOGGER.warning(
+                "adapter.extract_report failed for spawn %s",
+                spawn_id,
+                exc_info=True,
+            )
+        else:
+            adapted_text = adapted_report.strip() if adapted_report else ""
+            if adapted_text:
+                return ExtractedReport(content=adapted_text, source="assistant_message")
+
+    output_lines = _read_artifact_text(artifacts, spawn_id, "output.jsonl")
+    assistant_message = _extract_last_assistant_message(output_lines)
+    assistant_report = assistant_message.strip() if assistant_message else ""
     if not assistant_report:
         return ExtractedReport(content=None, source=None)
     return ExtractedReport(content=assistant_report, source="assistant_message")
