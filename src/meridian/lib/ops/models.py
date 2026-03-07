@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -48,6 +48,7 @@ class CatalogModel:
     output_limit: int | None = None
     capabilities: tuple[str, ...] = ()
     release_date: str | None = None
+    is_latest: bool = False
 
     def format_text(self, ctx: FormatContext | None = None) -> str:
         _ = ctx
@@ -90,7 +91,7 @@ class ModelsListOutput:
                 str(model.harness),
                 ",".join(alias.alias for alias in model.aliases),
                 model.provider or "",
-                model.name or "",
+                f"{model.name or ''} (latest)" if model.is_latest else (model.name or ""),
                 model.release_date or "",
             ]
             for model in self.models
@@ -178,9 +179,14 @@ def _date_variant_bases(model_id: str) -> tuple[str, ...]:
         if match is None:
             continue
         base = match.group("base")
+        candidates: list[str] = [base]
+        # Anthropic uses `claude-opus-4-0` as canonical but the date-stamped
+        # variant is `claude-opus-4-20250514` (base = `claude-opus-4`).
+        # Also check `{base}-0` so the variant gets filtered.
+        candidates.append(f"{base}-0")
         if base.endswith("-preview"):
-            return (base, base.removesuffix("-preview"))
-        return (base,)
+            candidates.append(base.removesuffix("-preview"))
+        return tuple(candidates)
     return ()
 
 
@@ -217,6 +223,28 @@ def _is_default_visible(model: CatalogModel, all_model_ids: set[str]) -> bool:
     return True
 
 
+def _tag_latest_per_provider(models: list[CatalogModel]) -> list[CatalogModel]:
+    """Mark the most recently released model per provider with ``is_latest``."""
+    latest_date_by_provider: dict[str, str] = {}
+    for model in models:
+        provider = model.provider or str(model.harness)
+        if model.release_date and (
+            provider not in latest_date_by_provider
+            or model.release_date > latest_date_by_provider[provider]
+        ):
+            latest_date_by_provider[provider] = model.release_date
+
+    return [
+        replace(model, is_latest=True)
+        if (
+            model.release_date is not None
+            and model.release_date == latest_date_by_provider.get(model.provider or str(model.harness))
+        )
+        else model
+        for model in models
+    ]
+
+
 def models_list_sync(payload: ModelsListInput) -> ModelsListOutput:
     root = _repo_root(payload.repo_root)
     aliases = load_merged_aliases(repo_root=root)
@@ -242,6 +270,7 @@ def models_list_sync(payload: ModelsListInput) -> ModelsListOutput:
         merged_models = [
             model for model in merged_models if _is_default_visible(model, all_model_ids)
         ]
+    merged_models = _tag_latest_per_provider(merged_models)
     return ModelsListOutput(models=tuple(merged_models))
 
 
