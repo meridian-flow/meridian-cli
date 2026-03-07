@@ -25,15 +25,16 @@ class _FakeResponse:
         return False
 
 
-def _write_cache(path: Path, fetched_at: int, models: list[dict[str, object]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
+def _write_cache(cache_dir: Path, fetched_at: int, models: list[dict[str, object]]) -> None:
+    cache_file = cache_dir / "models.json"
+    cache_file.parent.mkdir(parents=True, exist_ok=True)
+    cache_file.write_text(
         json.dumps({"fetched_at": fetched_at, "models": models}, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
 
 
-def test_fetch_from_models_dev_filters_and_maps_models(
+def test_fetch_models_dev_filters_and_maps_models(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     payload = {
@@ -57,7 +58,7 @@ def test_fetch_from_models_dev_filters_and_maps_models(
                 "text-embedding-3-large": {
                     "id": "text-embedding-3-large",
                     "name": "Embeddings",
-                    "tool_call": True,
+                    "tool_call": False,
                     "modalities": {"input": ["text"], "output": ["embedding"]},
                     "type": "embedding",
                 }
@@ -94,7 +95,7 @@ def test_fetch_from_models_dev_filters_and_maps_models(
 
     monkeypatch.setattr(discovery.request, "urlopen", _urlopen)
 
-    models = discovery.fetch_from_models_dev()
+    models = discovery.fetch_models_dev()
 
     assert models == [
         DiscoveredModel(
@@ -102,12 +103,12 @@ def test_fetch_from_models_dev_filters_and_maps_models(
             name="Claude Sonnet 4.6",
             family="claude",
             provider="anthropic",
-            harness_id=HarnessId("claude"),
+            harness=HarnessId("claude"),
             cost_input=3.0,
             cost_output=15.0,
             context_limit=200000,
             output_limit=64000,
-            supports_tool_call=True,
+            capabilities=("tool_call",),
         )
     ]
 
@@ -116,9 +117,9 @@ def test_load_discovered_models_uses_fresh_cache(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    cache_path = tmp_path / "models-dev.json"
+    cache_dir = tmp_path / "cache"
     _write_cache(
-        cache_path,
+        cache_dir,
         fetched_at=int(time.time()),
         models=[
             {
@@ -126,23 +127,23 @@ def test_load_discovered_models_uses_fresh_cache(
                 "name": "GPT-5.3 Codex",
                 "family": "gpt",
                 "provider": "openai",
-                "harness_id": "codex",
+                "harness": "codex",
                 "cost_input": 1.25,
                 "cost_output": 10.0,
                 "context_limit": 400000,
                 "output_limit": 128000,
-                "supports_tool_call": True,
+                "capabilities": ["tool_call"],
             }
         ],
     )
-    monkeypatch.setattr(discovery, "_cache_path", lambda: cache_path)
+
     monkeypatch.setattr(
         discovery,
-        "fetch_from_models_dev",
-        lambda: pytest.fail("fetch_from_models_dev should not run for a fresh cache"),
+        "fetch_models_dev",
+        lambda: pytest.fail("fetch_models_dev should not run for a fresh cache"),
     )
 
-    models = discovery.load_discovered_models()
+    models = discovery.load_discovered_models(cache_dir)
 
     assert models == [
         DiscoveredModel(
@@ -150,12 +151,12 @@ def test_load_discovered_models_uses_fresh_cache(
             name="GPT-5.3 Codex",
             family="gpt",
             provider="openai",
-            harness_id=HarnessId("codex"),
+            harness=HarnessId("codex"),
             cost_input=1.25,
             cost_output=10.0,
             context_limit=400000,
             output_limit=128000,
-            supports_tool_call=True,
+            capabilities=("tool_call",),
         )
     ]
 
@@ -164,30 +165,31 @@ def test_load_discovered_models_refreshes_stale_cache(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    cache_path = tmp_path / "models-dev.json"
-    _write_cache(cache_path, fetched_at=1, models=[])
-    monkeypatch.setattr(discovery, "_cache_path", lambda: cache_path)
+    cache_dir = tmp_path / "cache"
+    cache_file = cache_dir / "models.json"
+    _write_cache(cache_dir, fetched_at=1, models=[])
+
     monkeypatch.setattr(
         discovery,
-        "fetch_from_models_dev",
+        "fetch_models_dev",
         lambda: [
             DiscoveredModel(
                 id="gemini-3.1-pro",
                 name="Gemini 3.1 Pro",
                 family="gemini",
                 provider="google",
-                harness_id=HarnessId("opencode"),
+                harness=HarnessId("opencode"),
                 cost_input=1.0,
                 cost_output=4.0,
                 context_limit=1048576,
                 output_limit=65536,
-                supports_tool_call=True,
+                capabilities=("tool_call",),
             )
         ],
     )
 
-    models = discovery.load_discovered_models()
-    cached_payload = json.loads(cache_path.read_text(encoding="utf-8"))
+    models = discovery.load_discovered_models(cache_dir)
+    cached_payload = json.loads(cache_file.read_text(encoding="utf-8"))
 
     assert models[0].id == "gemini-3.1-pro"
     assert cached_payload["models"][0]["provider"] == "google"
@@ -198,9 +200,9 @@ def test_load_discovered_models_falls_back_to_stale_cache_on_refresh_failure(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    cache_path = tmp_path / "models-dev.json"
+    cache_dir = tmp_path / "cache"
     _write_cache(
-        cache_path,
+        cache_dir,
         fetched_at=1,
         models=[
             {
@@ -208,30 +210,29 @@ def test_load_discovered_models_falls_back_to_stale_cache_on_refresh_failure(
                 "name": "Claude Sonnet 4.6",
                 "family": "claude",
                 "provider": "anthropic",
-                "harness_id": "claude",
+                "harness": "claude",
                 "cost_input": 3.0,
                 "cost_output": 15.0,
                 "context_limit": 200000,
                 "output_limit": 64000,
-                "supports_tool_call": True,
+                "capabilities": ["tool_call"],
             }
         ],
     )
-    monkeypatch.setattr(discovery, "_cache_path", lambda: cache_path)
 
     def _raise() -> list[DiscoveredModel]:
         raise OSError("network down")
 
-    monkeypatch.setattr(discovery, "fetch_from_models_dev", _raise)
+    monkeypatch.setattr(discovery, "fetch_models_dev", _raise)
 
     with caplog.at_level("WARNING"):
-        models = discovery.load_discovered_models()
+        models = discovery.load_discovered_models(cache_dir)
 
     assert [model.id for model in models] == ["claude-sonnet-4-6"]
     assert "using cached models" in caplog.text
 
 
-def test_fetch_from_models_dev_handles_multiple_supported_providers(
+def test_fetch_models_dev_handles_multiple_supported_providers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     payload = {
@@ -266,15 +267,15 @@ def test_fetch_from_models_dev_handles_multiple_supported_providers(
 
     monkeypatch.setattr(discovery.request, "urlopen", _urlopen)
 
-    models = discovery.fetch_from_models_dev()
+    models = discovery.fetch_models_dev()
 
-    assert [(model.provider, model.id, model.harness_id) for model in models] == [
+    assert [(model.provider, model.id, model.harness) for model in models] == [
         ("anthropic", "claude-sonnet-4-6", HarnessId("claude")),
         ("openai", "gpt-5.3-codex", HarnessId("codex")),
     ]
 
 
-def test_fetch_from_models_dev_ignores_provider_with_empty_models(
+def test_fetch_models_dev_ignores_provider_with_empty_models(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     payload = {
@@ -301,26 +302,25 @@ def test_fetch_from_models_dev_ignores_provider_with_empty_models(
 
     monkeypatch.setattr(discovery.request, "urlopen", _urlopen)
 
-    models = discovery.fetch_from_models_dev()
+    models = discovery.fetch_models_dev()
 
     assert [model.id for model in models] == ["gpt-5.3-codex"]
 
 
-def test_refresh_cache_returns_empty_when_fetch_fails_without_cache(
+def test_refresh_models_cache_returns_empty_when_fetch_fails_without_cache(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    cache_path = tmp_path / "models-dev.json"
-    monkeypatch.setattr(discovery, "_cache_path", lambda: cache_path)
+    cache_dir = tmp_path / "cache"
 
     def _raise() -> list[DiscoveredModel]:
         raise OSError("network down")
 
-    monkeypatch.setattr(discovery, "fetch_from_models_dev", _raise)
+    monkeypatch.setattr(discovery, "fetch_models_dev", _raise)
 
     with caplog.at_level("WARNING"):
-        models = discovery.refresh_cache()
+        models = discovery.refresh_models_cache(cache_dir)
 
     assert models == []
     assert "returning empty model list" in caplog.text
