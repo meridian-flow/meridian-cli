@@ -101,7 +101,7 @@ def enrich_finalize(
     usage = adapter.extract_usage(artifacts, spawn_id)
     harness_session_id = adapter.extract_session_id(artifacts, spawn_id)
     files_touched = extract_files_touched(artifacts, spawn_id)
-    report = extract_or_fallback_report(artifacts, spawn_id)
+    report = extract_or_fallback_report(artifacts, spawn_id, adapter=adapter)
     report_path = _persist_report(
         artifacts=artifacts,
         spawn_id=spawn_id,
