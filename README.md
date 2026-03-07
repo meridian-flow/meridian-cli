@@ -9,7 +9,8 @@
 
 Multi-model agent orchestration CLI and MCP server.
 
-One interface across Claude, Codex, and OpenCode.
+One interface across Claude, Codex, and OpenCode, with `uv` as the recommended
+install path.
 
 ## Why Meridian?
 
@@ -22,57 +23,136 @@ layer across them:
 - **Spaces for coordination**: shared per-space history, sessions, and filesystem context.
 - **MCP-native**: the same system can be exposed over `meridian serve`.
 
+## Start Here
+
+If you just want to see the command surface:
+
+```bash
+meridian -h
+meridian spawn -h
+meridian skills list
+```
+
+If you want to start using it, the main entry point is just:
+
+```bash
+meridian
+```
+
+That launches a primary agent session in a Meridian space under `.meridian/`.
+
 ## Architecture
 
 ```mermaid
 graph TB
     User([You])
-    User --> CLI
+    User --> Primary["meridian"]
+    User --> SpawnCLI["meridian spawn ..."]
 
-    subgraph Meridian["meridian CLI / MCP Server"]
-        CLI["meridian spawn -m MODEL -p PROMPT"]
-        Router{"Model Router"}
-        CLI --> Router
+    subgraph Meridian["meridian"]
+        Primary --> Router{"Model router"}
+        SpawnCLI --> Router
+        Router --> Harness["Claude / Codex / OpenCode CLI"]
     end
-
-    Router -->|"claude-*
-sonnet*, opus*"| Claude["Claude CLI"]
-    Router -->|"gpt-*, codex*
-o3*, o4*"| Codex["Codex CLI"]
-    Router -->|"gemini-*
-opencode-*"| OpenCode["OpenCode"]
-
-    Claude --> Space
-    Codex --> Space
-    OpenCode --> Space
 
     subgraph Space[".meridian/.spaces/s1/"]
         SpaceJson["space.json"]
+        Sessions["sessions.jsonl"]
         SpawnsJsonl["spawns.jsonl"]
-        SessionsJsonl["sessions.jsonl"]
         SpawnDirs["spawns/p1, p2, ..."]
-        Fs["fs/ (shared workspace)"]
+        Fs["fs/"]
     end
+
+    subgraph Repo["Repo config + prompt assets"]
+        Agents[".agents/agents/"]
+        Skills[".agents/skills/"]
+    end
+
+    Harness --> Space
+    Agents --> Harness
+    Skills --> Harness
 ```
+
+## How It Works
+
+1. `meridian` launches a primary agent session in a space.
+2. Meridian creates or resumes state under `.meridian/`, especially
+   `.meridian/.spaces/<space-id>/`.
+3. Model names are routed to the right harness CLI:
+   Claude, Codex, or OpenCode.
+4. Agent profiles and skills are loaded from local search paths such as
+   `.agents/agents/` and `.agents/skills/`, plus Meridian's bundled defaults.
+5. The primary agent can delegate background work with `meridian spawn ...`,
+   and those spawns write logs, reports, and metadata back into the same space.
+
+## Bundled Profiles and Skills
+
+Meridian ships with built-in defaults:
+
+- agent profiles: `primary`, `agent`
+- skills: `orchestrate`, `meridian-spawn-agent`
+
+Those bundled profiles/skills are used automatically when no on-disk override is
+present. You can also add repo-local profiles and skills under:
+
+- `.agents/agents/`
+- `.agents/skills/`
+
+You do not need to launch a primary session to inspect the built-in skills:
+
+```bash
+meridian skills list
+meridian skills show orchestrate
+meridian skills show meridian-spawn-agent
+```
+
+If you already work directly with a harness, Meridian's skill catalog is still
+useful as a standalone prompt/skill source.
 
 ## Install
 
-### One-line installer
+### 1. Install `uv`
 
-```bash
-curl -LsSf https://raw.githubusercontent.com/haowjy/meridian-channel/main/install.sh | sh
-```
+Follow the official instructions:
 
-This installs `uv` if needed, installs `meridian-channel`, and prints the next
-steps.
+https://docs.astral.sh/uv/getting-started/installation/
 
-### Manual install
+### 2. Install `meridian-channel`
 
 ```bash
 uv tool install meridian-channel
 # or: pipx install meridian-channel
 # or: pip install meridian-channel
 ```
+
+Recommended:
+- use `uv tool install` for the cleanest CLI-tool workflow
+- use `pipx` if that is already your standard tool runner
+- use `pip` only if you intentionally want it in a Python environment
+
+### 3. Verify the install
+
+```bash
+meridian --version
+meridian doctor
+```
+
+If `meridian` is not on your `PATH`, run:
+
+```bash
+uv tool update-shell
+```
+
+### Optional: shell completion
+
+Meridian exposes shell completion helpers via:
+
+```bash
+meridian completion -h
+```
+
+Completion is not automatically enabled by install. Set it up explicitly if you
+want tab completion in your shell.
 
 ### From source
 
@@ -93,17 +173,42 @@ You need at least one harness CLI installed:
 | Codex CLI | `gpt-*`, `codex*`, `o3*`, `o4*` | https://github.com/openai/codex |
 | OpenCode | `gemini-*`, `opencode-*` | https://opencode.ai |
 
-After installation, run:
+Installing the harness binary is not always sufficient by itself. In practice
+you may also need to authenticate or finish provider-specific setup for that
+harness before `meridian doctor` and real runs succeed.
+
+Practical recommendation:
+- Claude and Codex are the most exercised paths in this repo today
+- OpenCode has adapter support and routing, but day-to-day Meridian guidance and
+  examples are lighter there right now
+
+### Platform support
+
+- macOS: supported
+- Linux: supported
+- Windows: not documented as a primary workflow in this repo yet
+
+### Upgrade
 
 ```bash
-meridian doctor
+uv tool upgrade meridian-channel
+# or: pipx upgrade meridian-channel
+# or: pip install -U meridian-channel
+```
+
+### Uninstall
+
+```bash
+uv tool uninstall meridian-channel
+# or: pipx uninstall meridian-channel
 ```
 
 ## Quick Start
 
 ```bash
+meridian -h
 meridian config init
-meridian --new
+meridian
 
 # In another shell, use the space id reported by Meridian.
 export MERIDIAN_SPACE_ID=s1
@@ -112,6 +217,11 @@ meridian spawn -m gpt-5.3-codex -p "Refactor auth flow"
 meridian spawn wait p1
 meridian spawn show p1 --report
 ```
+
+What this does:
+- `meridian` launches the primary agent in a space and records that space under `.meridian/`
+- `MERIDIAN_SPACE_ID` scopes later spawn commands to the same space
+- `meridian spawn ...` delegates a subtask to a routed harness/model
 
 ## Usage Examples
 
@@ -182,6 +292,52 @@ meridian config show
 ```bash
 meridian doctor
 ```
+
+## Troubleshooting
+
+### `meridian` command not found
+
+Run:
+
+```bash
+uv tool update-shell
+```
+
+Then restart your shell and re-check:
+
+```bash
+meridian --version
+```
+
+### `meridian doctor` reports missing harnesses
+
+Install at least one supported harness CLI, then rerun:
+
+```bash
+meridian doctor
+```
+
+### A model routes to the wrong harness
+
+Check the configured model catalog and active defaults:
+
+```bash
+meridian models list
+meridian config show
+```
+
+See [Configuration](docs/configuration.md) and
+[Harness Adapters](docs/harness-adapters.md) for override details.
+
+### Spawn commands behave as if they are in the wrong space
+
+Set `MERIDIAN_SPACE_ID` explicitly before running spawn commands:
+
+```bash
+export MERIDIAN_SPACE_ID=s1
+```
+
+See [Spaces](docs/spaces.md) for the continuation and scoping rules.
 
 ## Commands
 
