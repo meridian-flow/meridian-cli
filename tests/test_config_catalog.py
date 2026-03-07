@@ -25,7 +25,7 @@ def test_load_builtin_aliases_from_resource() -> None:
 
     assert str(by_alias["opus"].model_id) == "claude-opus-4-6"
     assert str(by_alias["haiku"].model_id) == "claude-haiku-4-5"
-    assert str(by_alias["gpt52h"].model_id) == "gpt-5.2-high"
+    assert str(by_alias["gpt"].model_id) == "gpt-5.4"
     assert str(by_alias["gemini"].model_id) == "gemini-3.1-pro"
     assert by_alias["opus"].role is None
     assert by_alias["codex"].harness == "codex"
