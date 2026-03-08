@@ -20,7 +20,7 @@ layer across them:
 
 - **Harness-agnostic**: choose a model and let Meridian route to the right harness.
 - **File-backed state**: inspectable state lives under `.meridian/`, not in a database.
-- **Spaces for coordination**: shared per-space history, sessions, and filesystem context.
+- **Shared coordination state**: spawn history, sessions, and filesystem context live under `.meridian/`.
 - **MCP-native**: the same system can be exposed over `meridian serve`.
 
 ## Start Here
@@ -39,7 +39,7 @@ If you want to start using it, the main entry point is just:
 meridian
 ```
 
-That launches a primary agent session in a Meridian space under `.meridian/`.
+That launches a primary agent session with Meridian-managed state under `.meridian/`.
 
 ## Architecture
 
@@ -55,8 +55,7 @@ graph TB
         Router --> Harness["Claude / Codex / OpenCode CLI"]
     end
 
-    subgraph Space[".meridian/.spaces/s1/"]
-        SpaceJson["space.json"]
+    subgraph State[".meridian/"]
         Sessions["sessions.jsonl"]
         SpawnsJsonl["spawns.jsonl"]
         SpawnDirs["spawns/p1, p2, ..."]
@@ -68,22 +67,22 @@ graph TB
         Skills[".agents/skills/"]
     end
 
-    Harness --> Space
+    Harness --> State
     Agents --> Harness
     Skills --> Harness
 ```
 
 ## How It Works
 
-1. `meridian` launches a primary agent session in a space.
-2. Meridian creates or resumes state under `.meridian/`, especially
-   `.meridian/.spaces/<space-id>/`.
+1. `meridian` launches a primary agent session.
+2. Meridian creates or resumes state under `.meridian/`.
 3. Model names are routed to the right harness CLI:
    Claude, Codex, or OpenCode.
 4. Agent profiles and skills are loaded from local search paths such as
    `.agents/agents/` and `.agents/skills/`, plus Meridian's bundled defaults.
 5. The primary agent can delegate background work with `meridian spawn ...`,
-   and those spawns write logs, reports, and metadata back into the same space.
+   and those spawns write logs, reports, and metadata back into the same
+   shared state root.
 
 ## Bundled Profiles and Skills
 
@@ -210,15 +209,14 @@ meridian -h
 meridian config init
 meridian
 
-# In another shell, target the same space explicitly.
-meridian spawn --space s1 -m gpt-5.3-codex -p "Refactor auth flow"
-meridian spawn wait p1 --space s1
-meridian spawn show p1 --report --space s1
+# In another shell, delegate follow-up work.
+meridian spawn -m gpt-5.3-codex -p "Refactor auth flow"
+meridian spawn wait p1
+meridian spawn show p1 --report
 ```
 
 What this does:
-- `meridian` launches the primary agent in a space and records that space under `.meridian/`
-- `--space` targets later spawn commands to the same space
+- `meridian` launches the primary agent and records shared state under `.meridian/`
 - `meridian spawn ...` delegates a subtask to a routed harness/model
 
 ## Usage Examples
@@ -248,13 +246,12 @@ meridian spawn -m claude-opus-4-6 -p "Review this code" -f src/main.py
 meridian spawn --continue p1 -p "Also add regression coverage"
 ```
 
-### Work in a named space
+### Share files between spawns
 
 ```bash
-meridian space start --name auth-refactor
-meridian spawn --space s1 -p "Research the current implementation"
-meridian spawn --space s1 -m gpt-5.3-codex -p "Implement the refactor"
-meridian space show s1
+mkdir -p .meridian/fs
+printf 'auth notes\n' > .meridian/fs/research.txt
+meridian spawn -p "Review .meridian/fs/research.txt and implement the refactor"
 ```
 
 ### Start the MCP server
@@ -325,17 +322,17 @@ meridian config show
 
 See [Configuration](docs/configuration.md) for override details.
 
-### Spawn commands behave as if they are in the wrong space
+### Spawn commands feel disconnected from earlier work
 
-Pass `--space` explicitly before running spawn commands:
+Use shared state under `.meridian/`:
 
 ```bash
-meridian spawn --space s1 -p "Continue this task"
+meridian spawn --continue p1 -p "Continue this task"
+cat .meridian/fs/shared-notes.md
 ```
 
-`MERIDIAN_SPACE_ID` is also available as an optional default when you prefer environment-based scoping.
-
-See [Spaces](docs/spaces.md) for the continuation and scoping rules.
+Use `--continue` when you want harness/session continuity, and `.meridian/fs/`
+when you want file-based handoff between spawns.
 
 ## Commands
 
@@ -344,7 +341,6 @@ See [Spaces](docs/spaces.md) for the continuation and scoping rules.
 | `meridian` | Launch the primary agent session |
 | `meridian spawn` | Create or continue a delegated spawn |
 | `meridian spawn list`, `show`, `wait`, `cancel`, `stats` | Manage spawns |
-| `meridian space start`, `resume`, `list`, `show` | Manage spaces |
 | `meridian report create`, `show`, `search` | Manage spawn reports |
 | `meridian models list`, `show` | Inspect the model catalog |
 | `meridian skills list`, `show` | Inspect the skills catalog |
@@ -358,20 +354,15 @@ Authoritative state is file-backed:
 
 ```text
 .meridian/
-  .spaces/
-    <space-id>/
-      space.json
-      spawns.jsonl
-      sessions.jsonl
-      spawns/
-        <spawn-id>/
-          output.jsonl
-          stderr.log
-          report.md
-      sessions/
-        <chat-id>.lock
-      fs/
-  active-spaces/<space-id>.lock
+  fs/
+  work/
+  spawns/
+    <spawn-id>/
+      output.jsonl
+      stderr.log
+      report.md
+  spawns.jsonl
+  sessions.jsonl
   config.toml
   models.toml
 ```
@@ -380,7 +371,6 @@ Writes use lock files plus atomic tmp+rename semantics in the state layer.
 
 ## Documentation
 
-- [Spaces](docs/spaces.md) - space lifecycle, continuation rules, and state layout.
 - [Configuration](docs/configuration.md) - config keys, overrides, and environment variables.
 - [MCP Tools](docs/mcp-tools.md) - FastMCP tool surface and payload examples.
 

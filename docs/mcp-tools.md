@@ -31,7 +31,7 @@ Current MCP tools:
 - `skills_list`, `skills_show`
 - `doctor`
 
-Not MCP-exposed (CLI-only): space_*, config_*, skills_search.
+Not MCP-exposed (CLI-only): config_*, skills_search, sync_*.
 
 ## Spawn Tools
 
@@ -44,7 +44,6 @@ Not MCP-exposed (CLI-only): space_*, config_*, skills_search.
   "files": ["docs/spec.md"],
   "template_vars": ["TARGET=auth"],
   "agent": "coder",
-  "space": "s12",
   "permission_tier": "workspace-write"
 }
 ```
@@ -81,8 +80,7 @@ Compatibility alias accepted: `spawn_id` (single string).
 ```json
 {
   "content": "# Report\n\nDone.",
-  "spawn_id": "p7",
-  "space": "s12"
+  "spawn_id": "p7"
 }
 ```
 
@@ -93,8 +91,7 @@ Defaults:
 
 ```json
 {
-  "spawn_id": "@latest",
-  "space": "s12"
+  "spawn_id": "@latest"
 }
 ```
 
@@ -103,7 +100,6 @@ Defaults:
 ```json
 {
   "query": "guardrail",
-  "space": "s12",
   "limit": 20
 }
 ```
@@ -113,8 +109,7 @@ Optional scope to one spawn:
 ```json
 {
   "query": "timeout",
-  "spawn_id": "@last-failed",
-  "space": "s12"
+  "spawn_id": "@last-failed"
 }
 ```
 

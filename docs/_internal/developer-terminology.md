@@ -13,10 +13,10 @@ That overlap caused ambiguous UX (`meridian spawn spawn`) and confusing code rev
 
 ## Canonical Definitions
 
-- `Primary agent`: the interactive agent launched by a human (`meridian` or `meridian space start`).
+- `Primary agent`: the interactive agent launched by a human (`meridian`).
 - `Spawn`: a delegated child-agent task created by a primary agent.
 - `Harness process`: the concrete CLI process (`claude`, `codex`, `opencode`) used to execute one spawn.
-- `Space`: the coordination boundary containing spawn/session/filesystem state.
+- `State root`: the coordination boundary containing spawn/session/filesystem state under `.meridian/`.
 
 ## Naming Rules by Layer
 
@@ -39,7 +39,7 @@ Examples:
 
 - `spawn.create`, `spawn.list`, `spawn.wait`
 - `SpawnId`, `SpawnRecord`, `spawn_store.py`
-- `spawns.jsonl`, `spawns.lock`, `.spaces/<id>/spawns/`
+- `spawns.jsonl`, `spawns.lock`, `.meridian/spawns/`
 
 ### Internal execution surfaces (can keep `run` if purely mechanical)
 
@@ -55,12 +55,12 @@ Not allowed:
 
 - internal names that leak into public API/help/tool names as `run_*` once migrated.
 
-## Explicit Space Context Rule
+## State Root Rule
 
-Spawns resolve space context in this order:
+Spawns always read and write within the repo's `.meridian/` state root:
 
-- If `--space` / `space` input is provided, Meridian uses that.
-- Otherwise, if `MERIDIAN_SPACE_ID` is set, Meridian uses that.
-- If neither is set, spawn auto-creates a space and prints a hint to export `MERIDIAN_SPACE_ID`.
+- Spawn history lives in `.meridian/spawns.jsonl`.
+- Session history lives in `.meridian/sessions.jsonl`.
+- Shared handoff files live in `.meridian/fs/`.
 
-Best practice: set `MERIDIAN_SPACE_ID` explicitly when you want repeatable routing to one space.
+Use `--continue` or spawn references like `@latest` when you want repeatable routing to a prior spawn.

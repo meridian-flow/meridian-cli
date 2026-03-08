@@ -129,7 +129,7 @@ MERIDIAN_DEPTH=0 -> meridian spawn (child depth 1)
 
 Spawned harness processes inherit Meridian runtime context such as:
 
-- `MERIDIAN_SPACE_ID`
+- `MERIDIAN_FS_DIR`
 - `MERIDIAN_SPAWN_ID`
 - `MERIDIAN_PARENT_SPAWN_ID`
 - `MERIDIAN_DEPTH`
@@ -156,13 +156,13 @@ Those are currently runner hooks, not normal `meridian spawn` user features:
 - treat them as integration hooks unless and until they are surfaced through
   the main CLI flow
 
-## Primary Agent Launch (Space)
+## Primary Agent Launch
 
-`meridian space start/resume` and bare `meridian` launch a primary harness session.
+Bare `meridian` launches a primary harness session. `meridian --continue` resumes from prior session context when supported.
 
 If the selected primary profile is an on-disk user profile, Meridian uses Claude native profile passthrough:
 
-- `claude --agent <profile> --append-system-prompt <space prompt> --model <model>`
+- `claude --agent <profile> --append-system-prompt <primary prompt> --model <model>`
 
 Otherwise Meridian composes the prompt and passes it via `--system-prompt`.
 
@@ -179,7 +179,7 @@ OpenCode compaction reinjection lives at:
 
 - `.opencode/plugins/meridian.ts`
 
-On `experimental.session.compacting`, it reads `.meridian/.spaces/<space-id>/sessions.jsonl`, finds the matching session, and re-injects agent profile and skill content.
+On `experimental.session.compacting`, it reads `.meridian/sessions.jsonl`, finds the matching session, and re-injects agent profile and skill content.
 
 ## Direct Adapter
 

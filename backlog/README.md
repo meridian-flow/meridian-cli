@@ -4,7 +4,7 @@ Central backlog for cross-cutting work not tied to a single implementation plan.
 
 ## Current Status
 
-- Open tracked items: `1` (TD-9: space-plumbing Steps 1+3)
+- Open tracked items: `0`
 - Condensed follow-up notes from deleted plan docs: `backlog/plan-cleanup-notes.md`
 - Archived from 2026-03-04 cleanup batch: `8` (TD-7, TD-10–TD-16)
 - Archived from backlog-execution batch: `17`
@@ -53,7 +53,6 @@ Central backlog for cross-cutting work not tied to a single implementation plan.
 
 ## Active Plans (items tracked there, not here)
 
-- Space-plumbing follow-up cleanup/revalidation (Steps 1+3 remain) -> `plans/space-plumbing-fix.md`
 - Test-suite rewrite + strictness cleanup -> `plans/test-suite-and-strictness-cleanup.md`
 
 ## Plan Cleanup Notes

@@ -9,18 +9,18 @@ There are no users and there is no real user data. No need for backwards compati
 ### Core Principles
 
 1. **Harness-Agnostic**: Same `meridian` commands work across Claude, Codex, OpenCode, Cursor, **etc.** (extensible to future harnesses) for both primary agents and subagents, with per-harness adapters
-2. **Files as Authority**: All state lives in files under `.meridian/.spaces/<space-id>/`. `space.json` for space metadata, `runs.jsonl` for run events, `sessions.jsonl` for session tracking. Atomic writes via tmp+rename, `fcntl.flock` for concurrency.
+2. **Files as Authority**: All state lives in files under `.meridian/`. `spawns.jsonl` stores spawn events, `sessions.jsonl` tracks harness sessions, and `spawns/<spawn-id>/` holds per-spawn artifacts. Atomic writes via tmp+rename, `fcntl.flock` for concurrency.
 4. **Agent Profiles Own Skills**: Static skill definitions in agent profiles, loaded fresh on agent launch/resume
-5. **Minimal Constraints**: Agents organize `.meridian/.spaces/<space-id>/fs/` however they want; Meridian provides container only
+5. **Minimal Constraints**: Agents organize `.meridian/fs/` however they want; Meridian provides container only
 6. **Result Over Metadata**: Spawn output answers "what happened?" — status, report, done. Input echo, null fields, and ceremony are noise. Detailed metadata (params, logs, tokens) lives in the spawn directory for those who need to dig deeper.
 
 ### Architecture
 
-- **Space**: Self-contained agent ecosystem with primary + child agents, shared filesystem. Two states: `active` and `closed`.
+- **State Root**: Repo-local coordination state under `.meridian/`, including shared filesystem, spawn history, and session history.
 - **Primary Agent**: Entry point (any harness), launched via `meridian start`
 - **Agent Profile**: YAML markdown defining capabilities, tools, model, skills
 - **Skill**: Domain knowledge/capability loaded fresh on launch/resume (survives context compaction)
-- **State Layer**: `src/meridian/lib/state/paths.py` (path resolution), `src/meridian/lib/state/run_store.py` (JSONL run events), `src/meridian/lib/space/space_file.py` (space.json CRUD), `src/meridian/lib/space/session_store.py` (session tracking)
+- **State Layer**: `src/meridian/lib/state/paths.py` (path resolution), `src/meridian/lib/state/spawn_store.py` (spawn JSONL events), `src/meridian/lib/state/session_store.py` (session tracking)
 
 ## Development
 

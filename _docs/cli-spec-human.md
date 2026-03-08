@@ -35,11 +35,7 @@ Legacy compatibility flags (`--json`, `--porcelain`, `--yes`, `--no-input`) may 
 - Management commands: `meridian spawn list|show|wait|continue|stats`.
 - Default action with no spawn subcommand: create a new spawn.
 
-## Space Scoping Rule
+## State Root Rule
 
-Spawn operations require explicit space context:
-
-- set `MERIDIAN_SPACE_ID`, or
-- pass `--space`.
-
-No auto-create fallback.
+Spawn operations use the repo's shared `.meridian/` state root and shared
+filesystem at `MERIDIAN_FS_DIR`.

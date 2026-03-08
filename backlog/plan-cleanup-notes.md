@@ -7,14 +7,14 @@ that were worth keeping after plan cleanup.
 
 ## Open Follow-Ups
 
-### Space plumbing long tail
+### State layout long tail
 
 - Keep tracking `report_path` cleanup: either remove it from spawn output or
   redefine it so it is not a fake write target.
-- Stop CLI report lookup from scanning every space when the space is already
-  known.
-- Make spawn artifact storage space-scoped or otherwise collision-free across
-  spaces.
+- Stop CLI report lookup from scanning redundant locations when the canonical
+  spawn path is already known.
+- Make spawn artifact storage collision-free within the flat `.meridian/`
+  layout.
 
 ### Spawn observability
 
@@ -32,7 +32,7 @@ that were worth keeping after plan cleanup.
 ### Test suite and strict typing cleanup
 
 - Start with an invariant inventory, not file preservation.
-- Rebuild the remaining suite by subsystem (`config`, `state`, `space`,
+- Rebuild the remaining suite by subsystem (`config`, `state`, `spawn`,
   `harness`, `prompt`, `exec`, `ops`).
 - Delete slice-era and other low-value historical tests once replacement
   coverage exists.
@@ -65,11 +65,10 @@ that were worth keeping after plan cleanup.
 
 ### Files-as-authority long tail
 
-- Cross-space query/index strategy if JSONL scans ever become a real limit.
+- Cross-run query/index strategy if JSONL scans ever become a real limit.
 - Run-artifact retention/cleanup policy.
 - Further harness lifecycle and error-normalization cleanup.
 - Multi-harness end-to-end coverage.
-- Optional richer `space.json` metadata if the current minimal shape proves too
-  small.
+- Optional richer state metadata if the current minimal shape proves too small.
 - Security hardening beyond the current cooperative local-user model if threat
   assumptions change.

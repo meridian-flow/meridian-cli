@@ -26,17 +26,15 @@ meridian config reset defaults.max_retries
   .meridian/
     config.toml
     models.toml
-    active-spaces/
-    .spaces/
-      <space-id>/
-        space.json
-        spawns.jsonl
-        sessions.jsonl
-        spawns/<spawn-id>/
-        fs/
+    fs/
+    work/
+    spawns/
+      <spawn-id>/
+    spawns.jsonl
+    sessions.jsonl
 ```
 
-File state under `.meridian/.spaces/*` is authoritative for spaces/spawns/sessions.
+File state under `.meridian/` is authoritative for spawns, sessions, and shared filesystem state.
 
 ## `config.toml` Keys
 
@@ -119,8 +117,7 @@ cost_tier = "$$"
 | `MERIDIAN_REPO_ROOT` | Force repo root resolution |
 | `MERIDIAN_CONFIG` | User config overlay path |
 | `MERIDIAN_STATE_ROOT` | Override state root (default `.meridian`) |
-| `MERIDIAN_SPACE_ID` | Optional default space scope for spawn operations |
-| `MERIDIAN_SPACE_FS_DIR` | Resolved shared filesystem path for the current space |
+| `MERIDIAN_FS_DIR` | Resolved shared filesystem path for the current repo state root |
 | `MERIDIAN_SPAWN_ID` | Current spawn ID in nested execution |
 | `MERIDIAN_CHAT_ID` | Current chat/session id in nested execution |
 | `MERIDIAN_DEPTH` | Current nesting depth |

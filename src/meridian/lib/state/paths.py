@@ -114,7 +114,7 @@ def resolve_state_paths(repo_root: Path) -> StatePaths:
 
 
 def resolve_all_spaces_dir(repo_root: Path) -> Path:
-    """Return `.meridian/.spaces/` for a repository root."""
+    """Return the legacy `.meridian/.spaces/` compatibility path."""
 
     return resolve_state_paths(repo_root).all_spaces_dir
 
@@ -126,7 +126,7 @@ def resolve_cache_dir(repo_root: Path) -> Path:
 
 
 def resolve_space_dir(repo_root: Path, space_id: SpaceId | str) -> Path:
-    """Return `.meridian/.spaces/<space-id>/` for a repository root."""
+    """Return a legacy per-space path for compatibility callers."""
 
     return resolve_all_spaces_dir(repo_root) / str(space_id)
 

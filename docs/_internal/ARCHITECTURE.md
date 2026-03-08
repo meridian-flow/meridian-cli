@@ -24,14 +24,14 @@ graph TD
     Harness --> OC["OpenCodeAdapter"]
     Harness --> Direct["DirectAdapter"]
 
-    State --> FS[".meridian/.spaces/"]
+    State --> FS[".meridian/"]
 ```
 
 ## Dependency Model
 
 ```mermaid
 graph TD
-    Surfaces["Surfaces<br/>cli/, server/, harness/direct.py"] --> Handlers["Feature Handlers<br/>ops/spawn/, ops/space.py, ops/catalog.py, ..."]
+    Surfaces["Surfaces<br/>cli/, server/, harness/direct.py"] --> Handlers["Feature Handlers<br/>ops/spawn/, ops/config.py, ops/catalog.py, ..."]
     Handlers --> Launch["Launch Lifecycle<br/>launch/"]
     Launch --> Infra["Shared Infrastructure<br/>harness/ + safety/, state/, catalog/, config/"]
     Infra --> Core["Core Primitives<br/>core/"]
@@ -48,13 +48,13 @@ Rules:
 
 ## Core Concepts
 
-### Space
+### State Root
 
-A self-contained agent ecosystem. Each space has a primary agent and zero or more child spawns, all sharing a filesystem under `.meridian/.spaces/<space-id>/fs/`. Two states: `active` and `closed`.
+A repo-local coordination root under `.meridian/`. It contains shared filesystem state, spawn history, session history, and per-spawn artifacts for one Meridian-managed workspace.
 
 ### Spawn
 
-A single agent execution within a space. Spawns are launched via `meridian spawn`, tracked via JSONL events, and can be nested (a spawn can create child spawns).
+A single agent execution within the repo's `.meridian/` state root. Spawns are launched via `meridian spawn`, tracked via JSONL events, and can be nested (a spawn can create child spawns).
 
 ### Harness
 
@@ -77,7 +77,6 @@ src/meridian/
   cli/                         # Cyclopts surface -- thin dispatch, no business logic
     main.py                    # Entry point, global options, command dispatch
     spawn.py                   # Spawn subcommand handlers
-    space.py                   # Space subcommand handlers
     output.py                  # Output sink implementations (text/JSON/agent)
     format_helpers.py          # Tabular display formatting
     config_cmd.py              # Config subcommands
@@ -85,14 +84,15 @@ src/meridian/
     skills_cmd.py              # Skills subcommands
     models_cmd.py              # Models subcommands
     doctor_cmd.py              # Doctor subcommand
+    sync_cmd.py                # Sync subcommand
 
   server/
     main.py                    # FastMCP server on stdio
 
   lib/
     core/                      # Lightweight shared primitives (imports nothing else)
-      types.py                 # NewType identifiers (SpaceId, SpawnId, HarnessId, ModelId, ArtifactKey)
-      domain.py                # Frozen Pydantic domain models (Spawn, Space, TokenUsage, SkillManifest, ...)
+      types.py                 # NewType identifiers (SpawnId, HarnessId, ModelId, ArtifactKey)
+      domain.py                # Frozen Pydantic domain models (Spawn, TokenUsage, SkillManifest, ...)
       context.py               # RuntimeContext (MERIDIAN_* env vars)
       sink.py                  # OutputSink protocol
       codec.py                 # Type schema serialization
@@ -120,9 +120,8 @@ src/meridian/
       session_detection.py     # Harness-specific session ID extraction
 
     state/                     # ALL file-backed stores
-      paths.py                 # SpacePaths, StatePaths resolution
+      paths.py                 # State path resolution + compatibility helpers
       spawn_store.py           # Spawn event store (JSONL) + ID generation
-      space_store.py           # Space metadata CRUD (space.json)
       session_store.py         # Session tracking (sessions.jsonl)
       artifact_store.py        # Artifact storage and retrieval
 
@@ -137,7 +136,7 @@ src/meridian/
       resolve.py               # Model/agent/harness resolution
       command.py               # Build harness CLI command
       process.py               # Run harness process (fork/exec + stream)
-      types.py                 # SpaceLaunchRequest, SpaceLaunchResult
+      types.py                 # Primary launch request/result models
       prompt.py                # Prompt assembly pipeline
       reference.py             # Reference file handling
       runner.py                # execute_with_finalization (spawn subprocess orchestration)
@@ -160,14 +159,10 @@ src/meridian/
         prepare.py             # Payload validation + launch prep
         execute.py             # Blocking/background execution
         query.py               # Show/list/reference resolution
-      space.py                 # Space lifecycle (start, resume, list, show)
       config.py                # Config TOML handlers (get, set, show, init, reset)
       catalog.py               # Models + skills query handlers
       report.py                # Report CRUD handlers (create, show, search)
       diag.py                  # Doctor diagnostics
-
-    space/                     # Thin facade
-      launch.py                # Public entry point -- delegates to launch/ internals
 ```
 
 ---
@@ -213,51 +208,48 @@ sequenceDiagram
     Ops-->>CLI: SpawnActionOutput
 ```
 
-## Data Flow: `meridian start`
+## Data Flow: `meridian`
 
 ```mermaid
 sequenceDiagram
     participant CLI as CLI
-    participant Space as space/launch.py
+    participant LaunchFacade as CLI primary launch
     participant Launch as launch/
     participant Config as Config
     participant Harness as Harness
     participant Process as Harness Process
 
-    CLI->>Space: SpaceLaunchRequest
+    CLI->>LaunchFacade: PrimaryLaunchRequest
 
     rect rgba(128, 128, 128, 0.08)
-        Note over Space,Harness: Resolution
-        Space->>Config: load_config
-        Space->>Launch: resolve_harness + resolve_primary_session
-        Space->>Harness: materialize agents/skills
-        Space->>Launch: build_harness_command
+        Note over LaunchFacade,Harness: Resolution
+        LaunchFacade->>Config: load_config
+        LaunchFacade->>Launch: resolve_harness + resolve_primary_session
+        LaunchFacade->>Harness: materialize agents/skills
+        LaunchFacade->>Launch: build_harness_command
     end
 
-    Space->>Launch: run_harness_process
+    LaunchFacade->>Launch: run_harness_process
     Process-->>CLI: interactive I/O
-    Process-->>Space: SpaceLaunchResult
+    Process-->>LaunchFacade: PrimaryLaunchResult
 ```
 
 ---
 
 ## State Model
 
-All state lives in files. No database. Append-only JSONL for event streams, JSON for space metadata. Atomic writes via `tmp` + `os.replace()`, concurrency via `fcntl.flock`.
+All state lives in files. No database. Append-only JSONL for event streams and per-spawn directories for artifacts. Atomic writes via `tmp` + `os.replace()`, concurrency via `fcntl.flock`.
 
 ```mermaid
 graph TD
     Root[".meridian/"] --> Config["config.toml"]
     Root --> Models["models.toml"]
     Root --> Cache["cache/"]
-    Root --> Spaces[".spaces/"]
-    Spaces --> SpaceDir["&lt;space-id&gt;/"]
-    SpaceDir --> SJ["space.json"]
-    SpaceDir --> SpJ["spawns.jsonl"]
-    SpaceDir --> SeJ["sessions.jsonl"]
-    SpaceDir --> SessDir["sessions/ (lock files)"]
-    SpaceDir --> FS["fs/ (shared workspace)"]
-    SpaceDir --> SpDir["spawns/"]
+    Root --> FS["fs/ (shared workspace)"]
+    Root --> Work["work/"]
+    Root --> SpJ["spawns.jsonl"]
+    Root --> SeJ["sessions.jsonl"]
+    Root --> SpDir["spawns/"]
     SpDir --> Sp1["&lt;spawn-id&gt;/"]
     Sp1 --> Out["output.jsonl"]
     Sp1 --> Err["stderr.log"]
@@ -278,9 +270,8 @@ Session lifecycle follows the same pattern in `sessions.jsonl` with `start`, `st
 
 ### ID Generation
 
-- Space IDs: `s1, s2, ...` (monotonic counter)
-- Spawn IDs: `p1, p2, ...` (per-space counter from spawns.jsonl)
-- Chat/Session IDs: `c1, c2, ...` (per-space counter from sessions.jsonl)
+- Spawn IDs: `p1, p2, ...` (counter from `spawns.jsonl`)
+- Chat/Session IDs: `c1, c2, ...` (counter from `sessions.jsonl`)
 
 ---
 
@@ -353,7 +344,7 @@ Key env vars:
 |----------|---------|
 | `MERIDIAN_MODEL` | Default model |
 | `MERIDIAN_HARNESS` | Default harness |
-| `MERIDIAN_SPACE_ID` | Current space (set for child agents) |
+| `MERIDIAN_FS_DIR` | Shared filesystem path (`.meridian/fs`) |
 | `MERIDIAN_SPAWN_ID` | Current spawn ID |
 | `MERIDIAN_PARENT_SPAWN_ID` | Parent spawn ID |
 | `MERIDIAN_DEPTH` | Nesting depth (0 = primary) |
@@ -367,7 +358,7 @@ Key env vars:
 Safety enforcement is delegated to the harnesses. Meridian's `safety/` package is harness adapter support code — it translates Meridian's abstractions into harness-native flags and passes them through.
 
 - **permissions.py** — Translates three permission tiers (`read-only`, `workspace-write`, `full-access`) into harness-specific CLI flags (`--allowedTools` for Claude, `--sandbox` for Codex). The harness does the actual enforcement.
-- **budget.py** — Parses cost fields from harness JSONL output during streaming. Terminates spawns that exceed per-run or per-space USD limits. The only Meridian-side enforcement.
+- **budget.py** — Parses cost fields from harness JSONL output during streaming. Terminates spawns that exceed configured USD limits. The only Meridian-side enforcement.
 - **redaction.py** — Injects `--secret KEY=VALUE` as `MERIDIAN_SECRET_*` env vars into the harness child process and redacts values from streamed output.
 - **guardrails.py** — Post-run script hooks (the one piece that isn't strictly harness adapter code).
 
@@ -394,13 +385,13 @@ graph TD
     Extract --> Done["finalize_spawn event"]
 ```
 
-Both primary agent launch (`meridian start`) and spawn execution (`meridian spawn create`) use the same lifecycle -- `space/launch.py` is a thin facade that delegates to `launch/` internals.
+Both primary agent launch (`meridian`) and spawn execution (`meridian spawn create`) use the same lifecycle.
 
 ---
 
 ## Spawn Nesting
 
-Spawns can create child spawns. Each child inherits `MERIDIAN_SPACE_ID` and receives incremented depth tracking.
+Spawns can create child spawns. Each child inherits the shared `.meridian/fs/` context and receives incremented depth tracking.
 
 ```mermaid
 graph TD
@@ -410,12 +401,12 @@ graph TD
     S1 --> S4["Spawn p4<br/>depth=2"]
 ```
 
-Context propagation per child: `MERIDIAN_SPAWN_ID`, `MERIDIAN_PARENT_SPAWN_ID`, `MERIDIAN_DEPTH` (parent + 1). The shared filesystem at `fs/` enables data passing between siblings and across depths. `max_depth` config prevents runaway recursion.
+Context propagation per child: `MERIDIAN_FS_DIR`, `MERIDIAN_SPAWN_ID`, `MERIDIAN_PARENT_SPAWN_ID`, `MERIDIAN_DEPTH` (parent + 1). The shared filesystem at `fs/` enables data passing between siblings and across depths. `max_depth` config prevents runaway recursion.
 
 ---
 
 ## Conventions
 
-- All identifiers are `NewType` wrappers (`SpaceId`, `SpawnId`, `ModelId`, `HarnessId`, `ArtifactKey`) for compile-time safety
+- All identifiers are `NewType` wrappers (`SpawnId`, `ModelId`, `HarnessId`, `ArtifactKey`) for compile-time safety
 - All domain and I/O types are frozen Pydantic `BaseModel` instances
 - State persistence uses `model_validate()` / `model_dump()` at I/O boundaries

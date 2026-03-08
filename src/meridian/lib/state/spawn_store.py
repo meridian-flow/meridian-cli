@@ -1,6 +1,6 @@
-"""File-backed spawn event store for `.meridian/.spaces/<space-id>/spawns.jsonl`.
+"""File-backed spawn event store for `.meridian/spawns.jsonl`.
 
-Also includes file-backed ID generation for spaces, spawns, and sessions.
+Also includes file-backed ID generation for spawns and sessions.
 """
 
 
@@ -70,14 +70,14 @@ def next_space_id(repo_root: Path) -> SpaceId:
 
 
 def next_spawn_id(space_dir: Path) -> SpawnId:
-    """Return the next spawn ID (`p1`, `p2`, ...) for a space."""
+    """Return the next spawn ID (`p1`, `p2`, ...) for a state root."""
 
     starts = _count_start_events(space_dir / "spawns.jsonl")
     return SpawnId(f"p{starts + 1}")
 
 
 def next_chat_id(space_dir: Path) -> str:
-    """Return the next session/chat ID (`c1`, `c2`, ...) for a space."""
+    """Return the next session/chat ID (`c1`, `c2`, ...) for a state root."""
 
     starts = _count_start_events(space_dir / "sessions.jsonl")
     return f"c{starts + 1}"

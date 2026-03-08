@@ -17,9 +17,9 @@ Use `meridian spawn` directly:
 meridian spawn -m MODEL -p "first task"
 ```
 
-If no space is already selected, Meridian auto-creates one and includes the new `space_id`
-in the warning output. Use that `space_id` for later commands when you want to keep working
-in the same space.
+Meridian stores shared coordination state under `.meridian/`. New spawns append to
+`.meridian/spawns.jsonl`, write artifacts under `.meridian/spawns/<spawn-id>/`, and
+share files through `.meridian/fs/`.
 
 ## Spawn Composition
 
@@ -64,7 +64,6 @@ meridian spawn --dry-run -m MODEL -p "Plan the migration"
 | `--foreground` | Run spawn in foreground | Spawns run in background by default; use this to block |
 | `--dry-run` | Preview composed spawn | No harness execution |
 | `--permission` | Override permission tier | Example: `read-only`, `workspace-write` |
-| `--space-id` | Spawn within a specific space | Also `--space` |
 
 ## Parallel Execution
 
@@ -84,15 +83,15 @@ meridian spawn wait "$SID"
 
 ## Shared Filesystem
 
-Each space has a shared filesystem at `$MERIDIAN_SPACE_FS`. Use it to pass data between spawns:
+Meridian exposes the shared filesystem at `$MERIDIAN_FS_DIR`. Use it to pass data between spawns:
 
 ```bash
 # Write output for other spawns to consume
-mkdir -p "$MERIDIAN_SPACE_FS"
-echo "result data" > "$MERIDIAN_SPACE_FS/step-a-output.txt"
+mkdir -p "$MERIDIAN_FS_DIR"
+echo "result data" > "$MERIDIAN_FS_DIR/step-a-output.txt"
 
 # Read another spawn's output
-cat "$MERIDIAN_SPACE_FS/step-a-output.txt"
+cat "$MERIDIAN_FS_DIR/step-a-output.txt"
 ```
 
 Agents organize this directory however they want — meridian provides the container only.
@@ -129,7 +128,7 @@ meridian spawn stats --session ID
 
 ## Debugging & Logs
 
-Each spawn writes logs to `.meridian/.spaces/<space-id>/spawns/<spawn-id>/`. The `log_path` field in `spawn show` output points to the stderr log:
+Each spawn writes logs to `.meridian/spawns/<spawn-id>/`. The `log_path` field in `spawn show` output points to the stderr log:
 
 ```bash
 # Get the log path for a spawn
@@ -137,10 +136,10 @@ meridian spawn show SPAWN_ID
 # → look for "log_path" in the JSON output
 
 # Read the full harness stderr log directly
-cat ".meridian/.spaces/$MERIDIAN_SPACE_ID/spawns/SPAWN_ID/stderr.log"
+cat ".meridian/spawns/SPAWN_ID/stderr.log"
 
 # Tail a running spawn's log
-tail -f ".meridian/.spaces/$MERIDIAN_SPACE_ID/spawns/SPAWN_ID/stderr.log"
+tail -f ".meridian/spawns/SPAWN_ID/stderr.log"
 ```
 
 The stderr log contains the full harness session trace — every tool call, exec command, and reasoning step. Use it to diagnose stuck, slow, or failed spawns.

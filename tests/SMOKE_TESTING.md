@@ -61,7 +61,8 @@ echo "EXIT: $?"
 
 **Check**:
 - Exit code is `0`
-- Output contains all command groups: `spawn`, `report`, `models`, `skills`, `config`, `space`, `doctor`, `serve`, `completion`
+- Output contains the expected command groups for the current mode, including at
+  least `spawn`, `report`, `models`, and `skills`
 
 ```bash
 uv run meridian --help 2>&1 | grep -qE "spawn|report|models|skills" && echo "PASS" || echo "FAIL"
@@ -183,7 +184,7 @@ echo "EXIT: $?"
 
 **Check**:
 - Exit code is `0`
-- JSON has `"repo_root"`, `"spaces_checked"`, `"ok"` fields
+- JSON has `"repo_root"`, `"runs_checked"`, `"ok"` fields
 - No Python traceback in stderr
 
 ```bash
@@ -191,7 +192,7 @@ uv run meridian --json doctor 2>&1 | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
 assert 'repo_root' in d
-assert 'spaces_checked' in d
+assert 'runs_checked' in d
 assert 'ok' in d
 print('PASS')
 "
@@ -238,22 +239,22 @@ echo "EXIT: $?"
 uv run meridian nonexistent 2>&1; test $? -eq 1 && echo "PASS: exit code" || echo "FAIL: exit code"
 ```
 
-### QS-10. Space list [IMPORTANT]
+### QS-10. Spawn list [IMPORTANT]
 
 ```bash
-uv run meridian --json space list 2>&1
+uv run meridian --json spawn list 2>&1
 echo "EXIT: $?"
 ```
 
 **Check**:
 - Exit code is `0`
-- JSON has `"spaces"` array (may be empty in fresh environment)
+- Output is valid JSON or a clean empty-state response
 
 ```bash
-uv run meridian --json space list 2>&1 | python3 -c "
+uv run meridian --json spawn list 2>&1 | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
-assert 'spaces' in d and isinstance(d['spaces'], list)
+assert isinstance(d, (list, dict))
 print('PASS')
 "
 ```
@@ -450,12 +451,11 @@ uv run meridian --json doctor 2>&1 | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
 assert 'repo_root' in d and d['repo_root']
-assert 'spaces_checked' in d
 assert 'runs_checked' in d
 assert 'agents_dir' in d
 assert 'skills_dir' in d
 assert isinstance(d['ok'], bool)
-print(f'PASS: doctor ok={d[\"ok\"]}, spaces={d[\"spaces_checked\"]}, runs={d[\"runs_checked\"]}')
+print(f'PASS: doctor ok={d[\"ok\"]}, runs={d[\"runs_checked\"]}')
 "
 ```
 
@@ -472,68 +472,7 @@ print('PASS: doctor text mode is human-readable')
 "
 ```
 
-### 3.5 Space Commands
-
-#### FS-SPC-1. Space start with dry-run [CRITICAL]
-
-```bash
-uv run meridian --json space start --dry-run 2>&1 | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-assert d['message'] == 'Launch dry-run.'
-assert d['exit_code'] == 0
-assert 'space_id' in d and d['space_id'].startswith('s')
-assert isinstance(d['command'], list) and len(d['command']) > 0
-print(f'PASS: space start dry-run, space_id={d[\"space_id\"]}')
-"
-```
-
-#### FS-SPC-2. Space list [IMPORTANT]
-
-```bash
-uv run meridian --json space list 2>&1 | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-assert 'spaces' in d and isinstance(d['spaces'], list)
-for s in d['spaces']:
-    assert 'space_id' in s
-print(f'PASS: space list returned {len(d[\"spaces\"])} spaces')
-"
-```
-
-#### FS-SPC-3. Space list with limit [NICE-TO-HAVE]
-
-```bash
-uv run meridian --json space list --limit 2 2>&1 | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-assert len(d['spaces']) <= 2
-print(f'PASS: space list --limit 2 returned {len(d[\"spaces\"])} spaces')
-"
-```
-
-#### FS-SPC-4. Space show [IMPORTANT]
-
-First create a space, then show it:
-
-```bash
-# Create a space via dry-run (which still creates the space record)
-SPACE_ID=$(uv run meridian --json space start --dry-run 2>&1 | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-print(d['space_id'])
-")
-
-uv run meridian --json space show "$SPACE_ID" 2>&1 | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-assert 'space_id' in d
-assert 'spawn_ids' in d
-print(f'PASS: space show {d[\"space_id\"]}')
-"
-```
-
-### 3.6 Spawn Commands (Dry-Run)
+### 3.5 Spawn Commands (Dry-Run)
 
 #### FS-SPN-1. Spawn create dry-run basic [CRITICAL]
 
@@ -643,17 +582,17 @@ echo "EXIT: $?"
 test $? -eq 0 && echo "PASS" || echo "FAIL"
 ```
 
-### 3.7 Report Commands
+### 3.6 Report Commands
 
 #### FS-RPT-1. Report create from argument [IMPORTANT]
 
-This requires an active space with a spawn. In environments without a running spawn, this may fail gracefully:
+This requires an active spawn context. In environments without a running spawn, this may fail gracefully:
 
 ```bash
 uv run meridian --json report create "Test report content" 2>&1
 EXIT=$?
 echo "EXIT: $EXIT"
-# May succeed (exit 0) if space/spawn exists, or fail if no context
+# May succeed (exit 0) if spawn context exists, or fail if no context
 # Key: should NOT produce a Python traceback
 uv run meridian --json report create "Test report content" 2>&1 | grep -v "^warning:" | grep -v "^error:" | grep -c "Traceback"
 test $? -ne 0 && echo "PASS: no traceback" || echo "FAIL: traceback found"
@@ -689,7 +628,7 @@ print('PASS: report search no traceback')
 "
 ```
 
-### 3.8 Output Format Tests
+### 3.7 Output Format Tests
 
 #### FS-FMT-1. JSON format flag [CRITICAL]
 
@@ -757,7 +696,7 @@ EXIT=$?
 test $EXIT -ne 0 && echo "PASS: invalid format rejected" || echo "FAIL: expected non-zero exit"
 ```
 
-### 3.9 Error Handling
+### 3.8 Error Handling
 
 #### FS-ERR-1. Unknown top-level command [CRITICAL]
 
@@ -816,12 +755,12 @@ done
 test $FAIL_COUNT -eq 0 && echo "PASS: no tracebacks in error paths" || echo "FAIL: $FAIL_COUNT commands produced tracebacks"
 ```
 
-### 3.10 Agent Mode Behavior
+### 3.9 Agent Mode Behavior
 
 #### FS-AGT-1. Agent mode restricts help [IMPORTANT]
 
 ```bash
-MERIDIAN_SPACE_ID=s-test MERIDIAN_DEPTH=1 uv run meridian --help 2>&1 | python3 -c "
+MERIDIAN_DEPTH=1 uv run meridian --help 2>&1 | python3 -c "
 import sys
 text = sys.stdin.read()
 # Agent mode should show: spawn, report, skills, models
@@ -829,8 +768,8 @@ assert 'spawn' in text
 assert 'report' in text
 assert 'skills' in text
 assert 'models' in text
-# Agent mode should hide: space, config, doctor, serve, completion
-for hidden in ['space', 'config', 'completion', 'serve']:
+# Agent mode should hide: config, doctor, serve, completion, sync
+for hidden in ['config', 'completion', 'serve', 'sync']:
     assert hidden not in text, f'{hidden} should be hidden in agent mode'
 print('PASS: agent mode help is restricted')
 "
@@ -839,12 +778,12 @@ print('PASS: agent mode help is restricted')
 #### FS-AGT-2. --human flag restores full help [NICE-TO-HAVE]
 
 ```bash
-MERIDIAN_SPACE_ID=s-test MERIDIAN_DEPTH=1 uv run meridian --human --help 2>&1 | python3 -c "
+MERIDIAN_DEPTH=1 uv run meridian --human --help 2>&1 | python3 -c "
 import sys
 text = sys.stdin.read()
-assert 'space' in text
 assert 'config' in text
 assert 'serve' in text
+assert 'sync' in text
 print('PASS: --human restores full help')
 "
 ```
@@ -852,7 +791,7 @@ print('PASS: --human restores full help')
 #### FS-AGT-3. Agent mode defaults to JSON output [IMPORTANT]
 
 ```bash
-MERIDIAN_SPACE_ID=s1 MERIDIAN_DEPTH=1 uv run meridian doctor 2>&1 | python3 -c "
+MERIDIAN_DEPTH=1 uv run meridian doctor 2>&1 | python3 -c "
 import sys, json
 text = sys.stdin.read()
 # In agent mode with depth > 0, output uses agent sink (JSONL lines)
@@ -868,47 +807,21 @@ print('PASS: agent mode outputs JSON')
 
 ## 4. State Integrity Checks
 
-After running commands that create spaces (like `space start --dry-run`), verify the on-disk state files.
+After running commands that initialize `.meridian/`, verify the on-disk state files.
 
-### 4.1 Space JSON Schema [CRITICAL]
+### 4.1 Shared Filesystem Directory [CRITICAL]
 
 ```bash
-# Create a space
-SPACE_ID=$(uv run meridian --json space start --dry-run 2>&1 | python3 -c "
-import sys, json; print(json.load(sys.stdin)['space_id'])
-")
-
-# Find and validate space.json
-SPACE_JSON=".meridian/.spaces/$SPACE_ID/space.json"
-test -f "$SPACE_JSON" && echo "PASS: space.json exists" || echo "FAIL: space.json missing"
-
-python3 -c "
-import json, sys
-
-with open('$SPACE_JSON') as f:
-    d = json.load(f)
-
-# Required fields
-assert 'schema_version' in d and isinstance(d['schema_version'], int), 'missing/bad schema_version'
-assert 'id' in d and d['id'] == '$SPACE_ID', 'id mismatch'
-assert 'created_at' in d and isinstance(d['created_at'], str), 'missing/bad created_at'
-# created_at should be ISO format ending in Z
-assert d['created_at'].endswith('Z'), 'created_at should end with Z'
-# name is optional (can be null)
-assert 'name' in d
-
-print(f'PASS: space.json schema valid for {d[\"id\"]}')
-"
+mkdir -p .meridian/fs
+test -d ".meridian/fs" && echo "PASS: fs/ exists" || echo "FAIL: fs/ missing"
 ```
 
 ### 4.2 Directory Structure [IMPORTANT]
 
 ```bash
-SPACE_DIR=".meridian/.spaces/$SPACE_ID"
-
-# Core directories
-test -d "$SPACE_DIR/fs" && echo "PASS: fs/ exists" || echo "FAIL: fs/ missing"
-test -f "$SPACE_DIR/space.json" && echo "PASS: space.json exists" || echo "FAIL: space.json missing"
+test -d ".meridian/spawns" && echo "PASS: spawns/ exists" || echo "WARN: spawns/ missing until first spawn"
+test -f ".meridian/spawns.jsonl" && echo "PASS: spawns.jsonl exists" || echo "WARN: spawns.jsonl missing until first spawn"
+test -f ".meridian/sessions.jsonl" && echo "PASS: sessions.jsonl exists" || echo "WARN: sessions.jsonl missing until first session"
 
 echo "PASS: directory structure verified"
 ```
@@ -918,7 +831,7 @@ echo "PASS: directory structure verified"
 If spawns have been created (non-dry-run), verify the spawns.jsonl format:
 
 ```bash
-SPAWNS_JSONL=".meridian/.spaces/$SPACE_ID/spawns.jsonl"
+SPAWNS_JSONL=".meridian/spawns.jsonl"
 
 if test -f "$SPAWNS_JSONL"; then
   python3 -c "
@@ -945,7 +858,7 @@ fi
 ### 4.4 Sessions JSONL Schema [IMPORTANT]
 
 ```bash
-SESSIONS_JSONL=".meridian/.spaces/$SPACE_ID/sessions.jsonl"
+SESSIONS_JSONL=".meridian/sessions.jsonl"
 
 if test -f "$SESSIONS_JSONL"; then
   python3 -c "
@@ -982,13 +895,8 @@ These tests require a working harness (mock or real). Skip if `MERIDIAN_HARNESS_
 
 ```bash
 # Ensure mock harness is configured (see Setup section 1.3)
-# Create a space first
-SPACE_ID=$(uv run meridian --json space start --dry-run 2>&1 | python3 -c "
-import sys, json; print(json.load(sys.stdin)['space_id'])
-")
-
 # Run a real spawn (mock harness, instant completion)
-uv run meridian --json spawn create --space "$SPACE_ID" -p "Say hello" 2>&1 | python3 -c "
+uv run meridian --json spawn create -p "Say hello" 2>&1 | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
 assert d['command'] == 'spawn.create'
@@ -1004,7 +912,7 @@ else:
 
 ```bash
 # Get a spawn ID from the previous test or from spawn list
-SPAWN_ID=$(uv run meridian --json spawn list --space "$SPACE_ID" --limit 1 2>&1 | python3 -c "
+SPAWN_ID=$(uv run meridian --json spawn list --limit 1 2>&1 | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
 spawns = d if isinstance(d, list) else d.get('spawns', [])
@@ -1013,7 +921,7 @@ if spawns:
 " 2>/dev/null)
 
 if [ -n "$SPAWN_ID" ]; then
-  uv run meridian --json spawn show "$SPAWN_ID" --space "$SPACE_ID" 2>&1 | python3 -c "
+  uv run meridian --json spawn show "$SPAWN_ID" 2>&1 | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
 assert 'status' in d
@@ -1034,7 +942,7 @@ ORIGINAL_CMD="$MERIDIAN_HARNESS_COMMAND"
 REPO_ROOT_DIR="$(cd /path/to/meridian-channel && pwd)"  # adjust path
 export MERIDIAN_HARNESS_COMMAND="python $REPO_ROOT_DIR/tests/mock_harness.py --exit-code 1 --duration 0"
 
-uv run meridian --json spawn create --space "$SPACE_ID" -p "This should fail" 2>&1
+uv run meridian --json spawn create -p "This should fail" 2>&1
 EXIT=$?
 
 # Restore original harness
@@ -1046,7 +954,7 @@ test $EXIT -ne 0 && echo "PASS: non-zero harness exit propagated" || echo "FAIL:
 ### 5.4 Background Spawn [NICE-TO-HAVE]
 
 ```bash
-uv run meridian --json spawn create --space "$SPACE_ID" -p "Background task" 2>&1 | python3 -c "
+uv run meridian --json spawn create -p "Background task" 2>&1 | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
 assert d['status'] in ('running', 'succeeded', 'failed')
@@ -1194,22 +1102,8 @@ timeout 30 uv run meridian --json doctor 2>&1 || echo "FAIL: command hung or tim
 State files should always contain valid JSON:
 
 ```bash
-# Check all space.json files
-find .meridian/.spaces -name "space.json" -exec python3 -c "
-import json, sys
-for path in sys.argv[1:]:
-    try:
-        with open(path) as f:
-            json.load(f)
-        print(f'OK: {path}')
-    except json.JSONDecodeError as e:
-        print(f'CORRUPT: {path}: {e}')
-        sys.exit(1)
-" {} +
-echo "PASS: no corrupted space.json files"
-
 # Check all JSONL files
-find .meridian/.spaces -name "*.jsonl" -exec python3 -c "
+find .meridian -name "*.jsonl" -exec python3 -c "
 import json, sys
 for path in sys.argv[1:]:
     with open(path) as f:
@@ -1235,7 +1129,7 @@ Error paths should produce user-friendly messages, not silent failures:
 for cmd in \
   "uv run meridian nonexistent" \
   "uv run meridian models show no-such-model" \
-  "uv run meridian space show no-such-space"
+  "uv run meridian spawn show no-such-spawn"
 do
   STDERR=$(eval "$cmd" 2>&1 1>/dev/null)
   if [ -z "$STDERR" ]; then

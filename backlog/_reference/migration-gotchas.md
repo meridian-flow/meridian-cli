@@ -11,10 +11,6 @@ Non-actionable historical notes from the `run` → `spawn` migration. Kept for c
 
 - `_docs/cli-spec-agent.md` and `_docs/cli-spec-human.md` existed before migration; verify against current plan instead of regenerating.
 
-## Doctor Behavior
-
-- `doctor` orphan-repair behavior is intentionally skipped when `MERIDIAN_SPACE_ID` is set, which changes some test expectations.
-
 ## Type Checking
 
 - `uv run pyright` reports strict-type diagnostics not scoped to migration; full pytest suite was green in that context.

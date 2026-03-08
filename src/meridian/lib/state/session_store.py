@@ -1,4 +1,4 @@
-"""File-backed session tracking for `.meridian/.spaces/<space-id>/sessions.jsonl`."""
+"""File-backed session tracking for `.meridian/sessions.jsonl`."""
 
 
 import fcntl
@@ -286,7 +286,7 @@ def list_active_sessions(space_dir: Path) -> list[str]:
 
 
 def get_last_session(space_dir: Path) -> SessionRecord | None:
-    """Return the most recently started session record in a space."""
+    """Return the most recently started session record in a state root."""
 
     paths = SpacePaths.from_space_dir(space_dir)
     last_session_id: str | None = None

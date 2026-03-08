@@ -28,16 +28,12 @@ No global parameters are shown in agent root help.
 - Management commands: `meridian spawn list|show|wait|continue|stats`.
 - Default action with no spawn subcommand: create a new spawn.
 
-## Space Scoping Rule
+## State Root Rule
 
-Spawn operations require explicit space context:
-
-- `MERIDIAN_SPACE_ID` must be set, or
-- caller must pass `--space`.
-
-No auto-create fallback.
+Spawn operations use the repo's shared `.meridian/` state root and shared
+filesystem at `MERIDIAN_FS_DIR`.
 
 ## Visibility Rules
 
-- Hidden from agent root help: `doctor`, `completion`, `config`, `space`, `init`, `serve`.
+- Hidden from agent root help: `doctor`, `completion`, `config`, `init`, `serve`, `sync`.
 - Removed entirely: `grep`.
