@@ -197,15 +197,10 @@ def test_load_config_maps_flat_env_overrides_to_nested_fields(
     assert loaded.search_paths.skills == (".agents/skills", "/tmp/skills")
 
 
-def test_load_config_discovers_meridian_toml_in_parent_directories(tmp_path: Path) -> None:
+def test_load_config_reads_from_dotmeridian_config_toml(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
-    project_toml = repo_root / "meridian.toml"
-    project_toml.parent.mkdir(parents=True, exist_ok=True)
-    project_toml.write_text("[defaults]\nmax_depth = 9\n", encoding="utf-8")
+    _write_project_config(repo_root, "[defaults]\nmax_depth = 9\n")
 
-    nested_repo_root = repo_root / "a" / "b"
-    nested_repo_root.mkdir(parents=True, exist_ok=True)
-
-    loaded = load_config(nested_repo_root)
+    loaded = load_config(repo_root)
 
     assert loaded.max_depth == 9

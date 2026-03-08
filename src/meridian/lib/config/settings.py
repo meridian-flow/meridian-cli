@@ -20,7 +20,7 @@ _PERMISSION_TIERS = ("read-only", "workspace-write", "full-access")
 _PRIMARY_AUTOCOMPACT_PCT_MIN = 1
 _PRIMARY_AUTOCOMPACT_PCT_MAX = 100
 USER_CONFIG_ENV_VAR = "MERIDIAN_CONFIG"
-_DEFAULT_USER_CONFIG = Path("~/.config/meridian/config.toml").expanduser()
+_DEFAULT_USER_CONFIG = Path("~/.meridian/config.toml").expanduser()
 
 
 class _SettingsLoadContext(BaseModel):
@@ -222,15 +222,9 @@ def _read_toml(path: Path) -> dict[str, object]:
 
 
 def _resolve_project_toml(repo_root: Path) -> Path | None:
-    current = repo_root
-    for candidate_root in (current, *current.parents):
-        candidate = candidate_root / "meridian.toml"
-        if candidate.is_file():
-            return candidate
-
-    legacy = resolve_state_paths(repo_root).config_path
-    if legacy.is_file():
-        return legacy
+    config_path = resolve_state_paths(repo_root).config_path
+    if config_path.is_file():
+        return config_path
     return None
 
 
