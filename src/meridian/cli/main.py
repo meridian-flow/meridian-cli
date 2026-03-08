@@ -401,6 +401,7 @@ report_app = App(name="report", help="Report management commands", help_formatte
 skills_app = App(name="skills", help="Skills catalog commands", help_formatter="plain")
 models_app = App(name="models", help="Model catalog commands", help_formatter="plain")
 config_app = App(name="config", help="Repository config commands", help_formatter="plain")
+sync_app = App(name="sync", help="Sync skills and agents from external sources", help_formatter="plain")
 
 completion_app = App(name="completion", help="Shell completion helpers", help_formatter="plain")
 
@@ -411,6 +412,7 @@ app.command(report_app, name="report")
 app.command(skills_app, name="skills")
 app.command(models_app, name="models")
 app.command(config_app, name="config")
+app.command(sync_app, name="sync")
 app.command(completion_app, name="completion")
 
 
@@ -722,6 +724,7 @@ def _register_group_commands() -> None:
     # Import lazily to avoid a circular import with meridian.cli.spawn, which
     # reads agent-mode state from this module during import.
     from meridian.cli.spawn import register_spawn_commands
+    from meridian.cli.sync_cmd import register_sync_commands
 
     modules = (
         register_space_commands(space_app, emit),
@@ -735,6 +738,9 @@ def _register_group_commands() -> None:
     for commands, descriptions in modules:
         _REGISTERED_CLI_COMMANDS.update(commands)
         _REGISTERED_CLI_DESCRIPTIONS.update(descriptions)
+
+    # Sync is CLI-only (not in ops manifest), registered separately.
+    register_sync_commands(sync_app, emit)
 
 
 def get_registered_cli_commands() -> set[str]:
