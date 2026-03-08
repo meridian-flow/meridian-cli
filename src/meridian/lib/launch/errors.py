@@ -32,6 +32,8 @@ _UNRECOVERABLE_MARKERS: tuple[str, ...] = (
     "model not found",
     "unknown model",
     "unsupported model",
+    "cannot be launched inside another claude code session",
+    "nested sessions share runtime resources",
     "permission denied",
     "access denied",
     "forbidden",

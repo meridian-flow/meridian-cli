@@ -27,6 +27,11 @@ from meridian.lib.launch.errors import ErrorCategory, classify_error, should_ret
             ErrorCategory.STRATEGY_CHANGE,
             id="context-overflow",
         ),
+        pytest.param(
+            "Error: Claude Code cannot be launched inside another Claude Code session.",
+            ErrorCategory.UNRECOVERABLE,
+            id="claude-nested-session",
+        ),
     ],
 )
 def test_classify_error_categories(error_message: str, expected: ErrorCategory) -> None:
