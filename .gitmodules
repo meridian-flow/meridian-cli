@@ -1,0 +1,3 @@
+[submodule "meridian-skills"]
+	path = meridian-skills
+	url = git@github.com:haowjy/meridian-skills.git
