@@ -269,6 +269,7 @@ def run_harness_process(
         child_env = build_space_env(
             repo_root,
             request,
+            chat_id=chat_id,
             default_autocompact_pct=ctx.config.primary.autocompact_pct,
             spawn_id=primary_spawn_id,
             harness_context=harness_context,

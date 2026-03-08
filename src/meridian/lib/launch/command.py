@@ -265,16 +265,21 @@ def build_space_env(
     repo_root: Path,
     request: SpaceLaunchRequest,
     *,
+    chat_id: str | None = None,
     default_autocompact_pct: int | None = None,
     spawn_id: str | None = None,
     harness_context: PrimaryHarnessContext | None = None,
 ) -> dict[str, str]:
     current_context = RuntimeContext.from_environment()
+    resolved_chat_id = (
+        chat_id.strip() if chat_id is not None and chat_id.strip() else current_context.chat_id
+    )
     runtime_context = RuntimeContext(
         space_id=request.space_id,
         depth=current_context.depth,
         repo_root=repo_root.resolve(),
         state_root=resolve_state_paths(repo_root).root_dir.resolve(),
+        chat_id=resolved_chat_id,
     )
     env_overrides = runtime_context.to_env_overrides()
     if spawn_id is not None and spawn_id.strip():

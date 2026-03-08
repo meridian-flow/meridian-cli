@@ -8,9 +8,11 @@ from pathlib import Path
 import pytest
 
 from meridian.lib.core.domain import Spawn, TokenUsage
+from meridian.lib.launch.command import build_space_env
 from meridian.lib.launch.env import build_harness_child_env
 from meridian.lib.launch.env import inherit_child_env
 from meridian.lib.launch.env import sanitize_child_env
+from meridian.lib.launch.types import SpaceLaunchRequest
 from meridian.lib.launch.runner import execute_with_finalization
 from meridian.lib.harness.common import (
     extract_session_id_from_artifacts,
@@ -218,6 +220,22 @@ def test_sanitize_child_env_derives_space_fs_from_repo_root() -> None:
     assert sanitized["MERIDIAN_SPACE_ID"] == "s9"
     assert sanitized["MERIDIAN_REPO_ROOT"] == "/tmp/repo"
     assert sanitized["MERIDIAN_SPACE_FS_DIR"] == "/tmp/repo/.meridian/.spaces/s9/fs"
+
+
+def test_build_space_env_propagates_explicit_primary_chat_id(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("PATH", "/usr/bin")
+    monkeypatch.delenv("MERIDIAN_CHAT_ID", raising=False)
+
+    child_env = build_space_env(
+        tmp_path,
+        SpaceLaunchRequest(space_id=SpaceId("s9")),
+        chat_id="c42",
+    )
+
+    assert child_env["MERIDIAN_CHAT_ID"] == "c42"
+    assert child_env["MERIDIAN_SPACE_ID"] == "s9"
 
 
 def test_sanitize_child_env_prefers_state_root_for_space_fs() -> None:
