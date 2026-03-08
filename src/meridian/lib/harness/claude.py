@@ -1,10 +1,6 @@
 """Claude CLI harness adapter."""
 
 
-import hashlib
-import json
-import tempfile
-from pathlib import Path
 from typing import ClassVar, cast
 from uuid import uuid4
 
@@ -38,53 +34,6 @@ from meridian.lib.core.types import HarnessId, SpawnId
 
 
 
-def _split_csv(value: str) -> list[str]:
-    return [item.strip() for item in value.split(",") if item.strip()]
-
-
-def _dedupe_preserving_order(items: list[str]) -> tuple[str, ...]:
-    ordered: list[str] = []
-    seen: set[str] = set()
-    for item in items:
-        if item in seen:
-            continue
-        seen.add(item)
-        ordered.append(item)
-    return tuple(ordered)
-
-
-def _merge_claude_allowed_tools(
-    flags: list[str],
-    mcp_allowed_tools: tuple[str, ...],
-) -> list[str]:
-    if not mcp_allowed_tools:
-        return flags
-
-    preserved: list[str] = []
-    permission_allowed_tools: list[str] = []
-    index = 0
-    while index < len(flags):
-        token = flags[index]
-        if token != "--allowedTools":
-            preserved.append(token)
-            index += 1
-            continue
-        if index + 1 >= len(flags):
-            preserved.append(token)
-            index += 1
-            continue
-        permission_allowed_tools.extend(_split_csv(flags[index + 1]))
-        index += 2
-
-    merged_allowed_tools = _dedupe_preserving_order(
-        [*permission_allowed_tools, *list(mcp_allowed_tools)]
-    )
-    if not merged_allowed_tools:
-        return preserved
-    preserved.extend(["--allowedTools", ",".join(merged_allowed_tools)])
-    return preserved
-
-
 def _extract_passthrough_session_id(args: tuple[str, ...]) -> str:
     """Extract --session-id value from passthrough args, or return empty string."""
     for i, token in enumerate(args):
@@ -93,15 +42,6 @@ def _extract_passthrough_session_id(args: tuple[str, ...]) -> str:
         if token.startswith("--session-id="):
             return token.partition("=")[2].strip()
     return ""
-
-
-class _StaticPermissionResolver:
-    def __init__(self, flags: list[str]) -> None:
-        self._flags = tuple(flags)
-
-    def resolve_flags(self, harness_id: HarnessId) -> list[str]:
-        _ = harness_id
-        return list(self._flags)
 
 
 def _normalize_task(item: object) -> dict[str, str] | None:
@@ -188,8 +128,6 @@ class ClaudeAdapter(BaseHarnessAdapter):
         "thinking": "thinking",
         "error": "error",
     }
-    MCP_CONFIG_PREFIX: ClassVar[str] = "meridian-claude-mcp"
-
     @property
     def id(self) -> HarnessId:
         return HarnessId("claude")
@@ -208,14 +146,6 @@ class ClaudeAdapter(BaseHarnessAdapter):
         )
 
     def build_command(self, run: SpawnParams, perms: PermissionResolver) -> list[str]:
-        mcp_config = self.mcp_config(run)
-        permission_flags = perms.resolve_flags(self.id)
-        if mcp_config is not None:
-            permission_flags = _merge_claude_allowed_tools(
-                permission_flags,
-                mcp_config.claude_allowed_tools,
-            )
-        merged_perms = _StaticPermissionResolver(permission_flags)
         if run.interactive:
             base_command = self.PRIMARY_BASE_COMMAND
             command_run = run.model_copy(update={"prompt": ""})
@@ -227,9 +157,8 @@ class ClaudeAdapter(BaseHarnessAdapter):
             prompt_mode=self.PROMPT_MODE,
             run=command_run,
             strategies=self.STRATEGIES,
-            perms=merged_perms,
+            perms=perms,
             harness_id=self.id,
-            mcp_config=mcp_config,
         )
         # Inject skill content for --append-system-prompt (workaround for issue #29902).
         if run.appended_system_prompt:
@@ -246,43 +175,10 @@ class ClaudeAdapter(BaseHarnessAdapter):
             command.append("--fork-session")
         return command
 
-    def _mcp_config_path(self, run: SpawnParams) -> Path:
-        repo_root = (run.repo_root or "").strip() or "."
-        fingerprint = hashlib.sha256(
-            f"{repo_root}|{','.join(run.mcp_tools)}".encode("utf-8")
-        ).hexdigest()[:16]
-        return Path(tempfile.gettempdir()) / f"{self.MCP_CONFIG_PREFIX}-{fingerprint}.json"
-
-    def _write_mcp_config(self, run: SpawnParams) -> Path:
-        repo_root = (run.repo_root or "").strip() or "."
-        payload = {
-            "mcpServers": {
-                "meridian": {
-                    "command": "uv",
-                    "args": ["run", "--directory", repo_root, "meridian", "serve"],
-                }
-            }
-        }
-        path = self._mcp_config_path(run)
-        path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
-        return path
-
     def mcp_config(self, run: SpawnParams) -> McpConfig | None:
-        if run.repo_root is None or not run.repo_root.strip():
-            return None
-        mcp_file = self._write_mcp_config(run)
-        if run.mcp_tools:
-            allowed_tools = tuple(f"mcp__meridian__{tool}" for tool in run.mcp_tools)
-        else:
-            allowed_tools = ("mcp__meridian__*",)
-
-        # MCP sidecar crash behavior:
-        # Claude surfaces MCP transport failures in-stream and the run usually exits
-        # non-zero; Meridian treats this as a failed attempt and does not reconnect.
-        return McpConfig(
-            command_args=("--mcp-config", mcp_file.as_posix()),
-            claude_allowed_tools=allowed_tools,
-        )
+        # MCP injection is off by default — agents use the CLI instead.
+        # Users who want always-on MCP can configure it in their harness settings.
+        return None
 
     def env_overrides(self, config: PermissionConfig) -> dict[str, str]:
         _ = config

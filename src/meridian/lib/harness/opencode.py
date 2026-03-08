@@ -1,7 +1,6 @@
 """OpenCode CLI harness adapter."""
 
 
-import json
 import re
 from datetime import datetime
 from pathlib import Path
@@ -42,12 +41,6 @@ def _strip_opencode_prefix(model: str) -> str:
 
 def _opencode_model_transform(value: object, args: list[str]) -> None:
     args.extend(["--model", _strip_opencode_prefix(str(value))])
-
-
-def _opencode_mcp_globs(run: SpawnParams) -> tuple[str, ...]:
-    if run.mcp_tools:
-        return tuple(f"mcp__meridian__{tool}" for tool in run.mcp_tools)
-    return ("mcp__meridian__*",)
 
 
 class OpenCodeAdapter(BaseHarnessAdapter):
@@ -101,7 +94,6 @@ class OpenCodeAdapter(BaseHarnessAdapter):
         )
 
     def build_command(self, run: SpawnParams, perms: PermissionResolver) -> list[str]:
-        mcp_config = self.mcp_config(run)
         base_command = self.PRIMARY_BASE_COMMAND if run.interactive else self.BASE_COMMAND
         command_run = run if run.interactive else run.model_copy(update={"prompt": "-"})
         command = build_harness_command(
@@ -111,7 +103,6 @@ class OpenCodeAdapter(BaseHarnessAdapter):
             strategies=self.STRATEGIES,
             perms=perms,
             harness_id=self.id,
-            mcp_config=mcp_config,
         )
         harness_session_id = (run.continue_harness_session_id or "").strip()
         if not harness_session_id:
@@ -122,25 +113,9 @@ class OpenCodeAdapter(BaseHarnessAdapter):
         return command
 
     def mcp_config(self, run: SpawnParams) -> McpConfig | None:
-        repo_root = (run.repo_root or "").strip()
-        if not repo_root:
-            return None
-        payload = {
-            "mcp_servers": {
-                "meridian": {
-                    "command": ["uv", "run", "--directory", repo_root, "meridian", "serve"],
-                    "tool_globs": list(_opencode_mcp_globs(run)),
-                }
-            }
-        }
-        # MCP sidecar crash behavior:
-        # OpenCode reports transport/config errors and the run fails unless the
-        # harness itself retries internally. Meridian does not restart sidecars.
-        return McpConfig(
-            env_overrides={
-                "OPENCODE_MCP_CONFIG": json.dumps(payload, sort_keys=True, separators=(",", ":"))
-            }
-        )
+        # MCP injection is off by default — agents use the CLI instead.
+        # Users who want always-on MCP can configure it in their harness settings.
+        return None
 
     def env_overrides(self, config: PermissionConfig) -> dict[str, str]:
         return {"OPENCODE_PERMISSION": opencode_permission_json(config.tier)}

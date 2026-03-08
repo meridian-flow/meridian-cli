@@ -1,7 +1,6 @@
 """Codex CLI harness adapter."""
 
 
-import json
 from pathlib import Path
 import re
 from typing import ClassVar
@@ -88,7 +87,6 @@ class CodexAdapter(BaseHarnessAdapter):
         )
 
     def build_command(self, run: SpawnParams, perms: PermissionResolver) -> list[str]:
-        mcp_config = self.mcp_config(run)
         harness_session_id = (run.continue_harness_session_id or "").strip()
         if run.interactive:
             base_command = (
@@ -130,39 +128,12 @@ class CodexAdapter(BaseHarnessAdapter):
             strategies=self.STRATEGIES,
             perms=perms,
             harness_id=self.id,
-            mcp_config=mcp_config,
         )
 
     def mcp_config(self, run: SpawnParams) -> McpConfig | None:
-        repo_root = (run.repo_root or "").strip()
-        if not repo_root:
-            return None
-        # Codex expects command as a string and args as a separate array,
-        # not command as an array like Claude's MCP config.
-        args_literal = json.dumps(
-            ["run", "--directory", repo_root, "meridian", "serve"],
-            separators=(",", ":"),
-        )
-        config_args = [
-            "--config",
-            'mcp_servers.meridian.command="uv"',
-            "--config",
-            f"mcp_servers.meridian.args={args_literal}",
-        ]
-
-        if run.mcp_tools:
-            enabled_tools_literal = json.dumps(list(run.mcp_tools), separators=(",", ":"))
-            config_args.extend(
-                [
-                    "--config",
-                    f"mcp_servers.meridian.enabled_tools={enabled_tools_literal}",
-                ]
-            )
-
-        # MCP sidecar crash behavior:
-        # Codex reports a tool transport failure and exits non-zero; Meridian does not
-        # auto-reconnect sidecars and relies on normal run retry policy.
-        return McpConfig(command_args=tuple(config_args))
+        # MCP injection is off by default — agents use the CLI instead.
+        # Users who want always-on MCP can configure it in their harness settings.
+        return None
 
     def env_overrides(self, config: PermissionConfig) -> dict[str, str]:
         _ = config
