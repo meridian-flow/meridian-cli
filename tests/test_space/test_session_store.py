@@ -255,19 +255,19 @@ def test_cleanup_stale_sessions_removes_materialized_scope_for_stale_chat(tmp_pa
             + "\n"
         )
 
-    _write(tmp_path / ".claude" / "agents" / "_meridian-c2-primary.md", "x")
-    _write(tmp_path / ".claude" / "agents" / "_meridian-c3-primary.md", "x")
-    _write(tmp_path / ".claude" / "skills" / "_meridian-c2-alpha" / "SKILL.md", "x")
-    _write(tmp_path / ".claude" / "skills" / "_meridian-c3-alpha" / "SKILL.md", "x")
+    _write(tmp_path / ".claude" / "agents" / "__primary-c2.md", "x")
+    _write(tmp_path / ".claude" / "agents" / "__primary-c3.md", "x")
+    _write(tmp_path / ".claude" / "skills" / "__alpha-c2" / "SKILL.md", "x")
+    _write(tmp_path / ".claude" / "skills" / "__alpha-c3" / "SKILL.md", "x")
 
     cleanup = cleanup_stale_sessions(space_dir)
 
     assert cleanup.cleaned_ids == ("c2",)
     assert cleanup.materialized_scopes == (("claude", "c2"),)
-    assert (tmp_path / ".claude" / "agents" / "_meridian-c2-primary.md").is_file()
-    assert (tmp_path / ".claude" / "agents" / "_meridian-c3-primary.md").is_file()
-    assert (tmp_path / ".claude" / "skills" / "_meridian-c2-alpha").is_dir()
-    assert (tmp_path / ".claude" / "skills" / "_meridian-c3-alpha").is_dir()
+    assert (tmp_path / ".claude" / "agents" / "__primary-c2.md").is_file()
+    assert (tmp_path / ".claude" / "agents" / "__primary-c3.md").is_file()
+    assert (tmp_path / ".claude" / "skills" / "__alpha-c2").is_dir()
+    assert (tmp_path / ".claude" / "skills" / "__alpha-c3").is_dir()
 
     stop_session(space_dir, live)
 

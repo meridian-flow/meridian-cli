@@ -236,7 +236,7 @@ def compose_run_prompt(
     agent_body: str = "",
     template_variables: Mapping[str, str | Path] | None = None,
     prior_output: str | None = None,
-    reference_mode: Literal["inline", "paths"] = "inline",
+    reference_mode: Literal["inline", "paths"] = "paths",
 ) -> str:
     """Compose a run prompt with deterministic ordering and sanitization.
 
@@ -296,7 +296,7 @@ def compose_run_prompt_text(
     agent_body: str = "",
     template_variables: Mapping[str, str | Path] | None = None,
     prior_output: str | None = None,
-    reference_mode: Literal["inline", "paths"] = "inline",
+    reference_mode: Literal["inline", "paths"] = "paths",
 ) -> str:
     """Compose and render prompt text."""
 

@@ -114,21 +114,22 @@ class MaterializeResult(BaseModel):
 
 
 def _materialized_name(chat_id: str, name: str) -> str:
-    return f"_meridian-{chat_id}-{name}"
+    return f"__{name}-{chat_id}"
 
 
 def _extract_chat_id_from_materialized(name: str) -> str | None:
-    """Extract the chat scope from a materialized artifact name."""
+    """Extract the chat scope from a materialized artifact name.
 
-    prefix = "_meridian-"
-    if not name.startswith(prefix):
+    Format: __{original_name}-{chat_id}
+    Chat IDs match: c<digits> or tmp-<hex>
+    """
+    import re
+
+    if not name.startswith("__"):
         return None
 
-    rest = name[len(prefix) :]
-    dash_idx = rest.find("-")
-    if dash_idx <= 0:
-        return None
-    return rest[:dash_idx]
+    m = re.search(r"-(c\d+|tmp-[a-f0-9]+)$", name)
+    return m.group(1) if m else None
 
 
 def _rewrite_agent_skills(raw_content: str, skill_mapping: dict[str, str]) -> str:
@@ -371,12 +372,12 @@ def cleanup_materialized(harness_id: str, repo_root: Path, chat_id: str) -> int:
     if layout is None:
         return 0
 
-    prefix = f"_meridian-{glob.escape(chat_id)}-"
+    suffix = f"-{glob.escape(chat_id)}"
     return _cleanup_matching(
         layout=layout,
         repo_root=repo_root,
-        agents_pattern=f"{prefix}*.md",
-        skills_pattern=f"{prefix}*",
+        agents_pattern=f"__*{suffix}.md",
+        skills_pattern=f"__*{suffix}",
     )
 
 
@@ -387,12 +388,25 @@ def cleanup_all_materialized(harness_id: str, repo_root: Path) -> int:
     if layout is None:
         return 0
 
-    return _cleanup_matching(
-        layout=layout,
-        repo_root=repo_root,
-        agents_pattern="_meridian-*.md",
-        skills_pattern="_meridian-*",
-    )
+    removed = 0
+
+    for raw_dir in (*layout.agents, *layout.global_agents):
+        agents_dir = resolve_native_dir(raw_dir, repo_root)
+        if agents_dir.is_dir():
+            for candidate in agents_dir.glob("__*.md"):
+                if candidate.is_file() and _extract_chat_id_from_materialized(candidate.stem) is not None:
+                    candidate.unlink()
+                    removed += 1
+
+    for raw_dir in (*layout.skills, *layout.global_skills):
+        skills_dir = resolve_native_dir(raw_dir, repo_root)
+        if skills_dir.is_dir():
+            for candidate in skills_dir.glob("__*"):
+                if candidate.is_dir() and _extract_chat_id_from_materialized(candidate.name) is not None:
+                    shutil.rmtree(candidate)
+                    removed += 1
+
+    return removed
 
 
 def cleanup_orphaned_materializations(
@@ -411,7 +425,7 @@ def cleanup_orphaned_materializations(
     for raw_dir in (*layout.agents, *layout.global_agents):
         agents_dir = resolve_native_dir(raw_dir, repo_root)
         if agents_dir.is_dir():
-            for candidate in agents_dir.glob("_meridian-*.md"):
+            for candidate in agents_dir.glob("__*.md"):
                 if not candidate.is_file():
                     continue
                 chat_id = _extract_chat_id_from_materialized(candidate.stem)
@@ -422,7 +436,7 @@ def cleanup_orphaned_materializations(
     for raw_dir in (*layout.skills, *layout.global_skills):
         skills_dir = resolve_native_dir(raw_dir, repo_root)
         if skills_dir.is_dir():
-            for candidate in skills_dir.glob("_meridian-*"):
+            for candidate in skills_dir.glob("__*"):
                 if not candidate.is_dir():
                     continue
                 chat_id = _extract_chat_id_from_materialized(candidate.name)

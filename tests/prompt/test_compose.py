@@ -79,7 +79,7 @@ def test_compose_prompt_keeps_context_isolated_and_sanitized(tmp_path: Path) -> 
     safe_ref.write_text("Safe context {{CTX}}", encoding="utf-8")
     hidden_ref.write_text("INJECTION: should never leak", encoding="utf-8")
 
-    loaded_refs = load_reference_files([safe_ref])
+    loaded_refs = load_reference_files([safe_ref], include_content=False)
     skill = SkillContent(
         name="worker",
         description="",
@@ -102,14 +102,18 @@ def test_compose_prompt_keeps_context_isolated_and_sanitized(tmp_path: Path) -> 
     assert "INJECTION: should never leak" not in composed
     assert composed.count("As your final action, create the run report with Meridian.") == 1
     assert "/tmp/stale.md" not in composed
-    assert "Safe context {{CTX}}" in composed
+    assert str(safe_ref) in composed
+    assert "Read these files from disk when gathering context:" in composed
+    assert "Safe context {{CTX}}" not in composed
     assert "Implement the change with context." in composed
 
 
-def test_compose_prompt_does_not_fail_on_unknown_reference_placeholders(tmp_path: Path) -> None:
+def test_compose_prompt_treats_reference_files_as_paths_only(tmp_path: Path) -> None:
     reference_file = tmp_path / "source.ts"
     reference_file.write_text("const template = '{{NOT_A_PROMPT_VAR}}';", encoding="utf-8")
-    loaded_refs = load_reference_files([reference_file])
+    second_reference_file = tmp_path / "second.ts"
+    second_reference_file.write_text("console.log('second');", encoding="utf-8")
+    loaded_refs = load_reference_files([reference_file, second_reference_file], include_content=False)
 
     composed = compose_run_prompt_text(
         skills=[],
@@ -118,5 +122,8 @@ def test_compose_prompt_does_not_fail_on_unknown_reference_placeholders(tmp_path
         template_variables={"CTX": "context"},
     )
 
-    assert "{{NOT_A_PROMPT_VAR}}" in composed
+    assert "{{NOT_A_PROMPT_VAR}}" not in composed
     assert "Inspect context." in composed
+    assert str(reference_file) in composed
+    assert str(second_reference_file) in composed
+    assert composed.index(str(reference_file)) < composed.index(str(second_reference_file))

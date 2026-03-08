@@ -1,5 +1,5 @@
 ---
-name: orchestrate
+name: meridian-orchestrate
 description: Supervisor workflow for multi-step tasks. Teaches planning, delegation, review cycles, and model selection.
 ---
 
