@@ -12,15 +12,11 @@ from typing import cast
 from urllib import request
 from urllib.error import HTTPError, URLError
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from meridian.lib.config._paths import resolve_repo_root
 from meridian.lib.state.paths import resolve_cache_dir
 from meridian.lib.types import HarnessId
-
-type JSONScalar = str | int | float | bool | None
-type JSONValue = JSONScalar | list["JSONValue"] | dict[str, "JSONValue"]
-type JSONObject = dict[str, JSONValue]
 
 _MODELS_DEV_URL = "https://models.dev/api.json"
 _REQUEST_TIMEOUT_SECONDS = 10
@@ -63,6 +59,184 @@ class DiscoveredModel(BaseModel):
         return "tool_call" in self.capabilities
 
 
+def _parse_string(value: object) -> str | None:
+    if isinstance(value, str):
+        normalized = value.strip()
+        return normalized or None
+    return None
+
+
+def _parse_float(value: object) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int | float):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return None
+    return None
+
+
+def _parse_int(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(float(value))
+        except ValueError:
+            return None
+    return None
+
+
+def _parse_capabilities(value: object) -> tuple[str, ...]:
+    raw_values: list[object]
+    if isinstance(value, str):
+        raw_values = [value]
+    elif isinstance(value, list):
+        raw_values = cast("list[object]", value)
+    elif isinstance(value, tuple):
+        raw_values = list(cast("tuple[object, ...]", value))
+    elif isinstance(value, set):
+        raw_values = list(cast("set[object]", value))
+    else:
+        return ()
+
+    capabilities: set[str] = set()
+    for raw in raw_values:
+        if not isinstance(raw, str):
+            continue
+        normalized = raw.strip().lower()
+        if normalized:
+            capabilities.add(normalized)
+    return tuple(sorted(capabilities))
+
+
+class _ModelsDevCost(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    input: float | None = None
+    output: float | None = None
+
+    @field_validator("input", "output", mode="before")
+    @classmethod
+    def _parse_cost_value(cls, value: object) -> float | None:
+        return _parse_float(value)
+
+
+class _ModelsDevLimit(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    context: int | None = None
+    output: int | None = None
+
+    @field_validator("context", "output", mode="before")
+    @classmethod
+    def _parse_limit_value(cls, value: object) -> int | None:
+        return _parse_int(value)
+
+
+class _ModelsDevModelRow(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    id: str | None = None
+    provider_model_id: str | None = None
+    name: str | None = None
+    tool_call: bool = False
+    capabilities: tuple[str, ...] = ()
+    cost: _ModelsDevCost = Field(default_factory=_ModelsDevCost)
+    limit: _ModelsDevLimit = Field(default_factory=_ModelsDevLimit)
+    release_date: str | None = None
+
+    @field_validator("id", "provider_model_id", "name", "release_date", mode="before")
+    @classmethod
+    def _parse_optional_string(cls, value: object) -> str | None:
+        return _parse_string(value)
+
+    @field_validator("capabilities", mode="before")
+    @classmethod
+    def _parse_capability_values(cls, value: object) -> tuple[str, ...]:
+        return _parse_capabilities(value)
+
+
+class _ModelsDevProviderPayload(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    models: dict[str, object] = Field(default_factory=dict)
+
+
+class _ModelsDevPayload(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    anthropic: _ModelsDevProviderPayload | None = None
+    openai: _ModelsDevProviderPayload | None = None
+    google: _ModelsDevProviderPayload | None = None
+
+
+class _CachedModelRow(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    id: str | None = None
+    name: str | None = None
+    family: str | None = None
+    provider: str | None = None
+    harness: str | None = None
+    harness_id: str | None = None
+    cost_input: float | None = None
+    cost_output: float | None = None
+    context_limit: int | None = None
+    output_limit: int | None = None
+    capabilities: tuple[str, ...] = ()
+    supports_tool_call: bool = False
+    release_date: str | None = None
+
+    @field_validator(
+        "id",
+        "name",
+        "family",
+        "provider",
+        "harness",
+        "harness_id",
+        "release_date",
+        mode="before",
+    )
+    @classmethod
+    def _parse_optional_string(cls, value: object) -> str | None:
+        return _parse_string(value)
+
+    @field_validator("cost_input", "cost_output", mode="before")
+    @classmethod
+    def _parse_cost_value(cls, value: object) -> float | None:
+        return _parse_float(value)
+
+    @field_validator("context_limit", "output_limit", mode="before")
+    @classmethod
+    def _parse_limit_value(cls, value: object) -> int | None:
+        return _parse_int(value)
+
+    @field_validator("capabilities", mode="before")
+    @classmethod
+    def _parse_capability_values(cls, value: object) -> tuple[str, ...]:
+        return _parse_capabilities(value)
+
+
+class _CachedModelsPayload(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    fetched_at: float | None = None
+    models: tuple[object, ...] = ()
+
+    @field_validator("fetched_at", mode="before")
+    @classmethod
+    def _parse_fetched_at(cls, value: object) -> float | None:
+        return _parse_float(value)
+
+
 def _default_cache_dir() -> Path:
     return resolve_cache_dir(resolve_repo_root())
 
@@ -79,72 +253,6 @@ def _cache_file(cache_dir: Path) -> Path:
     return cache_dir / _CACHE_FILE_NAME
 
 
-def _coerce_object(value: JSONValue | object) -> JSONObject | None:
-    if isinstance(value, dict):
-        return cast("JSONObject", value)
-    return None
-
-
-def _coerce_list(value: JSONValue | object) -> list[object] | None:
-    if isinstance(value, list):
-        return cast("list[object]", value)
-    return None
-
-
-def _coerce_string(value: JSONValue | object) -> str | None:
-    if isinstance(value, str):
-        normalized = value.strip()
-        return normalized or None
-    return None
-
-
-def _coerce_float(value: JSONValue | object) -> float | None:
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, int | float):
-        return float(value)
-    if isinstance(value, str):
-        try:
-            return float(value)
-        except ValueError:
-            return None
-    return None
-
-
-def _coerce_int(value: JSONValue | object) -> int | None:
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float):
-        return int(value)
-    if isinstance(value, str):
-        try:
-            return int(float(value))
-        except ValueError:
-            return None
-    return None
-
-
-def _coerce_string_set(value: JSONValue | object) -> set[str]:
-    if isinstance(value, str):
-        normalized = value.strip().lower()
-        return {normalized} if normalized else set()
-
-    as_list = _coerce_list(value)
-    if as_list is None:
-        return set()
-
-    values: set[str] = set()
-    for item in as_list:
-        if not isinstance(item, str):
-            continue
-        normalized = item.strip().lower()
-        if normalized:
-            values.add(normalized)
-    return values
-
-
 def _infer_family(model_id: str) -> str:
     normalized = model_id.strip()
     if not normalized:
@@ -159,17 +267,14 @@ def _infer_family(model_id: str) -> str:
     return tail
 
 
-def _capabilities(row: JSONObject) -> tuple[str, ...]:
-    capabilities = _coerce_string_set(row.get("capabilities"))
-    if row.get("tool_call") is True:
+def _capabilities(row: _ModelsDevModelRow) -> tuple[str, ...]:
+    capabilities = set(row.capabilities)
+    if row.tool_call:
         capabilities.add("tool_call")
-
-    normalized = sorted(capabilities)
-    return tuple(normalized)
+    return tuple(sorted(capabilities))
 
 
-def _parse_model_row(row: JSONObject) -> DiscoveredModel | None:
-    provider = (_coerce_string(row.get("provider")) or "").lower()
+def _parse_model_row(row: _ModelsDevModelRow, provider: str) -> DiscoveredModel | None:
     harness = _PROVIDER_TO_HARNESS.get(provider)
     if harness is None:
         return None
@@ -178,51 +283,45 @@ def _parse_model_row(row: JSONObject) -> DiscoveredModel | None:
     if "tool_call" not in capabilities:
         return None
 
-    model_id = _coerce_string(row.get("id")) or _coerce_string(row.get("provider_model_id"))
+    model_id = row.id or row.provider_model_id
     if model_id is None:
         return None
 
-    name = _coerce_string(row.get("name")) or model_id
-    cost = _coerce_object(row.get("cost")) or {}
-    limit = _coerce_object(row.get("limit")) or {}
-
+    name = row.name or model_id
     return DiscoveredModel(
         id=model_id,
         name=name,
         family=_infer_family(model_id),
         provider=provider,
         harness=harness,
-        cost_input=_coerce_float(cost.get("input")),
-        cost_output=_coerce_float(cost.get("output")),
-        context_limit=_coerce_int(limit.get("context")),
-        output_limit=_coerce_int(limit.get("output")),
+        cost_input=row.cost.input,
+        cost_output=row.cost.output,
+        context_limit=row.limit.context,
+        output_limit=row.limit.output,
         capabilities=capabilities,
-        release_date=_coerce_string(row.get("release_date")),
+        release_date=row.release_date,
     )
 
 
 def _parse_models_payload(payload_obj: object) -> list[DiscoveredModel]:
-    payload = _coerce_object(payload_obj)
-    if payload is None:
+    try:
+        payload = _ModelsDevPayload.model_validate(payload_obj)
+    except ValidationError:
         logger.warning("Unexpected models.dev payload shape; expected provider-keyed object")
         return []
 
     models: list[DiscoveredModel] = []
     for provider in _PROVIDER_TO_HARNESS:
-        provider_payload = _coerce_object(payload.get(provider))
+        provider_payload = getattr(payload, provider)
         if provider_payload is None:
             continue
 
-        provider_models = _coerce_object(provider_payload.get("models"))
-        if provider_models is None:
-            continue
-
-        for raw_row in provider_models.values():
-            row = _coerce_object(raw_row)
-            if row is None:
+        for raw_row in provider_payload.models.values():
+            try:
+                row = _ModelsDevModelRow.model_validate(raw_row)
+            except ValidationError:
                 continue
-            row["provider"] = provider
-            parsed = _parse_model_row(row)
+            parsed = _parse_model_row(row, provider)
             if parsed is not None:
                 models.append(parsed)
 
@@ -245,39 +344,33 @@ def fetch_models_dev() -> list[DiscoveredModel]:
     return _parse_models_payload(payload_obj)
 
 
-def _deserialize_cached_model(row: JSONObject) -> DiscoveredModel | None:
-    model_id = _coerce_string(row.get("id"))
-    name = _coerce_string(row.get("name"))
-    family = _coerce_string(row.get("family"))
-    provider = _coerce_string(row.get("provider"))
-    harness_value = _coerce_string(row.get("harness")) or _coerce_string(row.get("harness_id"))
-
-    capabilities_raw = row.get("capabilities")
-    capabilities = _coerce_string_set(capabilities_raw)
-    if not capabilities and row.get("supports_tool_call") is True:
+def _deserialize_cached_model(row: _CachedModelRow) -> DiscoveredModel | None:
+    capabilities = set(row.capabilities)
+    if not capabilities and row.supports_tool_call:
         capabilities.add("tool_call")
+    harness_value = row.harness or row.harness_id
 
     if (
-        model_id is None
-        or name is None
-        or family is None
-        or provider is None
+        row.id is None
+        or row.name is None
+        or row.family is None
+        or row.provider is None
         or harness_value is None
     ):
         return None
 
     return DiscoveredModel(
-        id=model_id,
-        name=name,
-        family=family,
-        provider=provider,
+        id=row.id,
+        name=row.name,
+        family=row.family,
+        provider=row.provider,
         harness=HarnessId(harness_value),
-        cost_input=_coerce_float(row.get("cost_input")),
-        cost_output=_coerce_float(row.get("cost_output")),
-        context_limit=_coerce_int(row.get("context_limit")),
-        output_limit=_coerce_int(row.get("output_limit")),
+        cost_input=row.cost_input,
+        cost_output=row.cost_output,
+        context_limit=row.context_limit,
+        output_limit=row.output_limit,
         capabilities=tuple(sorted(capabilities)),
-        release_date=_coerce_string(row.get("release_date")),
+        release_date=row.release_date,
     )
 
 
@@ -291,27 +384,27 @@ def _read_cache(cache_file: Path) -> tuple[float, list[DiscoveredModel]] | None:
         logger.warning("Failed to read models.dev cache at %s", cache_file, exc_info=True)
         return None
 
-    payload = _coerce_object(payload_obj)
-    if payload is None:
+    try:
+        payload = _CachedModelsPayload.model_validate(payload_obj)
+    except ValidationError:
         logger.warning("Ignoring invalid models.dev cache payload at %s", cache_file)
         return None
 
-    fetched_at = _coerce_float(payload.get("fetched_at"))
-    rows = payload.get("models")
-    if fetched_at is None or not isinstance(rows, list):
+    if payload.fetched_at is None:
         logger.warning("Ignoring incomplete models.dev cache payload at %s", cache_file)
         return None
 
     models: list[DiscoveredModel] = []
-    for raw_row in rows:
-        row = _coerce_object(raw_row)
-        if row is None:
+    for raw_row in payload.models:
+        try:
+            row = _CachedModelRow.model_validate(raw_row)
+        except ValidationError:
             continue
         parsed = _deserialize_cached_model(row)
         if parsed is not None:
             models.append(parsed)
 
-    return fetched_at, models
+    return payload.fetched_at, models
 
 
 def _write_cache(cache_file: Path, models: list[DiscoveredModel]) -> None:

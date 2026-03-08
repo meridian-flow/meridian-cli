@@ -5,8 +5,7 @@ from __future__ import annotations
 import inspect
 import types
 from collections.abc import Mapping
-from dataclasses import MISSING, fields, is_dataclass
-from typing import Any, TypeGuard, TypeVar, Union, cast, get_args, get_origin, get_type_hints
+from typing import Any, TypeGuard, TypeVar, Union, cast, get_args, get_origin
 
 from pydantic import BaseModel
 
@@ -43,9 +42,7 @@ def schema_from_annotation(annotation: Any) -> dict[str, object]:
         schema = {"type": "boolean"}
     elif origin in {list, tuple} and args:
         schema = {"type": "array", "items": schema_from_annotation(args[0])}
-    elif isinstance(normalized, type) and (
-        is_dataclass(normalized) or _is_pydantic_model_type(cast("object", normalized))
-    ):
+    elif isinstance(normalized, type) and _is_pydantic_model_type(cast("object", normalized)):
         schema = schema_from_type(cast("type[Any]", normalized))
     else:
         schema = {"type": "string"}
@@ -56,67 +53,17 @@ def schema_from_annotation(annotation: Any) -> dict[str, object]:
 
 
 def schema_from_type(payload_type: type[Any]) -> dict[str, object]:
-    """Build a basic JSON schema from dataclass fields."""
+    """Build a basic JSON schema from a Pydantic model."""
 
     if _is_pydantic_model_type(payload_type):
         return cast("dict[str, object]", payload_type.model_json_schema())
-
-    if not is_dataclass(payload_type):
-        return {"type": "object", "properties": {}, "additionalProperties": False}
-
-    properties: dict[str, object] = {}
-    required: list[str] = []
-    for field in fields(payload_type):
-        properties[field.name] = schema_from_annotation(field.type)
-        if field.default is MISSING and field.default_factory is MISSING:
-            required.append(field.name)
-
-    schema: dict[str, object] = {
-        "type": "object",
-        "properties": properties,
-        "additionalProperties": False,
-    }
-    if required:
-        schema["required"] = required
-    return schema
-
-
-def coerce_scalar(annotation: Any, value: object) -> object:
-    """Best-effort scalar coercion for tool inputs."""
-
-    normalized, _ = normalize_optional(annotation)
-    if value is None:
-        return None
-    if normalized is str:
-        return str(value)
-    if normalized is int:
-        return int(cast("Any", value))
-    if normalized is float:
-        return float(cast("Any", value))
-    if normalized is bool:
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, str):
-            return value.strip().lower() in {"1", "true", "yes", "on"}
-        return bool(value)
-    return value
+    return {"type": "object", "properties": {}, "additionalProperties": False}
 
 
 def coerce_input_payload(payload_type: type[PayloadT], raw_input: object) -> PayloadT:
-    """Coerce untyped input dictionaries into typed dataclass payloads."""
+    """Coerce untyped input dictionaries into typed Pydantic payloads."""
 
-    if _is_pydantic_model_type(payload_type):
-        if raw_input is None:
-            data: dict[str, object] = {}
-        elif isinstance(raw_input, Mapping):
-            data = {
-                str(key): item for key, item in cast("Mapping[object, object]", raw_input).items()
-            }
-        else:
-            raise TypeError(f"Tool input must be an object, got {type(raw_input).__name__}")
-        return cast("PayloadT", payload_type.model_validate(data))
-
-    if not is_dataclass(payload_type):
+    if not _is_pydantic_model_type(payload_type):
         return payload_type()
 
     if raw_input is None:
@@ -128,32 +75,11 @@ def coerce_input_payload(payload_type: type[PayloadT], raw_input: object) -> Pay
     else:
         raise TypeError(f"Tool input must be an object, got {type(raw_input).__name__}")
 
-    kwargs: dict[str, object] = {}
-    for field in fields(payload_type):
-        if field.name in data:
-            value = data[field.name]
-            origin = get_origin(field.type)
-            args = get_args(field.type)
-            if origin in {list, tuple} and args and isinstance(value, list):
-                items = cast("list[object]", value)
-                kwargs[field.name] = [coerce_scalar(args[0], item) for item in items]
-            else:
-                kwargs[field.name] = coerce_scalar(field.type, value)
-            continue
-
-        if field.default is not MISSING:
-            kwargs[field.name] = field.default
-            continue
-        if field.default_factory is not MISSING:
-            kwargs[field.name] = field.default_factory()
-            continue
-        raise TypeError(f"Missing required field '{field.name}'")
-
-    return cast("PayloadT", payload_type(**kwargs))
+    return cast("PayloadT", payload_type.model_validate(data))
 
 
-def signature_from_dataclass(payload_type: type[object]) -> inspect.Signature:
-    """Build a callable signature matching dataclass fields for FastMCP schemas."""
+def signature_from_model(payload_type: type[object]) -> inspect.Signature:
+    """Build a callable signature matching Pydantic model fields for FastMCP schemas."""
 
     if _is_pydantic_model_type(payload_type):
         signature = inspect.signature(payload_type)
@@ -162,29 +88,7 @@ def signature_from_dataclass(payload_type: type[object]) -> inspect.Signature:
             return_annotation=inspect.Signature.empty,
         )
 
-    if not is_dataclass(payload_type):
-        return inspect.Signature(parameters=[])
-
-    resolved_hints = get_type_hints(payload_type, include_extras=True)
-    parameters: list[inspect.Parameter] = []
-    for field in fields(payload_type):
-        default: object = inspect.Parameter.empty
-        if field.default is not MISSING:
-            default = field.default
-        elif field.default_factory is not MISSING:
-            # Dataclass field default factories become optional in tool schemas.
-            default = field.default_factory()
-
-        parameters.append(
-            inspect.Parameter(
-                name=field.name,
-                kind=inspect.Parameter.KEYWORD_ONLY,
-                default=default,
-                annotation=resolved_hints.get(field.name, field.type),
-            )
-        )
-
-    return inspect.Signature(parameters=parameters)
+    return inspect.Signature(parameters=[])
 
 
 def _is_pydantic_model_type(payload_type: object) -> TypeGuard[type[BaseModel]]:

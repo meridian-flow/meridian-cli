@@ -9,7 +9,7 @@ from mcp.server.fastmcp import FastMCP
 
 from meridian.lib.logging import configure_logging
 from meridian.lib.ops import get_all_operations
-from meridian.lib.ops.codec import coerce_input_payload, signature_from_dataclass
+from meridian.lib.ops.codec import coerce_input_payload, signature_from_model
 from meridian.lib.ops.registry import OperationSpec
 from meridian.lib.serialization import to_jsonable
 
@@ -38,7 +38,7 @@ def _build_tool_handler(op: OperationSpec[Any, Any]) -> Any:
 
     _tool.__name__ = f"tool_{op.mcp_name}"
     _tool.__doc__ = op.description
-    cast("Any", _tool).__signature__ = signature_from_dataclass(op.input_type)
+    cast("Any", _tool).__signature__ = signature_from_model(op.input_type)
     return _tool
 
 

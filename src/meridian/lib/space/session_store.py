@@ -8,17 +8,13 @@ import logging
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import BinaryIO, cast
+from typing import Any, BinaryIO, Literal, cast
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from meridian.lib.harness.materialize import cleanup_materialized
 from meridian.lib.state.id_gen import next_chat_id
 from meridian.lib.state.paths import SpacePaths
-
-type JSONScalar = str | int | float | bool | None
-type JSONValue = JSONScalar | list["JSONValue"] | dict[str, "JSONValue"]
-type JSONRow = dict[str, JSONValue]
 
 _SESSION_LOCK_HANDLES: dict[tuple[Path, str], BinaryIO] = {}
 logger = logging.getLogger(__name__)
@@ -40,6 +36,44 @@ class SessionRecord(BaseModel):
     stopped_at: str | None
 
 
+class SessionStartEvent(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    v: int = 1
+    event: Literal["start"] = "start"
+    chat_id: str
+    harness: str
+    harness_session_id: str
+    model: str
+    agent: str = ""
+    agent_path: str = ""
+    skills: tuple[str, ...] = ()
+    skill_paths: tuple[str, ...] = ()
+    params: tuple[str, ...] = ()
+    started_at: str
+
+
+class SessionStopEvent(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    v: int = 1
+    event: Literal["stop"] = "stop"
+    chat_id: str
+    stopped_at: str | None = None
+
+
+class SessionUpdateEvent(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    v: int = 1
+    event: Literal["update"] = "update"
+    chat_id: str
+    harness_session_id: str
+
+
+type SessionEvent = SessionStartEvent | SessionStopEvent | SessionUpdateEvent
+
+
 def _utc_now_iso() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
@@ -55,18 +89,32 @@ def _lock_file(path: Path):
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
-def _append_event(path: Path, payload: JSONRow) -> None:
+def _append_event(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(payload, separators=(",", ":"), sort_keys=True))
         handle.write("\n")
 
 
-def _read_events(path: Path) -> list[JSONRow]:
+def _parse_event(payload: dict[str, Any]) -> SessionEvent | None:
+    event_type = payload.get("event")
+    try:
+        if event_type == "start":
+            return SessionStartEvent.model_validate(payload)
+        if event_type == "stop":
+            return SessionStopEvent.model_validate(payload)
+        if event_type == "update":
+            return SessionUpdateEvent.model_validate(payload)
+    except ValidationError:
+        return None
+    return None
+
+
+def _read_events(path: Path) -> list[SessionEvent]:
     if not path.exists():
         return []
 
-    rows: list[JSONRow] = []
+    rows: list[SessionEvent] = []
     with path.open("r", encoding="utf-8") as handle:
         lines = handle.readlines()
 
@@ -81,54 +129,26 @@ def _read_events(path: Path) -> list[JSONRow]:
             if index == len(lines) - 1:
                 continue
             continue
-        if isinstance(payload, dict):
-            rows.append(cast("JSONRow", payload))
+        if not isinstance(payload, dict):
+            continue
+        parsed = _parse_event(cast("dict[str, Any]", payload))
+        if parsed is not None:
+            rows.append(parsed)
     return rows
 
 
-def _coerce_params(value: JSONValue | None) -> tuple[str, ...]:
-    if not isinstance(value, list):
-        return ()
-    result: list[str] = []
-    for item in value:
-        if isinstance(item, str):
-            result.append(item)
-    return tuple(result)
-
-
-def _coerce_string_or_empty(value: JSONValue | None) -> str:
-    if isinstance(value, str):
-        return value
-    return ""
-
-
-def _record_from_start_event(event: JSONRow) -> SessionRecord | None:
-    chat_id = event.get("chat_id")
-    harness = event.get("harness")
-    harness_session_id = event.get("harness_session_id")
-    model = event.get("model")
-    started_at = event.get("started_at")
-    if not isinstance(chat_id, str):
-        return None
-    if not isinstance(harness, str):
-        return None
-    if not isinstance(harness_session_id, str):
-        return None
-    if not isinstance(model, str):
-        return None
-    if not isinstance(started_at, str):
-        return None
+def _record_from_start_event(event: SessionStartEvent) -> SessionRecord:
     return SessionRecord(
-        chat_id=chat_id,
-        harness=harness,
-        harness_session_id=harness_session_id,
-        model=model,
-        agent=_coerce_string_or_empty(event.get("agent")),
-        agent_path=_coerce_string_or_empty(event.get("agent_path")),
-        skills=_coerce_params(event.get("skills")),
-        skill_paths=_coerce_params(event.get("skill_paths")),
-        params=_coerce_params(event.get("params")),
-        started_at=started_at,
+        chat_id=event.chat_id,
+        harness=event.harness,
+        harness_session_id=event.harness_session_id,
+        model=event.model,
+        agent=event.agent,
+        agent_path=event.agent_path,
+        skills=event.skills,
+        skill_paths=event.skill_paths,
+        params=event.params,
+        started_at=event.started_at,
         stopped_at=None,
     )
 
@@ -138,35 +158,26 @@ def _records_by_session(space_dir: Path) -> dict[str, SessionRecord]:
     records: dict[str, SessionRecord] = {}
 
     for event in _read_events(paths.sessions_jsonl):
-        event_type = event.get("event")
-        if event_type == "start":
+        if isinstance(event, SessionStartEvent):
             record = _record_from_start_event(event)
-            if record is not None:
-                records[record.chat_id] = record
+            records[record.chat_id] = record
             continue
-        if event_type == "stop":
-            chat_id = event.get("chat_id")
-            if not isinstance(chat_id, str):
-                continue
-            existing = records.get(chat_id)
+        if isinstance(event, SessionStopEvent):
+            existing = records.get(event.chat_id)
             if existing is None:
                 continue
-            stopped_at = event.get("stopped_at")
-            records[chat_id] = existing.model_copy(
+            records[event.chat_id] = existing.model_copy(
                 update={
-                    "stopped_at": str(stopped_at) if stopped_at is not None else existing.stopped_at
+                    "stopped_at": event.stopped_at if event.stopped_at is not None else existing.stopped_at
                 }
             )
             continue
-        if event_type == "update":
-            chat_id = event.get("chat_id")
-            harness_session_id = event.get("harness_session_id")
-            if not isinstance(chat_id, str) or not isinstance(harness_session_id, str):
-                continue
-            existing = records.get(chat_id)
-            if existing is None:
-                continue
-            records[chat_id] = existing.model_copy(update={"harness_session_id": harness_session_id})
+        existing = records.get(event.chat_id)
+        if existing is None:
+            continue
+        records[event.chat_id] = existing.model_copy(
+            update={"harness_session_id": event.harness_session_id}
+        )
     return records
 
 
@@ -213,21 +224,19 @@ def start_session(
 
     with _lock_file(paths.sessions_lock):
         chat_id = next_chat_id(space_dir)
-        event: JSONRow = {
-            "v": 1,
-            "event": "start",
-            "chat_id": chat_id,
-            "harness": harness,
-            "harness_session_id": harness_session_id,
-            "model": model,
-            "agent": agent,
-            "agent_path": agent_path,
-            "skills": list(skills),
-            "skill_paths": list(skill_paths),
-            "params": list(params),
-            "started_at": started_at,
-        }
-        _append_event(paths.sessions_jsonl, event)
+        event = SessionStartEvent(
+            chat_id=chat_id,
+            harness=harness,
+            harness_session_id=harness_session_id,
+            model=model,
+            agent=agent,
+            agent_path=agent_path,
+            skills=skills,
+            skill_paths=skill_paths,
+            params=params,
+            started_at=started_at,
+        )
+        _append_event(paths.sessions_jsonl, event.model_dump())
 
         lock_path = paths.sessions_dir / f"{chat_id}.lock"
         handle = _acquire_session_lock(lock_path)
@@ -239,14 +248,9 @@ def stop_session(space_dir: Path, chat_id: str) -> None:
     """Append a session stop event and release the lifetime session lock."""
 
     paths = SpacePaths.from_space_dir(space_dir)
-    event: JSONRow = {
-        "v": 1,
-        "event": "stop",
-        "chat_id": chat_id,
-        "stopped_at": _utc_now_iso(),
-    }
+    event = SessionStopEvent(chat_id=chat_id, stopped_at=_utc_now_iso())
     with _lock_file(paths.sessions_lock):
-        _append_event(paths.sessions_jsonl, event)
+        _append_event(paths.sessions_jsonl, event.model_dump(exclude_none=True))
         _release_session_lock(space_dir, chat_id)
 
 
@@ -254,14 +258,9 @@ def update_session_harness_id(space_dir: Path, chat_id: str, harness_session_id:
     """Append a session update event carrying the resolved harness session ID."""
 
     paths = SpacePaths.from_space_dir(space_dir)
-    event: JSONRow = {
-        "v": 1,
-        "event": "update",
-        "chat_id": chat_id,
-        "harness_session_id": harness_session_id,
-    }
+    event = SessionUpdateEvent(chat_id=chat_id, harness_session_id=harness_session_id)
     with _lock_file(paths.sessions_lock):
-        _append_event(paths.sessions_jsonl, event)
+        _append_event(paths.sessions_jsonl, event.model_dump())
 
 
 def list_active_sessions(space_dir: Path) -> list[str]:
@@ -290,11 +289,9 @@ def get_last_session(space_dir: Path) -> SessionRecord | None:
     paths = SpacePaths.from_space_dir(space_dir)
     last_session_id: str | None = None
     for event in _read_events(paths.sessions_jsonl):
-        if event.get("event") != "start":
+        if not isinstance(event, SessionStartEvent):
             continue
-        candidate = event.get("chat_id")
-        if isinstance(candidate, str):
-            last_session_id = candidate
+        last_session_id = event.chat_id
 
     if last_session_id is None:
         return None
@@ -347,27 +344,12 @@ def collect_active_chat_ids(repo_root: Path) -> frozenset[str] | None:
             try:
                 started: set[str] = set()
                 stopped: set[str] = set()
-                for line in sessions_file.read_text(encoding="utf-8").splitlines():
-                    stripped = line.strip()
-                    if not stripped:
+                for event in _read_events(sessions_file):
+                    if isinstance(event, SessionStartEvent):
+                        started.add(event.chat_id)
                         continue
-                    try:
-                        record = json.loads(stripped)
-                    except json.JSONDecodeError:
-                        continue
-                    if not isinstance(record, dict):
-                        continue
-                    row = cast("dict[object, object]", record)
-
-                    event = row.get("event", "")
-                    chat_id_val = row.get("chat_id", "")
-                    if not isinstance(chat_id_val, str) or not chat_id_val:
-                        continue
-
-                    if event == "start":
-                        started.add(chat_id_val)
-                    elif event == "stop":
-                        stopped.add(chat_id_val)
+                    if isinstance(event, SessionStopEvent):
+                        stopped.add(event.chat_id)
 
                 active_ids.update(started - stopped)
             except OSError:
@@ -419,12 +401,9 @@ def cleanup_stale_sessions(space_dir: Path, repo_root: Path | None = None) -> li
             if existing is not None and existing.stopped_at is None:
                 _append_event(
                     paths.sessions_jsonl,
-                    {
-                        "v": 1,
-                        "event": "stop",
-                        "chat_id": chat_id,
-                        "stopped_at": stopped_at,
-                    },
+                    SessionStopEvent(chat_id=chat_id, stopped_at=stopped_at).model_dump(
+                        exclude_none=True
+                    ),
                 )
             if existing is not None and existing.harness.strip():
                 stale_cleanup_scopes.append((existing.harness.strip(), chat_id))
