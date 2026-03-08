@@ -28,7 +28,7 @@ from meridian.lib.ops.spawn.api import (
     spawn_wait_sync,
 )
 
-# In agent mode (MERIDIAN_SPACE_ID set), hide human-only flags from --help.
+# In agent mode (MERIDIAN_DEPTH > 0), hide human-only flags from --help.
 # Flags still work when passed — show only affects help text.
 _HUMAN_ONLY = not agent_mode_enabled()
 

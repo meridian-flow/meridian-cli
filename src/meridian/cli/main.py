@@ -228,7 +228,7 @@ def _extract_human_flag(argv: Sequence[str]) -> tuple[list[str], bool]:
 
 
 def agent_mode_enabled() -> bool:
-    return bool(os.getenv("MERIDIAN_SPACE_ID", "").strip())
+    return int(os.getenv("MERIDIAN_DEPTH", "0")) > 0
 
 
 def _agent_sink_enabled(*, output_explicit: bool) -> bool:
@@ -879,10 +879,10 @@ def main(argv: Sequence[str] | None = None) -> None:
     verbose_count = args.count("--verbose") + args.count("-v")
     configure_logging(json_mode=json_mode, verbosity=verbose_count)
 
-    # Skip orphan cleanup when running as a subagent (MERIDIAN_SPACE_ID set).
-    # Subagents should never clean up their parent space's state — doing so
+    # Skip orphan cleanup when running as a spawned agent (MERIDIAN_DEPTH > 0).
+    # Spawned agents should never clean up their parent space's state — doing so
     # can mark concurrent spawns as failed and close the parent space.
-    if not os.environ.get("MERIDIAN_SPACE_ID"):
+    if not agent_mode_enabled():
         try:
             repo_root = resolve_repo_root()
             # Cleanup is best-effort and should never block CLI usage.

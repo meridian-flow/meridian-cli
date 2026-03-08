@@ -821,7 +821,7 @@ test $FAIL_COUNT -eq 0 && echo "PASS: no tracebacks in error paths" || echo "FAI
 #### FS-AGT-1. Agent mode restricts help [IMPORTANT]
 
 ```bash
-MERIDIAN_SPACE_ID=s-test uv run meridian --help 2>&1 | python3 -c "
+MERIDIAN_SPACE_ID=s-test MERIDIAN_DEPTH=1 uv run meridian --help 2>&1 | python3 -c "
 import sys
 text = sys.stdin.read()
 # Agent mode should show: spawn, report, skills, models
@@ -839,7 +839,7 @@ print('PASS: agent mode help is restricted')
 #### FS-AGT-2. --human flag restores full help [NICE-TO-HAVE]
 
 ```bash
-MERIDIAN_SPACE_ID=s-test uv run meridian --human --help 2>&1 | python3 -c "
+MERIDIAN_SPACE_ID=s-test MERIDIAN_DEPTH=1 uv run meridian --human --help 2>&1 | python3 -c "
 import sys
 text = sys.stdin.read()
 assert 'space' in text

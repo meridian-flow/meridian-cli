@@ -2,7 +2,7 @@
 
 This document defines the target CLI surface for human mode.
 
-Human mode is used when `MERIDIAN_SPACE_ID` is not set.
+Human mode is used when `MERIDIAN_DEPTH` is `0` or unset.
 
 ## Root Help
 
@@ -43,4 +43,3 @@ Spawn operations require explicit space context:
 - pass `--space`.
 
 No auto-create fallback.
-

@@ -146,10 +146,10 @@ def doctor_sync(payload: DoctorInput) -> DoctorOutput:
     if stale_locks > 0:
         repaired.append("stale_session_locks")
 
-    # Skip destructive repairs when running as a subagent (MERIDIAN_SPACE_ID set).
-    # Subagents should never mark their parent's concurrent spawns as failed
+    # Skip destructive repairs when running as a spawned agent (MERIDIAN_DEPTH > 0).
+    # Spawned agents should never mark their parent's concurrent spawns as failed
     # or close the parent space.
-    if not os.environ.get("MERIDIAN_SPACE_ID"):
+    if int(os.getenv("MERIDIAN_DEPTH", "0")) <= 0:
         orphan_runs = _repair_orphan_runs(runtime.repo_root)
         if orphan_runs > 0:
             repaired.append("orphan_runs")

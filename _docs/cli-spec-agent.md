@@ -2,7 +2,7 @@
 
 This document defines the target CLI surface for agent mode.
 
-Agent mode is enabled when `MERIDIAN_SPACE_ID` is set.
+Agent mode is enabled when `MERIDIAN_DEPTH` is greater than `0`.
 
 ## Root Help
 
@@ -41,4 +41,3 @@ No auto-create fallback.
 
 - Hidden from agent root help: `doctor`, `completion`, `config`, `space`, `init`, `serve`.
 - Removed entirely: `grep`.
-
