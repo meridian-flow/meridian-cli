@@ -12,7 +12,7 @@ from typing import Literal, cast
 
 from pydantic import BaseModel, ConfigDict
 
-from meridian.lib.config._paths import resolve_repo_root
+from meridian.lib.config.settings import resolve_repo_root
 from meridian.lib.config.settings import (
     MeridianConfig,
     PrimaryConfig,
@@ -20,9 +20,9 @@ from meridian.lib.config.settings import (
     USER_CONFIG_ENV_VAR,
     load_config,
 )
-from meridian.lib.formatting import FormatContext
+from meridian.lib.core.util import FormatContext
 from meridian.lib.safety.permissions import parse_permission_tier
-from meridian.lib.serialization import to_jsonable
+from meridian.lib.core.util import to_jsonable
 from meridian.lib.state.paths import resolve_state_paths
 
 

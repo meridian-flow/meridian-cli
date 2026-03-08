@@ -27,23 +27,28 @@ from meridian.cli.output import emit as emit_output
 from meridian.cli.report_cmd import register_report_commands
 from meridian.cli.skills_cmd import register_skills_commands
 from meridian.cli.space import register_space_commands
-from meridian.lib.config._paths import resolve_repo_root
+from meridian.lib.config.settings import resolve_repo_root
 from meridian.lib.harness.materialize import cleanup_materialized
 from meridian.lib.harness.registry import get_default_harness_registry
 from meridian.lib.harness.session_detection import infer_harness_from_untracked_session_ref
-from meridian.lib.ops.spawn import SpawnActionOutput
-from meridian.lib.sink import OutputSink
+from meridian.lib.ops.spawn.api import SpawnActionOutput
+from meridian.lib.core.sink import OutputSink
 from meridian.lib.ops.space import SpaceActionOutput
-from meridian.lib.space import space_file
 from meridian.lib.space.launch import SpaceLaunchRequest, cleanup_orphaned_locks, launch_primary
-from meridian.lib.space.session_store import (
+from meridian.lib.state.session_store import (
     cleanup_stale_sessions,
     get_last_session,
     resolve_session_ref,
 )
+from meridian.lib.state.space_store import (
+    SpaceRecord,
+    create_space as create_space_record,
+    get_space as get_space_record,
+    list_spaces as list_space_records,
+)
 from meridian.lib.space.summary import generate_space_summary
 from meridian.lib.state.paths import resolve_all_spaces_dir, resolve_space_dir
-from meridian.lib.types import SpaceId
+from meridian.lib.core.types import SpaceId
 from meridian.server.main import run_server
 
 logger = logging.getLogger(__name__)
@@ -85,13 +90,13 @@ _GLOBAL_OPTIONS: ContextVar[GlobalOptions | None] = ContextVar("_GLOBAL_OPTIONS"
 class _ResolvedContinueTarget(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    space: space_file.SpaceRecord
+    space: SpaceRecord
     harness_session_id: str | None
     harness: str | None
     warning: str | None = None
 
 
-def _space_sort_key(record: space_file.SpaceRecord) -> tuple[str, int, str]:
+def _space_sort_key(record: SpaceRecord) -> tuple[str, int, str]:
     suffix = record.id[1:] if record.id.startswith("s") else ""
     numeric_id = int(suffix) if suffix.isdigit() else -1
     return (record.created_at, numeric_id, record.id)
@@ -467,23 +472,23 @@ def _start_space_record(
     repo_root: Path,
     force_new: bool,
     explicit_space: str | None,
-) -> space_file.SpaceRecord:
+) -> SpaceRecord:
     if force_new and explicit_space is not None:
         raise ValueError("Cannot combine --new with --space.")
 
     if explicit_space is not None:
-        record = space_file.get_space(repo_root, explicit_space)
+        record = get_space_record(repo_root, explicit_space)
         if record is None:
             raise ValueError(f"Space '{explicit_space}' not found")
         return record
 
     if force_new:
-        return space_file.create_space(repo_root)
+        return create_space_record(repo_root)
 
-    spaces = space_file.list_spaces(repo_root)
+    spaces = list_space_records(repo_root)
     if spaces:
         return max(spaces, key=_space_sort_key)
-    return space_file.create_space(repo_root)
+    return create_space_record(repo_root)
 
 
 def _run_primary_launch(
@@ -513,7 +518,7 @@ def _run_primary_launch(
         resolved_permission_tier = "full-access"
         resolved_approval = "auto"
 
-    selected: space_file.SpaceRecord
+    selected: SpaceRecord
     continue_harness_session_id: str | None = None
     continue_harness: str | None = None
     continue_warning: str | None = None
@@ -605,8 +610,8 @@ def _resolve_continue_target(
         raise ValueError("--continue requires a non-empty session reference.")
     inferred_harness = infer_harness_from_untracked_session_ref(repo_root, normalized)
 
-    all_spaces = space_file.list_spaces(repo_root)
-    matches: list[tuple[space_file.SpaceRecord, str | None, str | None]] = []
+    all_spaces = list_space_records(repo_root)
+    matches: list[tuple[SpaceRecord, str | None, str | None]] = []
     for record in all_spaces:
         space_dir = resolve_space_dir(repo_root, record.id)
         session = resolve_session_ref(space_dir, normalized)
@@ -624,7 +629,7 @@ def _resolve_continue_target(
         return normalized_harness or None
 
     if explicit_space is not None:
-        selected = space_file.get_space(repo_root, explicit_space)
+        selected = get_space_record(repo_root, explicit_space)
         if selected is None:
             raise ValueError(f"Space '{explicit_space}' not found")
 
@@ -862,7 +867,7 @@ def _print_agent_root_help() -> None:
 def main(argv: Sequence[str] | None = None) -> None:
     """CLI entry point used by `meridian` and `python -m meridian`."""
 
-    from meridian.lib.logging import configure_logging
+    from meridian.lib.core.logging import configure_logging
 
     args = list(sys.argv[1:] if argv is None else argv)
 

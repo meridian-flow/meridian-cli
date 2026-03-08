@@ -7,7 +7,7 @@ from functools import partial
 from typing import Any
 
 from meridian.lib.ops.manifest import get_operations_for_surface
-from meridian.lib.ops.skills import (
+from meridian.lib.ops.catalog import (
     SkillsListInput,
     SkillsLoadInput,
     SkillsSearchInput,

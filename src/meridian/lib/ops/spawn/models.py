@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from meridian.lib.domain import SpawnStatus
-from meridian.lib.formatting import FormatContext
+from meridian.lib.core.domain import SpawnStatus
+from meridian.lib.core.util import FormatContext
 
 
 def _empty_template_vars() -> dict[str, str]:

@@ -11,7 +11,7 @@ from typing import Any, BinaryIO, Literal, NamedTuple, cast
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from meridian.lib.state.id_gen import next_chat_id
+from meridian.lib.state.spawn_store import next_chat_id
 from meridian.lib.state.paths import SpacePaths
 
 _SESSION_LOCK_HANDLES: dict[tuple[Path, str], BinaryIO] = {}

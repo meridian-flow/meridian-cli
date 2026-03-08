@@ -9,8 +9,8 @@ from typing import Protocol
 import structlog
 from pydantic import BaseModel, ConfigDict
 
-from meridian.lib.config.agent import AgentProfile
-from meridian.lib.types import HarnessId
+from meridian.lib.catalog.agent import AgentProfile
+from meridian.lib.core.types import HarnessId
 
 logger = structlog.get_logger(__name__)
 

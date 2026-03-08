@@ -8,9 +8,9 @@ from typing import Any, Literal, Protocol, TextIO, cast
 
 from pydantic import BaseModel, ConfigDict
 
-from meridian.lib.formatting import FormatContext, TextFormattable
-from meridian.lib.sink import NullSink, OutputSink
-from meridian.lib.serialization import to_jsonable
+from meridian.lib.core.util import FormatContext, TextFormattable
+from meridian.lib.core.sink import NullSink, OutputSink
+from meridian.lib.core.util import to_jsonable
 
 OutputFormat = Literal["text", "json"]
 type JSONScalar = str | int | float | bool | None

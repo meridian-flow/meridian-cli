@@ -10,9 +10,9 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from meridian.lib.config.agent import AgentProfile
-from meridian.lib.config.skill_registry import SkillRegistry
-from meridian.lib.domain import SkillContent
+from meridian.lib.catalog.agent import AgentProfile
+from meridian.lib.catalog.skill import SkillRegistry
+from meridian.lib.core.domain import SkillContent
 from meridian.lib.launch.reference import (
     ReferenceFile,
     render_reference_blocks,
@@ -120,7 +120,7 @@ def resolve_run_defaults(
     if not resolved_model:
         resolved_model = default_model
     try:
-        from meridian.lib.config.catalog import resolve_model
+        from meridian.lib.catalog.models import resolve_model
 
         catalog_entry = resolve_model(resolved_model)
         resolved_model = str(catalog_entry.model_id)

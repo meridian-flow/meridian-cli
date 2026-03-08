@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from meridian.lib.ops._spawn_query import _extract_last_assistant_message
+from meridian.lib.ops.spawn.query import _extract_last_assistant_message
 
 
 def test_extract_last_assistant_message_ignores_codex_substrings() -> None:

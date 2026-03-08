@@ -17,10 +17,10 @@ from pydantic import BaseModel, ConfigDict
 from meridian.lib.config.settings import MeridianConfig, load_config
 from meridian.lib.harness.materialize import cleanup_materialized
 from meridian.lib.harness.registry import HarnessRegistry
-from meridian.lib.space.session_store import start_session, stop_session, update_session_harness_id
+from meridian.lib.state.session_store import start_session, stop_session, update_session_harness_id
 from meridian.lib.state import spawn_store
 from meridian.lib.state.paths import resolve_space_dir, resolve_state_paths
-from meridian.lib.types import HarnessId, SpaceId
+from meridian.lib.core.types import HarnessId, SpaceId
 
 from .command import build_harness_context, build_space_env
 from .resolve import resolve_primary_session_metadata
@@ -154,8 +154,8 @@ def _sweep_orphaned_materializations(repo_root: Path, harness_id: str) -> None:
     """Best-effort sweep of materialized files not owned by active sessions."""
 
     from meridian.lib.harness.materialize import cleanup_orphaned_materializations
-    from meridian.lib.harness.layout import HARNESS_NATIVE_DIRS
-    from meridian.lib.space.session_store import collect_active_chat_ids
+    from meridian.lib.harness.materialize import HARNESS_NATIVE_DIRS
+    from meridian.lib.state.session_store import collect_active_chat_ids
 
     try:
         active_ids = collect_active_chat_ids(repo_root)

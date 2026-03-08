@@ -6,12 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from meridian.lib.config.agent import AgentProfile
-from meridian.lib.config.skill_registry import SkillRegistry
-from meridian.lib.domain import SkillContent
-from meridian.lib.prompt.assembly import load_skill_contents, resolve_run_defaults
-from meridian.lib.prompt.compose import compose_run_prompt_text
-from meridian.lib.prompt.reference import (
+from meridian.lib.catalog.agent import AgentProfile
+from meridian.lib.catalog.skill import SkillRegistry
+from meridian.lib.core.domain import SkillContent
+from meridian.lib.launch.prompt import load_skill_contents, resolve_run_defaults
+from meridian.lib.launch.prompt import compose_run_prompt_text
+from meridian.lib.launch.reference import (
     TemplateVariableError,
     load_reference_files,
     resolve_template_variables,

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
-from meridian.lib.types import SpawnId, SpaceId
+from meridian.lib.core.types import SpawnId, SpaceId
 
 _MERIDIAN_DIR = ".meridian"
 _SPACES_DIR = ".spaces"

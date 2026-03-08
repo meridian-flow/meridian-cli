@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from meridian.lib.extract.report import extract_or_fallback_report
+from meridian.lib.launch.report import extract_or_fallback_report
 from meridian.lib.harness.adapter import ArtifactStore
 from meridian.lib.harness.claude import ClaudeAdapter
 from meridian.lib.harness.codex import CodexAdapter
 from meridian.lib.harness.opencode import OpenCodeAdapter
 from meridian.lib.state.artifact_store import InMemoryStore, make_artifact_key
-from meridian.lib.types import SpawnId
+from meridian.lib.core.types import SpawnId
 
 
 class _StubCodexAdapter(CodexAdapter):

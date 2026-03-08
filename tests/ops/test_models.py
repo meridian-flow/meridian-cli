@@ -6,12 +6,12 @@ from pathlib import Path
 from typing import Protocol, cast
 
 import pytest
+import meridian.lib.ops.catalog as models_ops
+import meridian.lib.ops.spawn.prepare as _spawn_prepare
 
-from meridian.lib.config.aliases import AliasEntry
-from meridian.lib.config.discovery import DiscoveredModel
-from meridian.lib.ops import _spawn_prepare
-from meridian.lib.ops import models as models_ops
-from meridian.lib.types import HarnessId, ModelId
+from meridian.lib.catalog.models import AliasEntry
+from meridian.lib.catalog.models import DiscoveredModel
+from meridian.lib.core.types import HarnessId, ModelId
 
 
 class _ModelValidationContextBuilder(Protocol):

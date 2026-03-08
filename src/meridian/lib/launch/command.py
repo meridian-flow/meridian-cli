@@ -11,9 +11,9 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict
 
-from meridian.lib.config._paths import resolve_repo_root
+from meridian.lib.config.settings import resolve_repo_root
 from meridian.lib.config.settings import MeridianConfig, load_config
-from meridian.lib.context import RuntimeContext
+from meridian.lib.core.context import RuntimeContext
 from meridian.lib.harness.adapter import HarnessAdapter, SpawnParams
 from meridian.lib.harness.materialize import materialize_for_harness
 from meridian.lib.harness.registry import HarnessRegistry
@@ -24,7 +24,7 @@ from meridian.lib.safety.permissions import (
     warn_profile_tier_escalation,
 )
 from meridian.lib.state.paths import resolve_state_paths
-from meridian.lib.types import ModelId
+from meridian.lib.core.types import ModelId
 
 from .env import (
     HARNESS_ENV_PASS_THROUGH,

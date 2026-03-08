@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from meridian.lib.ops._runtime import SPACE_REQUIRED_ERROR, require_space_id
-from meridian.lib.ops.spawn import SpawnListInput, spawn_list_sync
-from meridian.lib.space.space_file import create_space
+from meridian.lib.ops.runtime import SPACE_REQUIRED_ERROR, require_space_id
+from meridian.lib.ops.spawn.api import SpawnListInput, spawn_list_sync
+from meridian.lib.state.space_store import create_space
 from meridian.lib.state import spawn_store
 from meridian.lib.state.paths import resolve_space_dir
 

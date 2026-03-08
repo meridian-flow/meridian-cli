@@ -20,9 +20,10 @@ def get_operation(name: str) -> Any:
 
 
 def operation(spec: Any) -> Any:
-    from meridian.lib.ops.registry import operation as _operation
-
-    return _operation(spec)
+    raise RuntimeError(
+        "Operation self-registration has been removed. "
+        "Add operation metadata to meridian.lib.ops.manifest instead."
+    )
 
 
 def __getattr__(name: str) -> Any:

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from meridian.lib.space.session_store import (
+from meridian.lib.state.session_store import (
     collect_active_chat_ids,
     cleanup_stale_sessions,
     get_last_session,

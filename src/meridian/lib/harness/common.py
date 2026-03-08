@@ -14,9 +14,9 @@ from typing import cast
 
 from pydantic import BaseModel, ConfigDict
 
-from meridian.lib.domain import TokenUsage
+from meridian.lib.core.domain import TokenUsage
 from meridian.lib.harness.adapter import ArtifactStore, McpConfig, PermissionResolver, SpawnParams, StreamEvent
-from meridian.lib.types import ArtifactKey, HarnessId, SpawnId
+from meridian.lib.core.types import ArtifactKey, HarnessId, SpawnId
 
 
 # ---------------------------------------------------------------------------

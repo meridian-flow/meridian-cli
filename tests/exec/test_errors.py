@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from meridian.lib.exec.errors import ErrorCategory, classify_error, should_retry
+from meridian.lib.launch.errors import ErrorCategory, classify_error, should_retry
 
 
 @pytest.mark.parametrize(

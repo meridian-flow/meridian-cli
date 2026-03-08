@@ -8,9 +8,9 @@ from typing import cast
 
 from pydantic import BaseModel, ConfigDict
 
-from meridian.lib.config._paths import bundled_agents_root, resolve_path_list, resolve_repo_root
+from meridian.lib.config.settings import bundled_agents_root, resolve_path_list, resolve_repo_root
 from meridian.lib.config.settings import SearchPathConfig, load_config
-from meridian.lib.domain import IndexReport, SkillContent, SkillManifest
+from meridian.lib.core.domain import IndexReport, SkillContent, SkillManifest
 
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())

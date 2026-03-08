@@ -8,7 +8,7 @@ from typing import cast
 
 from .artifact_io import read_artifact_text
 from meridian.lib.state.artifact_store import ArtifactStore
-from meridian.lib.types import SpawnId
+from meridian.lib.core.types import SpawnId
 
 _PATH_KEYS: frozenset[str] = frozenset(
     {

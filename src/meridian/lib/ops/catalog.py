@@ -8,13 +8,13 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
-from meridian.lib.config.aliases import AliasEntry, load_merged_aliases, resolve_model
-from meridian.lib.config.discovery import DiscoveredModel, load_discovered_models, refresh_models_cache
-from meridian.lib.config.routing import route_model
-from meridian.lib.config.skill_registry import SkillRegistry
-from meridian.lib.domain import SkillContent, SkillManifest
-from meridian.lib.formatting import FormatContext
-from meridian.lib.types import HarnessId, ModelId
+from meridian.lib.catalog.models import AliasEntry, load_merged_aliases, resolve_model
+from meridian.lib.catalog.models import DiscoveredModel, load_discovered_models, refresh_models_cache
+from meridian.lib.catalog.models import route_model
+from meridian.lib.catalog.skill import SkillRegistry
+from meridian.lib.core.domain import SkillContent, SkillManifest
+from meridian.lib.core.util import FormatContext
+from meridian.lib.core.types import HarnessId, ModelId
 
 
 class ModelsListInput(BaseModel):

@@ -9,7 +9,7 @@ from typing import cast
 
 from pydantic import BaseModel, ConfigDict
 
-from meridian.lib.config._paths import bundled_agents_root, resolve_path_list, resolve_repo_root
+from meridian.lib.config.settings import bundled_agents_root, resolve_path_list, resolve_repo_root
 from meridian.lib.config.settings import SearchPathConfig, load_config
 from meridian.lib.catalog.skill import split_markdown_frontmatter
 
@@ -67,7 +67,7 @@ def _normalize_string_list(value: object) -> tuple[str, ...]:
 @lru_cache(maxsize=1)
 def _known_mcp_tools() -> frozenset[str]:
     # Import lazily to avoid loading the full operations graph at module import time.
-    from meridian.lib.ops.registry import get_mcp_tool_names
+    from meridian.lib.ops.manifest import get_mcp_tool_names
 
     return get_mcp_tool_names()
 

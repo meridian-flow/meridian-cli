@@ -8,10 +8,10 @@ import signal
 import time
 from pathlib import Path
 
-from meridian.lib.context import RuntimeContext
-from meridian.lib.sink import NullSink, OutputSink
-from meridian.lib.space import space_file
+from meridian.lib.core.context import RuntimeContext
+from meridian.lib.core.sink import NullSink, OutputSink
 from meridian.lib.state import spawn_store
+from meridian.lib.state.space_store import create_space
 from meridian.lib.state.paths import resolve_space_dir
 
 from ..runtime import (
@@ -93,7 +93,7 @@ def _resolve_or_create_space(
     resolved = resolve_space_id_or_none(explicit, space_id=space_id)
     if resolved is not None:
         return resolved, False
-    record = space_file.create_space(repo_root)
+    record = create_space(repo_root)
     return record.id, True
 
 

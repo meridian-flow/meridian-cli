@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import ClassVar, cast
 from uuid import uuid4
 
-from meridian.lib.harness._common import (
+from meridian.lib.harness.common import (
     categorize_stream_event,
     extract_claude_report,
     extract_session_id_from_artifacts,
@@ -17,7 +17,7 @@ from meridian.lib.harness._common import (
     iter_nested_dicts,
     parse_json_stream_event,
 )
-from meridian.lib.harness._strategies import (
+from meridian.lib.harness.common import (
     FlagEffect,
     FlagStrategy,
     PromptMode,
@@ -35,7 +35,7 @@ from meridian.lib.harness.adapter import (
 )
 from meridian.lib.harness.launch_types import PromptPolicy, SessionSeed
 from meridian.lib.safety.permissions import PermissionConfig
-from meridian.lib.types import HarnessId, SpawnId
+from meridian.lib.core.types import HarnessId, SpawnId
 
 
 

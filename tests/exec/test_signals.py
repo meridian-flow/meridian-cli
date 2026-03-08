@@ -13,14 +13,14 @@ from typing import cast
 
 import pytest
 
-from meridian.lib.domain import Spawn, TokenUsage
-from meridian.lib.exec.signals import (
+from meridian.lib.core.domain import Spawn, TokenUsage
+from meridian.lib.launch.signals import (
     SignalCoordinator,
     SignalForwarder,
     map_process_exit_code,
     signal_to_exit_code,
 )
-from meridian.lib.exec.spawn import execute_with_finalization
+from meridian.lib.launch.runner import execute_with_finalization
 from meridian.lib.harness.adapter import ArtifactStore as HarnessArtifactStore
 from meridian.lib.harness.adapter import (
     HarnessCapabilities,
@@ -30,11 +30,11 @@ from meridian.lib.harness.adapter import (
 )
 from meridian.lib.harness.registry import HarnessRegistry
 from meridian.lib.safety.permissions import PermissionConfig
-from meridian.lib.space.space_file import create_space
+from meridian.lib.state.space_store import create_space
 from meridian.lib.state import spawn_store
 from meridian.lib.state.artifact_store import LocalStore
 from meridian.lib.state.paths import resolve_space_dir
-from meridian.lib.types import HarnessId, ModelId, SpawnId, SpaceId
+from meridian.lib.core.types import HarnessId, ModelId, SpawnId, SpaceId
 
 
 class MockHarnessAdapter:
@@ -100,7 +100,7 @@ async def test_execute_with_finalization_ignores_sigterm_during_finalize_write(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    import meridian.lib.exec.spawn as spawn_module
+    import meridian.lib.launch.runner as spawn_module
 
     run, space_dir = _create_run(tmp_path, prompt="boom")
     artifacts = LocalStore(root_dir=tmp_path / ".artifacts")
@@ -156,7 +156,7 @@ async def test_execute_with_finalization_ignores_sigterm_during_finalize_write(
 
 
 def test_signal_forwarder_forwards_sigint_and_sigterm(monkeypatch: pytest.MonkeyPatch) -> None:
-    import meridian.lib.exec.signals as signals_module
+    import meridian.lib.launch.signals as signals_module
 
     class FakeProcess:
         def __init__(self) -> None:
@@ -190,7 +190,7 @@ def test_signal_forwarder_forwards_sigint_and_sigterm(monkeypatch: pytest.Monkey
 def test_signal_coordinator_dispatches_signal_to_all_active_forwarders(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import meridian.lib.exec.signals as signals_module
+    import meridian.lib.launch.signals as signals_module
 
     class FakeProcess:
         def __init__(self) -> None:
@@ -254,8 +254,8 @@ def test_kill_running_parent_process_still_finalizes_run(
             import sys
             from pathlib import Path
 
-            from meridian.lib.domain import Spawn, TokenUsage
-            from meridian.lib.exec.spawn import execute_with_finalization
+            from meridian.lib.core.domain import Spawn, TokenUsage
+            from meridian.lib.launch.runner import execute_with_finalization
             from meridian.lib.harness.adapter import (
                 ArtifactStore,
                 HarnessCapabilities,
@@ -265,10 +265,10 @@ def test_kill_running_parent_process_still_finalizes_run(
             )
             from meridian.lib.harness.registry import HarnessRegistry
             from meridian.lib.safety.permissions import PermissionConfig
-            from meridian.lib.space.space_file import create_space
+            from meridian.lib.state.space_store import create_space
             from meridian.lib.state.artifact_store import LocalStore
             from meridian.lib.state.paths import resolve_space_dir
-            from meridian.lib.types import HarnessId, ModelId, SpawnId, SpaceId
+            from meridian.lib.core.types import HarnessId, ModelId, SpawnId, SpaceId
 
             class WorkerAdapter:
                 @property

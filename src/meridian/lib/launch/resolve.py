@@ -8,15 +8,15 @@ from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict
 
-from meridian.lib.config.agent import AgentProfile, load_agent_profile
-from meridian.lib.config.routing import route_model
+from meridian.lib.catalog.agent import AgentProfile, load_agent_profile
+from meridian.lib.catalog.models import route_model
 from meridian.lib.config.settings import MeridianConfig, SearchPathConfig
-from meridian.lib.config.skill_registry import SkillRegistry
-from meridian.lib.domain import SkillContent
+from meridian.lib.catalog.skill import SkillRegistry
+from meridian.lib.core.domain import SkillContent
 from meridian.lib.harness.registry import HarnessRegistry
 from .prompt import load_skill_contents, resolve_run_defaults
 from meridian.lib.safety.permissions import permission_tier_from_profile
-from meridian.lib.types import HarnessId, ModelId
+from meridian.lib.core.types import HarnessId, ModelId
 
 from .types import PrimarySessionMetadata, SpaceLaunchRequest
 
@@ -156,7 +156,7 @@ def resolve_harness(
     repo_root: Path,
 ) -> HarnessId:
     warning: str | None = None
-    from meridian.lib.config.catalog import resolve_model
+    from meridian.lib.catalog.models import resolve_model
 
     try:
         resolved = resolve_model(str(model), repo_root=repo_root)

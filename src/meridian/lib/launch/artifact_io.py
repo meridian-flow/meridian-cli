@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from meridian.lib.state.artifact_store import ArtifactStore
-from meridian.lib.types import ArtifactKey, SpawnId
+from meridian.lib.core.types import ArtifactKey, SpawnId
 
 
 def read_artifact_text(artifacts: ArtifactStore, spawn_id: SpawnId, name: str) -> str:

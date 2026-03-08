@@ -226,9 +226,9 @@ def _read_files_touched(
     *,
     space_id: str | None = None,
 ) -> tuple[str, ...]:
-    from meridian.lib.extract.files_touched import extract_files_touched
+    from meridian.lib.launch.files_touched import extract_files_touched
     from meridian.lib.state.artifact_store import LocalStore
-    from meridian.lib.types import SpawnId
+    from meridian.lib.core.types import SpawnId
 
     artifacts = LocalStore(root_dir=resolve_state_paths(repo_root).artifacts_dir)
     _ = (space, space_id)

@@ -1,11 +1,4 @@
-"""Model routing, discovery, alias resolution, and catalog.
-
-Merged from:
-- meridian.lib.config.routing
-- meridian.lib.config.discovery
-- meridian.lib.config.aliases
-- meridian.lib.config.catalog
-"""
+"""Model routing, discovery, alias resolution, and catalog."""
 
 from __future__ import annotations
 
@@ -13,7 +6,6 @@ import importlib.resources
 import json
 import logging
 import os
-import sys
 import tempfile
 import time
 import tomllib
@@ -24,10 +16,10 @@ from urllib.error import HTTPError, URLError
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from meridian.lib.config._paths import resolve_repo_root
-from meridian.lib.formatting import FormatContext
+from meridian.lib.config.settings import resolve_repo_root
+from meridian.lib.core.util import FormatContext
 from meridian.lib.state.paths import resolve_cache_dir, resolve_state_paths
-from meridian.lib.types import HarnessId, ModelId
+from meridian.lib.core.types import HarnessId, ModelId
 
 logger = logging.getLogger(__name__)
 
@@ -490,17 +482,6 @@ def _write_cache(cache_file: Path, models: list[DiscoveredModel]) -> None:
         tmp_path.unlink(missing_ok=True)
 
 
-def _fetch_models_dev_with_compat() -> list[DiscoveredModel]:
-    """Honor monkeypatches applied to the legacy config.discovery shim."""
-
-    legacy_module = sys.modules.get("meridian.lib.config.discovery")
-    if legacy_module is not None:
-        override = getattr(legacy_module, "fetch_models_dev", None)
-        if callable(override) and override is not fetch_models_dev:
-            return cast("list[DiscoveredModel]", override())
-    return fetch_models_dev()
-
-
 def refresh_models_cache(cache_dir: Path | str | None = None) -> list[DiscoveredModel]:
     """Force fetch from models.dev and update local cache.
 
@@ -512,7 +493,7 @@ def refresh_models_cache(cache_dir: Path | str | None = None) -> list[Discovered
     cached = _read_cache(cache_file)
 
     try:
-        models = _fetch_models_dev_with_compat()
+        models = fetch_models_dev()
         _write_cache(cache_file, models)
         return models
     except (HTTPError, URLError, OSError, TimeoutError, ValueError):

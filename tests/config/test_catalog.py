@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from meridian.lib.config.catalog import (
+from meridian.lib.catalog.models import (
     load_builtin_aliases,
     load_merged_aliases,
     load_user_aliases,

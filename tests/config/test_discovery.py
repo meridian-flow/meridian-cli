@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from meridian.lib.config import discovery
-from meridian.lib.config.discovery import DiscoveredModel
-from meridian.lib.types import HarnessId
+import meridian.lib.catalog.models as discovery
+from meridian.lib.catalog.models import DiscoveredModel
+from meridian.lib.core.types import HarnessId
 
 
 class _FakeResponse:

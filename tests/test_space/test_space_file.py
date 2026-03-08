@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from meridian.lib.space.space_file import create_space, get_space, list_spaces
+from meridian.lib.state.space_store import create_space, get_space, list_spaces
 
 
 def test_create_space_writes_space_json_and_fs_and_gitignore(tmp_path):

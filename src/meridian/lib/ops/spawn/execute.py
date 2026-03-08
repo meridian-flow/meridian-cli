@@ -17,14 +17,14 @@ from typing import Any, Callable, Iterator, Protocol, cast
 
 import structlog
 from pydantic import BaseModel, ConfigDict
-from meridian.lib.config.agent import (
+from meridian.lib.catalog.agent import (
     AgentProfile,
     load_agent_profile,
     parse_agent_profile,
 )
-from meridian.lib.context import RuntimeContext
-from meridian.lib.domain import Spawn
-from meridian.lib.exec.spawn import execute_with_finalization
+from meridian.lib.core.context import RuntimeContext
+from meridian.lib.core.domain import Spawn
+from meridian.lib.launch.runner import execute_with_finalization
 from meridian.lib.harness.adapter import PermissionResolver
 from meridian.lib.harness.materialize import cleanup_materialized, materialize_for_harness
 from meridian.lib.safety.permissions import (
@@ -32,15 +32,15 @@ from meridian.lib.safety.permissions import (
     build_permission_resolver,
     parse_permission_tier,
 )
-from meridian.lib.sink import OutputSink
-from meridian.lib.space.session_store import (
+from meridian.lib.core.sink import OutputSink
+from meridian.lib.state.session_store import (
     start_session,
     stop_session,
     update_session_harness_id,
 )
 from meridian.lib.state import spawn_store
 from meridian.lib.state.paths import resolve_spawn_log_dir, resolve_space_dir
-from meridian.lib.types import ModelId, SpawnId, SpaceId
+from meridian.lib.core.types import ModelId, SpawnId, SpaceId
 
 from ..runtime import OperationRuntime, build_runtime, require_space_id
 from .models import SpawnActionOutput, SpawnCreateInput

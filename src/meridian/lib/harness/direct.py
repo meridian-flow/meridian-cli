@@ -10,7 +10,7 @@ import os
 from typing import TYPE_CHECKING, Any
 from urllib import error, request
 
-from meridian.lib.domain import TokenUsage
+from meridian.lib.core.domain import TokenUsage
 from meridian.lib.harness.adapter import (
     ArtifactStore,
     BaseHarnessAdapter,
@@ -21,14 +21,14 @@ from meridian.lib.harness.adapter import (
     SpawnResult,
     StreamEvent,
 )
-from meridian.lib.ops.codec import (
+from meridian.lib.core.codec import (
     coerce_input_payload,
     normalize_optional,
     schema_from_type,
 )
 from meridian.lib.safety.permissions import PermissionConfig
-from meridian.lib.serialization import to_jsonable
-from meridian.lib.types import HarnessId, ModelId, SpawnId
+from meridian.lib.core.util import to_jsonable
+from meridian.lib.core.types import HarnessId, ModelId, SpawnId
 
 if TYPE_CHECKING:
     from meridian.lib.ops.manifest import OperationSpec

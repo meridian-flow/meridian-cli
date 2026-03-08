@@ -8,7 +8,7 @@ from meridian.lib.harness.adapter import PermissionResolver, SpawnParams
 from meridian.lib.harness.claude import ClaudeAdapter
 from meridian.lib.harness.codex import CodexAdapter
 from meridian.lib.harness.opencode import OpenCodeAdapter
-from meridian.lib.types import HarnessId, ModelId
+from meridian.lib.core.types import HarnessId, ModelId
 
 
 class StubPermissionResolver(PermissionResolver):

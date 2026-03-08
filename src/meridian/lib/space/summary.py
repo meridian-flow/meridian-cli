@@ -5,10 +5,10 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
-from meridian.lib.space import space_file
 from meridian.lib.state import spawn_store
 from meridian.lib.state.paths import SpacePaths, resolve_space_dir
-from meridian.lib.types import SpaceId
+from meridian.lib.state.space_store import SpaceRecord, get_space
+from meridian.lib.core.types import SpaceId
 
 
 def space_summary_path(repo_root: Path, space_id: SpaceId) -> Path:
@@ -19,7 +19,7 @@ def space_summary_path(repo_root: Path, space_id: SpaceId) -> Path:
 
 
 def _render_summary_markdown(
-    record: space_file.SpaceRecord,
+    record: SpaceRecord,
     *,
     spawns: list[spawn_store.SpawnRecord],
 ) -> str:
@@ -56,7 +56,7 @@ def generate_space_summary(
 ) -> Path:
     """Generate a simple markdown summary into the space `fs/` directory."""
 
-    record = space_file.get_space(repo_root, space_id)
+    record = get_space(repo_root, space_id)
     if record is None:
         raise ValueError(f"Space '{space_id}' not found")
 

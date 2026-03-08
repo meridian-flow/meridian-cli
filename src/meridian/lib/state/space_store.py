@@ -12,9 +12,9 @@ from typing import cast
 
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
-from meridian.lib.state.id_gen import next_space_id
+from meridian.lib.state.spawn_store import next_space_id
 from meridian.lib.state.paths import SpacePaths, ensure_gitignore, resolve_all_spaces_dir, resolve_space_dir
-from meridian.lib.types import SpaceId
+from meridian.lib.core.types import SpaceId
 
 _SPACE_SCHEMA_VERSION = 1
 

@@ -8,16 +8,20 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
-from meridian.lib.domain import Space
-from meridian.lib.formatting import FormatContext
+from meridian.lib.core.domain import Space
+from meridian.lib.core.util import FormatContext
 from meridian.lib.ops.runtime import build_runtime
-from meridian.lib.space import space_file
 from meridian.lib.space.launch import SpaceLaunchRequest, launch_primary
-from meridian.lib.space.space_file import SpaceRecord
+from meridian.lib.state.space_store import (
+    SpaceRecord,
+    create_space as create_space_record,
+    get_space as get_space_record,
+    list_spaces as list_space_records,
+)
 from meridian.lib.space.summary import generate_space_summary
 from meridian.lib.state import spawn_store
 from meridian.lib.state.paths import resolve_space_dir
-from meridian.lib.types import SpaceId
+from meridian.lib.core.types import SpaceId
 
 
 def _space_sort_key(record: SpaceRecord) -> tuple[str, int, str]:
@@ -54,13 +58,13 @@ def _to_space(record: SpaceRecord) -> Space:
 def create_space(repo_root: Path, *, name: str | None = None) -> Space:
     """Create one space record."""
 
-    return _to_space(space_file.create_space(repo_root, name=name))
+    return _to_space(create_space_record(repo_root, name=name))
 
 
 def get_space_or_raise(repo_root: Path, space_id: SpaceId) -> Space:
     """Fetch a space and raise when it does not exist."""
 
-    record = space_file.get_space(repo_root, space_id)
+    record = get_space_record(repo_root, space_id)
     if record is None:
         raise ValueError(f"Space '{space_id}' not found")
     return _to_space(record)
@@ -72,7 +76,7 @@ def resolve_space_for_resume(repo_root: Path, space: str | None) -> SpaceId:
     if space is not None and space.strip():
         return SpaceId(space.strip())
 
-    spaces = space_file.list_spaces(repo_root)
+    spaces = list_space_records(repo_root)
     if not spaces:
         raise ValueError("No space available to resume.")
     latest = max(spaces, key=_space_sort_key)
@@ -204,7 +208,7 @@ class SpaceDetailOutput(BaseModel):
 
 def space_start_sync(payload: SpaceStartInput) -> SpaceActionOutput:
     runtime = build_runtime(payload.repo_root)
-    space = space_file.create_space(runtime.repo_root, name=payload.name)
+    space = create_space_record(runtime.repo_root, name=payload.name)
 
     summary_path = generate_space_summary(
         repo_root=runtime.repo_root,
@@ -296,7 +300,7 @@ async def space_resume(payload: SpaceResumeInput) -> SpaceActionOutput:
 def space_list_sync(payload: SpaceListInput) -> SpaceListOutput:
     runtime = build_runtime(payload.repo_root)
     summaries = sorted(
-        space_file.list_spaces(runtime.repo_root),
+        list_space_records(runtime.repo_root),
         key=lambda item: item.created_at,
         reverse=True,
     )
@@ -319,7 +323,7 @@ async def space_list(payload: SpaceListInput) -> SpaceListOutput:
 def space_show_sync(payload: SpaceShowInput) -> SpaceDetailOutput:
     runtime = build_runtime(payload.repo_root)
     space_id = SpaceId(payload.space.strip())
-    space = space_file.get_space(runtime.repo_root, space_id)
+    space = get_space_record(runtime.repo_root, space_id)
     if space is None:
         raise ValueError(f"Space '{space_id}' not found")
 

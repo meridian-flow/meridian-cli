@@ -1,8 +1,4 @@
-"""Materialize agents and skills into harness-native directories.
-
-Also includes harness-native directory layout helpers
-(formerly ``meridian.lib.harness.layout``).
-"""
+"""Materialize agents and skills into harness-native directories."""
 
 from __future__ import annotations
 
@@ -12,7 +8,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
-from meridian.lib.config.agent import AgentProfile
+from meridian.lib.catalog.agent import AgentProfile
 
 
 # ---------------------------------------------------------------------------

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from meridian.lib.config.agent import AgentProfile
-from meridian.lib.launch_resolve import (
+from meridian.lib.catalog.agent import AgentProfile
+from meridian.lib.launch.resolve import (
     load_agent_profile_with_fallback,
     resolve_permission_tier_from_profile,
     resolve_skills_from_profile,

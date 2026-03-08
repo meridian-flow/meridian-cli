@@ -8,14 +8,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import ClassVar
 
-from meridian.lib.harness._common import (
+from meridian.lib.harness.common import (
     categorize_stream_event,
     extract_opencode_report,
     extract_session_id_from_artifacts_with_patterns,
     extract_usage_from_artifacts,
     parse_json_stream_event,
 )
-from meridian.lib.harness._strategies import (
+from meridian.lib.harness.common import (
     FlagEffect,
     FlagStrategy,
     PromptMode,
@@ -34,7 +34,7 @@ from meridian.lib.harness.adapter import (
 from meridian.lib.harness.launch_types import PromptPolicy
 from meridian.lib.harness.session_detection import resolve_opencode_primary_session_id
 from meridian.lib.safety.permissions import PermissionConfig, opencode_permission_json
-from meridian.lib.types import HarnessId, SpawnId
+from meridian.lib.core.types import HarnessId, SpawnId
 
 
 def _strip_opencode_prefix(model: str) -> str:

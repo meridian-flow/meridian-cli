@@ -6,7 +6,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
-from meridian.lib.types import SpaceId
+from meridian.lib.core.types import SpaceId
 
 _CONTINUATION_GUIDANCE = (
     "You are resuming an existing space. Continue from the current state, "

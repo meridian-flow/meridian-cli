@@ -6,13 +6,13 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from meridian.lib.config._paths import resolve_repo_root
+from meridian.lib.config.settings import resolve_repo_root
 from meridian.lib.config.settings import MeridianConfig, load_config
 from meridian.lib.harness.registry import HarnessRegistry, get_default_harness_registry
-from meridian.lib.sink import NullSink, OutputSink
+from meridian.lib.core.sink import NullSink, OutputSink
 from meridian.lib.state.artifact_store import LocalStore
 from meridian.lib.state.paths import resolve_state_paths
-from meridian.lib.types import SpaceId
+from meridian.lib.core.types import SpaceId
 
 SPACE_REQUIRED_ERROR = (
     "ERROR [SPACE_REQUIRED]: Spawn commands require explicit space context. "

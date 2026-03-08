@@ -6,7 +6,7 @@ from collections.abc import Callable
 from functools import partial
 from typing import Any
 
-from meridian.lib.ops.models import (
+from meridian.lib.ops.catalog import (
     ModelsListInput,
     ModelsRefreshInput,
     ModelsShowInput,

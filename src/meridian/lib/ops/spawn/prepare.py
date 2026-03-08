@@ -7,22 +7,21 @@ from pathlib import Path
 import structlog
 from pydantic import BaseModel, ConfigDict
 
-from meridian.lib.config.aliases import load_merged_aliases, resolve_model
-from meridian.lib.config.discovery import load_discovered_models
+from meridian.lib.catalog.models import load_merged_aliases, resolve_model
+from meridian.lib.catalog.models import load_discovered_models
 from meridian.lib.config.settings import MeridianConfig
 from meridian.lib.harness.adapter import PermissionResolver
 from meridian.lib.harness.registry import HarnessRegistry, get_default_harness_registry
-from meridian.lib.launch_resolve import (
+from meridian.lib.launch.prompt import (
+    compose_run_prompt_text,
+    compose_skill_injections,
+    resolve_run_defaults,
+)
+from meridian.lib.launch.reference import load_reference_files, parse_template_assignments
+from meridian.lib.launch.resolve import (
     load_agent_profile_with_fallback,
     resolve_permission_tier_from_profile,
     resolve_skills_from_profile,
-)
-from meridian.lib.prompt import (
-    compose_skill_injections,
-    compose_run_prompt_text,
-    load_reference_files,
-    parse_template_assignments,
-    resolve_run_defaults,
 )
 from meridian.lib.safety.permissions import (
     PermissionConfig,
@@ -31,7 +30,7 @@ from meridian.lib.safety.permissions import (
     validate_permission_config_for_harness,
     warn_profile_tier_escalation,
 )
-from meridian.lib.types import ModelId
+from meridian.lib.core.types import ModelId
 
 from ..runtime import OperationRuntime, build_runtime, resolve_runtime_root_and_config
 from .models import SpawnCreateInput

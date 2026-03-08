@@ -7,10 +7,10 @@ from typing import Any, cast
 
 from mcp.server.fastmcp import FastMCP
 
-from meridian.lib.logging import configure_logging
+from meridian.lib.core.logging import configure_logging
 from meridian.lib.ops.manifest import OperationSpec, get_operations_for_surface
-from meridian.lib.ops.codec import coerce_input_payload, signature_from_model
-from meridian.lib.serialization import to_jsonable
+from meridian.lib.core.codec import coerce_input_payload, signature_from_model
+from meridian.lib.core.util import to_jsonable
 
 _REGISTERED_MCP_TOOLS: set[str] = set()
 _REGISTERED_MCP_DESCRIPTIONS: dict[str, str] = {}

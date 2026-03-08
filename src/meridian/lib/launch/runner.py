@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict
 import structlog
 
 from meridian.lib.config.settings import MeridianConfig
-from meridian.lib.domain import Spawn
+from meridian.lib.core.domain import Spawn
 from .extract import (
     FinalizeExtraction,
     enrich_finalize,
@@ -35,7 +35,7 @@ from meridian.lib.safety.redaction import SecretSpec, redact_secret_bytes
 from meridian.lib.state.artifact_store import ArtifactStore, make_artifact_key
 from meridian.lib.state import spawn_store
 from meridian.lib.state.paths import resolve_spawn_log_dir, resolve_state_paths
-from meridian.lib.types import HarnessId, SpawnId, SpaceId
+from meridian.lib.core.types import HarnessId, SpawnId, SpaceId
 
 from .env import (
     HARNESS_ENV_PASS_THROUGH,

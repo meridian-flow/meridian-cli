@@ -7,7 +7,7 @@ from typing import Any, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
-from meridian.lib.domain import SkillContent
+from meridian.lib.core.domain import SkillContent
 from meridian.lib.ops.config import (
     ConfigGetInput,
     ConfigGetOutput,
@@ -86,7 +86,7 @@ from meridian.lib.ops.space import (
     space_start,
     space_start_sync,
 )
-from meridian.lib.ops.spawn import (
+from meridian.lib.ops.spawn.api import (
     SpawnActionOutput,
     SpawnCancelInput,
     SpawnContinueInput,

@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 from meridian.lib.core.util import FormatContext
@@ -13,17 +12,10 @@ from meridian.lib.core.types import (
     ArtifactKey,
     ModelId,
     SpaceId,
-    SpanId,
     SpawnId,
-    TraceId,
-    WorkflowEventId,
 )
 
 SpawnStatus = Literal["queued", "running", "succeeded", "failed", "cancelled"]
-
-
-def _empty_mapping() -> Mapping[str, Any]:
-    return cast("Mapping[str, Any]", {})
 
 
 class TokenUsage(BaseModel):
@@ -165,45 +157,6 @@ class SkillContent(BaseModel):
 
     def format_text(self, ctx: FormatContext | None = None) -> str:
         return f"{self.name}: {self.description}\n\n{self.content}"
-
-
-class WorkflowEvent(BaseModel):
-    """Event-sourced workflow event."""
-
-    model_config = ConfigDict(frozen=True)
-
-    event_id: WorkflowEventId
-    space_id: SpaceId
-    event_type: str
-    payload: Mapping[str, Any]
-    spawn_id: SpawnId | None = None
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
-
-
-class Span(BaseModel):
-    """OpenTelemetry-style trace span."""
-
-    model_config = ConfigDict(frozen=True)
-
-    span_id: SpanId
-    trace_id: TraceId
-    name: str
-    kind: str
-    started_at: datetime
-    parent_id: SpanId | None = None
-    ended_at: datetime | None = None
-    status: str = "ok"
-    attributes: Mapping[str, Any] = Field(default_factory=_empty_mapping)
-
-
-class SpawnEdge(BaseModel):
-    """Dependency edge between two spawns."""
-
-    model_config = ConfigDict(frozen=True)
-
-    source_spawn_id: SpawnId
-    target_run_id: SpawnId
-    edge_type: str
 
 
 class ArtifactRecord(BaseModel):

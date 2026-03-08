@@ -7,13 +7,13 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, PrivateAttr
 
-from meridian.lib.config.routing import route_model
+from meridian.lib.catalog.models import route_model
 from meridian.lib.harness.adapter import HarnessAdapter
 from meridian.lib.harness.claude import ClaudeAdapter
 from meridian.lib.harness.codex import CodexAdapter
 from meridian.lib.harness.direct import DirectAdapter
 from meridian.lib.harness.opencode import OpenCodeAdapter
-from meridian.lib.types import HarnessId
+from meridian.lib.core.types import HarnessId
 
 
 def _empty_adapters() -> dict[HarnessId, HarnessAdapter]:
@@ -55,7 +55,7 @@ class HarnessRegistry(BaseModel):
         repo_root: Path | None = None,
     ) -> tuple[HarnessAdapter, str | None]:
         if mode == "harness":
-            from meridian.lib.config.catalog import resolve_model
+            from meridian.lib.catalog.models import resolve_model
 
             resolved = resolve_model(model, repo_root=repo_root)
             return self.get(resolved.harness), None

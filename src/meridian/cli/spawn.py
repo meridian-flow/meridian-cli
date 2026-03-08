@@ -9,9 +9,9 @@ from typing import Annotated, Any, cast
 from cyclopts import App, Parameter
 
 from meridian.cli.main import agent_mode_enabled, current_output_sink
-from meridian.lib.domain import SpawnStatus
+from meridian.lib.core.domain import SpawnStatus
 from meridian.lib.ops.manifest import get_operations_for_surface
-from meridian.lib.ops.spawn import (
+from meridian.lib.ops.spawn.api import (
     SpawnActionOutput,
     SpawnCancelInput,
     SpawnContinueInput,

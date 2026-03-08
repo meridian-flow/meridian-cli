@@ -7,10 +7,10 @@ from typing import Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from meridian.lib.domain import TokenUsage
+from meridian.lib.core.domain import TokenUsage
 from meridian.lib.harness.launch_types import PromptPolicy, SessionSeed
 from meridian.lib.safety.permissions import PermissionConfig
-from meridian.lib.types import ArtifactKey, HarnessId, ModelId, SpawnId
+from meridian.lib.core.types import ArtifactKey, HarnessId, ModelId, SpawnId
 
 
 def _empty_metadata() -> dict[str, object]:

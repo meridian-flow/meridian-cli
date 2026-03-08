@@ -8,9 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from meridian.lib.domain import Spawn, TokenUsage
-from meridian.lib.exec.spawn import execute_with_finalization, sanitize_child_env
-from meridian.lib.harness._common import (
+from meridian.lib.core.domain import Spawn, TokenUsage
+from meridian.lib.launch.runner import execute_with_finalization, sanitize_child_env
+from meridian.lib.harness.common import (
     extract_session_id_from_artifacts,
     extract_usage_from_artifacts,
 )
@@ -32,11 +32,11 @@ from meridian.lib.safety.permissions import (
     opencode_permission_json,
     permission_flags_for_harness,
 )
-from meridian.lib.space.space_file import create_space
+from meridian.lib.state.space_store import create_space
 from meridian.lib.state import spawn_store
 from meridian.lib.state.artifact_store import LocalStore, make_artifact_key
 from meridian.lib.state.paths import resolve_space_dir
-from meridian.lib.types import HarnessId, ModelId, SpawnId, SpaceId
+from meridian.lib.core.types import HarnessId, ModelId, SpawnId, SpaceId
 
 
 class ScriptHarnessAdapter:

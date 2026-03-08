@@ -8,14 +8,14 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
-from meridian.lib.config._paths import resolve_path_list
+from meridian.lib.config.settings import resolve_path_list
 from meridian.lib.harness.materialize import cleanup_materialized
-from meridian.lib.formatting import FormatContext
+from meridian.lib.core.util import FormatContext
 from meridian.lib.ops.runtime import build_runtime
-from meridian.lib.space import space_file
-from meridian.lib.space.session_store import cleanup_stale_sessions, list_active_sessions
+from meridian.lib.state.session_store import cleanup_stale_sessions, list_active_sessions
 from meridian.lib.state import spawn_store
 from meridian.lib.state.paths import resolve_all_spaces_dir
+from meridian.lib.state.space_store import get_space
 
 
 class DoctorInput(BaseModel):
@@ -66,7 +66,7 @@ def _space_dirs(repo_root: Path) -> list[Path]:
 def _detect_missing_or_corrupt_spaces(repo_root: Path) -> list[str]:
     bad: list[str] = []
     for space_dir in _space_dirs(repo_root):
-        if space_file.get_space(repo_root, space_dir.name) is None:
+        if get_space(repo_root, space_dir.name) is None:
             bad.append(space_dir.name)
     return bad
 
@@ -74,7 +74,7 @@ def _detect_missing_or_corrupt_spaces(repo_root: Path) -> list[str]:
 def _count_runs(repo_root: Path) -> int:
     total = 0
     for space_dir in _space_dirs(repo_root):
-        if space_file.get_space(repo_root, space_dir.name) is None:
+        if get_space(repo_root, space_dir.name) is None:
             continue
         total += len(spawn_store.list_spawns(space_dir))
     return total
@@ -83,7 +83,7 @@ def _count_runs(repo_root: Path) -> int:
 def _repair_stale_session_locks(repo_root: Path) -> int:
     repaired = 0
     for space_dir in _space_dirs(repo_root):
-        if space_file.get_space(repo_root, space_dir.name) is None:
+        if get_space(repo_root, space_dir.name) is None:
             continue
         cleanup = cleanup_stale_sessions(space_dir)
         repaired += len(cleanup.cleaned_ids)
@@ -114,7 +114,7 @@ def _repair_orphan_runs(repo_root: Path) -> int:
 
     repaired = 0
     for space_dir in _space_dirs(repo_root):
-        record = space_file.get_space(repo_root, space_dir.name)
+        record = get_space(repo_root, space_dir.name)
         if record is None:
             continue
 
@@ -181,7 +181,7 @@ def doctor_sync(payload: DoctorInput) -> DoctorOutput:
         repaired.append("missing_or_corrupt_space_json")
 
     for space_dir in _space_dirs(runtime.repo_root):
-        record = space_file.get_space(runtime.repo_root, space_dir.name)
+        record = get_space(runtime.repo_root, space_dir.name)
         if record is None:
             continue
 

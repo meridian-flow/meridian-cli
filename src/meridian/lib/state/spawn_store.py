@@ -1,7 +1,6 @@
 """File-backed spawn event store for `.meridian/.spaces/<space-id>/spawns.jsonl`.
 
-Also includes file-backed ID generation for spaces, spawns, and sessions
-(formerly ``meridian.lib.state.id_gen``).
+Also includes file-backed ID generation for spaces, spawns, and sessions.
 """
 
 from __future__ import annotations
@@ -16,7 +15,7 @@ from typing import Any, Literal, Mapping, cast
 from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.state.paths import SpacePaths
-from meridian.lib.types import SpaceId, SpawnId
+from meridian.lib.core.types import SpaceId, SpawnId
 
 
 # ---------------------------------------------------------------------------

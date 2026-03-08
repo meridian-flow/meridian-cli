@@ -6,7 +6,7 @@ from meridian.lib.state.artifact_store import (
     LocalStore,
     make_artifact_key,
 )
-from meridian.lib.state.id_gen import next_spawn_id, next_chat_id, next_space_id
+from meridian.lib.state.spawn_store import next_spawn_id, next_chat_id, next_space_id
 from meridian.lib.state.paths import (
     SpacePaths,
     StatePaths,

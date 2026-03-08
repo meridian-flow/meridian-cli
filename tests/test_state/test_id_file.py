@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from meridian.lib.state.id_gen import next_spawn_id, next_chat_id, next_space_id
+from meridian.lib.state.spawn_store import next_spawn_id, next_chat_id, next_space_id
 
 
 def test_next_space_id_starts_at_s1(tmp_path):

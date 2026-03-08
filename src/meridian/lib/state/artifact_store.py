@@ -8,7 +8,7 @@ from typing import Protocol, cast
 
 from pydantic import BaseModel, ConfigDict, PrivateAttr
 
-from meridian.lib.types import ArtifactKey, SpawnId
+from meridian.lib.core.types import ArtifactKey, SpawnId
 
 
 class ArtifactStore(Protocol):

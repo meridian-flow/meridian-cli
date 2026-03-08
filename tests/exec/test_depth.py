@@ -8,8 +8,8 @@ from typing import Any
 
 import pytest
 
-from meridian.lib.ops._spawn_execute import _spawn_child_env
-from meridian.lib.ops.spawn import SpawnCreateInput, spawn_create, spawn_create_sync
+from meridian.lib.ops.spawn.execute import _spawn_child_env
+from meridian.lib.ops.spawn.api import SpawnCreateInput, spawn_create, spawn_create_sync
 from meridian.server.main import mcp
 
 
