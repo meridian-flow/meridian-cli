@@ -1,6 +1,6 @@
 [project]
 name = "meridian-channel"
-version = "0.0.1"
+dynamic = ["version"]
 description = "Orchestrate CLI + MCP server for multi-model agent workflows"
 readme = "README.md"
 license = { text = "MIT" }
@@ -50,6 +50,17 @@ templates = [
 [build-system]
 requires = ["hatchling>=1.25.0"]
 build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "src/meridian/__init__.py"
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "/src",
+  "/README.md",
+  "/LICENSE",
+  "/pyproject.toml",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/meridian"]
