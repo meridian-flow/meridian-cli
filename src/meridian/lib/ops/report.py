@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict
 from meridian.lib.context import RuntimeContext
 from meridian.lib.formatting import FormatContext
 from meridian.lib.ops.runtime import require_space_id, resolve_runtime_root_and_config
-from meridian.lib.ops._spawn_query import resolve_spawn_reference
+from meridian.lib.ops.spawn.query import resolve_spawn_reference
 from meridian.lib.state import spawn_store
 from meridian.lib.state.paths import resolve_space_dir
 
