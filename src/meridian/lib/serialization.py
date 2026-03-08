@@ -6,10 +6,14 @@ from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any, cast
 
+from pydantic import BaseModel
+
 
 def to_jsonable(value: Any) -> Any:
     """Convert supported values to JSON-serializable payloads."""
 
+    if isinstance(value, BaseModel):
+        return to_jsonable(value.model_dump())
     if is_dataclass(value) and not isinstance(value, type):
         return to_jsonable(asdict(value))
     if isinstance(value, Path):
