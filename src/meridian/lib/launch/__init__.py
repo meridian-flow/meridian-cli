@@ -1,5 +1,29 @@
 """Launch orchestration helpers."""
 
+from meridian.lib.launch.prompt import (
+    SpawnPromptDefaults,
+    build_report_instruction,
+    compose_run_prompt,
+    compose_run_prompt_text,
+    compose_skill_injections,
+    dedupe_skill_contents,
+    dedupe_skill_names,
+    load_skill_contents,
+    render_file_template,
+    resolve_run_defaults,
+    sanitize_prior_output,
+    strip_stale_report_paths,
+)
+from meridian.lib.launch.reference import (
+    ReferenceFile,
+    TemplateVariableError,
+    load_reference_files,
+    parse_template_assignments,
+    render_reference_blocks,
+    render_reference_paths_section,
+    resolve_template_variables,
+    substitute_template_variables,
+)
 from meridian.lib.launch.resolve import (
     ResolvedSkills,
     load_agent_profile_with_fallback,
@@ -17,13 +41,33 @@ from meridian.lib.launch.types import (
 
 __all__ = [
     "PrimarySessionMetadata",
+    "ReferenceFile",
     "ResolvedSkills",
     "SpaceLaunchRequest",
     "SpaceLaunchResult",
+    "SpawnPromptDefaults",
+    "TemplateVariableError",
     "build_primary_prompt",
+    "build_report_instruction",
+    "compose_run_prompt",
+    "compose_run_prompt_text",
+    "compose_skill_injections",
+    "dedupe_skill_contents",
+    "dedupe_skill_names",
+    "load_reference_files",
     "load_agent_profile_with_fallback",
+    "load_skill_contents",
+    "parse_template_assignments",
+    "render_file_template",
+    "render_reference_blocks",
+    "render_reference_paths_section",
     "resolve_harness",
     "resolve_permission_tier_from_profile",
     "resolve_primary_session_metadata",
+    "resolve_run_defaults",
     "resolve_skills_from_profile",
+    "resolve_template_variables",
+    "sanitize_prior_output",
+    "strip_stale_report_paths",
+    "substitute_template_variables",
 ]
