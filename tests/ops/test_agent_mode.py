@@ -9,11 +9,9 @@ from meridian.lib.ops import diag
 
 def test_agent_mode_enabled_uses_depth(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("MERIDIAN_DEPTH", raising=False)
-    monkeypatch.setenv("MERIDIAN_SPACE_ID", "s1")
     assert agent_mode_enabled() is False
 
     monkeypatch.setenv("MERIDIAN_DEPTH", "1")
-    monkeypatch.delenv("MERIDIAN_SPACE_ID", raising=False)
     assert agent_mode_enabled() is True
 
 
@@ -43,12 +41,9 @@ def test_doctor_sync_uses_depth_for_spawned_agent_detection(
     monkeypatch.setattr(diag, "build_runtime", lambda repo_root: runtime)
     monkeypatch.setattr(diag, "_repair_stale_session_locks", lambda repo_root: 0)
     monkeypatch.setattr(diag, "_repair_orphan_runs", fake_repair_orphan_runs)
-    monkeypatch.setattr(diag, "_detect_missing_or_corrupt_spaces", lambda repo_root: [])
-    monkeypatch.setattr(diag, "_space_dirs", lambda repo_root: [])
     monkeypatch.setattr(diag, "_count_runs", lambda repo_root: 0)
     monkeypatch.setattr(diag, "resolve_path_list", lambda *args: [tmp_path])
 
-    monkeypatch.setenv("MERIDIAN_SPACE_ID", "s1")
     monkeypatch.setenv("MERIDIAN_DEPTH", "0")
     diag.doctor_sync(diag.DoctorInput(repo_root=tmp_path.as_posix()))
     assert orphan_repairs["count"] == 1

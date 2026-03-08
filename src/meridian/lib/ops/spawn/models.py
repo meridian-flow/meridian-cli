@@ -24,7 +24,6 @@ class SpawnCreateInput(BaseModel):
     quiet: bool = False
     stream: bool = False
     background: bool = False
-    space: str | None = None
     repo_root: str | None = None
     timeout: float | None = None
     permission_tier: str | None = None
@@ -82,11 +81,9 @@ class SpawnActionOutput(BaseModel):
 class SpawnListInput(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    space: str | None = None
     status: SpawnStatus | None = None
     model: str | None = None
     limit: int = 20
-    no_space: bool = False
     failed: bool = False
     repo_root: str | None = None
 
@@ -95,7 +92,6 @@ class SpawnStatsInput(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     session: str | None = None
-    space: str | None = None
     repo_root: str | None = None
 
 
@@ -137,7 +133,6 @@ class SpawnListEntry(BaseModel):
     spawn_id: str
     status: str
     model: str
-    space_id: str | None
     duration_secs: float | None
     cost_usd: float | None
 
@@ -147,7 +142,6 @@ class SpawnListEntry(BaseModel):
             self.spawn_id,
             self.status,
             self.model,
-            self.space_id if self.space_id is not None else "-",
             f"{self.duration_secs:.1f}s" if self.duration_secs is not None else "-",
             f"${self.cost_usd:.2f}" if self.cost_usd is not None else "-",
         ]
@@ -173,7 +167,6 @@ class SpawnShowInput(BaseModel):
     spawn_id: str
     report: bool = False
     include_files: bool = False
-    space: str | None = None
     repo_root: str | None = None
 
 
@@ -181,7 +174,6 @@ class SpawnCancelInput(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     spawn_id: str
-    space: str | None = None
     repo_root: str | None = None
 
 
@@ -192,7 +184,6 @@ class SpawnDetailOutput(BaseModel):
     status: str
     model: str
     harness: str
-    space_id: str | None
     started_at: str
     finished_at: str | None
     duration_secs: float | None
@@ -237,7 +228,6 @@ class SpawnDetailOutput(BaseModel):
             ("Status", status_str),
             ("Model", f"{self.model} ({self.harness})"),
             ("Duration", duration_value),
-            ("Space", self.space_id),
             (failure_label or "Failure", self.failure_reason),
             ("Cost", cost_value),
             ("Report", self.report_path),
@@ -257,7 +247,6 @@ class SpawnContinueInput(BaseModel):
     fork: bool = False
     dry_run: bool = False
     timeout: float | None = None
-    space: str | None = None
     repo_root: str | None = None
 
 
@@ -273,7 +262,6 @@ class SpawnWaitInput(BaseModel):
     quiet: bool = False
     report: bool = False
     include_files: bool = False
-    space: str | None = None
     repo_root: str | None = None
 
 
@@ -314,8 +302,6 @@ class SpawnListFilters(BaseModel):
     """Type-safe run-list filters converted into parameterized SQL."""
 
     model: str | None = None
-    space: str | None = None
-    no_space: bool = False
     status: SpawnStatus | None = None
     failed: bool = False
     limit: int = 20

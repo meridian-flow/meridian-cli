@@ -34,7 +34,7 @@ from meridian.lib.safety.redaction import SecretSpec, redact_secret_bytes
 from meridian.lib.state.artifact_store import ArtifactStore, make_artifact_key
 from meridian.lib.state import spawn_store
 from meridian.lib.state.paths import resolve_spawn_log_dir, resolve_state_paths
-from meridian.lib.core.types import HarnessId, SpawnId, SpaceId
+from meridian.lib.core.types import HarnessId, SpawnId
 
 from .env import build_harness_child_env
 from .errors import ErrorCategory, classify_error, should_retry
@@ -81,10 +81,10 @@ class SpawnResult(BaseModel):
     budget_breach: BudgetBreach | None = None
 
 
-def run_log_dir(repo_root: Path, spawn_id: SpawnId, space_id: SpaceId | None) -> Path:
-    """Resolve run artifact directory from run/space IDs."""
+def run_log_dir(repo_root: Path, spawn_id: SpawnId) -> Path:
+    """Resolve run artifact directory from a spawn ID."""
 
-    return resolve_spawn_log_dir(repo_root, spawn_id, space_id)
+    return resolve_spawn_log_dir(repo_root, spawn_id)
 
 
 def _extract_tokens_payload(raw_line: bytes) -> bytes | None:
@@ -504,7 +504,7 @@ async def execute_with_finalization(
     """Execute one run and always append a finalize row via try/finally."""
 
     execution_cwd = (cwd or Path.cwd()).resolve()
-    log_dir = resolve_spawn_log_dir(repo_root, run.spawn_id, run.space_id)
+    log_dir = resolve_spawn_log_dir(repo_root, run.spawn_id)
     output_log_path = log_dir / OUTPUT_FILENAME
     report_path = log_dir / REPORT_FILENAME
 

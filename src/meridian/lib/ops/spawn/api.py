@@ -9,16 +9,9 @@ from pathlib import Path
 
 from meridian.lib.core.context import RuntimeContext
 from meridian.lib.core.sink import NullSink, OutputSink
+from meridian.lib.ops.runtime import build_runtime_from_root_and_config, resolve_runtime_root_and_config
 from meridian.lib.state import spawn_store
-from meridian.lib.state.space_store import create_space
-from meridian.lib.state.paths import resolve_space_dir
-
-from ..runtime import (
-    build_runtime_from_root_and_config,
-    require_space_id,
-    resolve_runtime_root_and_config,
-    resolve_space_id_or_none,
-)
+from meridian.lib.state.paths import resolve_state_paths
 
 from .execute import (
     depth_exceeded_output,
@@ -42,12 +35,7 @@ from .models import (
     SpawnWaitMultiOutput,
 )
 from .prepare import build_create_payload, validate_create_input
-from .query import (
-    detail_from_row,
-    read_spawn_row,
-    resolve_spawn_reference,
-    resolve_spawn_references,
-)
+from .query import detail_from_row, read_spawn_row, resolve_spawn_reference, resolve_spawn_references
 
 _WAIT_HEARTBEAT_INTERVAL_SECS = 5.0
 
@@ -64,45 +52,8 @@ def _runtime_context(ctx: RuntimeContext | None) -> RuntimeContext:
     return RuntimeContext.from_environment()
 
 
-def _context_space_id(space_id: str | None) -> str | None:
-    normalized = (space_id or "").strip()
-    return normalized or None
-
-
-def _resolve_space_dir(
-    repo_root: Path,
-    space: str | None = None,
-    *,
-    space_id: str | None = None,
-) -> tuple[str, Path]:
-    space_id = require_space_id(space, space_id=space_id)
-    return str(space_id), resolve_space_dir(repo_root, space_id)
-
-
-def _resolve_or_create_space(
-    explicit: str | None,
-    repo_root: Path,
-    *,
-    space_id: str | None = None,
-) -> tuple[str, bool]:
-    """Resolve space from explicit value / env, or auto-create one.
-
-    Returns (space_id, auto_created).
-    """
-    resolved = resolve_space_id_or_none(explicit, space_id=space_id)
-    if resolved is not None:
-        return resolved, False
-    record = create_space(repo_root)
-    return record.id, True
-
-
-def _non_empty_space(space: str | None, *, space_id: str | None = None) -> str | None:
-    normalized = (space or "").strip()
-    if not normalized:
-        normalized = _context_space_id(space_id) or ""
-    if not normalized:
-        return None
-    return normalized
+def _state_root(repo_root: Path) -> Path:
+    return resolve_state_paths(repo_root).root_dir
 
 
 def spawn_create_sync(
@@ -114,18 +65,6 @@ def spawn_create_sync(
     runtime_context = _runtime_context(ctx)
     payload, preflight_warning = validate_create_input(payload)
     resolved_root, config = resolve_runtime_root_and_config(payload.repo_root)
-    space_id_str, auto_created = _resolve_or_create_space(
-        payload.space,
-        resolved_root,
-        space_id=_context_space_id(str(runtime_context.space_id or "")),
-    )
-    payload = payload.model_copy(update={"space": space_id_str})
-    if auto_created:
-        auto_warning = (
-            f"Auto-created space {space_id_str}. Pass --space {space_id_str} to add more spawns to this space.\n"
-            f"hint: export MERIDIAN_SPACE_ID={space_id_str}"
-        )
-        preflight_warning = f"{preflight_warning}\n{auto_warning}" if preflight_warning else auto_warning
 
     runtime = None
     if not payload.dry_run:
@@ -182,19 +121,9 @@ def spawn_list_sync(
     *,
     sink: OutputSink | None = None,
 ) -> SpawnListOutput:
-    _ = sink
-    runtime_context = _runtime_context(ctx)
-    if payload.no_space:
-        return SpawnListOutput(spawns=())
-
+    _ = (ctx, sink)
     repo_root, _ = resolve_runtime_root_and_config(payload.repo_root)
-    current_space_id, space_dir = _resolve_space_dir(
-        repo_root,
-        payload.space,
-        space_id=_context_space_id(str(runtime_context.space_id or "")),
-    )
-
-    spawns = list(reversed(spawn_store.list_spawns(space_dir)))
+    spawns = list(reversed(spawn_store.list_spawns(_state_root(repo_root))))
     if payload.status is not None:
         spawns = [row for row in spawns if row.status == payload.status]
     if payload.failed:
@@ -210,7 +139,6 @@ def spawn_list_sync(
                 spawn_id=row.id,
                 status=row.status,
                 model=row.model or "",
-                space_id=current_space_id,
                 duration_secs=row.duration_secs,
                 cost_usd=row.total_cost_usd,
             )
@@ -234,16 +162,9 @@ def spawn_stats_sync(
     *,
     sink: OutputSink | None = None,
 ) -> SpawnStatsOutput:
-    _ = sink
-    runtime_context = _runtime_context(ctx)
+    _ = (ctx, sink)
     repo_root, _ = resolve_runtime_root_and_config(payload.repo_root)
-    _, space_dir = _resolve_space_dir(
-        repo_root,
-        payload.space,
-        space_id=_context_space_id(str(runtime_context.space_id or "")),
-    )
-
-    spawns = spawn_store.list_spawns(space_dir)
+    spawns = spawn_store.list_spawns(_state_root(repo_root))
     if payload.session is not None and payload.session.strip():
         wanted_session = payload.session.strip()
         spawns = [row for row in spawns if row.chat_id == wanted_session]
@@ -300,15 +221,10 @@ def spawn_show_sync(
     *,
     sink: OutputSink | None = None,
 ) -> SpawnDetailOutput:
-    _ = sink
-    runtime_context = _runtime_context(ctx)
+    _ = (ctx, sink)
     repo_root, _ = resolve_runtime_root_and_config(payload.repo_root)
-    resolved_space = _non_empty_space(
-        payload.space,
-        space_id=_context_space_id(str(runtime_context.space_id or "")),
-    )
-    spawn_id = resolve_spawn_reference(repo_root, payload.spawn_id, resolved_space)
-    row = read_spawn_row(repo_root, spawn_id, resolved_space)
+    spawn_id = resolve_spawn_reference(repo_root, payload.spawn_id)
+    row = read_spawn_row(repo_root, spawn_id)
     if row is None:
         raise ValueError(f"Spawn '{spawn_id}' not found")
     return detail_from_row(
@@ -316,7 +232,6 @@ def spawn_show_sync(
         row=row,
         report=payload.report,
         include_files=payload.include_files,
-        space_id=resolved_space,
     )
 
 
@@ -329,8 +244,8 @@ async def spawn_show(
     return await asyncio.to_thread(spawn_show_sync, payload, ctx=ctx, sink=sink)
 
 
-def _read_background_pid(space_dir: Path, spawn_id: str) -> int:
-    pid_path = space_dir / "spawns" / spawn_id / "background.pid"
+def _read_background_pid(state_root: Path, spawn_id: str) -> int:
+    pid_path = state_root / "spawns" / spawn_id / "background.pid"
     if not pid_path.is_file():
         raise ValueError(f"Spawn '{spawn_id}' has no background worker PID.")
     try:
@@ -348,20 +263,11 @@ def spawn_cancel_sync(
     *,
     sink: OutputSink | None = None,
 ) -> SpawnActionOutput:
-    _ = sink
-    runtime_context = _runtime_context(ctx)
+    _ = (ctx, sink)
     repo_root, _ = resolve_runtime_root_and_config(payload.repo_root)
-    resolved_space = _non_empty_space(
-        payload.space,
-        space_id=_context_space_id(str(runtime_context.space_id or "")),
-    )
-    spawn_id = resolve_spawn_reference(repo_root, payload.spawn_id, resolved_space)
-    current_space_id, space_dir = _resolve_space_dir(
-        repo_root,
-        resolved_space,
-        space_id=_context_space_id(str(runtime_context.space_id or "")),
-    )
-    row = read_spawn_row(repo_root, spawn_id, current_space_id)
+    spawn_id = resolve_spawn_reference(repo_root, payload.spawn_id)
+    state_root = _state_root(repo_root)
+    row = read_spawn_row(repo_root, spawn_id)
     if row is None:
         raise ValueError(f"Spawn '{spawn_id}' not found")
 
@@ -375,14 +281,14 @@ def spawn_cancel_sync(
             harness_id=row.harness,
         )
 
-    pid = _read_background_pid(space_dir, spawn_id)
+    pid = _read_background_pid(state_root, spawn_id)
     try:
         os.kill(pid, signal.SIGTERM)
     except ProcessLookupError:
         pass
 
     spawn_store.finalize_spawn(
-        space_dir,
+        state_root,
         spawn_id,
         status="cancelled",
         exit_code=130,
@@ -490,24 +396,13 @@ def spawn_wait_sync(
     sink: OutputSink | None = None,
 ) -> SpawnWaitMultiOutput:
     active_sink = sink or NullSink()
-    runtime_context = _runtime_context(ctx)
     repo_root, config = resolve_runtime_root_and_config(payload.repo_root)
-    resolved_space = _non_empty_space(
-        payload.space,
-        space_id=_context_space_id(str(runtime_context.space_id or "")),
-    )
-    spawn_ids = resolve_spawn_references(repo_root, _normalize_wait_spawn_ids(payload), resolved_space)
-    timeout_minutes = (
-        payload.timeout if payload.timeout is not None else config.wait_timeout_minutes
-    )
+    spawn_ids = resolve_spawn_references(repo_root, _normalize_wait_spawn_ids(payload))
+    timeout_minutes = payload.timeout if payload.timeout is not None else config.wait_timeout_minutes
     timeout_seconds = minutes_to_seconds(timeout_minutes) or 0.0
     started = time.monotonic()
     deadline = started + max(timeout_seconds, 0.0)
-    poll = (
-        payload.poll_interval_secs
-        if payload.poll_interval_secs is not None
-        else config.retry_backoff_seconds
-    )
+    poll = payload.poll_interval_secs if payload.poll_interval_secs is not None else config.retry_backoff_seconds
     if poll <= 0:
         poll = config.retry_backoff_seconds
 
@@ -523,7 +418,7 @@ def spawn_wait_sync(
 
     while True:
         for spawn_id in tuple(pending):
-            row = read_spawn_row(repo_root, spawn_id, resolved_space)
+            row = read_spawn_row(repo_root, spawn_id)
             if row is None:
                 raise ValueError(f"Spawn '{spawn_id}' not found")
 
@@ -538,7 +433,6 @@ def spawn_wait_sync(
                     row=completed_rows[spawn_id],
                     report=payload.report,
                     include_files=payload.include_files,
-                    space_id=resolved_space,
                 )
                 for spawn_id in spawn_ids
             )
@@ -572,13 +466,9 @@ async def spawn_wait(
 def _source_spawn_for_follow_up(
     payload_spawn_id: str,
     repo_root: Path,
-    space: str | None = None,
-    *,
-    context_space_id: str | None = None,
 ) -> tuple[str, spawn_store.SpawnRecord]:
-    resolved_space = _non_empty_space(space, space_id=context_space_id)
-    resolved_spawn_id = resolve_spawn_reference(repo_root, payload_spawn_id, resolved_space)
-    row = read_spawn_row(repo_root, resolved_spawn_id, resolved_space)
+    resolved_spawn_id = resolve_spawn_reference(repo_root, payload_spawn_id)
+    row = read_spawn_row(repo_root, resolved_spawn_id)
     if row is None:
         raise ValueError(f"Spawn '{resolved_spawn_id}' not found")
     return resolved_spawn_id, row
@@ -612,18 +502,9 @@ def spawn_continue_sync(
     *,
     sink: OutputSink | None = None,
 ) -> SpawnActionOutput:
-    runtime_context = _runtime_context(ctx)
+    _ = ctx
     repo_root, _ = resolve_runtime_root_and_config(payload.repo_root)
-    resolved_space = _non_empty_space(
-        payload.space,
-        space_id=_context_space_id(str(runtime_context.space_id or "")),
-    )
-    resolved_spawn_id, source_spawn = _source_spawn_for_follow_up(
-        payload.spawn_id,
-        repo_root,
-        resolved_space,
-        context_space_id=_context_space_id(str(runtime_context.space_id or "")),
-    )
+    resolved_spawn_id, source_spawn = _source_spawn_for_follow_up(payload.spawn_id, repo_root)
     derived_prompt = _prompt_for_follow_up(source_spawn, resolved_spawn_id, payload.prompt)
     source_harness = (source_spawn.harness or "").strip() or None
     source_session_id = (source_spawn.harness_session_id or "").strip() or None
@@ -633,13 +514,11 @@ def spawn_continue_sync(
         repo_root=payload.repo_root,
         dry_run=payload.dry_run,
         timeout=payload.timeout,
-        space=resolved_space,
         continue_harness_session_id=source_session_id,
         continue_harness=source_harness,
         continue_fork=payload.fork,
     )
-    result = spawn_create_sync(create_input, ctx=runtime_context, sink=sink)
-    return _with_command(result, "spawn.continue")
+    return _with_command(spawn_create_sync(create_input, sink=sink), "spawn.continue")
 
 
 async def spawn_continue(

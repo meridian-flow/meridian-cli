@@ -8,11 +8,11 @@ from pathlib import Path
 import pytest
 
 from meridian.lib.core.domain import Spawn, TokenUsage
-from meridian.lib.launch.command import build_space_env
+from meridian.lib.launch.command import build_launch_env
 from meridian.lib.launch.env import build_harness_child_env
 from meridian.lib.launch.env import inherit_child_env
 from meridian.lib.launch.env import sanitize_child_env
-from meridian.lib.launch.types import SpaceLaunchRequest
+from meridian.lib.launch.types import LaunchRequest
 from meridian.lib.launch.runner import execute_with_finalization
 from meridian.lib.harness.common import (
     extract_session_id_from_artifacts,
@@ -38,10 +38,9 @@ from meridian.lib.safety.permissions import (
     opencode_permission_json,
     permission_flags_for_harness,
 )
-from meridian.lib.state.space_store import create_space
 from meridian.lib.state.artifact_store import LocalStore, make_artifact_key
-from meridian.lib.state.paths import resolve_space_dir
-from meridian.lib.core.types import HarnessId, ModelId, SpawnId, SpaceId
+from meridian.lib.state.paths import resolve_state_paths
+from meridian.lib.core.types import HarnessId, ModelId, SpawnId
 
 
 class ScriptHarnessAdapter(BaseHarnessAdapter):
@@ -79,15 +78,13 @@ class ScriptHarnessAdapter(BaseHarnessAdapter):
 
 
 def _create_run(repo_root: Path, *, prompt: str, spawn_id: str = "r1") -> tuple[Spawn, Path]:
-    space = create_space(repo_root, name="permissions")
     run = Spawn(
         spawn_id=SpawnId(spawn_id),
         prompt=prompt,
         model=ModelId("gpt-5.3-codex"),
         status="queued",
-        space_id=SpaceId(space.id),
     )
-    return run, resolve_space_dir(repo_root, space.id)
+    return run, resolve_state_paths(repo_root).root_dir
 
 
 def _write_script(path: Path, source: str, *, executable: bool = False) -> None:
@@ -207,49 +204,46 @@ def test_sanitize_child_env_does_not_leak_primary_autocompact_override() -> None
     assert "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE" not in sanitized
 
 
-def test_sanitize_child_env_derives_space_fs_from_repo_root() -> None:
+def test_sanitize_child_env_derives_fs_from_repo_root() -> None:
     sanitized = sanitize_child_env(
         base_env={"PATH": "/usr/bin"},
         env_overrides={
-            "MERIDIAN_SPACE_ID": "s9",
             "MERIDIAN_REPO_ROOT": "/tmp/repo",
         },
         pass_through=set(),
     )
 
-    assert sanitized["MERIDIAN_SPACE_ID"] == "s9"
     assert sanitized["MERIDIAN_REPO_ROOT"] == "/tmp/repo"
-    assert sanitized["MERIDIAN_SPACE_FS_DIR"] == "/tmp/repo/.meridian/.spaces/s9/fs"
+    assert sanitized["MERIDIAN_FS_DIR"] == "/tmp/repo/.meridian/fs"
 
 
-def test_build_space_env_propagates_explicit_primary_chat_id(
+def test_build_launch_env_propagates_explicit_primary_chat_id(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setenv("PATH", "/usr/bin")
     monkeypatch.delenv("MERIDIAN_CHAT_ID", raising=False)
 
-    child_env = build_space_env(
+    child_env = build_launch_env(
         tmp_path,
-        SpaceLaunchRequest(space_id=SpaceId("s9")),
+        LaunchRequest(),
         chat_id="c42",
     )
 
     assert child_env["MERIDIAN_CHAT_ID"] == "c42"
-    assert child_env["MERIDIAN_SPACE_ID"] == "s9"
+    assert child_env["MERIDIAN_FS_DIR"] == (tmp_path / ".meridian" / "fs").as_posix()
 
 
-def test_sanitize_child_env_prefers_state_root_for_space_fs() -> None:
+def test_sanitize_child_env_prefers_state_root_for_fs() -> None:
     sanitized = sanitize_child_env(
         base_env={"PATH": "/usr/bin"},
         env_overrides={
-            "MERIDIAN_SPACE_ID": "s12",
             "MERIDIAN_REPO_ROOT": "/tmp/repo",
             "MERIDIAN_STATE_ROOT": "/tmp/custom-state",
         },
         pass_through=set(),
     )
 
-    assert sanitized["MERIDIAN_SPACE_FS_DIR"] == "/tmp/custom-state/.spaces/s12/fs"
+    assert sanitized["MERIDIAN_FS_DIR"] == "/tmp/custom-state/fs"
 
 
 def test_inherit_child_env_keeps_parent_env_but_drops_internal_launch_overrides() -> None:
@@ -259,7 +253,7 @@ def test_inherit_child_env_keeps_parent_env_but_drops_internal_launch_overrides(
             "UNRELATED_TOKEN": "keep-me",
             "MISC_VALUE": "keep-too",
             "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "67",
-            "MERIDIAN_SPACE_PROMPT": "stale",
+            "MERIDIAN_PRIMARY_PROMPT": "stale",
         },
         env_overrides={"MERIDIAN_DEPTH": "2"},
     )
@@ -269,7 +263,7 @@ def test_inherit_child_env_keeps_parent_env_but_drops_internal_launch_overrides(
     assert inherited["MISC_VALUE"] == "keep-too"
     assert inherited["MERIDIAN_DEPTH"] == "2"
     assert "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE" not in inherited
-    assert "MERIDIAN_SPACE_PROMPT" not in inherited
+    assert "MERIDIAN_PRIMARY_PROMPT" not in inherited
 
 
 def test_build_harness_child_env_uses_claude_specific_blocklist() -> None:

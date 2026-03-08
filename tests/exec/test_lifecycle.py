@@ -23,11 +23,10 @@ from meridian.lib.harness.adapter import (
 )
 from meridian.lib.harness.registry import HarnessRegistry
 from meridian.lib.safety.permissions import PermissionConfig
-from meridian.lib.state.space_store import create_space
 from meridian.lib.state import spawn_store
 from meridian.lib.state.artifact_store import LocalStore, make_artifact_key
-from meridian.lib.state.paths import resolve_space_dir
-from meridian.lib.core.types import HarnessId, ModelId, SpawnId, SpaceId
+from meridian.lib.state.paths import resolve_state_paths
+from meridian.lib.core.types import HarnessId, ModelId, SpawnId
 
 
 class ScriptHarnessAdapter(BaseHarnessAdapter):
@@ -61,15 +60,13 @@ class ScriptHarnessAdapter(BaseHarnessAdapter):
 
 
 def _create_run(repo_root: Path, *, prompt: str, name: str = "exec") -> tuple[Spawn, Path]:
-    space = create_space(repo_root, name=name)
     run = Spawn(
         spawn_id=SpawnId("r1"),
         prompt=prompt,
         model=ModelId("gpt-5.3-codex"),
         status="queued",
-        space_id=SpaceId(space.id),
     )
-    return run, resolve_space_dir(repo_root, space.id)
+    return run, resolve_state_paths(repo_root).root_dir
 
 
 def _fetch_run_row(space_dir: Path, spawn_id: SpawnId) -> spawn_store.SpawnRecord:
@@ -165,7 +162,7 @@ async def test_execute_does_not_retry_unrecoverable_errors(tmp_path: Path) -> No
     exit_code = await execute_with_finalization(
         run,
         repo_root=tmp_path,
-        space_dir=resolve_space_dir(tmp_path, "s1"),
+        space_dir=resolve_state_paths(tmp_path).root_dir,
         artifacts=artifacts,
         registry=registry,
         harness_id=adapter.id,

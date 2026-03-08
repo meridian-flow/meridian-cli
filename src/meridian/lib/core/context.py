@@ -6,13 +6,12 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict
 
-from meridian.lib.core.types import SpaceId, SpawnId
+from meridian.lib.core.types import SpawnId
 
 
 class RuntimeContext(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    space_id: SpaceId | None = None
     spawn_id: SpawnId | None = None
     parent_spawn_id: SpawnId | None = None
     depth: int = 0
@@ -26,7 +25,6 @@ class RuntimeContext(BaseModel):
 
         import os
 
-        space_id_raw = os.getenv("MERIDIAN_SPACE_ID", "").strip()
         spawn_id_raw = os.getenv("MERIDIAN_SPAWN_ID", "").strip()
         parent_spawn_id_raw = os.getenv("MERIDIAN_PARENT_SPAWN_ID", "").strip()
         depth_raw = os.getenv("MERIDIAN_DEPTH", "0").strip()
@@ -41,7 +39,6 @@ class RuntimeContext(BaseModel):
             pass
 
         return cls(
-            space_id=SpaceId(space_id_raw) if space_id_raw else None,
             spawn_id=SpawnId(spawn_id_raw) if spawn_id_raw else None,
             parent_spawn_id=SpawnId(parent_spawn_id_raw) if parent_spawn_id_raw else None,
             depth=depth,
@@ -50,11 +47,10 @@ class RuntimeContext(BaseModel):
             chat_id=chat_id_raw,
         )
 
-    def child_context(self, *, space_id: SpaceId, spawn_id: SpawnId) -> "RuntimeContext":
+    def child_context(self, *, spawn_id: SpawnId) -> "RuntimeContext":
         """Create child context for a nested spawn."""
 
         return RuntimeContext(
-            space_id=space_id,
             spawn_id=spawn_id,
             parent_spawn_id=self.spawn_id,
             depth=self.depth + 1,
@@ -67,8 +63,6 @@ class RuntimeContext(BaseModel):
         """Produce MERIDIAN_* env overrides for child processes."""
 
         overrides: dict[str, str] = {"MERIDIAN_DEPTH": str(self.depth)}
-        if self.space_id is not None:
-            overrides["MERIDIAN_SPACE_ID"] = str(self.space_id)
         if self.spawn_id is not None:
             overrides["MERIDIAN_SPAWN_ID"] = str(self.spawn_id)
         if self.parent_spawn_id is not None:

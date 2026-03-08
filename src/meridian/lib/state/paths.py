@@ -7,10 +7,9 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict
 
-from meridian.lib.core.types import SpawnId, SpaceId
+from meridian.lib.core.types import SpawnId
 
 _MERIDIAN_DIR = ".meridian"
-_SPACES_DIR = ".spaces"
 _GITIGNORE_CONTENT = (
     "# Ignore everything by default\n"
     "*\n"
@@ -27,7 +26,7 @@ _GITIGNORE_CONTENT = (
 
 
 class SpacePaths(BaseModel):
-    """Resolved paths for one space directory (now receives state root)."""
+    """Resolved paths for one Meridian state root."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -42,7 +41,7 @@ class SpacePaths(BaseModel):
 
     @classmethod
     def from_space_dir(cls, space_dir: Path) -> Self:
-        """Build space-relative paths from an absolute space directory."""
+        """Build state-root-relative paths from an absolute state directory."""
 
         return cls(
             space_dir=space_dir,
@@ -64,8 +63,7 @@ class StatePaths(BaseModel):
     root_dir: Path
     artifacts_dir: Path
     spawns_dir: Path
-    all_spaces_dir: Path
-    active_spaces_dir: Path
+    active_primary_lock: Path
     cache_dir: Path
     sync_lock_path: Path
     sync_cache_dir: Path
@@ -94,8 +92,7 @@ def resolve_state_paths(repo_root: Path) -> StatePaths:
         root_dir=root_dir,
         artifacts_dir=root_dir / "artifacts",
         spawns_dir=root_dir / "spawns",
-        all_spaces_dir=root_dir / _SPACES_DIR,
-        active_spaces_dir=root_dir / "active-spaces",
+        active_primary_lock=root_dir / "active-primary.lock",
         cache_dir=root_dir / "cache",
         sync_lock_path=root_dir / "sync.lock",
         sync_cache_dir=root_dir / "cache" / "sync",
@@ -104,36 +101,41 @@ def resolve_state_paths(repo_root: Path) -> StatePaths:
     )
 
 
-def resolve_all_spaces_dir(repo_root: Path) -> Path:
-    """Return `.meridian/.spaces/` for a repository root."""
-
-    return resolve_state_paths(repo_root).all_spaces_dir
-
-
 def resolve_cache_dir(repo_root: Path) -> Path:
     """Return `.meridian/cache/` for a repository root."""
 
     return resolve_state_paths(repo_root).cache_dir
 
 
-def resolve_space_dir(repo_root: Path, space_id: SpaceId | str) -> Path:
-    """Compat shim: returns state root, ignoring space_id."""
+def resolve_all_spaces_dir(repo_root: Path) -> Path:
+    """Return the compatibility `.meridian/.spaces/` directory path."""
 
-    return _resolve_state_root(repo_root)
+    return resolve_state_paths(repo_root).root_dir / ".spaces"
 
 
-def spawn_log_subpath(spawn_id: SpawnId | str, space_id: SpaceId | str | None = None) -> Path:
+def resolve_space_dir(repo_root: Path, space_id: str) -> Path:
+    """Return the compatibility state root path for a space lookup."""
+
+    del space_id
+    return resolve_state_paths(repo_root).root_dir
+
+
+def resolve_fs_dir(repo_root: Path) -> Path:
+    """Return `.meridian/fs/` for a repository root."""
+
+    return resolve_state_paths(repo_root).root_dir / "fs"
+
+
+def spawn_log_subpath(spawn_id: SpawnId | str) -> Path:
     """Return spawn log path relative to the Meridian state root."""
 
     return Path("spawns") / str(spawn_id)
 
 
-def resolve_spawn_log_dir(
-    repo_root: Path, spawn_id: SpawnId | str, space_id: SpaceId | str | None = None
-) -> Path:
-    """Resolve absolute spawn log directory for spawn/space IDs."""
+def resolve_spawn_log_dir(repo_root: Path, spawn_id: SpawnId | str) -> Path:
+    """Resolve absolute spawn log directory for a spawn ID."""
 
-    return resolve_state_paths(repo_root).root_dir / spawn_log_subpath(spawn_id, space_id)
+    return resolve_state_paths(repo_root).root_dir / spawn_log_subpath(spawn_id)
 
 
 def ensure_gitignore(repo_root: Path) -> Path:

@@ -7,8 +7,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
-from meridian.lib.state.paths import resolve_space_dir
-from meridian.lib.core.types import SpaceId
+from meridian.lib.state.paths import resolve_fs_dir
 
 _TEMPLATE_VAR_RE = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
 
@@ -116,7 +115,6 @@ def load_reference_files(
     *,
     base_dir: Path | None = None,
     include_content: bool = True,
-    space_id: str | None = None,
 ) -> tuple[ReferenceFile, ...]:
     """Load referenced files in input order."""
 
@@ -124,17 +122,10 @@ def load_reference_files(
     loaded: list[ReferenceFile] = []
     for raw_path in file_paths:
         if isinstance(raw_path, str) and raw_path.startswith("@"):
-            normalized_space_id = (space_id or "").strip()
-            if not normalized_space_id:
-                raise ValueError(
-                    "Space reference requires space context. "
-                    "Pass --space before using '-f @name'."
-                )
-            space_fs_dir = resolve_space_dir(root, SpaceId(normalized_space_id)) / "fs"
             relative = raw_path[1:]
             if not relative:
                 raise ValueError("Reference path after '@' must not be empty.")
-            resolved = (space_fs_dir / relative).resolve()
+            resolved = (resolve_fs_dir(root) / relative).resolve()
         else:
             path_obj = raw_path if isinstance(raw_path, Path) else Path(raw_path)
             expanded = path_obj.expanduser()

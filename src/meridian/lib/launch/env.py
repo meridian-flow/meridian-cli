@@ -27,7 +27,7 @@ _NON_PROPAGATING_CHILD_ENV = frozenset(
     {
         "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE",
         "MERIDIAN_PARENT_RUN_ID",
-        "MERIDIAN_SPACE_PROMPT",
+        "MERIDIAN_PRIMARY_PROMPT",
     }
 )
 
@@ -45,27 +45,19 @@ def _looks_like_secret_env_var(key: str) -> bool:
 
 
 def _normalize_meridian_env(env: dict[str, str]) -> None:
-    space_id = env.get("MERIDIAN_SPACE_ID", "").strip()
-    if not space_id:
-        return
-
-    explicit_space_fs = env.get("MERIDIAN_SPACE_FS_DIR", "").strip()
-    if explicit_space_fs:
-        env["MERIDIAN_SPACE_FS_DIR"] = explicit_space_fs
+    explicit_fs = env.get("MERIDIAN_FS_DIR", "").strip()
+    if explicit_fs:
+        env["MERIDIAN_FS_DIR"] = explicit_fs
         return
 
     state_root = env.get("MERIDIAN_STATE_ROOT", "").strip()
     if state_root:
-        env["MERIDIAN_SPACE_FS_DIR"] = (
-            Path(state_root).expanduser() / ".spaces" / space_id / "fs"
-        ).as_posix()
+        env["MERIDIAN_FS_DIR"] = (Path(state_root).expanduser() / "fs").as_posix()
         return
 
     repo_root = env.get("MERIDIAN_REPO_ROOT", "").strip()
     if repo_root:
-        env["MERIDIAN_SPACE_FS_DIR"] = (
-            Path(repo_root).expanduser() / ".meridian" / ".spaces" / space_id / "fs"
-        ).as_posix()
+        env["MERIDIAN_FS_DIR"] = (Path(repo_root).expanduser() / ".meridian" / "fs").as_posix()
 
 
 def sanitize_child_env(

@@ -7,10 +7,10 @@ from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.core.context import RuntimeContext
 from meridian.lib.core.util import FormatContext
-from meridian.lib.ops.runtime import require_space_id, resolve_runtime_root_and_config
+from meridian.lib.ops.runtime import resolve_runtime_root_and_config
 from meridian.lib.ops.spawn.query import resolve_spawn_reference
 from meridian.lib.state import spawn_store
-from meridian.lib.state.paths import resolve_space_dir
+from meridian.lib.state.paths import resolve_state_paths
 
 
 def _runtime_context(ctx: RuntimeContext | None) -> RuntimeContext:
@@ -22,41 +22,37 @@ def _runtime_context(ctx: RuntimeContext | None) -> RuntimeContext:
 def _resolve_target_spawn_id(
     repo_root: Path,
     spawn_id: str | None,
-    space: str,
     *,
     current_spawn_id: str | None = None,
 ) -> str:
     candidate = (spawn_id or "").strip()
     if candidate:
-        return resolve_spawn_reference(repo_root, candidate, space)
+        return resolve_spawn_reference(repo_root, candidate)
     normalized_current_spawn = (current_spawn_id or "").strip()
     if normalized_current_spawn:
-        return resolve_spawn_reference(repo_root, normalized_current_spawn, space)
+        return resolve_spawn_reference(repo_root, normalized_current_spawn)
     raise ValueError("Spawn ID is required. Pass --spawn or set MERIDIAN_SPAWN_ID.")
 
 
-def _resolve_space_and_spawn(
+def _resolve_spawn(
     *,
     repo_root: Path,
-    space: str | None,
     spawn_id: str | None,
     ctx: RuntimeContext | None = None,
-) -> tuple[str, str]:
+) -> str:
     runtime_context = _runtime_context(ctx)
-    resolved_space = str(require_space_id(space, space_id=runtime_context.space_id))
     resolved_spawn = _resolve_target_spawn_id(
         repo_root,
         spawn_id,
-        resolved_space,
         current_spawn_id=str(runtime_context.spawn_id or ""),
     )
-    if spawn_store.get_spawn(resolve_space_dir(repo_root, resolved_space), resolved_spawn) is None:
+    if spawn_store.get_spawn(resolve_state_paths(repo_root).root_dir, resolved_spawn) is None:
         raise ValueError(f"Spawn '{resolved_spawn}' not found")
-    return resolved_space, resolved_spawn
+    return resolved_spawn
 
 
-def _report_path(repo_root: Path, *, space: str, spawn_id: str) -> Path:
-    return resolve_space_dir(repo_root, space) / "spawns" / spawn_id / "report.md"
+def _report_path(repo_root: Path, *, spawn_id: str) -> Path:
+    return resolve_state_paths(repo_root).root_dir / "spawns" / spawn_id / "report.md"
 
 
 def _report_snippet(text: str, *, query: str) -> str:
@@ -80,7 +76,6 @@ class ReportCreateInput(BaseModel):
 
     content: str = ""
     spawn_id: str | None = None
-    space: str | None = None
     repo_root: str | None = None
 
 
@@ -105,7 +100,6 @@ class ReportShowInput(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     spawn_id: str | None = None
-    space: str | None = None
     repo_root: str | None = None
 
 
@@ -127,7 +121,6 @@ class ReportSearchInput(BaseModel):
     query: str = ""
     spawn_id: str | None = None
     limit: int = 20
-    space: str | None = None
     repo_root: str | None = None
 
 
@@ -158,16 +151,11 @@ def report_create_sync(
     ctx: RuntimeContext | None = None,
 ) -> ReportCreateOutput:
     repo_root, _ = resolve_runtime_root_and_config(payload.repo_root)
-    space_id, spawn_id = _resolve_space_and_spawn(
-        repo_root=repo_root,
-        space=payload.space,
-        spawn_id=payload.spawn_id,
-        ctx=ctx,
-    )
+    spawn_id = _resolve_spawn(repo_root=repo_root, spawn_id=payload.spawn_id, ctx=ctx)
     content = payload.content.strip()
     if not content:
         raise ValueError("Report content must not be empty.")
-    report_path = _report_path(repo_root, space=space_id, spawn_id=spawn_id)
+    report_path = _report_path(repo_root, spawn_id=spawn_id)
     report_path.parent.mkdir(parents=True, exist_ok=True)
     text = f"{content}\n"
     report_path.write_text(text, encoding="utf-8")
@@ -185,13 +173,8 @@ def report_show_sync(
     ctx: RuntimeContext | None = None,
 ) -> ReportShowOutput:
     repo_root, _ = resolve_runtime_root_and_config(payload.repo_root)
-    space_id, spawn_id = _resolve_space_and_spawn(
-        repo_root=repo_root,
-        space=payload.space,
-        spawn_id=payload.spawn_id,
-        ctx=ctx,
-    )
-    report_path = _report_path(repo_root, space=space_id, spawn_id=spawn_id)
+    spawn_id = _resolve_spawn(repo_root=repo_root, spawn_id=payload.spawn_id, ctx=ctx)
+    report_path = _report_path(repo_root, spawn_id=spawn_id)
     if not report_path.is_file():
         raise ValueError(f"Report for spawn '{spawn_id}' not found")
     report = report_path.read_text(encoding="utf-8", errors="ignore").strip()
@@ -208,21 +191,21 @@ def report_search_sync(
 ) -> ReportSearchOutput:
     runtime_context = _runtime_context(ctx)
     repo_root, _ = resolve_runtime_root_and_config(payload.repo_root)
-    resolved_space = str(require_space_id(payload.space, space_id=runtime_context.space_id))
     limit = payload.limit if payload.limit > 0 else 20
     query = payload.query.strip()
 
     if payload.spawn_id is not None and payload.spawn_id.strip():
-        spawn_ids = (
-            resolve_spawn_reference(repo_root, payload.spawn_id.strip(), resolved_space),
-        )
+        spawn_ids = (resolve_spawn_reference(repo_root, payload.spawn_id.strip()),)
+    elif runtime_context.spawn_id is not None:
+        spawn_ids = (resolve_spawn_reference(repo_root, str(runtime_context.spawn_id)),)
     else:
-        space_dir = resolve_space_dir(repo_root, resolved_space)
-        spawn_ids = tuple(row.id for row in reversed(spawn_store.list_spawns(space_dir)))
+        spawn_ids = tuple(
+            row.id for row in reversed(spawn_store.list_spawns(resolve_state_paths(repo_root).root_dir))
+        )
 
     matches: list[ReportSearchResult] = []
     for spawn_id in spawn_ids:
-        report_path = _report_path(repo_root, space=resolved_space, spawn_id=spawn_id)
+        report_path = _report_path(repo_root, spawn_id=spawn_id)
         if not report_path.is_file():
             continue
         report = report_path.read_text(encoding="utf-8", errors="ignore")

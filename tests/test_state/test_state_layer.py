@@ -8,12 +8,12 @@ from pathlib import Path
 import pytest
 
 from meridian.lib.state.spawn_store import finalize_spawn, list_spawns, start_spawn
-from meridian.lib.state.paths import resolve_space_dir
+from meridian.lib.state.paths import resolve_state_paths
 from meridian.lib.core.types import SpawnId
 
-def _write_start_and_finalize(repo_root: str, space_id: str, idx: int) -> None:
+def _write_start_and_finalize(repo_root: str, idx: int) -> None:
     root = Path(repo_root)
-    state_root = resolve_space_dir(root, space_id)
+    state_root = resolve_state_paths(root).root_dir
     spawn_id = SpawnId(f"rlock{idx}")
     start_spawn(
         state_root,
@@ -41,7 +41,7 @@ def test_locking_contention_writes_clean_jsonl(tmp_path: Path) -> None:
 
     ctx = multiprocessing.get_context("spawn")
     procs = [
-        ctx.Process(target=_write_start_and_finalize, args=(tmp_path.as_posix(), "s1", idx))
+        ctx.Process(target=_write_start_and_finalize, args=(tmp_path.as_posix(), idx))
         for idx in range(process_count)
     ]
     for proc in procs:

@@ -99,10 +99,6 @@ def _spawn_create(
             help="Run in foreground and wait for spawn completion.",
         ),
     ] = False,
-    space: Annotated[
-        str | None,
-        Parameter(name=["--space-id", "--space"], help="Space id to spawn within."),
-    ] = None,
     timeout: Annotated[
         float | None,
         Parameter(
@@ -135,7 +131,6 @@ def _spawn_create(
                 fork=fork,
                 dry_run=dry_run,
                 timeout=timeout,
-                space=space,
             ),
             sink=current_output_sink(),
         )
@@ -152,7 +147,6 @@ def _spawn_create(
                 quiet=quiet,
                 stream=stream,
                 background=not foreground,
-                space=space,
                 timeout=timeout,
                 permission_tier=permission_tier,
             ),
@@ -166,10 +160,6 @@ def _spawn_create(
 
 def _spawn_list(
     emit: Any,
-    space: Annotated[
-        str | None,
-        Parameter(name=["--space-id", "--space"], help="Only list spawns from this space."),
-    ] = None,
     status: Annotated[
         str | None,
         Parameter(
@@ -182,10 +172,6 @@ def _spawn_list(
         Parameter(name="--model", help="Filter by model id."),
     ] = None,
     limit: Annotated[int, Parameter(name="--limit", help="Maximum number of spawns to return.")] = 20,
-    no_space: Annotated[
-        bool,
-        Parameter(name="--no-space", help="Only include spawns without a space."),
-    ] = False,
     failed: Annotated[
         bool,
         Parameter(name="--failed", help="Shortcut for status=failed."),
@@ -200,11 +186,9 @@ def _spawn_list(
 
     result = spawn_list_sync(
         SpawnListInput(
-            space=space,
             status=normalized_status,
             model=model,
             limit=limit,
-            no_space=no_space,
             failed=failed,
         ),
         sink=current_output_sink(),
@@ -223,10 +207,6 @@ def _spawn_show(
         bool,
         Parameter(name="--include-files", help="Include spawn file metadata in output."),
     ] = False,
-    space: Annotated[
-        str | None,
-        Parameter(name=["--space-id", "--space"], help="Space id containing the spawn."),
-    ] = None,
 ) -> None:
     emit(
         spawn_show_sync(
@@ -234,7 +214,6 @@ def _spawn_show(
                 spawn_id=spawn_id,
                 report=report,
                 include_files=include_files,
-                space=space,
             ),
             sink=current_output_sink(),
         )
@@ -247,16 +226,11 @@ def _spawn_stats(
         str | None,
         Parameter(name="--session", help="Only include spawns for this session id."),
     ] = None,
-    space: Annotated[
-        str | None,
-        Parameter(name=["--space-id", "--space"], help="Only include spawns from this space."),
-    ] = None,
 ) -> None:
     emit(
         spawn_stats_sync(
             SpawnStatsInput(
                 session=session,
-                space=space,
             ),
             sink=current_output_sink(),
         )
@@ -266,15 +240,10 @@ def _spawn_stats(
 def _spawn_cancel(
     emit: Any,
     spawn_id: str,
-    space: Annotated[
-        str | None,
-        Parameter(name=["--space-id", "--space"], help="Space id containing the spawn."),
-    ] = None,
 ) -> None:
     result = spawn_cancel_sync(
         SpawnCancelInput(
             spawn_id=spawn_id,
-            space=space,
         ),
         sink=current_output_sink(),
     )
@@ -315,10 +284,6 @@ def _spawn_wait(
         bool,
         Parameter(name="--include-files", help="Include spawn file metadata in output."),
     ] = False,
-    space: Annotated[
-        str | None,
-        Parameter(name=["--space-id", "--space"], help="Space id containing the spawns."),
-    ] = None,
 ) -> None:
     result = spawn_wait_sync(
         SpawnWaitInput(
@@ -328,7 +293,6 @@ def _spawn_wait(
             quiet=quiet,
             report=report,
             include_files=include_files,
-            space=space,
         ),
         sink=current_output_sink(),
     )

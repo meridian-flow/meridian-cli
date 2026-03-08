@@ -7,9 +7,8 @@ from pathlib import Path
 from typing import cast
 
 from meridian.lib.state import spawn_store
-from meridian.lib.state.paths import resolve_space_dir, resolve_state_paths
+from meridian.lib.state.paths import resolve_state_paths
 
-from ..runtime import require_space_id
 from .models import SpawnDetailOutput
 
 _SPAWN_REFERENCE_STATUS_FILTERS: dict[str, tuple[str, ...] | None] = {
@@ -22,23 +21,16 @@ _ASSISTANT_ROLE_MARKER_RE = re.compile(r"^(assistant|codex)$", re.IGNORECASE)
 _LOG_ROLE_MARKER_RE = re.compile(r"^(user|assistant|codex|exec)$", re.IGNORECASE)
 
 
-def _space_dir(
-    repo_root: Path,
-    space: str | None = None,
-    *,
-    space_id: str | None = None,
-) -> Path:
-    return resolve_space_dir(repo_root, require_space_id(space, space_id=space_id))
+def _state_root(repo_root: Path) -> Path:
+    return resolve_state_paths(repo_root).root_dir
 
 
 def _select_latest_spawn_id(
     repo_root: Path,
     *,
     statuses: tuple[str, ...] | None,
-    space: str | None = None,
-    space_id: str | None = None,
 ) -> str | None:
-    spawns = spawn_store.list_spawns(_space_dir(repo_root, space, space_id=space_id))
+    spawns = spawn_store.list_spawns(_state_root(repo_root))
     if statuses is not None:
         wanted = set(statuses)
         spawns = [item for item in spawns if item.status in wanted]
@@ -47,13 +39,7 @@ def _select_latest_spawn_id(
     return spawns[-1].id
 
 
-def resolve_spawn_reference(
-    repo_root: Path,
-    ref: str,
-    space: str | None = None,
-    *,
-    space_id: str | None = None,
-) -> str:
+def resolve_spawn_reference(repo_root: Path, ref: str) -> str:
     normalized = ref.strip()
     if not normalized:
         raise ValueError("spawn_id is required")
@@ -65,49 +51,22 @@ def resolve_spawn_reference(
         supported = ", ".join(sorted(_SPAWN_REFERENCE_STATUS_FILTERS))
         raise ValueError(f"Unknown spawn reference '{normalized}'. Supported references: {supported}")
 
-    resolved = _select_latest_spawn_id(
-        repo_root,
-        statuses=status_filter,
-        space=space,
-        space_id=space_id,
-    )
+    resolved = _select_latest_spawn_id(repo_root, statuses=status_filter)
     if resolved is None:
         raise ValueError(f"No spawns found for reference '{normalized}'")
     return resolved
 
 
-def resolve_spawn_references(
-    repo_root: Path,
-    refs: tuple[str, ...],
-    space: str | None = None,
-    *,
-    space_id: str | None = None,
-) -> tuple[str, ...]:
-    return tuple(
-        dict.fromkeys(
-            resolve_spawn_reference(repo_root, ref, space, space_id=space_id) for ref in refs
-        )
-    )
+def resolve_spawn_references(repo_root: Path, refs: tuple[str, ...]) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(resolve_spawn_reference(repo_root, ref) for ref in refs))
 
 
-def read_spawn_row(
-    repo_root: Path,
-    spawn_id: str,
-    space: str | None = None,
-    *,
-    space_id: str | None = None,
-) -> spawn_store.SpawnRecord | None:
-    return spawn_store.get_spawn(_space_dir(repo_root, space, space_id=space_id), spawn_id)
+def read_spawn_row(repo_root: Path, spawn_id: str) -> spawn_store.SpawnRecord | None:
+    return spawn_store.get_spawn(_state_root(repo_root), spawn_id)
 
 
-def read_report_text(
-    repo_root: Path,
-    spawn_id: str,
-    space: str | None = None,
-    *,
-    space_id: str | None = None,
-) -> tuple[str | None, str | None]:
-    report_path = _space_dir(repo_root, space, space_id=space_id) / "spawns" / spawn_id / "report.md"
+def read_report_text(repo_root: Path, spawn_id: str) -> tuple[str | None, str | None]:
+    report_path = _state_root(repo_root) / "spawns" / spawn_id / "report.md"
     if not report_path.is_file():
         return None, None
     text = report_path.read_text(encoding="utf-8", errors="ignore").strip() or None
@@ -204,33 +163,20 @@ def _extract_last_assistant_message(stderr_text: str) -> str | None:
     return _truncate_log_message(last_message)
 
 
-def _read_running_log_details(
-    repo_root: Path,
-    spawn_id: str,
-    space: str | None = None,
-    *,
-    space_id: str | None = None,
-) -> tuple[str, str | None]:
-    stderr_path = _space_dir(repo_root, space, space_id=space_id) / "spawns" / spawn_id / "stderr.log"
+def _read_running_log_details(repo_root: Path, spawn_id: str) -> tuple[str, str | None]:
+    stderr_path = _state_root(repo_root) / "spawns" / spawn_id / "stderr.log"
     if not stderr_path.is_file():
         return stderr_path.as_posix(), None
     stderr_text = stderr_path.read_text(encoding="utf-8", errors="ignore")
     return stderr_path.as_posix(), _extract_last_assistant_message(stderr_text)
 
 
-def _read_files_touched(
-    repo_root: Path,
-    spawn_id: str,
-    space: str | None = None,
-    *,
-    space_id: str | None = None,
-) -> tuple[str, ...]:
+def _read_files_touched(repo_root: Path, spawn_id: str) -> tuple[str, ...]:
+    from meridian.lib.core.types import SpawnId
     from meridian.lib.launch.files_touched import extract_files_touched
     from meridian.lib.state.artifact_store import LocalStore
-    from meridian.lib.core.types import SpawnId
 
     artifacts = LocalStore(root_dir=resolve_state_paths(repo_root).artifacts_dir)
-    _ = (space, space_id)
     return extract_files_touched(artifacts, SpawnId(spawn_id))
 
 
@@ -240,43 +186,24 @@ def detail_from_row(
     row: spawn_store.SpawnRecord,
     report: bool,
     include_files: bool,
-    space_id: str | None = None,
-    context_space_id: str | None = None,
 ) -> SpawnDetailOutput:
-    resolved_space_id = str(require_space_id(space_id, space_id=context_space_id))
-    report_path, report_text = read_report_text(
-        repo_root,
-        row.id,
-        resolved_space_id,
-        space_id=context_space_id,
-    )
+    report_path, report_text = read_report_text(repo_root, row.id)
     report_summary = report_text[:500] if report_text else None
 
     files_touched: tuple[str, ...] | None = None
     if include_files:
-        files_touched = _read_files_touched(
-            repo_root,
-            row.id,
-            resolved_space_id,
-            space_id=context_space_id,
-        )
+        files_touched = _read_files_touched(repo_root, row.id)
 
     last_message: str | None = None
     log_path: str | None = None
     if row.status == "running":
-        log_path, last_message = _read_running_log_details(
-            repo_root,
-            row.id,
-            resolved_space_id,
-            space_id=context_space_id,
-        )
+        log_path, last_message = _read_running_log_details(repo_root, row.id)
 
     return SpawnDetailOutput(
         spawn_id=row.id,
         status=row.status,
         model=row.model or "",
         harness=row.harness or "",
-        space_id=resolved_space_id,
         started_at=row.started_at or "",
         finished_at=row.finished_at,
         duration_secs=row.duration_secs,

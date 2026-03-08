@@ -35,10 +35,6 @@ def _report_create(
         bool,
         Parameter(name="--stdin", help="Read report content from stdin."),
     ] = False,
-    space: Annotated[
-        str | None,
-        Parameter(name=["--space-id", "--space"], help="Space id containing the spawn."),
-    ] = None,
 ) -> None:
     text = sys.stdin.read() if stdin else content
     emit(
@@ -46,7 +42,6 @@ def _report_create(
             ReportCreateInput(
                 content=text,
                 spawn_id=spawn,
-                space=space,
             )
         )
     )
@@ -58,16 +53,11 @@ def _report_show(
         str | None,
         Parameter(name="--spawn", help="Spawn id or reference (e.g. @latest)."),
     ] = None,
-    space: Annotated[
-        str | None,
-        Parameter(name=["--space-id", "--space"], help="Space id containing the spawn."),
-    ] = None,
 ) -> None:
     emit(
         report_show_sync(
             ReportShowInput(
                 spawn_id=spawn,
-                space=space,
             )
         )
     )
@@ -87,10 +77,6 @@ def _report_search(
         int,
         Parameter(name="--limit", help="Maximum number of matching reports to return."),
     ] = 20,
-    space: Annotated[
-        str | None,
-        Parameter(name=["--space-id", "--space"], help="Space id containing the reports."),
-    ] = None,
 ) -> None:
     emit(
         report_search_sync(
@@ -98,7 +84,6 @@ def _report_search(
                 query=query,
                 spawn_id=spawn,
                 limit=limit,
-                space=space,
             )
         )
     )

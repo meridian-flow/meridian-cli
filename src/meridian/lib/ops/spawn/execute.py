@@ -38,10 +38,10 @@ from meridian.lib.state.session_store import (
     update_session_harness_id,
 )
 from meridian.lib.state import spawn_store
-from meridian.lib.state.paths import resolve_spawn_log_dir, resolve_space_dir
-from meridian.lib.core.types import ModelId, SpawnId, SpaceId
+from meridian.lib.state.paths import resolve_spawn_log_dir, resolve_state_paths
+from meridian.lib.core.types import ModelId, SpawnId
 
-from ..runtime import OperationRuntime, build_runtime, require_space_id
+from ..runtime import OperationRuntime, build_runtime
 from .models import SpawnActionOutput, SpawnCreateInput
 from .query import read_report_text, read_spawn_row
 
@@ -118,8 +118,7 @@ class _SpawnContext(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     spawn: Spawn
-    space_id: SpaceId
-    space_dir: Path
+    state_root: Path
     current_depth: int
 
 
@@ -135,15 +134,6 @@ def _runtime_context(ctx: RuntimeContext | None) -> RuntimeContext:
     if ctx is not None:
         return ctx
     return RuntimeContext.from_environment()
-
-
-def _optional_space_id(space_id: str | None) -> SpaceId | None:
-    if space_id is None:
-        return None
-    normalized = space_id.strip()
-    if not normalized:
-        return None
-    return SpaceId(normalized)
 
 
 def _optional_spawn_id(spawn_id: str | None) -> SpawnId | None:
@@ -191,7 +181,6 @@ def depth_exceeded_output(current_depth: int, max_depth: int) -> SpawnActionOutp
 
 
 def _spawn_child_env(
-    space_id: str | None,
     spawn_id: str | None = None,
     *,
     ctx: RuntimeContext | None = None,
@@ -200,16 +189,11 @@ def _spawn_child_env(
     # Preserve Meridian spawn context across nesting without forwarding unrelated
     # parent process environment variables.
     child_env = {key: value for key, value in os.environ.items() if key.startswith("MERIDIAN_")}
-    resolved_space_id = _optional_space_id(space_id) or runtime_context.space_id
     resolved_spawn_id = _optional_spawn_id(spawn_id)
-    if resolved_space_id is not None and resolved_spawn_id is not None:
-        child_context = runtime_context.child_context(
-            space_id=resolved_space_id,
-            spawn_id=resolved_spawn_id,
-        )
+    if resolved_spawn_id is not None:
+        child_context = runtime_context.child_context(spawn_id=resolved_spawn_id)
     else:
         child_context = RuntimeContext(
-            space_id=resolved_space_id,
             spawn_id=resolved_spawn_id,
             parent_spawn_id=runtime_context.spawn_id if runtime_context.spawn_id is not None else None,
             depth=runtime_context.depth + 1,
@@ -334,17 +318,6 @@ def _resolve_chat_id(*, ctx: RuntimeContext | None = None) -> str:
     return "c0"
 
 
-def _resolve_space(
-    repo_root: Path,
-    payload_space: str | None,
-    *,
-    ctx: RuntimeContext | None = None,
-) -> tuple[SpaceId, Path]:
-    runtime_context = _runtime_context(ctx)
-    resolved = require_space_id(payload_space, space_id=runtime_context.space_id)
-    return resolved, resolve_space_dir(repo_root, resolved)
-
-
 def _init_spawn(
     *,
     payload: SpawnCreateInput,
@@ -353,9 +326,9 @@ def _init_spawn(
     ctx: RuntimeContext | None = None,
 ) -> _SpawnContext:
     runtime_context = _runtime_context(ctx)
-    space_id, space_dir = _resolve_space(runtime.repo_root, payload.space, ctx=runtime_context)
+    state_root = resolve_state_paths(runtime.repo_root).root_dir
     spawn_id = spawn_store.start_spawn(
-        space_dir,
+        state_root,
         chat_id=_resolve_chat_id(ctx=runtime_context),
         model=prepared.model,
         agent=prepared.agent_name or "",
@@ -369,7 +342,6 @@ def _init_spawn(
         prompt=prepared.composed_prompt,
         model=ModelId(prepared.model),
         status="running",
-        space_id=space_id,
     )
     current_depth = runtime_context.depth
     run_start_event: dict[str, Any] = {
@@ -383,8 +355,7 @@ def _init_spawn(
     _emit_subrun_event(run_start_event, sink=runtime.sink, ctx=runtime_context)
     return _SpawnContext(
         spawn=spawn,
-        space_id=space_id,
-        space_dir=space_dir,
+        state_root=state_root,
         current_depth=current_depth,
     )
 
@@ -392,11 +363,10 @@ def _init_spawn(
 def _write_params_json(
     repo_root: Path,
     spawn_id: SpawnId,
-    space_id: str,
     prepared: _PreparedCreateLike,
 ) -> None:
     """Write resolved execution params to the spawn directory."""
-    params_path = resolve_spawn_log_dir(repo_root, spawn_id, space_id) / "params.json"
+    params_path = resolve_spawn_log_dir(repo_root, spawn_id) / "params.json"
     params_path.parent.mkdir(parents=True, exist_ok=True)
     params_payload = {
         "model": prepared.model,
@@ -491,7 +461,6 @@ async def _execute_existing_spawn(
     cli_permission_override: bool = False,
     continue_harness_session_id: str | None = None,
     continue_fork: bool = False,
-    space_id_hint: str | None = None,
     session_agent: str = "",
     session_agent_path: str = "",
     session_skill_paths: tuple[str, ...] = (),
@@ -500,13 +469,8 @@ async def _execute_existing_spawn(
 ) -> int:
     runtime_context = _runtime_context(ctx)
     runtime = build_runtime(str(repo_root), sink=sink)
-    space_id_text = (space_id_hint or str(runtime_context.space_id or "")).strip()
-    if not space_id_text:
-        logger.error("Missing space ID for spawn execution.", spawn_id=str(spawn_id))
-        return 1
-
-    space_dir = resolve_space_dir(repo_root, space_id_text)
-    spawn_record = spawn_store.get_spawn(space_dir, spawn_id)
+    state_root = resolve_state_paths(repo_root).root_dir
+    spawn_record = spawn_store.get_spawn(state_root, spawn_id)
     if spawn_record is None or spawn_record.model is None or spawn_record.prompt is None:
         logger.error("Spawn not found for background execution.", spawn_id=str(spawn_id))
         return 1
@@ -515,7 +479,6 @@ async def _execute_existing_spawn(
         prompt=spawn_record.prompt,
         model=ModelId(spawn_record.model),
         status="running",
-        space_id=SpaceId(space_id_text),
     )
 
     resolver = build_permission_resolver(
@@ -525,7 +488,7 @@ async def _execute_existing_spawn(
     )
 
     with _session_execution_context(
-        space_dir=space_dir,
+        space_dir=state_root,
         harness_id=spawn_record.harness or "",
         harness_session_id=spawn_record.harness_session_id or "",
         model=spawn_record.model,
@@ -539,7 +502,7 @@ async def _execute_existing_spawn(
         return await execute_with_finalization(
             spawn,
             repo_root=runtime.repo_root,
-            space_dir=space_dir,
+            space_dir=state_root,
             artifacts=runtime.artifacts,
             registry=runtime.harness_registry,
             permission_resolver=resolver,
@@ -553,7 +516,6 @@ async def _execute_existing_spawn(
             agent=session_context.resolved_agent_name,
             mcp_tools=mcp_tools,
             env_overrides=_spawn_child_env(
-                space_id_text,
                 str(spawn.spawn_id),
                 ctx=runtime_context,
             ),
@@ -569,7 +531,6 @@ def _build_background_worker_command(
     *,
     spawn_id: str,
     repo_root: Path,
-    space_id: str | None,
     timeout: float | None,
     skills: tuple[str, ...],
     agent_name: str | None,
@@ -594,8 +555,6 @@ def _build_background_worker_command(
         "--permission-tier",
         permission_config.tier.value,
     ]
-    if space_id is not None:
-        command.extend(["--space-id", space_id])
     if timeout is not None:
         command.extend(["--timeout", str(timeout)])
     if agent_name is not None:
@@ -633,16 +592,14 @@ def execute_spawn_background(
         logger.warning("--stream is ignored with --background; output goes to spawn log files.")
     context = _init_spawn(payload=payload, prepared=prepared, runtime=runtime, ctx=runtime_context)
     spawn_id_text = str(context.spawn.spawn_id)
-    space_id_str = str(context.space_id)
     try:
-        _write_params_json(runtime.repo_root, context.spawn.spawn_id, space_id_str, prepared)
+        _write_params_json(runtime.repo_root, context.spawn.spawn_id, prepared)
     except Exception:
         logger.warning("Failed to write params.json", spawn_id=spawn_id_text, exc_info=True)
 
     launch_command = _build_background_worker_command(
         spawn_id=spawn_id_text,
         repo_root=runtime.repo_root,
-        space_id=space_id_str,
         timeout=payload.timeout,
         skills=prepared.skills,
         agent_name=prepared.agent_name,
@@ -656,7 +613,7 @@ def execute_spawn_background(
         session_agent_path=prepared.session_agent_path,
         session_skill_paths=prepared.skill_paths,
     )
-    log_dir = resolve_spawn_log_dir(runtime.repo_root, context.spawn.spawn_id, context.spawn.space_id)
+    log_dir = resolve_spawn_log_dir(runtime.repo_root, context.spawn.spawn_id)
     log_dir.mkdir(parents=True, exist_ok=True)
     stdout_path = log_dir / _BACKGROUND_STDOUT_FILENAME
     stderr_path = log_dir / _BACKGROUND_STDERR_FILENAME
@@ -679,7 +636,7 @@ def execute_spawn_background(
             )
     except OSError as exc:
         spawn_store.finalize_spawn(
-            context.space_dir,
+            context.state_root,
             context.spawn.spawn_id,
             status="failed",
             exit_code=1,
@@ -735,17 +692,16 @@ def execute_spawn_blocking(
     context = _init_spawn(payload=payload, prepared=prepared, runtime=runtime, ctx=runtime_context)
     spawn = context.spawn
     try:
-        _write_params_json(runtime.repo_root, spawn.spawn_id, str(context.space_id), prepared)
+        _write_params_json(runtime.repo_root, spawn.spawn_id, prepared)
     except Exception:
         logger.warning("Failed to write params.json", spawn_id=str(spawn.spawn_id), exc_info=True)
     started = time.monotonic()
-    space_id_str = str(context.space_id)
     stream_stdout_to_terminal = payload.stream
     event_observer = None
     # Spawn execution stays silent unless --stream is explicitly enabled.
 
     with _session_execution_context(
-        space_dir=context.space_dir,
+        space_dir=context.state_root,
         harness_id=prepared.harness_id,
         harness_session_id=prepared.continue_harness_session_id or "",
         model=prepared.model,
@@ -760,7 +716,7 @@ def execute_spawn_blocking(
             execute_with_finalization(
                 spawn,
                 repo_root=runtime.repo_root,
-                space_dir=context.space_dir,
+                space_dir=context.state_root,
                 artifacts=runtime.artifacts,
                 registry=runtime.harness_registry,
                 permission_resolver=prepared.permission_resolver,
@@ -774,7 +730,6 @@ def execute_spawn_blocking(
                 agent=session_context.resolved_agent_name,
                 mcp_tools=prepared.mcp_tools,
                 env_overrides=_spawn_child_env(
-                    space_id_str,
                     str(spawn.spawn_id),
                     ctx=runtime_context,
                 ),
@@ -789,8 +744,8 @@ def execute_spawn_blocking(
             )
         )
     duration = time.monotonic() - started
-    row = read_spawn_row(runtime.repo_root, str(spawn.spawn_id), space=space_id_str)
-    _, report_text = read_report_text(runtime.repo_root, str(spawn.spawn_id), space=space_id_str)
+    row = read_spawn_row(runtime.repo_root, str(spawn.spawn_id))
+    _, report_text = read_report_text(runtime.repo_root, str(spawn.spawn_id))
     status = "failed"
     if row is not None:
         status = row.status
@@ -838,7 +793,6 @@ def _build_background_worker_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m meridian.lib.ops.spawn.execute")
     parser.add_argument("--spawn-id", required=True)
     parser.add_argument("--repo-root", required=True)
-    parser.add_argument("--space-id", default=None)
     parser.add_argument("--timeout", type=float, default=None)
     parser.add_argument("--skill", action="append", default=[])
     parser.add_argument("--agent", default=None)
@@ -872,7 +826,6 @@ def _background_worker_main(
         _execute_existing_spawn(
             spawn_id=SpawnId(parsed.spawn_id),
             repo_root=Path(parsed.repo_root).expanduser().resolve(),
-            space_id_hint=parsed.space_id,
             timeout=parsed.timeout,
             skills=tuple(str(item) for item in parsed.skill),
             agent_name=cast("str | None", parsed.agent),

@@ -11,12 +11,6 @@ from meridian.lib.config.settings import MeridianConfig, load_config
 from meridian.lib.core.sink import NullSink, OutputSink
 from meridian.lib.state.artifact_store import LocalStore
 from meridian.lib.state.paths import resolve_state_paths
-from meridian.lib.core.types import SpaceId
-
-SPACE_REQUIRED_ERROR = (
-    "ERROR [SPACE_REQUIRED]: Spawn commands require explicit space context. "
-    "Set MERIDIAN_SPACE_ID or pass --space."
-)
 
 
 class OperationRuntime(BaseModel):
@@ -73,35 +67,7 @@ def build_runtime(
     return build_runtime_from_root_and_config(resolved_root, config, sink=sink)
 
 
-def _normalize_space_id(space_id: str | SpaceId | None) -> str:
-    if space_id is None:
-        return ""
-    return str(space_id).strip()
+def resolve_state_root(repo_root: Path) -> Path:
+    """Resolve the Meridian state root for a repository."""
 
-
-def require_space_id(
-    space: str | None,
-    *,
-    space_id: str | SpaceId | None = None,
-) -> SpaceId:
-    """Resolve space ID and raise when none is configured."""
-
-    resolved = space.strip() if space is not None else ""
-    if not resolved:
-        resolved = _normalize_space_id(space_id)
-    if not resolved:
-        raise ValueError(SPACE_REQUIRED_ERROR)
-    return SpaceId(resolved)
-
-
-def resolve_space_id_or_none(
-    space: str | None,
-    *,
-    space_id: str | SpaceId | None = None,
-) -> str | None:
-    """Resolve space ID from explicit value or fallback, returning None if absent."""
-
-    resolved = space.strip() if space is not None else ""
-    if not resolved:
-        resolved = _normalize_space_id(space_id)
-    return resolved or None
+    return resolve_state_paths(repo_root).root_dir

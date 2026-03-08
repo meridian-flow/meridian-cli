@@ -233,7 +233,6 @@ def build_create_payload(
         payload.files,
         base_dir=runtime_view.repo_root,
         include_content=not use_reference_paths,
-        space_id=payload.space,
     )
     parsed_template_vars = parse_template_assignments(payload.template_vars)
     # Native agent passthrough is stricter than native skill support.

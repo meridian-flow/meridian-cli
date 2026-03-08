@@ -5,21 +5,18 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
-from meridian.lib.core.types import SpaceId
-
 _CONTINUATION_GUIDANCE = (
-    "You are resuming an existing space. Continue from the current state, "
+    "You are resuming an existing Meridian session. Continue from the current state, "
     "preserve prior decisions unless evidence has changed, and avoid duplicating "
     "already-completed work."
 )
 
 
-class SpaceLaunchRequest(BaseModel):
+class LaunchRequest(BaseModel):
     """Inputs for launching one primary agent session."""
 
     model_config = ConfigDict(frozen=True)
 
-    space_id: SpaceId
     model: str = ""
     harness: str | None = None
     agent: str | None = None
@@ -33,7 +30,7 @@ class SpaceLaunchRequest(BaseModel):
     continue_harness_session_id: str | None = None
 
 
-class SpaceLaunchResult(BaseModel):
+class LaunchResult(BaseModel):
     """Result metadata from a completed primary launch."""
 
     model_config = ConfigDict(frozen=True)
@@ -55,13 +52,10 @@ class PrimarySessionMetadata(BaseModel):
     skill_paths: tuple[str, ...]
 
 
-def build_primary_prompt(request: SpaceLaunchRequest) -> str:
-    """Build launch prompt for space start/resume sessions."""
+def build_primary_prompt(request: LaunchRequest) -> str:
+    """Build launch prompt for primary sessions."""
 
-    sections: list[str] = [
-        "# Meridian Space Session",
-        f"Space: {request.space_id}",
-    ]
+    sections: list[str] = ["# Meridian Session"]
 
     if request.fresh:
         sections.extend(
@@ -82,8 +76,8 @@ def build_primary_prompt(request: SpaceLaunchRequest) -> str:
 
 
 __all__ = [
+    "LaunchRequest",
+    "LaunchResult",
     "PrimarySessionMetadata",
-    "SpaceLaunchRequest",
-    "SpaceLaunchResult",
     "build_primary_prompt",
 ]

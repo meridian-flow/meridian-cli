@@ -21,6 +21,3 @@ def _clean_meridian_runtime_env(monkeypatch: pytest.MonkeyPatch) -> None:
     for key in tuple(os.environ):
         if key.startswith("MERIDIAN_"):
             monkeypatch.delenv(key, raising=False)
-    # Most direct operation tests do not set a space explicitly.
-    # Keep a default scoped space unless a test intentionally removes it.
-    monkeypatch.setenv("MERIDIAN_SPACE_ID", "s1")

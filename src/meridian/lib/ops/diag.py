@@ -8,13 +8,12 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.config.settings import resolve_path_list
-from meridian.lib.harness.materialize import cleanup_materialized
 from meridian.lib.core.util import FormatContext
+from meridian.lib.harness.materialize import cleanup_materialized
 from meridian.lib.ops.runtime import build_runtime
-from meridian.lib.state.session_store import cleanup_stale_sessions, list_active_sessions
 from meridian.lib.state import spawn_store
-from meridian.lib.state.paths import resolve_all_spaces_dir
-from meridian.lib.state.space_store import get_space
+from meridian.lib.state.paths import resolve_state_paths
+from meridian.lib.state.session_store import cleanup_stale_sessions, list_active_sessions
 
 
 class DoctorInput(BaseModel):
@@ -28,7 +27,6 @@ class DoctorOutput(BaseModel):
 
     ok: bool
     repo_root: str
-    spaces_checked: int
     runs_checked: int
     agents_dir: str
     skills_dir: str
@@ -43,7 +41,6 @@ class DoctorOutput(BaseModel):
         pairs: list[tuple[str, str | None]] = [
             ("ok", status),
             ("repo_root", self.repo_root),
-            ("spaces_checked", str(self.spaces_checked)),
             ("runs_checked", str(self.runs_checked)),
             ("agents_dir", self.agents_dir),
             ("skills_dir", self.skills_dir),
@@ -55,45 +52,26 @@ class DoctorOutput(BaseModel):
         return result
 
 
-def _space_dirs(repo_root: Path) -> list[Path]:
-    spaces_dir = resolve_all_spaces_dir(repo_root)
-    if not spaces_dir.is_dir():
-        return []
-    return [child for child in sorted(spaces_dir.iterdir()) if child.is_dir()]
-
-
-def _detect_missing_or_corrupt_spaces(repo_root: Path) -> list[str]:
-    bad: list[str] = []
-    for space_dir in _space_dirs(repo_root):
-        if get_space(repo_root, space_dir.name) is None:
-            bad.append(space_dir.name)
-    return bad
+def _state_root(repo_root: Path) -> Path:
+    return resolve_state_paths(repo_root).root_dir
 
 
 def _count_runs(repo_root: Path) -> int:
-    total = 0
-    for space_dir in _space_dirs(repo_root):
-        if get_space(repo_root, space_dir.name) is None:
-            continue
-        total += len(spawn_store.list_spawns(space_dir))
-    return total
+    return len(spawn_store.list_spawns(_state_root(repo_root)))
 
 
 def _repair_stale_session_locks(repo_root: Path) -> int:
-    repaired = 0
-    for space_dir in _space_dirs(repo_root):
-        if get_space(repo_root, space_dir.name) is None:
-            continue
-        cleanup = cleanup_stale_sessions(space_dir)
-        repaired += len(cleanup.cleaned_ids)
-        for harness_id, chat_id in cleanup.materialized_scopes:
-            cleanup_materialized(harness_id, repo_root, chat_id)
-    return repaired
+    cleanup = cleanup_stale_sessions(_state_root(repo_root))
+    for harness_id, chat_id in cleanup.materialized_scopes:
+        cleanup_materialized(harness_id, repo_root, chat_id)
+    return len(cleanup.cleaned_ids)
 
 
 def _repair_orphan_runs(repo_root: Path) -> int:
-    def _background_pid(space_dir: Path, run_id: str) -> int | None:
-        pid_path = space_dir / "spawns" / run_id / "background.pid"
+    state_root = _state_root(repo_root)
+
+    def _background_pid(spawn_id: str) -> int | None:
+        pid_path = state_root / "spawns" / spawn_id / "background.pid"
         if not pid_path.is_file():
             return None
         try:
@@ -112,29 +90,24 @@ def _repair_orphan_runs(repo_root: Path) -> int:
         return True
 
     repaired = 0
-    for space_dir in _space_dirs(repo_root):
-        record = get_space(repo_root, space_dir.name)
-        if record is None:
+    active_sessions = set(list_active_sessions(state_root))
+    for run in spawn_store.list_spawns(state_root):
+        if run.status != "running":
+            continue
+        pid = _background_pid(run.id)
+        if pid is not None and _pid_is_alive(pid):
+            continue
+        if run.chat_id is not None and run.chat_id in active_sessions:
             continue
 
-        active_sessions = set(list_active_sessions(space_dir))
-        for run in spawn_store.list_spawns(space_dir):
-            if run.status != "running":
-                continue
-            pid = _background_pid(space_dir, run.id)
-            if pid is not None and _pid_is_alive(pid):
-                continue
-            if run.chat_id is not None and run.chat_id in active_sessions:
-                continue
-
-            spawn_store.finalize_spawn(
-                space_dir,
-                run.id,
-                status="failed",
-                exit_code=1,
-                error="orphan_run",
-            )
-            repaired += 1
+        spawn_store.finalize_spawn(
+            state_root,
+            run.id,
+            status="failed",
+            exit_code=1,
+            error="orphan_run",
+        )
+        repaired += 1
     return repaired
 
 
@@ -146,9 +119,6 @@ def doctor_sync(payload: DoctorInput) -> DoctorOutput:
     if stale_locks > 0:
         repaired.append("stale_session_locks")
 
-    # Skip destructive repairs when running as a spawned agent (MERIDIAN_DEPTH > 0).
-    # Spawned agents should never mark their parent's concurrent spawns as failed
-    # or close the parent space.
     if int(os.getenv("MERIDIAN_DEPTH", "0")) <= 0:
         orphan_runs = _repair_orphan_runs(runtime.repo_root)
         if orphan_runs > 0:
@@ -172,21 +142,9 @@ def doctor_sync(payload: DoctorInput) -> DoctorOutput:
     if not agents_dirs:
         warnings.append("No configured agent profile directories were found.")
 
-    bad_spaces = _detect_missing_or_corrupt_spaces(runtime.repo_root)
-    if bad_spaces:
-        warnings.append(
-            "Missing/corrupt space.json detected for spaces: " + ", ".join(sorted(bad_spaces))
-        )
-        repaired.append("missing_or_corrupt_space_json")
-
-    for space_dir in _space_dirs(runtime.repo_root):
-        record = get_space(runtime.repo_root, space_dir.name)
-        if record is None:
-            continue
-
-        running = [row.id for row in spawn_store.list_spawns(space_dir) if row.status == "running"]
-        if running:
-            warnings.append(f"Space '{record.id}' has orphan candidate running spawns: {', '.join(running)}")
+    running = [row.id for row in spawn_store.list_spawns(_state_root(runtime.repo_root)) if row.status == "running"]
+    if running:
+        warnings.append("Running spawns still present: " + ", ".join(running))
 
     agents_dir = agents_dirs[0] if agents_dirs else runtime.repo_root
     skills_dir = skills_dirs[0] if skills_dirs else runtime.repo_root
@@ -194,7 +152,6 @@ def doctor_sync(payload: DoctorInput) -> DoctorOutput:
     return DoctorOutput(
         ok=not warnings,
         repo_root=runtime.repo_root.as_posix(),
-        spaces_checked=len(_space_dirs(runtime.repo_root)),
         runs_checked=_count_runs(runtime.repo_root),
         agents_dir=agents_dir.as_posix(),
         skills_dir=skills_dir.as_posix(),

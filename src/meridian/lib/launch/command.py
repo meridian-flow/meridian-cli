@@ -36,7 +36,7 @@ from .resolve import (
     resolve_permission_tier_from_profile,
     resolve_skills_from_profile,
 )
-from .types import SpaceLaunchRequest
+from .types import LaunchRequest
 
 logger = logging.getLogger(__name__)
 
@@ -87,13 +87,13 @@ def normalize_system_prompt_passthrough_args(
 def build_harness_context(
     *,
     repo_root: Path | None = None,
-    request: SpaceLaunchRequest,
+    request: LaunchRequest,
     prompt: str,
     harness_registry: HarnessRegistry,
     chat_id: str = "",
     config: MeridianConfig | None = None,
 ) -> PrimaryHarnessContext:
-    """Build primary harness command and launch context for one space session."""
+    """Build primary harness command and launch context for one primary session."""
 
     passthrough_args = request.passthrough_args
 
@@ -244,7 +244,7 @@ def build_harness_context(
 def build_harness_command(
     *,
     repo_root: Path,
-    request: SpaceLaunchRequest,
+    request: LaunchRequest,
     prompt: str,
     harness_registry: HarnessRegistry,
     chat_id: str = "",
@@ -261,9 +261,9 @@ def build_harness_command(
     ).command
 
 
-def build_space_env(
+def build_launch_env(
     repo_root: Path,
-    request: SpaceLaunchRequest,
+    request: LaunchRequest,
     *,
     chat_id: str | None = None,
     default_autocompact_pct: int | None = None,
@@ -275,7 +275,6 @@ def build_space_env(
         chat_id.strip() if chat_id is not None and chat_id.strip() else current_context.chat_id
     )
     runtime_context = RuntimeContext(
-        space_id=request.space_id,
         depth=current_context.depth,
         repo_root=repo_root.resolve(),
         state_root=resolve_state_paths(repo_root).root_dir.resolve(),
@@ -316,6 +315,6 @@ __all__ = [
     "PrimaryHarnessContext",
     "build_harness_command",
     "build_harness_context",
-    "build_space_env",
+    "build_launch_env",
     "normalize_system_prompt_passthrough_args",
 ]

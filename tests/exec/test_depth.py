@@ -335,9 +335,8 @@ async def test_mcp_run_spawn_refuses_when_depth_limit_reached(
 
 def test_run_child_env_increments_depth(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MERIDIAN_DEPTH", "2")
-    env = _spawn_child_env("s9")
+    env = _spawn_child_env()
     assert env["MERIDIAN_DEPTH"] == "3"
-    assert env["MERIDIAN_SPACE_ID"] == "s9"
 
 
 def test_recursive_spawn_blocks_before_creating_third_level(
