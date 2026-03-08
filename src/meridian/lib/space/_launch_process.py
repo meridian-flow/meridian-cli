@@ -8,10 +8,11 @@ import os
 import signal
 import subprocess
 import time
-from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
+
+from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.config.settings import MeridianConfig, load_config
 from meridian.lib.harness.materialize import cleanup_materialized
@@ -39,9 +40,10 @@ def space_lock_path(repo_root: Path, space_id: SpaceId) -> Path:
     return resolve_state_paths(repo_root).active_spaces_dir / f"{space_id}.lock"
 
 
-@dataclass(frozen=True, slots=True)
-class LaunchContext:
+class LaunchContext(BaseModel):
     """Resolved configuration for one primary launch."""
+
+    model_config = ConfigDict(frozen=True)
 
     config: MeridianConfig
     prompt: str
@@ -52,9 +54,10 @@ class LaunchContext:
     command_request: SpaceLaunchRequest
 
 
-@dataclass(frozen=True, slots=True)
-class ProcessOutcome:
+class ProcessOutcome(BaseModel):
     """Result of running the harness subprocess."""
+
+    model_config = ConfigDict(frozen=True)
 
     command: tuple[str, ...]
     exit_code: int
@@ -205,9 +208,8 @@ def prepare_launch_context(
     seed_harness_session_id = seed.session_id
     command_request = request
     if seed.session_args:
-        command_request = replace(
-            request,
-            passthrough_args=(*request.passthrough_args, *seed.session_args),
+        command_request = request.model_copy(
+            update={"passthrough_args": (*request.passthrough_args, *seed.session_args)},
         )
 
     return LaunchContext(

@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, fields
 from enum import StrEnum
 from typing import cast
+
+from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.harness.adapter import McpConfig, PermissionResolver, SpawnParams
 from meridian.lib.types import HarnessId
@@ -22,9 +23,10 @@ class FlagEffect(StrEnum):
 type StrategyTransform = Callable[[object, list[str]], None]
 
 
-@dataclass(frozen=True, slots=True)
-class FlagStrategy:
+class FlagStrategy(BaseModel):
     """Mapping rule for how one SpawnParams field is applied to CLI args."""
+
+    model_config = ConfigDict(frozen=True)
 
     effect: FlagEffect
     cli_flag: str | None = None
@@ -68,7 +70,7 @@ def build_harness_command(
 ) -> list[str]:
     """Build one harness command using field strategies."""
 
-    all_fields = {f.name for f in fields(SpawnParams)}
+    all_fields = set(SpawnParams.model_fields)
     unmapped = all_fields - set(strategies.keys()) - _SKIP_FIELDS
     if unmapped:
         raise ValueError(
@@ -77,8 +79,7 @@ def build_harness_command(
         )
 
     strategy_args: list[str] = []
-    for run_field in fields(SpawnParams):
-        field_name = run_field.name
+    for field_name in SpawnParams.model_fields:
         if field_name in _SKIP_FIELDS:
             continue
 

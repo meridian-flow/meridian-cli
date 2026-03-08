@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
 from pathlib import Path
+
+from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.types import SpawnId, SpaceId
 
@@ -18,9 +19,10 @@ _GITIGNORE_CONTENT = (
 )
 
 
-@dataclass(frozen=True, slots=True)
-class SpacePaths:
+class SpacePaths(BaseModel):
     """Resolved paths for one space directory."""
+
+    model_config = ConfigDict(frozen=True)
 
     space_dir: Path
     space_json: Path
@@ -51,9 +53,10 @@ class SpacePaths:
         )
 
 
-@dataclass(frozen=True, slots=True)
-class StatePaths:
+class StatePaths(BaseModel):
     """Resolved on-disk Meridian state paths."""
+
+    model_config = ConfigDict(frozen=True)
 
     root_dir: Path
     artifacts_dir: Path

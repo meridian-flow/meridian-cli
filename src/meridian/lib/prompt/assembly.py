@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+
+from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.config.agent import AgentProfile
 from meridian.lib.config.skill_registry import SkillRegistry
@@ -39,9 +40,10 @@ def dedupe_skill_contents(skills: Sequence[SkillContent]) -> tuple[SkillContent,
     return tuple(ordered)
 
 
-@dataclass(frozen=True, slots=True)
-class SpawnPromptDefaults:
+class SpawnPromptDefaults(BaseModel):
     """Resolved model + agent body + skill names for prompt composition."""
+
+    model_config = ConfigDict(frozen=True)
 
     model: str
     skills: tuple[str, ...]

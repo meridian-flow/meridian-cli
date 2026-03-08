@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import Literal, Protocol, runtime_checkable
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from meridian.lib.domain import TokenUsage
 from meridian.lib.harness.launch_types import PromptPolicy, SessionSeed
@@ -20,9 +21,10 @@ def _empty_env_overrides() -> dict[str, str]:
     return {}
 
 
-@dataclass(frozen=True, slots=True)
-class HarnessCapabilities:
+class HarnessCapabilities(BaseModel):
     """Feature flags for one harness implementation."""
+
+    model_config = ConfigDict(frozen=True)
 
     supports_stream_events: bool = True
     supports_stdin_prompt: bool = False
@@ -35,9 +37,10 @@ class HarnessCapabilities:
     reference_input_mode: Literal["inline", "paths"] = "inline"
 
 
-@dataclass(frozen=True, slots=True)
-class SpawnParams:
+class SpawnParams(BaseModel):
     """Inputs required to launch one harness run."""
+
+    model_config = ConfigDict(frozen=True)
 
     prompt: str
     model: ModelId
@@ -55,43 +58,48 @@ class SpawnParams:
     report_output_path: str | None = None
 
 
-@dataclass(frozen=True, slots=True)
-class McpConfig:
+class McpConfig(BaseModel):
     """Harness-specific MCP wiring details for one run."""
 
+    model_config = ConfigDict(frozen=True)
+
     command_args: tuple[str, ...] = ()
-    env_overrides: dict[str, str] = field(default_factory=_empty_env_overrides)
+    env_overrides: dict[str, str] = Field(default_factory=_empty_env_overrides)
     claude_allowed_tools: tuple[str, ...] = ()
 
 
-@dataclass(frozen=True, slots=True)
-class StreamEvent:
+class StreamEvent(BaseModel):
     """Structured stream event parsed from harness output."""
+
+    model_config = ConfigDict(frozen=True)
 
     event_type: str
     category: str
     raw_line: str
     text: str | None = None
-    metadata: dict[str, object] = field(default_factory=_empty_metadata)
+    metadata: dict[str, object] = Field(default_factory=_empty_metadata)
 
 
-@dataclass(frozen=True, slots=True)
-class SpawnResult:
+class SpawnResult(BaseModel):
     """Result payload for one completed execution."""
+
+    model_config = ConfigDict(frozen=True)
 
     status: str
     output: str
-    usage: TokenUsage = field(default_factory=TokenUsage)
+    usage: TokenUsage = Field(default_factory=TokenUsage)
     harness_session_id: str | None = None
     raw_response: dict[str, object] | None = None
 
 
+@runtime_checkable
 class PermissionResolver(Protocol):
     """Permission resolver provided by execution layer."""
 
     def resolve_flags(self, harness_id: HarnessId) -> list[str]: ...
 
 
+@runtime_checkable
 class ArtifactStore(Protocol):
     """Artifact access used for usage/session extraction."""
 
@@ -100,6 +108,7 @@ class ArtifactStore(Protocol):
     def exists(self, key: ArtifactKey) -> bool: ...
 
 
+@runtime_checkable
 class HarnessAdapter(Protocol):
     """Protocol for harness-specific launch/parsing/extraction behavior."""
 

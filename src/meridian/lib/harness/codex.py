@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 import json
 from pathlib import Path
 import re
@@ -104,7 +103,11 @@ class CodexAdapter(BaseHarnessAdapter):
             guarded_prompt = run.prompt
             if guarded_prompt and not harness_session_id:
                 guarded_prompt = f"{guarded_prompt}\n\nDO NOT DO ANYTHING. WAIT FOR USER INPUT."
-            command_run = replace(run, prompt=guarded_prompt) if guarded_prompt != run.prompt else run
+            command_run = (
+                run.model_copy(update={"prompt": guarded_prompt})
+                if guarded_prompt != run.prompt
+                else run
+            )
         else:
             base_command = (
                 ("codex", "exec", "--json", "resume", harness_session_id)
@@ -112,13 +115,14 @@ class CodexAdapter(BaseHarnessAdapter):
                 else self.BASE_COMMAND
             )
             # Codex supports prompt-from-stdin via "-" and this avoids argv length limits.
-            command_run = replace(run, prompt="-")
+            command_run = run.model_copy(update={"prompt": "-"})
             # Codex -o writes the agent's final response to a file, giving us a clean
             # report without fragile JSONL parsing.
             if run.report_output_path:
-                command_run = replace(
-                    command_run,
-                    extra_args=command_run.extra_args + ("-o", run.report_output_path),
+                command_run = command_run.model_copy(
+                    update={
+                        "extra_args": command_run.extra_args + ("-o", run.report_output_path),
+                    },
                 )
         return build_harness_command(
             base_command=base_command,

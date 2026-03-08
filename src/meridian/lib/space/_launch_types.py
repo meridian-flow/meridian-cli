@@ -6,8 +6,9 @@ to import these without creating circular dependencies.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
+
+from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.types import SpaceId
 
@@ -18,9 +19,10 @@ _CONTINUATION_GUIDANCE = (
 )
 
 
-@dataclass(frozen=True, slots=True)
-class SpaceLaunchRequest:
+class SpaceLaunchRequest(BaseModel):
     """Inputs for launching one primary agent session."""
+
+    model_config = ConfigDict(frozen=True)
 
     space_id: SpaceId
     model: str = ""
@@ -36,9 +38,10 @@ class SpaceLaunchRequest:
     continue_harness_session_id: str | None = None
 
 
-@dataclass(frozen=True, slots=True)
-class SpaceLaunchResult:
+class SpaceLaunchResult(BaseModel):
     """Result metadata from a completed primary launch."""
+
+    model_config = ConfigDict(frozen=True)
 
     command: tuple[str, ...]
     exit_code: int
@@ -46,8 +49,9 @@ class SpaceLaunchResult:
     continue_ref: str | None = None
 
 
-@dataclass(frozen=True, slots=True)
-class PrimarySessionMetadata:
+class PrimarySessionMetadata(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     harness: str
     model: str
     agent: str

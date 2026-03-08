@@ -7,20 +7,22 @@ import-cycle pressure from ``space/__init__.py`` which eagerly imports
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from pydantic import BaseModel, ConfigDict
 
 
-@dataclass(frozen=True, slots=True)
-class SessionSeed:
+class SessionSeed(BaseModel):
     """Adapter's session decisions, resolved early (before process starts)."""
+
+    model_config = ConfigDict(frozen=True)
 
     session_id: str = ""
     session_args: tuple[str, ...] = ()
 
 
-@dataclass(frozen=True, slots=True)
-class PromptPolicy:
+class PromptPolicy(BaseModel):
     """Adapter's prompt decisions, resolved during command assembly."""
+
+    model_config = ConfigDict(frozen=True)
 
     prompt: str = ""
     skill_injection: str | None = None

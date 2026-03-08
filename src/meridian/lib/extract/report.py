@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass
 from typing import Literal, cast
+
+from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.extract._io import read_artifact_text
 from meridian.lib.harness.adapter import HarnessAdapter
@@ -16,8 +17,9 @@ ReportSource = Literal["report_md", "assistant_message"]
 _LOGGER = logging.getLogger(__name__)
 
 
-@dataclass(frozen=True, slots=True)
-class ExtractedReport:
+class ExtractedReport(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     content: str | None
     source: ReportSource | None
 

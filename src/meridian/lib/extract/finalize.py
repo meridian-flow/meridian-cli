@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
+
+from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.domain import TokenUsage
 from meridian.lib.extract._io import read_artifact_text
@@ -20,8 +21,9 @@ _STDERR_FILENAME = "stderr.log"
 _TOKENS_FILENAME = "tokens.json"
 
 
-@dataclass(frozen=True, slots=True)
-class FinalizeExtraction:
+class FinalizeExtraction(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     usage: TokenUsage
     harness_session_id: str | None
     files_touched: tuple[str, ...]

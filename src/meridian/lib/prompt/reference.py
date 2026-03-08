@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
 from pathlib import Path
+
+from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.state.paths import resolve_space_dir
 from meridian.lib.types import SpaceId
@@ -17,9 +18,10 @@ class TemplateVariableError(ValueError):
     """Template substitution failed due to undefined or malformed variables."""
 
 
-@dataclass(frozen=True, slots=True)
-class ReferenceFile:
+class ReferenceFile(BaseModel):
     """One reference file loaded from `-f` flags."""
+
+    model_config = ConfigDict(frozen=True)
 
     path: Path
     content: str

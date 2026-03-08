@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 
+from pydantic import BaseModel, ConfigDict
 
-@dataclass(frozen=True, slots=True)
-class HarnessLayout:
+
+class HarnessLayout(BaseModel):
     """Directories a harness reads agents/skills from natively."""
+
+    model_config = ConfigDict(frozen=True)
 
     agents: tuple[str, ...]
     skills: tuple[str, ...]

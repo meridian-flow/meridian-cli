@@ -5,10 +5,11 @@ from __future__ import annotations
 import logging
 import os
 import shlex
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 from uuid import uuid4
+
+from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.config._paths import resolve_repo_root
 from meridian.lib.config.settings import MeridianConfig, load_config
@@ -42,12 +43,13 @@ from meridian.lib.types import ModelId
 logger = logging.getLogger(__name__)
 
 
-@dataclass(frozen=True, slots=True)
-class PrimaryHarnessContext:
+class PrimaryHarnessContext(BaseModel):
     command: tuple[str, ...]
     adapter: HarnessAdapter | None = None
     run_params: SpawnParams | None = None
     permission_config: PermissionConfig | None = None
+
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
 
 
 def normalize_system_prompt_passthrough_args(

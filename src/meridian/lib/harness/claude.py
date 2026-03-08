@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import tempfile
-from dataclasses import replace
 from pathlib import Path
 from typing import ClassVar, cast
 from uuid import uuid4
@@ -220,10 +219,10 @@ class ClaudeAdapter(BaseHarnessAdapter):
         merged_perms = _StaticPermissionResolver(permission_flags)
         if run.interactive:
             base_command = self.PRIMARY_BASE_COMMAND
-            command_run = replace(run, prompt="")
+            command_run = run.model_copy(update={"prompt": ""})
         else:
             base_command = self.BASE_COMMAND
-            command_run = replace(run, prompt="-")
+            command_run = run.model_copy(update={"prompt": "-"})
         command = build_harness_command(
             base_command=base_command,
             prompt_mode=self.PROMPT_MODE,

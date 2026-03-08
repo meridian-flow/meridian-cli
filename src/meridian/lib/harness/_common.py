@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
 from typing import cast
+
+from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.domain import TokenUsage
 from meridian.lib.harness.adapter import ArtifactStore, StreamEvent
@@ -164,8 +165,9 @@ def _read_json_artifact(
     return None
 
 
-@dataclass(frozen=True, slots=True)
-class _UsageCandidate:
+class _UsageCandidate(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     input_tokens: int | None = None
     output_tokens: int | None = None
     total_cost_usd: float | None = None

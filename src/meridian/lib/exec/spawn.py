@@ -9,10 +9,10 @@ import signal
 import sys
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
+from pydantic import BaseModel, ConfigDict
 import structlog
 
 from meridian.lib.config.settings import MeridianConfig
@@ -74,9 +74,10 @@ class SafeDefaultPermissionResolver(PermissionResolver):
         return []
 
 
-@dataclass(frozen=True, slots=True)
-class SpawnResult:
+class SpawnResult(BaseModel):
     """Result from one spawned harness process."""
+
+    model_config = ConfigDict(frozen=True)
 
     exit_code: int
     raw_return_code: int

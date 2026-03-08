@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import re
 from datetime import datetime
-from dataclasses import replace
 from pathlib import Path
 from typing import ClassVar
 
@@ -105,7 +104,7 @@ class OpenCodeAdapter(BaseHarnessAdapter):
     def build_command(self, run: SpawnParams, perms: PermissionResolver) -> list[str]:
         mcp_config = self.mcp_config(run)
         base_command = self.PRIMARY_BASE_COMMAND if run.interactive else self.BASE_COMMAND
-        command_run = run if run.interactive else replace(run, prompt="-")
+        command_run = run if run.interactive else run.model_copy(update={"prompt": "-"})
         command = build_harness_command(
             base_command=base_command,
             prompt_mode=self.PROMPT_MODE,

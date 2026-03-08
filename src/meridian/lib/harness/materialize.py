@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import glob
 import shutil
-from dataclasses import dataclass
 from pathlib import Path
+
+from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.config.agent import AgentProfile
 from meridian.lib.harness.layout import (
@@ -19,9 +20,10 @@ from meridian.lib.harness.layout import (
 )
 
 
-@dataclass(frozen=True, slots=True)
-class MaterializeResult:
+class MaterializeResult(BaseModel):
     """Result describing harness materialization behavior."""
+
+    model_config = ConfigDict(frozen=True)
 
     agent_name: str
     materialized_agent: bool

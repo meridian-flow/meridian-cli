@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, PrivateAttr
 
 from meridian.lib.config.routing import route_model
 from meridian.lib.harness.adapter import HarnessAdapter
@@ -19,11 +20,12 @@ def _empty_adapters() -> dict[HarnessId, HarnessAdapter]:
     return {}
 
 
-@dataclass(slots=True)
-class HarnessRegistry:
+class HarnessRegistry(BaseModel):
     """Registry keyed by HarnessId."""
 
-    _adapters: dict[HarnessId, HarnessAdapter] = field(default_factory=_empty_adapters)
+    model_config = ConfigDict()
+
+    _adapters: dict[HarnessId, HarnessAdapter] = PrivateAttr(default_factory=_empty_adapters)
 
     @classmethod
     def with_defaults(cls) -> HarnessRegistry:

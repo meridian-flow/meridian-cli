@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import MutableMapping
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol, cast
+
+from pydantic import BaseModel, ConfigDict, PrivateAttr
 
 from meridian.lib.types import ArtifactKey, SpawnId
 
@@ -41,9 +42,10 @@ def _empty_bytes_map() -> MutableMapping[ArtifactKey, bytes]:
     return cast("MutableMapping[ArtifactKey, bytes]", {})
 
 
-@dataclass(slots=True)
-class LocalStore:
+class LocalStore(BaseModel):
     """Filesystem-backed artifact store rooted at one directory."""
+
+    model_config = ConfigDict()
 
     root_dir: Path
 
@@ -80,11 +82,12 @@ class LocalStore:
         return artifacts
 
 
-@dataclass(slots=True)
-class InMemoryStore:
+class InMemoryStore(BaseModel):
     """Process-local in-memory artifact store."""
 
-    _data: MutableMapping[ArtifactKey, bytes] = field(default_factory=_empty_bytes_map)
+    model_config = ConfigDict()
+
+    _data: MutableMapping[ArtifactKey, bytes] = PrivateAttr(default_factory=_empty_bytes_map)
 
     def put(self, key: ArtifactKey, data: bytes) -> None:
         _normalize_key(key)

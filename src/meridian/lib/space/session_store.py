@@ -6,10 +6,11 @@ import fcntl
 import json
 import logging
 from contextlib import contextmanager
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import BinaryIO, cast
+
+from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.harness.materialize import cleanup_materialized
 from meridian.lib.state.id_gen import next_chat_id
@@ -23,8 +24,9 @@ _SESSION_LOCK_HANDLES: dict[tuple[Path, str], BinaryIO] = {}
 logger = logging.getLogger(__name__)
 
 
-@dataclass(frozen=True, slots=True)
-class SessionRecord:
+class SessionRecord(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     chat_id: str
     harness: str
     harness_session_id: str
@@ -150,18 +152,10 @@ def _records_by_session(space_dir: Path) -> dict[str, SessionRecord]:
             if existing is None:
                 continue
             stopped_at = event.get("stopped_at")
-            records[chat_id] = SessionRecord(
-                chat_id=existing.chat_id,
-                harness=existing.harness,
-                harness_session_id=existing.harness_session_id,
-                model=existing.model,
-                agent=existing.agent,
-                agent_path=existing.agent_path,
-                skills=existing.skills,
-                skill_paths=existing.skill_paths,
-                params=existing.params,
-                started_at=existing.started_at,
-                stopped_at=str(stopped_at) if stopped_at is not None else existing.stopped_at,
+            records[chat_id] = existing.model_copy(
+                update={
+                    "stopped_at": str(stopped_at) if stopped_at is not None else existing.stopped_at
+                }
             )
             continue
         if event_type == "update":
@@ -172,19 +166,7 @@ def _records_by_session(space_dir: Path) -> dict[str, SessionRecord]:
             existing = records.get(chat_id)
             if existing is None:
                 continue
-            records[chat_id] = SessionRecord(
-                chat_id=existing.chat_id,
-                harness=existing.harness,
-                harness_session_id=harness_session_id,
-                model=existing.model,
-                agent=existing.agent,
-                agent_path=existing.agent_path,
-                skills=existing.skills,
-                skill_paths=existing.skill_paths,
-                params=existing.params,
-                started_at=existing.started_at,
-                stopped_at=existing.stopped_at,
-            )
+            records[chat_id] = existing.model_copy(update={"harness_session_id": harness_session_id})
     return records
 
 
