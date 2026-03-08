@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import cast
 
 from meridian.lib.types import SpawnId, SpaceId
 
@@ -27,8 +28,11 @@ def _count_start_events(path: Path) -> int:
             if index == len(lines) - 1:
                 continue
             continue
-        if isinstance(payload, dict) and payload.get("event") == "start":
-            count += 1
+        if isinstance(payload, dict):
+            row = cast("dict[str, object]", payload)
+            event = row.get("event")
+            if isinstance(event, str) and event == "start":
+                count += 1
     return count
 
 

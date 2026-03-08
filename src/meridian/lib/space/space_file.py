@@ -6,9 +6,11 @@ import fcntl
 import json
 import os
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
+
+from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
 from meridian.lib.state.id_gen import next_space_id
 from meridian.lib.state.paths import SpacePaths, ensure_gitignore, resolve_all_spaces_dir, resolve_space_dir
@@ -17,14 +19,35 @@ from meridian.lib.types import SpaceId
 _SPACE_SCHEMA_VERSION = 1
 
 
-@dataclass(frozen=True, slots=True)
-class SpaceRecord:
+class SpaceRecord(BaseModel):
     """Serialized form of one space record."""
+    model_config = ConfigDict(frozen=True, extra="ignore")
 
-    schema_version: int
+    schema_version: int = _SPACE_SCHEMA_VERSION
     id: str
     name: str | None
     created_at: str
+
+    @field_validator("id", "created_at", mode="before")
+    @classmethod
+    def _require_string(cls, value: object) -> str:
+        if not isinstance(value, str):
+            raise TypeError("value must be a string")
+        return value
+
+    @field_validator("id", "created_at")
+    @classmethod
+    def _require_non_empty(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("value must not be empty")
+        return value
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def _coerce_name(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        return str(value)
 
 
 def _utc_now_iso() -> str:
@@ -46,7 +69,7 @@ def _write_space_json(path: Path, record: SpaceRecord) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = path.with_name(f"{path.name}.tmp")
     with tmp_path.open("w", encoding="utf-8") as handle:
-        json.dump(asdict(record), handle, separators=(",", ":"), sort_keys=True)
+        json.dump(record.model_dump(), handle, separators=(",", ":"), sort_keys=True)
         handle.write("\n")
     os.replace(tmp_path, path)
 
@@ -61,19 +84,10 @@ def _read_space_json(path: Path) -> SpaceRecord | None:
     if not isinstance(payload, dict):
         return None
 
-    raw_id = payload.get("id")
-    raw_created = payload.get("created_at")
-    if not isinstance(raw_id, str) or not raw_id.strip():
+    try:
+        return SpaceRecord.model_validate(cast("dict[str, object]", payload))
+    except ValidationError:
         return None
-    if not isinstance(raw_created, str) or not raw_created.strip():
-        return None
-
-    return SpaceRecord(
-        schema_version=int(payload.get("schema_version", _SPACE_SCHEMA_VERSION)),
-        id=raw_id,
-        name=payload.get("name") if payload.get("name") is None else str(payload.get("name")),
-        created_at=raw_created,
-    )
 
 
 def create_space(repo_root: Path, name: str | None = None) -> SpaceRecord:

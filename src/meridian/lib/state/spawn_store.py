@@ -5,23 +5,20 @@ from __future__ import annotations
 import fcntl
 import json
 from contextlib import contextmanager
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Literal, Mapping, cast
+
+from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.state.id_gen import next_spawn_id
 from meridian.lib.state.paths import SpacePaths
 from meridian.lib.types import SpawnId
 
-type JSONScalar = str | int | float | bool | None
-type JSONValue = JSONScalar | list["JSONValue"] | dict[str, "JSONValue"]
-type JSONRow = dict[str, JSONValue]
 
-
-@dataclass(frozen=True, slots=True)
-class SpawnRecord:
+class SpawnRecord(BaseModel):
     """Derived spawn state assembled from spawn JSONL events."""
+    model_config = ConfigDict(frozen=True)
 
     id: str
     chat_id: str | None
@@ -42,6 +39,42 @@ class SpawnRecord:
     error: str | None
 
 
+class SpawnStartEvent(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    v: int = 1
+    event: Literal["start"] = "start"
+    id: str = ""
+    chat_id: str | None = None
+    model: str | None = None
+    agent: str | None = None
+    harness: str | None = None
+    kind: str | None = None
+    harness_session_id: str | None = None
+    status: str = "running"
+    prompt: str | None = None
+    started_at: str | None = None
+
+
+class SpawnFinalizeEvent(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    v: int = 1
+    event: Literal["finalize"] = "finalize"
+    id: str = ""
+    status: str | None = None
+    exit_code: int | None = None
+    finished_at: str | None = None
+    duration_secs: float | None = None
+    total_cost_usd: float | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    error: str | None = None
+
+
+type SpawnEvent = SpawnStartEvent | SpawnFinalizeEvent
+
+
 def _utc_now_iso() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
@@ -57,18 +90,27 @@ def _lock_file(path: Path):
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
-def _append_event(path: Path, payload: JSONRow) -> None:
+def _append_event(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(payload, separators=(",", ":"), sort_keys=True))
         handle.write("\n")
 
 
-def _read_events(path: Path) -> list[JSONRow]:
+def _parse_event(payload: dict[str, Any]) -> SpawnEvent | None:
+    event_type = payload.get("event")
+    if event_type == "start":
+        return SpawnStartEvent.model_validate(payload)
+    if event_type == "finalize":
+        return SpawnFinalizeEvent.model_validate(payload)
+    return None
+
+
+def _read_events(path: Path) -> list[SpawnEvent]:
     if not path.exists():
         return []
 
-    rows: list[JSONRow] = []
+    rows: list[SpawnEvent] = []
     with path.open("r", encoding="utf-8") as handle:
         lines = handle.readlines()
 
@@ -83,8 +125,11 @@ def _read_events(path: Path) -> list[JSONRow]:
             if index == len(lines) - 1:
                 continue
             continue
-        if isinstance(payload, dict):
-            rows.append(payload)
+        if not isinstance(payload, dict):
+            continue
+        parsed = _parse_event(cast("dict[str, Any]", payload))
+        if parsed is not None:
+            rows.append(parsed)
     return rows
 
 
@@ -108,22 +153,19 @@ def start_spawn(
 
     with _lock_file(paths.spawns_lock):
         resolved_spawn_id = SpawnId(str(spawn_id)) if spawn_id is not None else next_spawn_id(space_dir)
-        event: JSONRow = {
-            "v": 1,
-            "event": "start",
-            "id": str(resolved_spawn_id),
-            "chat_id": chat_id,
-            "model": model,
-            "agent": agent,
-            "harness": harness,
-            "kind": kind,
-            "status": "running",
-            "started_at": started,
-            "prompt": prompt,
-        }
-        if harness_session_id is not None:
-            event["harness_session_id"] = harness_session_id
-        _append_event(paths.spawns_jsonl, event)
+        event = SpawnStartEvent(
+            id=str(resolved_spawn_id),
+            chat_id=chat_id,
+            model=model,
+            agent=agent,
+            harness=harness,
+            kind=kind,
+            harness_session_id=harness_session_id,
+            status="running",
+            started_at=started,
+            prompt=prompt,
+        )
+        _append_event(paths.spawns_jsonl, event.model_dump(exclude_none=True))
         return resolved_spawn_id
 
 
@@ -143,27 +185,20 @@ def finalize_spawn(
     """Append a spawn finalize event under `spawns.lock`."""
 
     paths = SpacePaths.from_space_dir(space_dir)
-    event: JSONRow = {
-        "v": 1,
-        "event": "finalize",
-        "id": str(spawn_id),
-        "status": status,
-        "exit_code": exit_code,
-        "finished_at": finished_at or _utc_now_iso(),
-    }
-    if duration_secs is not None:
-        event["duration_secs"] = duration_secs
-    if total_cost_usd is not None:
-        event["total_cost_usd"] = total_cost_usd
-    if input_tokens is not None:
-        event["input_tokens"] = input_tokens
-    if output_tokens is not None:
-        event["output_tokens"] = output_tokens
-    if error is not None:
-        event["error"] = error
+    event = SpawnFinalizeEvent(
+        id=str(spawn_id),
+        status=status,
+        exit_code=exit_code,
+        finished_at=finished_at or _utc_now_iso(),
+        duration_secs=duration_secs,
+        total_cost_usd=total_cost_usd,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        error=error,
+    )
 
     with _lock_file(paths.spawns_lock):
-        _append_event(paths.spawns_jsonl, event)
+        _append_event(paths.spawns_jsonl, event.model_dump(exclude_none=True))
 
 
 def _empty_record(spawn_id: str) -> SpawnRecord:
@@ -188,84 +223,55 @@ def _empty_record(spawn_id: str) -> SpawnRecord:
     )
 
 
-def _record_from_events(events: list[JSONRow]) -> dict[str, SpawnRecord]:
+def _record_from_events(events: list[SpawnEvent]) -> dict[str, SpawnRecord]:
     records: dict[str, SpawnRecord] = {}
 
     for event in events:
-        spawn_id = str(event.get("id", ""))
+        spawn_id = event.id
         if not spawn_id:
             continue
         current = records.get(spawn_id, _empty_record(spawn_id))
-        event_type = event.get("event")
 
-        if event_type == "start":
-            records[spawn_id] = SpawnRecord(
-                id=spawn_id,
-                chat_id=str(event["chat_id"]) if "chat_id" in event else current.chat_id,
-                model=str(event["model"]) if "model" in event else current.model,
-                agent=str(event["agent"]) if "agent" in event else current.agent,
-                harness=str(event["harness"]) if "harness" in event else current.harness,
-                kind=str(event["kind"]) if "kind" in event else current.kind,
-                harness_session_id=(
-                    str(event["harness_session_id"])
-                    if "harness_session_id" in event
-                    else current.harness_session_id
-                ),
-                status=str(event.get("status", "running")),
-                prompt=str(event["prompt"]) if "prompt" in event else current.prompt,
-                started_at=str(event["started_at"]) if "started_at" in event else current.started_at,
-                finished_at=current.finished_at,
-                exit_code=current.exit_code,
-                duration_secs=current.duration_secs,
-                total_cost_usd=current.total_cost_usd,
-                input_tokens=current.input_tokens,
-                output_tokens=current.output_tokens,
-                error=current.error,
+        if isinstance(event, SpawnStartEvent):
+            records[spawn_id] = current.model_copy(
+                update={
+                    "chat_id": event.chat_id if event.chat_id is not None else current.chat_id,
+                    "model": event.model if event.model is not None else current.model,
+                    "agent": event.agent if event.agent is not None else current.agent,
+                    "harness": event.harness if event.harness is not None else current.harness,
+                    "kind": event.kind if event.kind is not None else current.kind,
+                    "harness_session_id": (
+                        event.harness_session_id
+                        if event.harness_session_id is not None
+                        else current.harness_session_id
+                    ),
+                    "status": event.status,
+                    "prompt": event.prompt if event.prompt is not None else current.prompt,
+                    "started_at": event.started_at if event.started_at is not None else current.started_at,
+                }
             )
             continue
 
-        if event_type == "finalize":
-            duration_value = current.duration_secs
-            if "duration_secs" in event:
-                duration_value = float(event["duration_secs"])
-
-            cost_value = current.total_cost_usd
-            if "total_cost_usd" in event:
-                cost_value = float(event["total_cost_usd"])
-
-            input_tokens = current.input_tokens
-            if "input_tokens" in event:
-                input_tokens = int(event["input_tokens"])
-
-            output_tokens = current.output_tokens
-            if "output_tokens" in event:
-                output_tokens = int(event["output_tokens"])
-
-            exit_code = current.exit_code
-            if "exit_code" in event:
-                exit_code = int(event["exit_code"])
-
-            records[spawn_id] = SpawnRecord(
-                id=spawn_id,
-                chat_id=current.chat_id,
-                model=current.model,
-                agent=current.agent,
-                harness=current.harness,
-                kind=current.kind,
-                harness_session_id=current.harness_session_id,
-                status=str(event.get("status", current.status)),
-                prompt=current.prompt,
-                started_at=current.started_at,
-                finished_at=(
-                    str(event["finished_at"]) if "finished_at" in event else current.finished_at
+        records[spawn_id] = current.model_copy(
+            update={
+                "status": event.status if event.status is not None else current.status,
+                "finished_at": event.finished_at if event.finished_at is not None else current.finished_at,
+                "exit_code": event.exit_code if event.exit_code is not None else current.exit_code,
+                "duration_secs": (
+                    event.duration_secs if event.duration_secs is not None else current.duration_secs
                 ),
-                exit_code=exit_code,
-                duration_secs=duration_value,
-                total_cost_usd=cost_value,
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                error=str(event["error"]) if "error" in event else current.error,
-            )
+                "total_cost_usd": (
+                    event.total_cost_usd if event.total_cost_usd is not None else current.total_cost_usd
+                ),
+                "input_tokens": (
+                    event.input_tokens if event.input_tokens is not None else current.input_tokens
+                ),
+                "output_tokens": (
+                    event.output_tokens if event.output_tokens is not None else current.output_tokens
+                ),
+                "error": event.error if event.error is not None else current.error,
+            }
+        )
 
     return records
 
@@ -285,13 +291,14 @@ def list_spawns(space_dir: Path, filters: Mapping[str, Any] | None = None) -> li
     if filters:
         filtered: list[SpawnRecord] = []
         for spawn in spawns:
+            spawn_data = spawn.model_dump()
             keep = True
             for key, expected in filters.items():
                 if expected is None:
                     continue
-                if not hasattr(spawn, key):
+                if key not in spawn_data:
                     continue
-                if getattr(spawn, key) != expected:
+                if spawn_data[key] != expected:
                     keep = False
                     break
             if keep:
