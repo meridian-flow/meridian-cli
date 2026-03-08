@@ -1,110 +1,12 @@
-"""Harness error classification for retry decisions."""
+"""Re-export shim for backward compatibility."""
 
 from __future__ import annotations
 
-from enum import StrEnum
+import sys
 
+from meridian.lib.launch.errors import ErrorCategory, classify_error, should_retry
+from meridian.lib.launch import errors as _errors
 
-class ErrorCategory(StrEnum):
-    RETRYABLE = "retryable"
-    UNRECOVERABLE = "unrecoverable"
-    TIMEOUT = "timeout"
-    STRATEGY_CHANGE = "strategy_change"
+__all__ = ["ErrorCategory", "classify_error", "should_retry"]
 
-
-_RETRYABLE_MARKERS: tuple[str, ...] = (
-    "rate limit",
-    "429",
-    "timed out",
-    "timeout",
-    "temporarily unavailable",
-    "temporary failure",
-    "connection reset",
-    "connection refused",
-    "network error",
-    "econnreset",
-    "econnrefused",
-    "etimedout",
-    "resource busy",
-    "database is locked",
-)
-
-_UNRECOVERABLE_MARKERS: tuple[str, ...] = (
-    "model not found",
-    "unknown model",
-    "unsupported model",
-    "permission denied",
-    "access denied",
-    "forbidden",
-    "unauthorized",
-    "invalid api key",
-    "authentication failed",
-    "token limit",
-    "maximum tokens",
-    "max tokens exceeded",
-)
-
-_STRATEGY_CHANGE_MARKERS: tuple[str, ...] = (
-    "context length",
-    "context too long",
-    "maximum context length",
-    "prompt too long",
-    "output too large",
-    "response too large",
-    "please reduce",
-)
-
-
-def _contains_any(text: str, markers: tuple[str, ...]) -> bool:
-    return any(marker in text for marker in markers)
-
-
-def classify_error(
-    exit_code: int,
-    stderr: str,
-    timed_out: bool = False,
-) -> ErrorCategory:
-    """Classify one failed harness attempt into a retry strategy category."""
-
-    if timed_out:
-        return ErrorCategory.TIMEOUT
-
-    normalized = stderr.lower()
-
-    # Context/output size issues need a different prompt strategy, not blind retries.
-    if _contains_any(normalized, _STRATEGY_CHANGE_MARKERS):
-        return ErrorCategory.STRATEGY_CHANGE
-    if _contains_any(normalized, _UNRECOVERABLE_MARKERS):
-        return ErrorCategory.UNRECOVERABLE
-    if _contains_any(normalized, _RETRYABLE_MARKERS):
-        return ErrorCategory.RETRYABLE
-
-    if exit_code in {3}:
-        return ErrorCategory.RETRYABLE
-    if exit_code in {130, 143}:
-        return ErrorCategory.UNRECOVERABLE
-    if exit_code in {1, 2}:
-        return ErrorCategory.RETRYABLE
-    return ErrorCategory.UNRECOVERABLE
-
-
-def should_retry(
-    *,
-    exit_code: int,
-    stderr: str,
-    timed_out: bool = False,
-    retries_attempted: int,
-    max_retries: int = 3,
-) -> bool:
-    if timed_out:
-        return False
-    if retries_attempted >= max_retries:
-        return False
-    return (
-        classify_error(
-            exit_code,
-            stderr,
-            timed_out=timed_out,
-        )
-        == ErrorCategory.RETRYABLE
-    )
+sys.modules[__name__] = _errors
