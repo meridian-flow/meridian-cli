@@ -1,17 +1,12 @@
-"""Re-export shim -- canonical implementation lives in finalize.py.
-
-Uses a function wrapper to avoid a circular import at module-load time
-(files_touched -> _io -> finalize -> files_touched).
-"""
+"""Compatibility shim for artifact read helpers."""
 
 from __future__ import annotations
 
 from meridian.lib.state.artifact_store import ArtifactStore
-from meridian.lib.types import ArtifactKey, SpawnId
+from meridian.lib.types import SpawnId
 
 
 def read_artifact_text(artifacts: ArtifactStore, spawn_id: SpawnId, name: str) -> str:
-    key = ArtifactKey(f"{spawn_id}/{name}")
-    if not artifacts.exists(key):
-        return ""
-    return artifacts.get(key).decode("utf-8", errors="ignore")
+    from meridian.lib.launch.extract import read_artifact_text as _read_artifact_text
+
+    return _read_artifact_text(artifacts, spawn_id, name)
