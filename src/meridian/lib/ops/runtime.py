@@ -2,12 +2,12 @@
 
 
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from meridian.lib.config.settings import resolve_repo_root
 from meridian.lib.config.settings import MeridianConfig, load_config
-from meridian.lib.harness.registry import HarnessRegistry, get_default_harness_registry
 from meridian.lib.core.sink import NullSink, OutputSink
 from meridian.lib.state.artifact_store import LocalStore
 from meridian.lib.state.paths import resolve_state_paths
@@ -25,7 +25,7 @@ class OperationRuntime(BaseModel):
 
     repo_root: Path
     config: MeridianConfig
-    harness_registry: HarnessRegistry
+    harness_registry: Any  # HarnessRegistry — typed as Any to avoid circular import
     artifacts: LocalStore
     sink: OutputSink = Field(default_factory=NullSink)
 
@@ -50,6 +50,8 @@ def build_runtime_from_root_and_config(
     sink: OutputSink | None = None,
 ) -> OperationRuntime:
     """Build a runtime bundle from one pre-resolved root and config."""
+
+    from meridian.lib.harness.registry import get_default_harness_registry
 
     return OperationRuntime(
         repo_root=repo_root,

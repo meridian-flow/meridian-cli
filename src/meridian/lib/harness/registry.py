@@ -8,10 +8,6 @@ from pydantic import BaseModel, ConfigDict, PrivateAttr
 
 from meridian.lib.catalog.models import route_model
 from meridian.lib.harness.adapter import HarnessAdapter
-from meridian.lib.harness.claude import ClaudeAdapter
-from meridian.lib.harness.codex import CodexAdapter
-from meridian.lib.harness.direct import DirectAdapter
-from meridian.lib.harness.opencode import OpenCodeAdapter
 from meridian.lib.core.types import HarnessId
 
 
@@ -28,6 +24,11 @@ class HarnessRegistry(BaseModel):
 
     @classmethod
     def with_defaults(cls) -> Self:
+        from meridian.lib.harness.claude import ClaudeAdapter
+        from meridian.lib.harness.codex import CodexAdapter
+        from meridian.lib.harness.direct import DirectAdapter
+        from meridian.lib.harness.opencode import OpenCodeAdapter
+
         registry = cls()
         registry.register(ClaudeAdapter())
         registry.register(CodexAdapter())
@@ -63,10 +64,13 @@ class HarnessRegistry(BaseModel):
         return self.get(decision.harness_id), decision.warning
 
 
-_DEFAULT_REGISTRY = HarnessRegistry.with_defaults()
+_default_registry: HarnessRegistry | None = None
 
 
 def get_default_harness_registry() -> HarnessRegistry:
-    """Return built-in registry initialized at import time."""
+    """Return built-in registry, created on first access."""
 
-    return _DEFAULT_REGISTRY
+    global _default_registry
+    if _default_registry is None:
+        _default_registry = HarnessRegistry.with_defaults()
+    return _default_registry

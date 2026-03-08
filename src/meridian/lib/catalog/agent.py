@@ -2,7 +2,6 @@
 
 
 import logging
-from functools import lru_cache
 from pathlib import Path
 from typing import cast
 
@@ -63,38 +62,16 @@ def _normalize_string_list(value: object) -> tuple[str, ...]:
     return ()
 
 
-@lru_cache(maxsize=1)
-def _known_mcp_tools() -> frozenset[str]:
-    # Import lazily to avoid loading the full operations graph at module import time.
-    from meridian.lib.ops.manifest import get_mcp_tool_names
-
-    return get_mcp_tool_names()
-
-
-def _normalize_mcp_tools(value: object, *, profile_name: str) -> tuple[str, ...]:
+def _normalize_deduplicated(value: object) -> tuple[str, ...]:
+    """Normalize a string list and deduplicate while preserving order."""
     parsed = _normalize_string_list(value)
-    if not parsed:
-        return ()
-
-    known_tools = _known_mcp_tools()
-    known_tools_by_lower = {tool.lower(): tool for tool in known_tools}
-    normalized: list[str] = []
     seen: set[str] = set()
-    for candidate in parsed:
-        lowered = candidate.lower()
-        canonical = known_tools_by_lower.get(lowered)
-        if canonical is None:
-            logger.warning(
-                "Agent profile '%s' includes unknown MCP tool '%s'.",
-                profile_name,
-                candidate,
-            )
-            canonical = candidate
-        if canonical in seen:
-            continue
-        seen.add(canonical)
-        normalized.append(canonical)
-    return tuple(normalized)
+    result: list[str] = []
+    for item in parsed:
+        if item not in seen:
+            seen.add(item)
+            result.append(item)
+    return tuple(result)
 
 
 def parse_agent_profile(path: Path) -> AgentProfile:
@@ -125,7 +102,7 @@ def parse_agent_profile(path: Path) -> AgentProfile:
         variant=str(variant_value).strip() if variant_value is not None else None,
         skills=_normalize_string_list(frontmatter.get("skills")),
         allowed_tools=_normalize_string_list(frontmatter.get("allowed-tools")),
-        mcp_tools=_normalize_mcp_tools(frontmatter.get("mcp-tools"), profile_name=profile_name),
+        mcp_tools=_normalize_deduplicated(frontmatter.get("mcp-tools")),
         sandbox=sandbox,
         variant_models=_normalize_string_list(frontmatter.get("variant-models")),
         body=body,
