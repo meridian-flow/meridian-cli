@@ -112,7 +112,6 @@ def build_harness_context(
         search_paths=resolved_config.search_paths,
         requested_agent=request.agent,
         configured_default=resolved_config.default_primary_agent,
-        fallback_name="primary",
     )
 
     default_model = resolved_config.harness.claude

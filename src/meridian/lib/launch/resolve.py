@@ -33,15 +33,13 @@ def load_agent_profile_with_fallback(
     search_paths: SearchPathConfig | None = None,
     requested_agent: str | None = None,
     configured_default: str = "",
-    fallback_name: str = "agent",
 ) -> AgentProfile | None:
     """Load agent profile with a standard fallback chain.
 
     Resolution order:
     1. requested_agent (explicit --agent flag) -> load or raise
     2. configured_default (from config) -> try load
-    3. fallback_name -> try load
-    4. None (no profile)
+    3. None (no profile)
     """
 
     requested_profile = requested_agent.strip() if requested_agent is not None else ""
@@ -63,16 +61,6 @@ def load_agent_profile_with_fallback(
         except FileNotFoundError:
             pass
 
-    normalized_fallback = fallback_name.strip()
-    if normalized_fallback and normalized_fallback != configured_profile:
-        try:
-            return load_agent_profile(
-                normalized_fallback,
-                repo_root=repo_root,
-                search_paths=search_paths,
-            )
-        except FileNotFoundError:
-            pass
     return None
 
 
@@ -206,7 +194,6 @@ def resolve_primary_session_metadata(
         search_paths=config.search_paths,
         requested_agent=request.agent,
         configured_default=config.default_primary_agent,
-        fallback_name="primary",
     )
 
     default_model = config.harness.claude

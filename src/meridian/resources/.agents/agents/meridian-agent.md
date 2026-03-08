@@ -1,5 +1,5 @@
 ---
-name: agent
+name: meridian-agent
 description: Default agent
 model: gpt-5.4
 skills: []

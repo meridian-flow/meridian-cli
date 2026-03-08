@@ -1,5 +1,5 @@
 ---
-name: primary
+name: meridian-primary
 description: Primary agent
 model: claude-opus-4-6
 skills:

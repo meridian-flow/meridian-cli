@@ -732,8 +732,8 @@ class MeridianConfig(BaseSettings):
     guardrail_timeout_minutes: float = 0.5
     wait_timeout_minutes: float = 30.0
     default_permission_tier: str = "read-only"
-    default_primary_agent: str = "primary"
-    default_agent: str = "agent"
+    default_primary_agent: str = "meridian-primary"
+    default_agent: str = "meridian-agent"
     default_model: str = "gpt-5.3-codex"
 
     harness: HarnessConfig = Field(default_factory=HarnessConfig)

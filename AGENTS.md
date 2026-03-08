@@ -9,8 +9,7 @@ There are no users and there is no real user data. No need for backwards compati
 ### Core Principles
 
 1. **Harness-Agnostic**: Same `meridian` commands work across Claude, Codex, OpenCode, Cursor, **etc.** (extensible to future harnesses) for both primary agents and subagents, with per-harness adapters
-2. **Files as Authority**: All state lives in files under `.meridian/.spaces/<space-id>/`. No database. `space.json` for space metadata, `runs.jsonl` for run events, `sessions.jsonl` for session tracking. Atomic writes via tmp+rename, `fcntl.flock` for concurrency.
-3. **Explicit Over Implicit**: MERIDIAN_SPACE_ID required; no auto-creation or implicit context
+2. **Files as Authority**: All state lives in files under `.meridian/.spaces/<space-id>/`. `space.json` for space metadata, `runs.jsonl` for run events, `sessions.jsonl` for session tracking. Atomic writes via tmp+rename, `fcntl.flock` for concurrency.
 4. **Agent Profiles Own Skills**: Static skill definitions in agent profiles, loaded fresh on agent launch/resume
 5. **Minimal Constraints**: Agents organize `.meridian/.spaces/<space-id>/fs/` however they want; Meridian provides container only
 6. **Result Over Metadata**: Spawn output answers "what happened?" — status, report, done. Input echo, null fields, and ceremony are noise. Detailed metadata (params, logs, tokens) lives in the spawn directory for those who need to dig deeper.

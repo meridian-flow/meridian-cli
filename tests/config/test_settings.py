@@ -33,8 +33,8 @@ def test_load_config_defaults_when_project_config_is_missing(tmp_path: Path) -> 
     assert loaded.max_depth == 3
     assert loaded.max_retries == 3
     assert loaded.default_permission_tier == "read-only"
-    assert loaded.default_primary_agent == "primary"
-    assert loaded.default_agent == "agent"
+    assert loaded.default_primary_agent == "meridian-primary"
+    assert loaded.default_agent == "meridian-agent"
     assert loaded.default_model == "gpt-5.3-codex"
     assert loaded.search_paths == SearchPathConfig()
 

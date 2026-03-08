@@ -210,7 +210,6 @@ def build_create_payload(
         search_paths=runtime_view.config.search_paths,
         requested_agent=payload.agent,
         configured_default=runtime_view.config.default_agent,
-        fallback_name="agent",
     )
 
     defaults = resolve_run_defaults(

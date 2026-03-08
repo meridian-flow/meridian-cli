@@ -5,10 +5,10 @@ from importlib.resources import files
 import meridian
 
 _RESOURCE_PATHS = (
-    ".agents/agents/agent.md",
-    ".agents/agents/primary.md",
-    ".agents/skills/orchestrate-meridian/SKILL.md",
-    ".agents/skills/spawn-agent-meridian/SKILL.md",
+    ".agents/agents/meridian-agent.md",
+    ".agents/agents/meridian-primary.md",
+    ".agents/skills/meridian-orchestrate/SKILL.md",
+    ".agents/skills/meridian-spawn-agent/SKILL.md",
 )
 
 
