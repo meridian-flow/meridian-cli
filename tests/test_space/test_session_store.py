@@ -205,8 +205,9 @@ def test_cleanup_stale_sessions_removes_dead_locks_and_writes_stop_events(tmp_pa
             + "\n"
         )
 
-    cleaned = cleanup_stale_sessions(space_dir)
-    assert cleaned == ["c2"]
+    cleanup = cleanup_stale_sessions(space_dir)
+    assert cleanup.cleaned_ids == ("c2",)
+    assert cleanup.materialized_scopes == (("claude", "c2"),)
     assert not stale_lock.exists()
     assert (space_dir / "sessions" / f"{live}.lock").exists()
 
@@ -259,12 +260,13 @@ def test_cleanup_stale_sessions_removes_materialized_scope_for_stale_chat(tmp_pa
     _write(tmp_path / ".claude" / "skills" / "_meridian-c2-alpha" / "SKILL.md", "x")
     _write(tmp_path / ".claude" / "skills" / "_meridian-c3-alpha" / "SKILL.md", "x")
 
-    cleaned = cleanup_stale_sessions(space_dir, repo_root=tmp_path)
+    cleanup = cleanup_stale_sessions(space_dir)
 
-    assert cleaned == ["c2"]
-    assert not (tmp_path / ".claude" / "agents" / "_meridian-c2-primary.md").exists()
+    assert cleanup.cleaned_ids == ("c2",)
+    assert cleanup.materialized_scopes == (("claude", "c2"),)
+    assert (tmp_path / ".claude" / "agents" / "_meridian-c2-primary.md").is_file()
     assert (tmp_path / ".claude" / "agents" / "_meridian-c3-primary.md").is_file()
-    assert not (tmp_path / ".claude" / "skills" / "_meridian-c2-alpha").exists()
+    assert (tmp_path / ".claude" / "skills" / "_meridian-c2-alpha").is_dir()
     assert (tmp_path / ".claude" / "skills" / "_meridian-c3-alpha").is_dir()
 
     stop_session(space_dir, live)

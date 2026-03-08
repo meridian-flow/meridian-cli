@@ -28,6 +28,7 @@ from meridian.cli.report_cmd import register_report_commands
 from meridian.cli.skills_cmd import register_skills_commands
 from meridian.cli.space import register_space_commands
 from meridian.lib.config._paths import resolve_repo_root
+from meridian.lib.harness.materialize import cleanup_materialized
 from meridian.lib.harness.registry import get_default_harness_registry
 from meridian.lib.harness.session_detection import infer_harness_from_untracked_session_ref
 from meridian.lib.ops.spawn import SpawnActionOutput
@@ -893,7 +894,9 @@ def main(argv: Sequence[str] | None = None) -> None:
                 for space_dir in sorted(spaces_dir.iterdir()):
                     if not space_dir.is_dir():
                         continue
-                    cleanup_stale_sessions(space_dir, repo_root=repo_root)
+                    cleanup = cleanup_stale_sessions(space_dir)
+                    for harness_id, chat_id in cleanup.materialized_scopes:
+                        cleanup_materialized(harness_id, repo_root, chat_id)
         except Exception:
             logger.debug("orphaned lock cleanup failed", exc_info=True)
 

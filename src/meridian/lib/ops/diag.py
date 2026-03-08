@@ -9,6 +9,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.config._paths import resolve_path_list
+from meridian.lib.harness.materialize import cleanup_materialized
 from meridian.lib.formatting import FormatContext
 from meridian.lib.ops._runtime import build_runtime
 from meridian.lib.ops.registry import OperationSpec, operation
@@ -85,7 +86,10 @@ def _repair_stale_session_locks(repo_root: Path) -> int:
     for space_dir in _space_dirs(repo_root):
         if space_file.get_space(repo_root, space_dir.name) is None:
             continue
-        repaired += len(cleanup_stale_sessions(space_dir, repo_root=repo_root))
+        cleanup = cleanup_stale_sessions(space_dir)
+        repaired += len(cleanup.cleaned_ids)
+        for harness_id, chat_id in cleanup.materialized_scopes:
+            cleanup_materialized(harness_id, repo_root, chat_id)
     return repaired
 
 
