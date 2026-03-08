@@ -4,6 +4,7 @@ from meridian.lib.state.paths import (
     ensure_gitignore,
     resolve_all_spaces_dir,
     resolve_space_dir,
+    resolve_state_paths,
 )
 
 
@@ -32,6 +33,7 @@ def test_ensure_gitignore_seeds_on_first_init(tmp_path):
     content = gitignore.read_text(encoding="utf-8")
     assert "!.spaces/*/designs/**" in content
     assert "!.spaces/*/fs/**" in content
+    assert "!sync.lock" in content
 
 
 def test_ensure_gitignore_does_not_overwrite_user_edits(tmp_path):
@@ -42,3 +44,11 @@ def test_ensure_gitignore_does_not_overwrite_user_edits(tmp_path):
     ensure_gitignore(tmp_path)
 
     assert path.read_text(encoding="utf-8") == "custom user content\n"
+
+
+def test_resolve_state_paths_includes_sync_paths(tmp_path):
+    paths = resolve_state_paths(tmp_path)
+
+    assert paths.root_dir == tmp_path / ".meridian"
+    assert paths.sync_lock_path == tmp_path / ".meridian" / "sync.lock"
+    assert paths.sync_cache_dir == tmp_path / ".meridian" / "cache" / "sync"

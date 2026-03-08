@@ -18,6 +18,9 @@ _GITIGNORE_CONTENT = (
     "# Track .gitignore itself\n"
     "!.gitignore\n"
     "\n"
+    "# Track sync lock for reproducible installs\n"
+    "!sync.lock\n"
+    "\n"
     "# Track designs/ and fs/ within spaces\n"
     "!.spaces/\n"
     "!.spaces/*/\n"
@@ -73,6 +76,8 @@ class StatePaths(BaseModel):
     all_spaces_dir: Path
     active_spaces_dir: Path
     cache_dir: Path
+    sync_lock_path: Path
+    sync_cache_dir: Path
     config_path: Path
     models_path: Path
 
@@ -101,6 +106,8 @@ def resolve_state_paths(repo_root: Path) -> StatePaths:
         all_spaces_dir=root_dir / _SPACES_DIR,
         active_spaces_dir=root_dir / "active-spaces",
         cache_dir=root_dir / "cache",
+        sync_lock_path=root_dir / "sync.lock",
+        sync_cache_dir=root_dir / "cache" / "sync",
         config_path=root_dir / "config.toml",
         models_path=root_dir / "models.toml",
     )
