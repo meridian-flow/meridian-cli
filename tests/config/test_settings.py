@@ -164,3 +164,49 @@ def test_load_config_rejects_invalid_primary_values(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match=r"primary\.autocompact_pct.*between 1 and 100"):
         load_config(repo_root)
+
+
+def test_load_config_maps_flat_env_overrides_to_nested_fields(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setenv("MERIDIAN_MODEL", "gpt-5.3-codex")
+    monkeypatch.setenv("MERIDIAN_HARNESS", "codex")
+    monkeypatch.setenv("MERIDIAN_MAX_TURNS", "12")
+    monkeypatch.setenv("MERIDIAN_MAX_INPUT_TOKENS", "32000")
+    monkeypatch.setenv("MERIDIAN_MAX_OUTPUT_TOKENS", "8000")
+    monkeypatch.setenv("MERIDIAN_BUDGET", "4.5")
+    monkeypatch.setenv("MERIDIAN_AGENT", "worker")
+    monkeypatch.setenv("MERIDIAN_FORMAT", "json")
+    monkeypatch.setenv("MERIDIAN_AGENT_SEARCH_PATHS", ".agents/custom:/tmp/agents")
+    monkeypatch.setenv("MERIDIAN_SKILL_SEARCH_PATHS", ".agents/skills:/tmp/skills")
+
+    loaded = load_config(repo_root)
+
+    assert loaded.primary.model == "gpt-5.3-codex"
+    assert loaded.primary.harness == "codex"
+    assert loaded.primary.max_turns == 12
+    assert loaded.primary.max_input_tokens == 32000
+    assert loaded.primary.max_output_tokens == 8000
+    assert loaded.primary.budget == 4.5
+    assert loaded.primary.agent == "worker"
+    assert loaded.output.format == "json"
+    assert loaded.search_paths.agents == (".agents/custom", "/tmp/agents")
+    assert loaded.search_paths.skills == (".agents/skills", "/tmp/skills")
+
+
+def test_load_config_discovers_meridian_toml_in_parent_directories(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    project_toml = repo_root / "meridian.toml"
+    project_toml.parent.mkdir(parents=True, exist_ok=True)
+    project_toml.write_text("[defaults]\nmax_depth = 9\n", encoding="utf-8")
+
+    nested_repo_root = repo_root / "a" / "b"
+    nested_repo_root.mkdir(parents=True, exist_ok=True)
+
+    loaded = load_config(nested_repo_root)
+
+    assert loaded.max_depth == 9
