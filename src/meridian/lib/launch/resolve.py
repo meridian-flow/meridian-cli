@@ -17,7 +17,7 @@ from .prompt import load_skill_contents, resolve_run_defaults
 from meridian.lib.safety.permissions import permission_tier_from_profile
 from meridian.lib.core.types import HarnessId, ModelId
 
-from .types import LaunchRequest, PrimarySessionMetadata
+from .types import PrimarySessionMetadata, SpaceLaunchRequest
 
 logger = logging.getLogger(__name__)
 
@@ -184,7 +184,7 @@ def resolve_harness(
 def resolve_primary_session_metadata(
     *,
     repo_root: Path,
-    request: LaunchRequest,
+    request: SpaceLaunchRequest,
     config: MeridianConfig,
     harness_registry: HarnessRegistry,
 ) -> PrimarySessionMetadata:

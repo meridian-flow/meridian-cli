@@ -29,10 +29,11 @@ from meridian.lib.harness.adapter import (
 )
 from meridian.lib.harness.registry import HarnessRegistry
 from meridian.lib.safety.permissions import PermissionConfig
+from meridian.lib.state.space_store import create_space
 from meridian.lib.state import spawn_store
 from meridian.lib.state.artifact_store import LocalStore
-from meridian.lib.state.paths import resolve_state_paths
-from meridian.lib.core.types import HarnessId, ModelId, SpawnId
+from meridian.lib.state.paths import resolve_space_dir
+from meridian.lib.core.types import HarnessId, ModelId, SpawnId, SpaceId
 
 
 class MockHarnessAdapter:
@@ -82,13 +83,15 @@ class MockHarnessAdapter:
 
 
 def _create_run(repo_root: Path, *, prompt: str) -> tuple[Spawn, Path]:
+    space = create_space(repo_root, name="signals")
     run = Spawn(
         spawn_id=SpawnId("r1"),
         prompt=prompt,
         model=ModelId("gpt-5.3-codex"),
         status="queued",
+        space_id=SpaceId(space.id),
     )
-    return run, resolve_state_paths(repo_root).root_dir
+    return run, resolve_space_dir(repo_root, space.id)
 
 
 @pytest.mark.asyncio
@@ -259,9 +262,10 @@ def test_kill_running_parent_process_still_finalizes_run(
             )
             from meridian.lib.harness.registry import HarnessRegistry
             from meridian.lib.safety.permissions import PermissionConfig
+            from meridian.lib.state.space_store import create_space
             from meridian.lib.state.artifact_store import LocalStore
-            from meridian.lib.state.paths import resolve_state_paths
-            from meridian.lib.core.types import HarnessId, ModelId, SpawnId
+            from meridian.lib.state.paths import resolve_space_dir
+            from meridian.lib.core.types import HarnessId, ModelId, SpawnId, SpaceId
 
             class WorkerAdapter:
                 @property
@@ -299,11 +303,13 @@ def test_kill_running_parent_process_still_finalizes_run(
 
             async def main() -> int:
                 repo_root = Path("{repo_root.as_posix()}")
+                space = create_space(repo_root, name="worker")
                 run = Spawn(
                     spawn_id=SpawnId("r1"),
                     prompt="hang",
                     model=ModelId("gpt-5.3-codex"),
                     status="queued",
+                    space_id=SpaceId(space.id),
                 )
                 artifacts = LocalStore(root_dir=Path("{(tmp_path / '.artifacts-worker').as_posix()}"))
                 registry = HarnessRegistry()
@@ -311,7 +317,7 @@ def test_kill_running_parent_process_still_finalizes_run(
                 return await execute_with_finalization(
                     run,
                     repo_root=repo_root,
-                    space_dir=resolve_state_paths(repo_root).root_dir,
+                    space_dir=resolve_space_dir(repo_root, space.id),
                     artifacts=artifacts,
                     registry=registry,
                     harness_id=HarnessId("worker-mock"),
@@ -339,7 +345,7 @@ def test_kill_running_parent_process_still_finalizes_run(
         text=True,
     )
     try:
-        space_dir = resolve_state_paths(repo_root).root_dir
+        space_dir = resolve_space_dir(repo_root, "s1")
         deadline = time.time() + 10.0
         saw_running = False
         while time.time() < deadline:
@@ -357,7 +363,7 @@ def test_kill_running_parent_process_still_finalizes_run(
             proc.kill()
             proc.wait(timeout=5)
 
-    row = spawn_store.get_spawn(resolve_state_paths(repo_root).root_dir, "r1")
+    row = spawn_store.get_spawn(resolve_space_dir(repo_root, "s1"), "r1")
     assert row is not None
     assert row.status == "failed"
     assert row.exit_code == 143

@@ -335,8 +335,9 @@ async def test_mcp_run_spawn_refuses_when_depth_limit_reached(
 
 def test_run_child_env_increments_depth(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MERIDIAN_DEPTH", "2")
-    env = _spawn_child_env()
+    env = _spawn_child_env("s9")
     assert env["MERIDIAN_DEPTH"] == "3"
+    assert env["MERIDIAN_SPACE_ID"] == "s9"
 
 
 def test_recursive_spawn_blocks_before_creating_third_level(
@@ -373,25 +374,31 @@ def test_recursive_spawn_blocks_before_creating_third_level(
     assert result.status == "succeeded"
     assert result.spawn_id == "p1"
 
-    state_root = repo_root / ".meridian"
+    space_dirs = [
+        path
+        for path in (repo_root / ".meridian" / ".spaces").iterdir()
+        if path.is_dir() and path.name.startswith("s")
+    ]
+    assert len(space_dirs) == 1
+    space_dir = space_dirs[0]
 
     events = [
         json.loads(line)
-        for line in (state_root / "spawns.jsonl").read_text(encoding="utf-8").splitlines()
+        for line in (space_dir / "spawns.jsonl").read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
     start_ids = [event["id"] for event in events if event["event"] == "start"]
     assert start_ids == ["p1", "p2"]
 
     top_report = _extract_report_payload(
-        (state_root / "spawns" / "p1" / "report.md").read_text(encoding="utf-8")
+        (space_dir / "spawns" / "p1" / "report.md").read_text(encoding="utf-8")
     )
     assert top_report["depth"] == 1
     assert top_report["result"]["spawn_id"] == "p2"
     assert top_report["result"]["status"] == "succeeded"
 
     nested_report = _extract_report_payload(
-        (state_root / "spawns" / "p2" / "report.md").read_text(encoding="utf-8")
+        (space_dir / "spawns" / "p2" / "report.md").read_text(encoding="utf-8")
     )
     assert nested_report == {
         "depth": 2,

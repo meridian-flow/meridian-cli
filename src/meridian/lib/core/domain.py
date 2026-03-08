@@ -10,6 +10,7 @@ from meridian.lib.core.util import FormatContext
 from meridian.lib.core.types import (
     ArtifactKey,
     ModelId,
+    SpaceId,
     SpawnId,
 )
 
@@ -33,6 +34,7 @@ class SpawnCreateParams(BaseModel):
 
     prompt: str
     model: ModelId
+    space_id: SpaceId | None = None
 
 
 class SpawnFilters(BaseModel):
@@ -40,6 +42,7 @@ class SpawnFilters(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
+    space_id: SpaceId | None = None
     status: SpawnStatus | None = None
 
 
@@ -62,6 +65,7 @@ class Spawn(BaseModel):
     model: ModelId
     status: SpawnStatus
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    space_id: SpaceId | None = None
 
 
 class SpawnSummary(BaseModel):
@@ -72,6 +76,40 @@ class SpawnSummary(BaseModel):
     spawn_id: SpawnId
     status: SpawnStatus
     model: ModelId
+    space_id: SpaceId | None = None
+
+
+class SpaceCreateParams(BaseModel):
+    """Input fields for creating a space."""
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str | None = None
+
+
+class SpaceFilters(BaseModel):
+    """Space list filter options."""
+
+    model_config = ConfigDict(frozen=True)
+
+
+class Space(BaseModel):
+    """Space aggregate root."""
+
+    model_config = ConfigDict(frozen=True)
+
+    space_id: SpaceId
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    name: str | None = None
+
+
+class SpaceSummary(BaseModel):
+    """Compact space list entry."""
+
+    model_config = ConfigDict(frozen=True)
+
+    space_id: SpaceId
+    name: str | None = None
 
 
 class PinnedFile(BaseModel):
@@ -79,6 +117,7 @@ class PinnedFile(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
+    space_id: SpaceId
     file_path: str
 
 

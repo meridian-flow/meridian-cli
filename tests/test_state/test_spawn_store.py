@@ -4,9 +4,9 @@ import json
 from meridian.lib.state.spawn_store import finalize_spawn, get_spawn, list_spawns, spawn_stats, start_spawn
 
 def _space_dir(tmp_path):
-    state_dir = tmp_path / ".meridian"
-    state_dir.mkdir(parents=True, exist_ok=True)
-    return state_dir
+    space_dir = tmp_path / ".meridian" / ".spaces" / "s1"
+    space_dir.mkdir(parents=True, exist_ok=True)
+    return space_dir
 
 def test_start_and_finalize_run_round_trip(tmp_path):
     space_dir = _space_dir(tmp_path)

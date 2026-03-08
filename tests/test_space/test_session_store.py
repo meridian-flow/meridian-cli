@@ -16,9 +16,9 @@ from meridian.lib.state.session_store import (
 from meridian.lib.state.paths import SpacePaths
 
 def _space_dir(tmp_path):
-    state_dir = tmp_path / ".meridian"
-    state_dir.mkdir(parents=True, exist_ok=True)
-    return state_dir
+    space_dir = tmp_path / ".meridian" / ".spaces" / "s1"
+    space_dir.mkdir(parents=True, exist_ok=True)
+    return space_dir
 
 def _write(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -271,23 +271,25 @@ def test_cleanup_stale_sessions_removes_materialized_scope_for_stale_chat(tmp_pa
     stop_session(space_dir, live)
 
 
-def test_collect_active_chat_ids_single_root(tmp_path):
-    space_dir = _space_dir(tmp_path)
+def test_collect_active_chat_ids_across_spaces(tmp_path):
+    first_space = _space_dir(tmp_path)
+    second_space = tmp_path / ".meridian" / ".spaces" / "s2"
+    second_space.mkdir(parents=True, exist_ok=True)
 
     c1 = start_session(
-        space_dir,
+        first_space,
         harness="claude",
         harness_session_id="hs-1",
         model="claude-opus-4-6",
     )
     c2 = start_session(
-        space_dir,
+        second_space,
         harness="codex",
         harness_session_id="hs-2",
         model="gpt-5.3-codex",
     )
-    stop_session(space_dir, c2)
+    stop_session(second_space, c2)
 
     assert collect_active_chat_ids(tmp_path) == frozenset({c1})
 
-    stop_session(space_dir, c1)
+    stop_session(first_space, c1)

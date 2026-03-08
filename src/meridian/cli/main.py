@@ -25,15 +25,28 @@ from meridian.cli.output import (
 from meridian.cli.output import emit as emit_output
 from meridian.cli.report_cmd import register_report_commands
 from meridian.cli.skills_cmd import register_skills_commands
-from meridian.cli.sync_cmd import register_sync_commands
-from meridian.lib.core.sink import OutputSink
+from meridian.cli.space import register_space_commands
+from meridian.lib.config.settings import resolve_repo_root
 from meridian.lib.harness.materialize import cleanup_materialized
 from meridian.lib.harness.registry import get_default_harness_registry
 from meridian.lib.harness.session_detection import infer_harness_from_untracked_session_ref
-from meridian.lib.launch import LaunchRequest, cleanup_orphaned_locks, launch_primary
 from meridian.lib.ops.spawn.api import SpawnActionOutput
-from meridian.lib.state.paths import resolve_state_paths
-from meridian.lib.state.session_store import cleanup_stale_sessions, get_last_session, resolve_session_ref
+from meridian.lib.core.sink import OutputSink
+from meridian.lib.ops.space import SpaceActionOutput
+from meridian.lib.space.launch import SpaceLaunchRequest, cleanup_orphaned_locks, launch_primary
+from meridian.lib.state.session_store import (
+    cleanup_stale_sessions,
+    get_last_session,
+    resolve_session_ref,
+)
+from meridian.lib.state.space_store import (
+    SpaceRecord,
+    create_space as create_space_record,
+    get_space as get_space_record,
+    list_spaces as list_space_records,
+)
+from meridian.lib.state.paths import resolve_all_spaces_dir, resolve_space_dir
+from meridian.lib.core.types import SpaceId
 from meridian.server.main import run_server
 
 logger = logging.getLogger(__name__)
@@ -44,8 +57,8 @@ Multi-agent orchestration across Claude, Codex, and OpenCode.
 
 Quick start:
   meridian spawn -m MODEL -p "prompt"   Create a subagent run
-  meridian spawn wait ID                Wait for results
-  meridian models list                  See available models
+  meridian spawn wait ID                  Wait for results
+  meridian models list                   See available models
 
 Run 'meridian spawn -h' for full usage.
 
@@ -59,7 +72,6 @@ Commands:
 
 class GlobalOptions(BaseModel):
     """Top-level options that apply to all commands."""
-
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
 
     output: OutputConfig
@@ -73,24 +85,19 @@ class GlobalOptions(BaseModel):
 _GLOBAL_OPTIONS: ContextVar[GlobalOptions | None] = ContextVar("_GLOBAL_OPTIONS", default=None)
 
 
-class PrimaryLaunchOutput(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
-    message: str
-    exit_code: int
-    command: tuple[str, ...] = ()
-    lock_path: str
-    continue_ref: str | None = None
-    resume_command: str | None = None
-    warning: str | None = None
-
-
 class _ResolvedContinueTarget(BaseModel):
     model_config = ConfigDict(frozen=True)
 
+    space: SpaceRecord
     harness_session_id: str | None
     harness: str | None
     warning: str | None = None
+
+
+def _space_sort_key(record: SpaceRecord) -> tuple[str, int, str]:
+    suffix = record.id[1:] if record.id.startswith("s") else ""
+    numeric_id = int(suffix) if suffix.isdigit() else -1
+    return (record.created_at, numeric_id, record.id)
 
 
 def get_global_options() -> GlobalOptions:
@@ -118,13 +125,15 @@ def current_output_sink() -> OutputSink:
 
 def emit(payload: object) -> None:
     """Write command output using current output format settings."""
-
     options = get_global_options()
     sink, flush_after = _resolve_sink(options)
     if isinstance(payload, SpawnActionOutput):
-        emit_output(payload.to_wire(), sink=sink)
-    else:
-        emit_output(payload, sink=sink)
+        wire = payload.to_wire()
+        emit_output(wire, sink=sink)
+        if flush_after:
+            flush_sink(sink)
+        return
+    emit_output(payload, sink=sink)
     if flush_after:
         flush_sink(sink)
 
@@ -194,7 +203,10 @@ def _extract_global_options(argv: Sequence[str]) -> tuple[list[str], GlobalOptio
         cleaned.append(arg)
         i += 1
 
-    resolved = normalize_output_format(requested=output_format, json_mode=json_mode)
+    resolved = normalize_output_format(
+        requested=output_format,
+        json_mode=json_mode,
+    )
     return cleaned, GlobalOptions(
         output=OutputConfig(format=resolved),
         config_file=config_file,
@@ -269,6 +281,14 @@ def root(
             show=False,
         ),
     ] = False,
+    new: Annotated[
+        bool,
+        Parameter(name="--new", help="Force create a new space before launch."),
+    ] = False,
+    space: Annotated[
+        str | None,
+        Parameter(name="--space", help="Use an explicit existing space id."),
+    ] = None,
     continue_ref: Annotated[
         str | None,
         Parameter(name="--continue", help="Continue a previous session reference."),
@@ -323,10 +343,13 @@ def root(
         ),
     ] = (),
 ) -> None:
-    """Launch or resume the primary harness."""
+    """Resolve/start a space and launch the primary harness."""
 
     if _GLOBAL_OPTIONS.get() is None:
-        resolved = normalize_output_format(requested=output_format, json_mode=json_mode)
+        resolved = normalize_output_format(
+            requested=output_format,
+            json_mode=json_mode,
+        )
         _GLOBAL_OPTIONS.set(
             GlobalOptions(
                 output=OutputConfig(format=resolved),
@@ -337,6 +360,8 @@ def root(
         )
 
     _run_primary_launch(
+        new=new,
+        space=space,
         continue_ref=continue_ref,
         model=model,
         harness=harness,
@@ -357,6 +382,7 @@ def serve() -> None:
     run_server()
 
 
+space_app = App(name="space", help="Space lifecycle commands", help_formatter="plain")
 spawn_app = App(
     name="spawn",
     help=(
@@ -375,20 +401,16 @@ report_app = App(name="report", help="Report management commands", help_formatte
 skills_app = App(name="skills", help="Skills catalog commands", help_formatter="plain")
 models_app = App(name="models", help="Model catalog commands", help_formatter="plain")
 config_app = App(name="config", help="Repository config commands", help_formatter="plain")
-sync_app = App(
-    name="sync",
-    help="Sync skills and agents from external sources",
-    help_formatter="plain",
-)
+
 completion_app = App(name="completion", help="Shell completion helpers", help_formatter="plain")
 
 
+app.command(space_app, name="space")
 app.command(spawn_app, name="spawn")
 app.command(report_app, name="report")
 app.command(skills_app, name="skills")
 app.command(models_app, name="models")
 app.command(config_app, name="config")
-app.command(sync_app, name="sync")
 app.command(completion_app, name="completion")
 
 
@@ -443,8 +465,34 @@ def completion_install(
     emit({"shell": normalized_shell, "path": destination.as_posix()})
 
 
+def _start_space_record(
+    *,
+    repo_root: Path,
+    force_new: bool,
+    explicit_space: str | None,
+) -> SpaceRecord:
+    if force_new and explicit_space is not None:
+        raise ValueError("Cannot combine --new with --space.")
+
+    if explicit_space is not None:
+        record = get_space_record(repo_root, explicit_space)
+        if record is None:
+            raise ValueError(f"Space '{explicit_space}' not found")
+        return record
+
+    if force_new:
+        return create_space_record(repo_root)
+
+    spaces = list_space_records(repo_root)
+    if spaces:
+        return max(spaces, key=_space_sort_key)
+    return create_space_record(repo_root)
+
+
 def _run_primary_launch(
     *,
+    new: bool,
+    space: str | None,
     continue_ref: str | None,
     model: str,
     harness: str | None,
@@ -458,7 +506,8 @@ def _run_primary_launch(
 ) -> None:
     """Shared primary launch flow for root command entry."""
 
-    repo_root = Path.cwd().resolve()
+    repo_root = resolve_repo_root()
+    explicit_space = space.strip() if space is not None and space.strip() else None
     normalized_continue_ref = continue_ref.strip() if continue_ref is not None else ""
     resume_target = normalized_continue_ref if normalized_continue_ref else None
     resolved_permission_tier = permission_tier
@@ -467,26 +516,41 @@ def _run_primary_launch(
         resolved_permission_tier = "full-access"
         resolved_approval = "auto"
 
+    selected: SpaceRecord
     continue_harness_session_id: str | None = None
     continue_harness: str | None = None
     continue_warning: str | None = None
     fresh = True
     if resume_target is not None:
+        if new:
+            raise ValueError("Cannot combine --continue with --new.")
         if model.strip():
             raise ValueError("Cannot combine --continue with --model.")
         if harness is not None and harness.strip():
             raise ValueError("Cannot combine --continue with --harness.")
         if agent is not None and agent.strip():
             raise ValueError("Cannot combine --continue with --agent.")
-        resolved_continue = _resolve_continue_target(repo_root=repo_root, continue_ref=resume_target)
+        resolved_continue = _resolve_continue_target(
+            repo_root=repo_root,
+            continue_ref=resume_target,
+            explicit_space=explicit_space,
+        )
+        selected = resolved_continue.space
         continue_harness_session_id = resolved_continue.harness_session_id
         continue_harness = resolved_continue.harness
         continue_warning = resolved_continue.warning
         fresh = False
+    else:
+        selected = _start_space_record(
+            repo_root=repo_root,
+            force_new=new,
+            explicit_space=explicit_space,
+        )
 
     launch_result = launch_primary(
         repo_root=repo_root,
-        request=LaunchRequest(
+        request=SpaceLaunchRequest(
+            space_id=SpaceId(selected.id),
             model=model,
             harness=continue_harness if resume_target is not None else harness,
             agent=agent,
@@ -503,7 +567,8 @@ def _run_primary_launch(
     )
 
     emit(
-        PrimaryLaunchOutput(
+        SpaceActionOutput(
+            space_id=selected.id,
             message=(
                 "Resume dry-run."
                 if dry_run and resume_target is not None
@@ -531,28 +596,110 @@ def _resolve_continue_target(
     *,
     repo_root: Path,
     continue_ref: str,
+    explicit_space: str | None,
 ) -> _ResolvedContinueTarget:
     normalized = continue_ref.strip()
     if not normalized:
         raise ValueError("--continue requires a non-empty session reference.")
+    inferred_harness = infer_harness_from_untracked_session_ref(repo_root, normalized)
 
-    state_root = resolve_state_paths(repo_root).root_dir
-    session = resolve_session_ref(state_root, normalized)
-    if session is not None:
+    all_spaces = list_space_records(repo_root)
+    matches: list[tuple[SpaceRecord, str | None, str | None]] = []
+    for record in all_spaces:
+        space_dir = resolve_space_dir(repo_root, record.id)
+        session = resolve_session_ref(space_dir, normalized)
+        if session is None:
+            continue
+        harness_session_id = session.harness_session_id.strip() or None
+        harness = inferred_harness or (session.harness.strip() or None)
+        matches.append((record, harness_session_id, harness))
+
+    def _last_space_harness(space_id: str) -> str | None:
+        record = get_last_session(resolve_space_dir(repo_root, space_id))
+        if record is None:
+            return None
+        normalized_harness = record.harness.strip()
+        return normalized_harness or None
+
+    if explicit_space is not None:
+        selected = get_space_record(repo_root, explicit_space)
+        if selected is None:
+            raise ValueError(f"Space '{explicit_space}' not found")
+
+        explicit_match = next((item for item in matches if item[0].id == selected.id), None)
+        if explicit_match is not None:
+            return _ResolvedContinueTarget(
+                space=selected,
+                harness_session_id=explicit_match[1],
+                harness=explicit_match[2],
+            )
+
+        if matches:
+            if len(matches) > 1:
+                spaces = ", ".join(sorted(record.id for record, _, _ in matches))
+                raise ValueError(
+                    f"Session '{normalized}' is ambiguous across spaces ({spaces}). "
+                    "Use a more specific session id."
+                )
+            resolved_space, harness_session_id, harness_id = matches[0]
+            return _ResolvedContinueTarget(
+                space=resolved_space,
+                harness_session_id=harness_session_id,
+                harness=harness_id,
+                warning=(
+                    f"Session '{normalized}' belongs to space '{resolved_space.id}'; "
+                    f"ignoring --space '{selected.id}'."
+                ),
+            )
+
+        if _looks_like_chat_alias(normalized):
+            raise ValueError(
+                f"Session '{normalized}' not found in space '{selected.id}'."
+            )
         return _ResolvedContinueTarget(
-            harness_session_id=session.harness_session_id.strip() or None,
-            harness=(session.harness.strip() or None),
+            space=selected,
+            harness_session_id=normalized,
+            harness=(
+                inferred_harness
+                or _last_space_harness(selected.id)
+            ),
+            warning=(
+                f"Session '{normalized}' is not tracked yet; binding it to space "
+                f"'{selected.id}' for this run."
+            ),
         )
 
-    if _looks_like_chat_alias(normalized):
-        raise ValueError(f"Session '{normalized}' not found.")
-
-    inferred_harness = infer_harness_from_untracked_session_ref(repo_root, normalized)
-    last_session = get_last_session(state_root)
+    if not matches:
+        if _looks_like_chat_alias(normalized):
+            raise ValueError(f"Session '{normalized}' not found.")
+        selected = _start_space_record(
+            repo_root=repo_root,
+            force_new=False,
+            explicit_space=None,
+        )
+        return _ResolvedContinueTarget(
+            space=selected,
+            harness_session_id=normalized,
+            harness=(
+                inferred_harness
+                or _last_space_harness(selected.id)
+            ),
+            warning=(
+                f"Session '{normalized}' is not tracked yet; binding it to space "
+                f"'{selected.id}' for this run."
+            ),
+        )
+    if len(matches) > 1:
+        spaces = ", ".join(sorted(record.id for record, _, _ in matches))
+        raise ValueError(
+            f"Session '{normalized}' is ambiguous across spaces ({spaces}). "
+            "Use --space to disambiguate."
+        )
+    resolved_space, harness_session_id, harness_id = matches[0]
     return _ResolvedContinueTarget(
-        harness_session_id=normalized,
-        harness=inferred_harness or (last_session.harness.strip() or None if last_session is not None else None),
-        warning=f"Session '{normalized}' is not tracked yet; resuming with the provided harness session id.",
+        space=resolved_space,
+        harness_session_id=harness_session_id,
+        harness=harness_id,
     )
 
 
@@ -572,9 +719,12 @@ _REGISTERED_CLI_DESCRIPTIONS: dict[str, str] = {}
 
 
 def _register_group_commands() -> None:
+    # Import lazily to avoid a circular import with meridian.cli.spawn, which
+    # reads agent-mode state from this module during import.
     from meridian.cli.spawn import register_spawn_commands
 
     modules = (
+        register_space_commands(space_app, emit),
         register_spawn_commands(spawn_app, emit),
         register_report_commands(report_app, emit),
         register_skills_commands(skills_app, emit),
@@ -582,7 +732,6 @@ def _register_group_commands() -> None:
         register_config_commands(config_app, emit),
         register_doctor_command(app, emit),
     )
-    register_sync_commands(sync_app, emit)
     for commands, descriptions in modules:
         _REGISTERED_CLI_COMMANDS.update(commands)
         _REGISTERED_CLI_DESCRIPTIONS.update(descriptions)
@@ -609,20 +758,20 @@ def _operation_error_message(exc: Exception) -> str:
     return exc.__class__.__name__
 
 
+
 def _emit_error(message: str, *, exit_code: int = 1) -> None:
     """Emit an error via the active sink and exit."""
-
     sink, flush_after = _resolve_sink(_GLOBAL_OPTIONS.get())
     sink.error(message, exit_code=exit_code)
     if flush_after:
         flush_sink(sink)
     raise SystemExit(exit_code)
 
-
 _TOP_LEVEL_VALUE_FLAGS = frozenset(
     {
         "--format",
         "--config",
+        "--space",
         "--continue",
         "--model",
         "--harness",
@@ -646,6 +795,8 @@ _TOP_LEVEL_BOOL_FLAGS = frozenset(
         "--no-input",
         "--no-no-input",
         "--human",
+        "--new",
+        "--no-new",
         "--yolo",
         "--no-yolo",
         "--dry-run",
@@ -671,6 +822,8 @@ def _first_positional_token(argv: Sequence[str]) -> str | None:
         if token in _TOP_LEVEL_VALUE_FLAGS:
             index += 2
             continue
+        # Unknown option: best effort treat following non-flag as its value
+        # to avoid misclassifying that token as an unknown command.
         if index + 1 < len(argv) and not argv[index + 1].startswith("-"):
             index += 2
             continue
@@ -679,7 +832,9 @@ def _first_positional_token(argv: Sequence[str]) -> str | None:
 
 
 def _top_level_command_names() -> set[str]:
-    return {name for name in _COMMAND_TREE_APP.resolved_commands() if not name.startswith("-")}
+    return {
+        name for name in _COMMAND_TREE_APP.resolved_commands() if not name.startswith("-")
+    }
 
 
 def _validate_top_level_command(argv: Sequence[str]) -> None:
@@ -709,6 +864,10 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     args = list(sys.argv[1:] if argv is None else argv)
 
+    # Configure logging early so structlog warnings go to stderr, not stdout.
+    # Check if structured output is requested. Only JSON format suppresses
+    # human-readable log formatting; "--format text" should not switch logging
+    # to JSON mode.
     json_mode = "--json" in args
     if not json_mode and "--format" in args:
         try:
@@ -720,14 +879,22 @@ def main(argv: Sequence[str] | None = None) -> None:
     verbose_count = args.count("--verbose") + args.count("-v")
     configure_logging(json_mode=json_mode, verbosity=verbose_count)
 
+    # Skip orphan cleanup when running as a spawned agent (MERIDIAN_DEPTH > 0).
+    # Spawned agents should never clean up their parent space's state — doing so
+    # can mark concurrent spawns as failed and close the parent space.
     if not agent_mode_enabled():
         try:
-            repo_root = Path.cwd().resolve()
+            repo_root = resolve_repo_root()
+            # Cleanup is best-effort and should never block CLI usage.
             cleanup_orphaned_locks(repo_root)
-            state_root = resolve_state_paths(repo_root).root_dir
-            cleanup = cleanup_stale_sessions(state_root)
-            for harness_id, chat_id in cleanup.materialized_scopes:
-                cleanup_materialized(harness_id, repo_root, chat_id)
+            spaces_dir = resolve_all_spaces_dir(repo_root)
+            if spaces_dir.is_dir():
+                for space_dir in sorted(spaces_dir.iterdir()):
+                    if not space_dir.is_dir():
+                        continue
+                    cleanup = cleanup_stale_sessions(space_dir)
+                    for harness_id, chat_id in cleanup.materialized_scopes:
+                        cleanup_materialized(harness_id, repo_root, chat_id)
         except Exception:
             logger.debug("orphaned lock cleanup failed", exc_info=True)
 
@@ -752,6 +919,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     token = _GLOBAL_OPTIONS.set(options)
     prior_user_config = os.environ.get("MERIDIAN_CONFIG")
     if options.config_file is not None:
+        # Set process env so all downstream load_config() calls see --config without plumbing args everywhere.
         os.environ["MERIDIAN_CONFIG"] = options.config_file
     try:
         try:

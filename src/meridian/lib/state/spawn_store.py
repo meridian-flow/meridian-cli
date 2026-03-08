@@ -14,7 +14,7 @@ from typing import Any, Literal, Mapping, cast
 from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.state.paths import SpacePaths
-from meridian.lib.core.types import SpawnId
+from meridian.lib.core.types import SpaceId, SpawnId
 
 
 # ---------------------------------------------------------------------------
@@ -47,6 +47,26 @@ def _count_start_events(path: Path) -> int:
             if isinstance(event, str) and event == "start":
                 count += 1
     return count
+
+
+def next_space_id(repo_root: Path) -> SpaceId:
+    """Return the next monotonic space ID (`s1`, `s2`, ...)."""
+
+    spaces_dir = repo_root / ".meridian" / ".spaces"
+    if not spaces_dir.exists():
+        return SpaceId("s1")
+
+    max_suffix = 0
+    for child in spaces_dir.iterdir():
+        if not child.is_dir():
+            continue
+        name = child.name
+        if not name.startswith("s"):
+            continue
+        suffix = name[1:]
+        if suffix.isdigit():
+            max_suffix = max(max_suffix, int(suffix))
+    return SpaceId(f"s{max_suffix + 1}")
 
 
 def next_spawn_id(space_dir: Path) -> SpawnId:
