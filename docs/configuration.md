@@ -120,6 +120,7 @@ cost_tier = "$$"
 | `MERIDIAN_CONFIG` | User config overlay path |
 | `MERIDIAN_STATE_ROOT` | Override state root (default `.meridian`) |
 | `MERIDIAN_SPACE_ID` | Default space scope for spawn operations |
+| `MERIDIAN_SPACE_FS` | Resolved shared filesystem path for the current space |
 | `MERIDIAN_SPAWN_ID` | Current spawn ID in nested execution |
 | `MERIDIAN_CHAT_ID` | Current chat/session id in nested execution |
 | `MERIDIAN_DEPTH` | Current nesting depth |

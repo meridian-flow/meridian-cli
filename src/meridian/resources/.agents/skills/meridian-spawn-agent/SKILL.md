@@ -86,15 +86,15 @@ meridian spawn wait "$SID"
 
 ## Shared Filesystem
 
-Each space has a shared filesystem at `.meridian/.spaces/<space-id>/fs/`. Use it to pass data between spawns:
+Each space has a shared filesystem at `$MERIDIAN_SPACE_FS`. Use it to pass data between spawns:
 
 ```bash
 # Write output for other spawns to consume
-mkdir -p ".meridian/.spaces/$MERIDIAN_SPACE_ID/fs"
-echo "result data" > ".meridian/.spaces/$MERIDIAN_SPACE_ID/fs/step-a-output.txt"
+mkdir -p "$MERIDIAN_SPACE_FS"
+echo "result data" > "$MERIDIAN_SPACE_FS/step-a-output.txt"
 
 # Read another spawn's output
-cat ".meridian/.spaces/$MERIDIAN_SPACE_ID/fs/step-a-output.txt"
+cat "$MERIDIAN_SPACE_FS/step-a-output.txt"
 ```
 
 Agents organize this directory however they want — meridian provides the container only.
