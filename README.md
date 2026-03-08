@@ -210,17 +210,15 @@ meridian -h
 meridian config init
 meridian
 
-# In another shell, use the space id reported by Meridian.
-export MERIDIAN_SPACE_ID=s1
-
-meridian spawn -m gpt-5.3-codex -p "Refactor auth flow"
-meridian spawn wait p1
-meridian spawn show p1 --report
+# In another shell, target the same space explicitly.
+meridian spawn --space s1 -m gpt-5.3-codex -p "Refactor auth flow"
+meridian spawn wait p1 --space s1
+meridian spawn show p1 --report --space s1
 ```
 
 What this does:
 - `meridian` launches the primary agent in a space and records that space under `.meridian/`
-- `MERIDIAN_SPACE_ID` scopes later spawn commands to the same space
+- `--space` targets later spawn commands to the same space
 - `meridian spawn ...` delegates a subtask to a routed harness/model
 
 ## Usage Examples
@@ -254,9 +252,8 @@ meridian spawn --continue p1 -p "Also add regression coverage"
 
 ```bash
 meridian space start --name auth-refactor
-export MERIDIAN_SPACE_ID=s1
-meridian spawn -p "Research the current implementation"
-meridian spawn -m gpt-5.3-codex -p "Implement the refactor"
+meridian spawn --space s1 -p "Research the current implementation"
+meridian spawn --space s1 -m gpt-5.3-codex -p "Implement the refactor"
 meridian space show s1
 ```
 
@@ -330,11 +327,13 @@ See [Configuration](docs/configuration.md) for override details.
 
 ### Spawn commands behave as if they are in the wrong space
 
-Set `MERIDIAN_SPACE_ID` explicitly before running spawn commands:
+Pass `--space` explicitly before running spawn commands:
 
 ```bash
-export MERIDIAN_SPACE_ID=s1
+meridian spawn --space s1 -p "Continue this task"
 ```
+
+`MERIDIAN_SPACE_ID` is also available as an optional default when you prefer environment-based scoping.
 
 See [Spaces](docs/spaces.md) for the continuation and scoping rules.
 

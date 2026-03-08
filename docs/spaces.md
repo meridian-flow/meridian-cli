@@ -88,14 +88,15 @@ Practical impact:
 
 ## Environment and Scoping
 
-`MERIDIAN_SPACE_ID` scopes spawn commands to one space.
+Use `--space` to scope spawn commands to one space.
 
 ```bash
-export MERIDIAN_SPACE_ID=s12
-meridian spawn -p "Implement the parser"
-meridian spawn list
+meridian spawn --space s12 -p "Implement the parser"
+meridian spawn list --space s12
 ```
-Set `MERIDIAN_SPACE_ID` to scope spawns to an existing space. Without it, spawn auto-creates a new space.
+
+If you prefer environment-based scoping, `MERIDIAN_SPACE_ID` can provide the default space for
+spawn commands. Without either `--space` or `MERIDIAN_SPACE_ID`, spawn auto-creates a new space.
 
 ## Locking
 

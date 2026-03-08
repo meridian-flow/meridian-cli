@@ -10,15 +10,16 @@ In agent mode, all CLI output is JSON.
 
 ## Setup
 
-Before spawning, ensure you have a space:
+Use `meridian spawn` directly:
 
 ```bash
-# First spawn auto-creates a space and returns immediately by default.
-# Capture/export the returned space_id for subsequent commands.
+# First spawn returns immediately by default.
 meridian spawn -m MODEL -p "first task"
-# JSON output includes spawn_id and a warning with the auto-created space hint
-export MERIDIAN_SPACE_ID=s1
 ```
+
+If no space is already selected, Meridian auto-creates one and includes the new `space_id`
+in the warning output. Use that `space_id` for later commands when you want to keep working
+in the same space.
 
 ## Spawn Composition
 
