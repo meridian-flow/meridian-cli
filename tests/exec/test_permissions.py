@@ -217,7 +217,7 @@ def test_sanitize_child_env_derives_space_fs_from_repo_root() -> None:
 
     assert sanitized["MERIDIAN_SPACE_ID"] == "s9"
     assert sanitized["MERIDIAN_REPO_ROOT"] == "/tmp/repo"
-    assert sanitized["MERIDIAN_SPACE_FS"] == "/tmp/repo/.meridian/.spaces/s9/fs"
+    assert sanitized["MERIDIAN_SPACE_FS_DIR"] == "/tmp/repo/.meridian/.spaces/s9/fs"
 
 
 def test_sanitize_child_env_prefers_state_root_for_space_fs() -> None:
@@ -231,7 +231,7 @@ def test_sanitize_child_env_prefers_state_root_for_space_fs() -> None:
         pass_through=set(),
     )
 
-    assert sanitized["MERIDIAN_SPACE_FS"] == "/tmp/custom-state/.spaces/s12/fs"
+    assert sanitized["MERIDIAN_SPACE_FS_DIR"] == "/tmp/custom-state/.spaces/s12/fs"
 
 
 def test_inherit_child_env_keeps_parent_env_but_drops_internal_launch_overrides() -> None:

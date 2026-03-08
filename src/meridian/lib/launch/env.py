@@ -3,6 +3,7 @@
 
 from collections.abc import Collection, Mapping
 from pathlib import Path
+from typing import Callable, cast
 
 from meridian.lib.harness.adapter import HarnessAdapter, SpawnParams, resolve_mcp_config
 from meridian.lib.safety.permissions import PermissionConfig
@@ -48,21 +49,21 @@ def _normalize_meridian_env(env: dict[str, str]) -> None:
     if not space_id:
         return
 
-    explicit_space_fs = env.get("MERIDIAN_SPACE_FS", "").strip()
+    explicit_space_fs = env.get("MERIDIAN_SPACE_FS_DIR", "").strip()
     if explicit_space_fs:
-        env["MERIDIAN_SPACE_FS"] = explicit_space_fs
+        env["MERIDIAN_SPACE_FS_DIR"] = explicit_space_fs
         return
 
     state_root = env.get("MERIDIAN_STATE_ROOT", "").strip()
     if state_root:
-        env["MERIDIAN_SPACE_FS"] = (
+        env["MERIDIAN_SPACE_FS_DIR"] = (
             Path(state_root).expanduser() / ".spaces" / space_id / "fs"
         ).as_posix()
         return
 
     repo_root = env.get("MERIDIAN_REPO_ROOT", "").strip()
     if repo_root:
-        env["MERIDIAN_SPACE_FS"] = (
+        env["MERIDIAN_SPACE_FS_DIR"] = (
             Path(repo_root).expanduser() / ".meridian" / ".spaces" / space_id / "fs"
         ).as_posix()
 
@@ -143,11 +144,11 @@ def build_harness_child_env(
         runtime_env_overrides=runtime_env_overrides,
     )
     blocked_child_env_vars = getattr(adapter, "blocked_child_env_vars", None)
-    adapter_blocked = (
-        blocked_child_env_vars()
-        if callable(blocked_child_env_vars)
-        else frozenset()
-    )
+    adapter_blocked: frozenset[str]
+    if callable(blocked_child_env_vars):
+        adapter_blocked = cast(Callable[[], frozenset[str]], blocked_child_env_vars)()
+    else:
+        adapter_blocked = cast(frozenset[str], frozenset())
     return inherit_child_env(
         base_env=base_env,
         env_overrides=merged_env,

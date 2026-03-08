@@ -15,6 +15,7 @@ from meridian.lib.harness.common import (
 )
 from meridian.lib.harness.adapter import ArtifactStore as HarnessArtifactStore
 from meridian.lib.harness.adapter import (
+    BaseHarnessAdapter,
     HarnessCapabilities,
     PermissionResolver,
     SpawnParams,
@@ -29,7 +30,7 @@ from meridian.lib.state.paths import resolve_space_dir
 from meridian.lib.core.types import HarnessId, ModelId, SpawnId, SpaceId
 
 
-class ScriptHarnessAdapter:
+class ScriptHarnessAdapter(BaseHarnessAdapter):
     def __init__(self, *, command: tuple[str, ...]) -> None:
         self._command = command
 
