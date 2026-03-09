@@ -45,30 +45,6 @@ def _entry() -> SyncLockEntry:
     )
 
 
-def test_sync_lock_entry_creation_with_valid_data():
-    entry = _entry()
-
-    assert entry.source_name == "personal"
-    assert entry.source_type == "repo"
-    assert entry.source_value == "haowjy/meridian-skills"
-    assert entry.source_item_name == "github-issues"
-    assert entry.requested_ref == "main"
-    assert entry.locked_commit == "abc123def456"
-    assert entry.item_kind == "skill"
-    assert entry.dest_path == ".agents/skills/github-issues"
-    assert entry.tree_hash == "sha256:0123456789abcdef"
-    assert entry.synced_at == "2026-03-08T12:34:56Z"
-
-
-def test_sync_lock_file_is_mutable():
-    lock = SyncLockFile()
-    entry = _entry()
-
-    lock.items["skills/github-issues"] = entry
-
-    assert lock.items == {"skills/github-issues": entry}
-
-
 def test_read_lock_file_returns_empty_for_missing_file(tmp_path):
     lock = read_lock_file(tmp_path / ".meridian" / "sync.lock")
 

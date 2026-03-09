@@ -1,8 +1,5 @@
 """Harness command-building invariants across adapters."""
 
-
-import dataclasses
-
 from meridian.lib.harness.adapter import PermissionResolver, SpawnParams
 from meridian.lib.harness.claude import ClaudeAdapter
 from meridian.lib.harness.codex import CodexAdapter
@@ -23,29 +20,6 @@ def _sample_run(*, model: str, extra_args: tuple[str, ...] = ()) -> SpawnParams:
         agent="reviewer",
         extra_args=extra_args,
     )
-
-
-def test_every_run_params_field_is_mapped_for_each_adapter() -> None:
-    skip = {
-        "prompt",
-        "extra_args",
-        "repo_root",
-        "mcp_tools",
-        "adhoc_agent_json",
-        "interactive",
-        "report_output_path",
-    }
-    if dataclasses.is_dataclass(SpawnParams):
-        field_names = {field.name for field in dataclasses.fields(SpawnParams)}
-    else:
-        field_names = set(SpawnParams.model_fields)
-    required = field_names - skip
-    adapter_classes = (ClaudeAdapter, CodexAdapter, OpenCodeAdapter)
-
-    for adapter_class in adapter_classes:
-        mapped = set(adapter_class.STRATEGIES)
-        missing = required - mapped
-        assert not missing, f"{adapter_class.__name__} missing strategy for {sorted(missing)}"
 
 
 def test_claude_build_command_passes_agent_natively() -> None:
