@@ -285,7 +285,8 @@ def _cost_tier(cost_input: float | None) -> str | None:
         return "$"
     if cost_input < 5.0:
         return "$$"
-    return "$$$"
+    extra_dollar_count = int((cost_input - 5.0) // 5.0)
+    return "$" * (3 + extra_dollar_count)
 
 
 def models_list_sync(payload: ModelsListInput) -> ModelsListOutput:
