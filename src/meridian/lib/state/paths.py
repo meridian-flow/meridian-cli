@@ -8,6 +8,7 @@ from typing import Self
 from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.core.types import SpawnId
+from meridian.lib.state.atomic import atomic_write_text
 
 _MERIDIAN_DIR = ".meridian"
 _GITIGNORE_CONTENT = (
@@ -135,8 +136,5 @@ def ensure_gitignore(repo_root: Path) -> Path:
     if gitignore_path.exists():
         return gitignore_path
 
-    tmp_path = meridian_dir / ".gitignore.tmp"
-    with tmp_path.open("w", encoding="utf-8") as handle:
-        handle.write(_GITIGNORE_CONTENT)
-    os.replace(tmp_path, gitignore_path)
+    atomic_write_text(gitignore_path, _GITIGNORE_CONTENT)
     return gitignore_path

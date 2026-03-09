@@ -10,6 +10,7 @@ from meridian.lib.core.util import FormatContext
 from meridian.lib.ops.runtime import resolve_runtime_root_and_config
 from meridian.lib.ops.spawn.query import resolve_spawn_reference
 from meridian.lib.state import spawn_store
+from meridian.lib.state.atomic import atomic_write_text
 from meridian.lib.state.paths import resolve_state_paths
 
 
@@ -156,9 +157,8 @@ def report_create_sync(
     if not content:
         raise ValueError("Report content must not be empty.")
     report_path = _report_path(repo_root, spawn_id=spawn_id)
-    report_path.parent.mkdir(parents=True, exist_ok=True)
     text = f"{content}\n"
-    report_path.write_text(text, encoding="utf-8")
+    atomic_write_text(report_path, text)
     return ReportCreateOutput(
         command="report.create",
         status="succeeded",

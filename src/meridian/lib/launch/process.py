@@ -18,6 +18,7 @@ from meridian.lib.core.types import HarnessId
 from meridian.lib.harness.materialize import cleanup_materialized
 from meridian.lib.harness.registry import HarnessRegistry
 from meridian.lib.state import spawn_store
+from meridian.lib.state.atomic import atomic_write_text
 from meridian.lib.state.paths import resolve_state_paths
 from meridian.lib.state.session_store import start_session, stop_session, update_session_harness_id
 
@@ -75,8 +76,7 @@ def _write_lock(
         "started_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "command": list(command),
     }
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+    atomic_write_text(path, json.dumps(payload, sort_keys=True, indent=2) + "\n")
 
 
 def _pid_exists(pid: int) -> bool:

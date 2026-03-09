@@ -38,6 +38,7 @@ from meridian.lib.state.session_store import (
     update_session_harness_id,
 )
 from meridian.lib.state import spawn_store
+from meridian.lib.state.atomic import atomic_write_text
 from meridian.lib.state.paths import resolve_spawn_log_dir, resolve_state_paths
 from meridian.lib.core.types import ModelId, SpawnId
 
@@ -657,7 +658,7 @@ def execute_spawn_background(
             exit_code=1,
         )
 
-    (log_dir / _BACKGROUND_PID_FILENAME).write_text(f"{process.pid}\n", encoding="utf-8")
+    atomic_write_text(log_dir / _BACKGROUND_PID_FILENAME, f"{process.pid}\n")
     # The Popen object goes out of scope without wait(). This is intentional:
     # the child spawns in its own session (start_new_session=True) and is
     # re-parented to init/systemd. We only need the PID for diagnostics.

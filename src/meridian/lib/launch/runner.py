@@ -31,8 +31,9 @@ from meridian.lib.safety.budget import Budget, BudgetBreach, LiveBudgetTracker
 from meridian.lib.safety.guardrails import GuardrailFailure, run_guardrails
 from meridian.lib.safety.permissions import PermissionConfig
 from meridian.lib.safety.redaction import SecretSpec, redact_secret_bytes
-from meridian.lib.state.artifact_store import ArtifactStore, make_artifact_key
 from meridian.lib.state import spawn_store
+from meridian.lib.state.artifact_store import ArtifactStore, make_artifact_key
+from meridian.lib.state.atomic import atomic_write_bytes
 from meridian.lib.state.paths import resolve_spawn_log_dir, resolve_state_paths
 from meridian.lib.core.types import HarnessId, SpawnId
 
@@ -455,8 +456,7 @@ def _write_structured_failure_artifact(
     }
     encoded = f"{json.dumps(payload, sort_keys=True)}\n".encode("utf-8")
     artifacts.put(make_artifact_key(spawn_id, OUTPUT_FILENAME), encoded)
-    output_log_path.parent.mkdir(parents=True, exist_ok=True)
-    output_log_path.write_bytes(encoded)
+    atomic_write_bytes(output_log_path, encoded)
 
 
 def _spawn_kind(state_root: Path, spawn_id: SpawnId) -> str:
@@ -613,7 +613,7 @@ async def execute_with_finalization(
 
             if report_path.exists():
                 redacted_report = redact_secret_bytes(report_path.read_bytes(), secrets)
-                report_path.write_bytes(redacted_report)
+                atomic_write_bytes(report_path, redacted_report)
                 artifacts.put(
                     make_artifact_key(run.spawn_id, REPORT_FILENAME),
                     redacted_report,

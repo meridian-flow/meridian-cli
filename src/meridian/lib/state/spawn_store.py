@@ -14,6 +14,7 @@ from typing import Any, Literal, Mapping, cast
 from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.core.types import SpawnId
+from meridian.lib.state.atomic import append_text_line
 from meridian.lib.state.paths import StateRootPaths
 
 
@@ -143,10 +144,7 @@ def _lock_file(path: Path):
 
 
 def _append_event(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(payload, separators=(",", ":"), sort_keys=True))
-        handle.write("\n")
+    append_text_line(path, json.dumps(payload, separators=(",", ":"), sort_keys=True) + "\n")
 
 
 def _parse_event(payload: dict[str, Any]) -> SpawnEvent | None:

@@ -11,6 +11,7 @@ from meridian.lib.launch.artifact_io import read_artifact_text
 from meridian.lib.launch.files_touched import extract_files_touched
 from meridian.lib.launch.report import ExtractedReport, extract_or_fallback_report
 from meridian.lib.safety.redaction import SecretSpec, redact_secrets
+from meridian.lib.state.atomic import atomic_write_text
 from meridian.lib.state.artifact_store import ArtifactStore
 from meridian.lib.core.types import ArtifactKey, SpawnId
 
@@ -68,16 +69,14 @@ def _persist_report(
     report_key = ArtifactKey(f"{spawn_id}/{_REPORT_FILENAME}")
     if extracted.source == "assistant_message":
         wrapped = f"# Auto-extracted Report\n\n{redacted_content.strip()}\n"
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(wrapped, encoding="utf-8")
+        atomic_write_text(target, wrapped)
         artifacts.put(report_key, wrapped.encode("utf-8"))
         return target
 
     # The harness may have written report.md directly. Ensure both filesystem and artifact
     # views are populated so downstream readers can consume a single source.
     text = redacted_content
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(text, encoding="utf-8")
+    atomic_write_text(target, text)
     artifacts.put(report_key, text.encode("utf-8"))
     return target
 

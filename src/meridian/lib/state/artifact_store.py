@@ -8,6 +8,7 @@ from typing import Protocol, cast
 from pydantic import BaseModel, ConfigDict, PrivateAttr
 
 from meridian.lib.core.types import ArtifactKey, SpawnId
+from meridian.lib.state.atomic import atomic_write_bytes
 
 
 class ArtifactStore(Protocol):
@@ -51,8 +52,7 @@ class LocalStore(BaseModel):
     def put(self, key: ArtifactKey, data: bytes) -> None:
         rel = _normalize_key(key)
         target = self.root_dir / rel
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(data)
+        atomic_write_bytes(target, data)
 
     def get(self, key: ArtifactKey) -> bytes:
         rel = _normalize_key(key)

@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import fcntl
 import json
-import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from meridian.lib.state.atomic import atomic_write_text
 
 
 class SyncLockEntry(BaseModel):
@@ -36,11 +37,6 @@ class SyncLockFile(BaseModel):
     version: int = 1
     items: dict[str, SyncLockEntry] = Field(default_factory=dict)
 
-
-def _tmp_path(lock_path: Path) -> Path:
-    return lock_path.with_name(f"{lock_path.name}.tmp")
-
-
 def _flock_path(lock_path: Path) -> Path:
     return lock_path.with_name(f"{lock_path.name}.flock")
 
@@ -60,17 +56,10 @@ def read_lock_file(lock_path: Path) -> SyncLockFile:
 def write_lock_file(lock_path: Path, lock: SyncLockFile) -> None:
     """Write `.meridian/sync.lock` atomically."""
 
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = _tmp_path(lock_path)
-
-    try:
-        with tmp_path.open("w", encoding="utf-8") as handle:
-            json.dump(lock.model_dump(mode="json"), handle, indent=2, sort_keys=True)
-            handle.write("\n")
-        os.replace(tmp_path, lock_path)
-    except Exception:
-        tmp_path.unlink(missing_ok=True)
-        raise
+    atomic_write_text(
+        lock_path,
+        json.dumps(lock.model_dump(mode="json"), indent=2, sort_keys=True) + "\n",
+    )
 
 
 @contextmanager

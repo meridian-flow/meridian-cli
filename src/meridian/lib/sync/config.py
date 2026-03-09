@@ -1,9 +1,7 @@
 """Sync source configuration models and TOML I/O."""
 
 
-import os
 import re
-import tempfile
 import tomllib
 from pathlib import Path
 from typing import cast
@@ -16,6 +14,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+from meridian.lib.state.atomic import atomic_write_text
 
 _SOURCE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 _SYNC_SOURCE_HEADER_PATTERN = re.compile(r"(?m)^\s*\[\[sync\.sources\]\]\s*$")
@@ -335,17 +334,4 @@ def _extract_source_name_from_block(block_text: str) -> str:
 
 
 def _atomic_write_text(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-
-    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
-    tmp_path = Path(tmp_name)
-
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(content)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(tmp_path, path)
-    finally:
-        if tmp_path.exists():
-            tmp_path.unlink(missing_ok=True)
+    atomic_write_text(path, content)
