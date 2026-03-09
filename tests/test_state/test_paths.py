@@ -1,17 +1,18 @@
 
 from meridian.lib.state.paths import (
-    SpacePaths,
+    StateRootPaths,
     ensure_gitignore,
     resolve_fs_dir,
     resolve_state_paths,
 )
 
 
-def test_space_path_resolvers_and_dataclass_fields(tmp_path):
+def test_state_root_path_resolvers_and_dataclass_fields(tmp_path):
     state_root = resolve_state_paths(tmp_path).root_dir
-    paths = SpacePaths.from_space_dir(state_root)
+    paths = StateRootPaths.from_root_dir(state_root)
 
     assert state_root == tmp_path / ".meridian"
+    assert paths.root_dir == state_root
     assert paths.spawns_jsonl == state_root / "spawns.jsonl"
     assert paths.spawns_lock == state_root / "spawns.lock"
     assert paths.sessions_jsonl == state_root / "sessions.jsonl"

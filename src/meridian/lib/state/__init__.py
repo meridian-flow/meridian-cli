@@ -8,7 +8,7 @@ from meridian.lib.state.artifact_store import (
 )
 from meridian.lib.state.spawn_store import next_spawn_id, next_chat_id
 from meridian.lib.state.paths import (
-    SpacePaths,
+    StateRootPaths,
     StatePaths,
     ensure_gitignore,
     resolve_fs_dir,
@@ -23,7 +23,7 @@ __all__ = [
     "InMemoryStore",
     "LocalStore",
     "SpawnRecord",
-    "SpacePaths",
+    "StateRootPaths",
     "StatePaths",
     "ensure_gitignore",
     "finalize_spawn",

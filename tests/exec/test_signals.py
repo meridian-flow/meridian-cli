@@ -98,7 +98,7 @@ async def test_execute_with_finalization_ignores_sigterm_during_finalize_write(
 ) -> None:
     import meridian.lib.launch.runner as spawn_module
 
-    run, space_dir = _create_run(tmp_path, prompt="boom")
+    run, state_root = _create_run(tmp_path, prompt="boom")
     artifacts = LocalStore(root_dir=tmp_path / ".artifacts")
     adapter = MockHarnessAdapter(
         script=tmp_path / "unused.py",
@@ -138,7 +138,7 @@ async def test_execute_with_finalization_ignores_sigterm_during_finalize_write(
     exit_code = await execute_with_finalization(
         run,
         repo_root=tmp_path,
-        space_dir=space_dir,
+        state_root=state_root,
         artifacts=artifacts,
         registry=registry,
         harness_id=adapter.id,
@@ -311,7 +311,7 @@ def test_kill_running_parent_process_still_finalizes_run(
                 return await execute_with_finalization(
                     run,
                     repo_root=repo_root,
-                    space_dir=resolve_state_paths(repo_root).root_dir,
+                    state_root=resolve_state_paths(repo_root).root_dir,
                     artifacts=artifacts,
                     registry=registry,
                     harness_id=HarnessId("worker-mock"),
@@ -339,11 +339,11 @@ def test_kill_running_parent_process_still_finalizes_run(
         text=True,
     )
     try:
-        space_dir = resolve_state_paths(repo_root).root_dir
+        state_root = resolve_state_paths(repo_root).root_dir
         deadline = time.time() + 10.0
         saw_running = False
         while time.time() < deadline:
-            row = spawn_store.get_spawn(space_dir, "r1")
+            row = spawn_store.get_spawn(state_root, "r1")
             if row is not None and row.status == "running":
                 saw_running = True
                 break

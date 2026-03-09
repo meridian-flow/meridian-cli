@@ -85,7 +85,7 @@ def _write_script(path: Path, source: str) -> None:
 
 @pytest.mark.asyncio
 async def test_execute_finalizes_when_descendant_keeps_stdio_open(tmp_path: Path) -> None:
-    run, space_dir = _create_run(tmp_path, prompt="drain")
+    run, state_root = _create_run(tmp_path, prompt="drain")
     artifacts = LocalStore(root_dir=tmp_path / ".artifacts")
     sleeper_pid_path = tmp_path / "sleeper.pid"
     script = tmp_path / "inherits_stdio.py"
@@ -121,7 +121,7 @@ async def test_execute_finalizes_when_descendant_keeps_stdio_open(tmp_path: Path
             execute_with_finalization(
                 run,
                 repo_root=tmp_path,
-                space_dir=space_dir,
+                state_root=state_root,
                 artifacts=artifacts,
                 registry=registry,
                 harness_id=adapter.id,
@@ -141,7 +141,7 @@ async def test_execute_finalizes_when_descendant_keeps_stdio_open(tmp_path: Path
                 pass
 
     assert exit_code == 0
-    row = spawn_store.get_spawn(space_dir, run.spawn_id)
+    row = spawn_store.get_spawn(state_root, run.spawn_id)
     assert row is not None
     assert row.status == "succeeded"
     assert row.input_tokens == 3

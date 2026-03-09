@@ -1,4 +1,4 @@
-"""File-backed spawn event store for `.meridian/spawns.jsonl`.
+"""File-backed spawn event store for a Meridian state root's `spawns.jsonl`.
 
 Also includes file-backed ID generation for spawns and sessions.
 """
@@ -13,8 +13,8 @@ from typing import Any, Literal, Mapping, cast
 
 from pydantic import BaseModel, ConfigDict
 
-from meridian.lib.state.paths import SpacePaths
 from meridian.lib.core.types import SpawnId
+from meridian.lib.state.paths import StateRootPaths
 
 
 # ---------------------------------------------------------------------------
@@ -49,17 +49,17 @@ def _count_start_events(path: Path) -> int:
     return count
 
 
-def next_spawn_id(space_dir: Path) -> SpawnId:
+def next_spawn_id(state_root: Path) -> SpawnId:
     """Return the next spawn ID (`p1`, `p2`, ...) for a state root."""
 
-    starts = _count_start_events(space_dir / "spawns.jsonl")
+    starts = _count_start_events(state_root / "spawns.jsonl")
     return SpawnId(f"p{starts + 1}")
 
 
-def next_chat_id(space_dir: Path) -> str:
+def next_chat_id(state_root: Path) -> str:
     """Return the next session/chat ID (`c1`, `c2`, ...) for a state root."""
 
-    starts = _count_start_events(space_dir / "sessions.jsonl")
+    starts = _count_start_events(state_root / "sessions.jsonl")
     return f"c{starts + 1}"
 
 
@@ -186,7 +186,7 @@ def _read_events(path: Path) -> list[SpawnEvent]:
 
 
 def start_spawn(
-    space_dir: Path,
+    state_root: Path,
     *,
     chat_id: str,
     model: str,
@@ -200,11 +200,13 @@ def start_spawn(
 ) -> SpawnId:
     """Append a spawn start event under `spawns.lock` and return the spawn ID."""
 
-    paths = SpacePaths.from_space_dir(space_dir)
+    paths = StateRootPaths.from_root_dir(state_root)
     started = started_at or _utc_now_iso()
 
     with _lock_file(paths.spawns_lock):
-        resolved_spawn_id = SpawnId(str(spawn_id)) if spawn_id is not None else next_spawn_id(space_dir)
+        resolved_spawn_id = (
+            SpawnId(str(spawn_id)) if spawn_id is not None else next_spawn_id(state_root)
+        )
         event = SpawnStartEvent(
             id=str(resolved_spawn_id),
             chat_id=chat_id,
@@ -222,7 +224,7 @@ def start_spawn(
 
 
 def finalize_spawn(
-    space_dir: Path,
+    state_root: Path,
     spawn_id: SpawnId | str,
     status: str,
     exit_code: int,
@@ -236,7 +238,7 @@ def finalize_spawn(
 ) -> None:
     """Append a spawn finalize event under `spawns.lock`."""
 
-    paths = SpacePaths.from_space_dir(space_dir)
+    paths = StateRootPaths.from_root_dir(state_root)
     event = SpawnFinalizeEvent(
         id=str(spawn_id),
         status=status,
@@ -334,10 +336,10 @@ def _spawn_sort_key(spawn: SpawnRecord) -> tuple[int, str]:
     return (10**9, spawn.id)
 
 
-def list_spawns(space_dir: Path, filters: Mapping[str, Any] | None = None) -> list[SpawnRecord]:
+def list_spawns(state_root: Path, filters: Mapping[str, Any] | None = None) -> list[SpawnRecord]:
     """List derived spawn records with optional equality filters."""
 
-    paths = SpacePaths.from_space_dir(space_dir)
+    paths = StateRootPaths.from_root_dir(state_root)
     spawns = list(_record_from_events(_read_events(paths.spawns_jsonl)).values())
 
     if filters:
@@ -360,20 +362,20 @@ def list_spawns(space_dir: Path, filters: Mapping[str, Any] | None = None) -> li
     return sorted(spawns, key=_spawn_sort_key)
 
 
-def get_spawn(space_dir: Path, spawn_id: SpawnId | str) -> SpawnRecord | None:
+def get_spawn(state_root: Path, spawn_id: SpawnId | str) -> SpawnRecord | None:
     """Return one spawn by ID."""
 
     wanted = str(spawn_id)
-    for spawn in list_spawns(space_dir):
+    for spawn in list_spawns(state_root):
         if spawn.id == wanted:
             return spawn
     return None
 
 
-def spawn_stats(space_dir: Path) -> dict[str, Any]:
+def spawn_stats(state_root: Path) -> dict[str, Any]:
     """Aggregate high-level spawn stats from JSONL-derived records."""
 
-    spawns = list_spawns(space_dir)
+    spawns = list_spawns(state_root)
     by_status: dict[str, int] = {}
     by_model: dict[str, int] = {}
     total_duration_secs = 0.0

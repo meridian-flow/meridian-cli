@@ -459,8 +459,8 @@ def _write_structured_failure_artifact(
     output_log_path.write_bytes(encoded)
 
 
-def _spawn_kind(space_dir: Path, spawn_id: SpawnId) -> str:
-    row = spawn_store.get_spawn(space_dir, spawn_id)
+def _spawn_kind(state_root: Path, spawn_id: SpawnId) -> str:
+    row = spawn_store.get_spawn(state_root, spawn_id)
     if row is None:
         return "child"
     normalized = row.kind.strip().lower()
@@ -473,7 +473,7 @@ async def execute_with_finalization(
     run: Spawn,
     *,
     repo_root: Path,
-    space_dir: Path,
+    state_root: Path,
     artifacts: ArtifactStore,
     registry: HarnessRegistry,
     permission_resolver: PermissionResolver | None = None,
@@ -542,9 +542,9 @@ async def execute_with_finalization(
         permission_config=resolved_permission_config,
         runtime_env_overrides=merged_env_overrides,
     )
-    if spawn_store.get_spawn(space_dir, run.spawn_id) is None:
+    if spawn_store.get_spawn(state_root, run.spawn_id) is None:
         spawn_store.start_spawn(
-            space_dir,
+            state_root,
             spawn_id=run.spawn_id,
             chat_id=os.getenv("MERIDIAN_CHAT_ID", "").strip() or "c0",
             model=str(run.model),
@@ -667,7 +667,7 @@ async def execute_with_finalization(
                 exit_code = DEFAULT_INFRA_EXIT_CODE
                 break
 
-            if exit_code == 0 and _spawn_kind(space_dir, run.spawn_id) == "child":
+            if exit_code == 0 and _spawn_kind(state_root, run.spawn_id) == "child":
                 if extracted.report.content is None:
                     # Child spawns must produce a report directly or via fallback extraction.
                     failure_reason = "missing_report"
@@ -792,7 +792,7 @@ async def execute_with_finalization(
         status = "succeeded" if exit_code == 0 else "failed"
         with signal_coordinator().mask_sigterm():
             spawn_store.finalize_spawn(
-                space_dir,
+                state_root,
                 run.spawn_id,
                 status=status,
                 exit_code=exit_code,

@@ -69,8 +69,8 @@ def _create_run(repo_root: Path, *, prompt: str, name: str = "exec") -> tuple[Sp
     return run, resolve_state_paths(repo_root).root_dir
 
 
-def _fetch_run_row(space_dir: Path, spawn_id: SpawnId) -> spawn_store.SpawnRecord:
-    row = spawn_store.get_spawn(space_dir, spawn_id)
+def _fetch_run_row(state_root: Path, spawn_id: SpawnId) -> spawn_store.SpawnRecord:
+    row = spawn_store.get_spawn(state_root, spawn_id)
     assert row is not None
     return row
 
@@ -86,7 +86,7 @@ def _read_output_payload(artifacts: LocalStore, spawn_id: SpawnId) -> dict[str, 
 
 @pytest.mark.asyncio
 async def test_execute_retries_retryable_errors_up_to_max(tmp_path: Path) -> None:
-    run, space_dir = _create_run(tmp_path, prompt="retry me")
+    run, state_root = _create_run(tmp_path, prompt="retry me")
     artifacts = LocalStore(root_dir=tmp_path / ".artifacts")
 
     counter = tmp_path / "retryable-count.txt"
@@ -115,7 +115,7 @@ async def test_execute_retries_retryable_errors_up_to_max(tmp_path: Path) -> Non
     exit_code = await execute_with_finalization(
         run,
         repo_root=tmp_path,
-        space_dir=space_dir,
+        state_root=state_root,
         artifacts=artifacts,
         registry=registry,
         harness_id=adapter.id,
@@ -126,7 +126,7 @@ async def test_execute_retries_retryable_errors_up_to_max(tmp_path: Path) -> Non
 
     assert exit_code == 1
     assert counter.read_text(encoding="utf-8") == "4"
-    row = _fetch_run_row(space_dir, run.spawn_id)
+    row = _fetch_run_row(state_root, run.spawn_id)
     assert row.status == "failed"
     assert row.error is None
 
@@ -162,7 +162,7 @@ async def test_execute_does_not_retry_unrecoverable_errors(tmp_path: Path) -> No
     exit_code = await execute_with_finalization(
         run,
         repo_root=tmp_path,
-        space_dir=resolve_state_paths(tmp_path).root_dir,
+        state_root=resolve_state_paths(tmp_path).root_dir,
         artifacts=artifacts,
         registry=registry,
         harness_id=adapter.id,
@@ -177,7 +177,7 @@ async def test_execute_does_not_retry_unrecoverable_errors(tmp_path: Path) -> No
 
 @pytest.mark.asyncio
 async def test_execute_sets_timeout_failure_reason(tmp_path: Path) -> None:
-    run, space_dir = _create_run(tmp_path, prompt="timeout")
+    run, state_root = _create_run(tmp_path, prompt="timeout")
     artifacts = LocalStore(root_dir=tmp_path / ".artifacts")
 
     script = tmp_path / "timeout.py"
@@ -196,7 +196,7 @@ async def test_execute_sets_timeout_failure_reason(tmp_path: Path) -> None:
     exit_code = await execute_with_finalization(
         run,
         repo_root=tmp_path,
-        space_dir=space_dir,
+        state_root=state_root,
         artifacts=artifacts,
         registry=registry,
         harness_id=adapter.id,
@@ -208,7 +208,7 @@ async def test_execute_sets_timeout_failure_reason(tmp_path: Path) -> None:
     )
 
     assert exit_code == 3
-    row = _fetch_run_row(space_dir, run.spawn_id)
+    row = _fetch_run_row(state_root, run.spawn_id)
     assert row.status == "failed"
     assert row.error == "timeout"
     assert _read_output_payload(artifacts, run.spawn_id) == {
@@ -221,7 +221,7 @@ async def test_execute_sets_timeout_failure_reason(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_execute_sets_cancelled_failure_reason(tmp_path: Path) -> None:
-    run, space_dir = _create_run(tmp_path, prompt="cancel")
+    run, state_root = _create_run(tmp_path, prompt="cancel")
     artifacts = LocalStore(root_dir=tmp_path / ".artifacts")
 
     script = tmp_path / "cancel.py"
@@ -241,7 +241,7 @@ async def test_execute_sets_cancelled_failure_reason(tmp_path: Path) -> None:
         execute_with_finalization(
             run,
             repo_root=tmp_path,
-            space_dir=space_dir,
+            state_root=state_root,
             artifacts=artifacts,
             registry=registry,
             harness_id=adapter.id,
@@ -256,6 +256,6 @@ async def test_execute_sets_cancelled_failure_reason(tmp_path: Path) -> None:
     exit_code = await task
 
     assert exit_code == 130
-    row = _fetch_run_row(space_dir, run.spawn_id)
+    row = _fetch_run_row(state_root, run.spawn_id)
     assert row.status == "failed"
     assert row.error == "cancelled"

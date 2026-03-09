@@ -393,7 +393,7 @@ def _write_params_json(
 @contextmanager
 def _session_execution_context(
     *,
-    space_dir: Path,
+    state_root: Path,
     harness_id: str,
     harness_session_id: str,
     model: str,
@@ -405,7 +405,7 @@ def _session_execution_context(
     run_agent_name: str | None,
 ) -> Iterator[_SessionExecutionContext]:
     chat_id = start_session(
-        space_dir,
+        state_root,
         harness=harness_id,
         harness_session_id=harness_session_id,
         model=model,
@@ -432,14 +432,14 @@ def _session_execution_context(
             chat_id=chat_id,
             resolved_agent_name=resolved_agent_name,
             harness_session_id_observer=lambda session_id: update_session_harness_id(
-                space_dir,
+                state_root,
                 chat_id,
                 session_id,
             ),
         )
     finally:
         try:
-            stop_session(space_dir, chat_id)
+            stop_session(state_root, chat_id)
         finally:
             _cleanup_session_materialized(
                 harness_id=harness_id,
@@ -488,7 +488,7 @@ async def _execute_existing_spawn(
     )
 
     with _session_execution_context(
-        space_dir=state_root,
+        state_root=state_root,
         harness_id=spawn_record.harness or "",
         harness_session_id=spawn_record.harness_session_id or "",
         model=spawn_record.model,
@@ -502,7 +502,7 @@ async def _execute_existing_spawn(
         return await execute_with_finalization(
             spawn,
             repo_root=runtime.repo_root,
-            space_dir=state_root,
+            state_root=state_root,
             artifacts=runtime.artifacts,
             registry=runtime.harness_registry,
             permission_resolver=resolver,
@@ -701,7 +701,7 @@ def execute_spawn_blocking(
     # Spawn execution stays silent unless --stream is explicitly enabled.
 
     with _session_execution_context(
-        space_dir=context.state_root,
+        state_root=context.state_root,
         harness_id=prepared.harness_id,
         harness_session_id=prepared.continue_harness_session_id or "",
         model=prepared.model,
@@ -716,7 +716,7 @@ def execute_spawn_blocking(
             execute_with_finalization(
                 spawn,
                 repo_root=runtime.repo_root,
-                space_dir=context.state_root,
+                state_root=context.state_root,
                 artifacts=runtime.artifacts,
                 registry=runtime.harness_registry,
                 permission_resolver=prepared.permission_resolver,

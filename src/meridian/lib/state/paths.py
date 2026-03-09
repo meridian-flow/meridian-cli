@@ -25,12 +25,12 @@ _GITIGNORE_CONTENT = (
 )
 
 
-class SpacePaths(BaseModel):
+class StateRootPaths(BaseModel):
     """Resolved paths for one Meridian state root."""
 
     model_config = ConfigDict(frozen=True)
 
-    space_dir: Path
+    root_dir: Path
     spawns_jsonl: Path
     spawns_lock: Path
     sessions_jsonl: Path
@@ -40,18 +40,18 @@ class SpacePaths(BaseModel):
     spawns_dir: Path
 
     @classmethod
-    def from_space_dir(cls, space_dir: Path) -> Self:
+    def from_root_dir(cls, root_dir: Path) -> Self:
         """Build state-root-relative paths from an absolute state directory."""
 
         return cls(
-            space_dir=space_dir,
-            spawns_jsonl=space_dir / "spawns.jsonl",
-            spawns_lock=space_dir / "spawns.lock",
-            sessions_jsonl=space_dir / "sessions.jsonl",
-            sessions_lock=space_dir / "sessions.lock",
-            sessions_dir=space_dir / "sessions",
-            fs_dir=space_dir / "fs",
-            spawns_dir=space_dir / "spawns",
+            root_dir=root_dir,
+            spawns_jsonl=root_dir / "spawns.jsonl",
+            spawns_lock=root_dir / "spawns.lock",
+            sessions_jsonl=root_dir / "sessions.jsonl",
+            sessions_lock=root_dir / "sessions.lock",
+            sessions_dir=root_dir / "sessions",
+            fs_dir=root_dir / "fs",
+            spawns_dir=root_dir / "spawns",
         )
 
 
@@ -105,19 +105,6 @@ def resolve_cache_dir(repo_root: Path) -> Path:
     """Return `.meridian/cache/` for a repository root."""
 
     return resolve_state_paths(repo_root).cache_dir
-
-
-def resolve_all_spaces_dir(repo_root: Path) -> Path:
-    """Return the compatibility `.meridian/.spaces/` directory path."""
-
-    return resolve_state_paths(repo_root).root_dir / ".spaces"
-
-
-def resolve_space_dir(repo_root: Path, space_id: str) -> Path:
-    """Return the compatibility state root path for a space lookup."""
-
-    del space_id
-    return resolve_state_paths(repo_root).root_dir
 
 
 def resolve_fs_dir(repo_root: Path) -> Path:

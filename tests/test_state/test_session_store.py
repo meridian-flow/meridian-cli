@@ -1,10 +1,10 @@
-
 import json
 from pathlib import Path
 
+from meridian.lib.state.paths import StateRootPaths
 from meridian.lib.state.session_store import (
-    collect_active_chat_ids,
     cleanup_stale_sessions,
+    collect_active_chat_ids,
     get_last_session,
     get_session_harness_id,
     list_active_sessions,
@@ -13,21 +13,23 @@ from meridian.lib.state.session_store import (
     stop_session,
     update_session_harness_id,
 )
-from meridian.lib.state.paths import SpacePaths
 
-def _space_dir(tmp_path):
+
+def _state_root(tmp_path):
     state_dir = tmp_path / ".meridian"
     state_dir.mkdir(parents=True, exist_ok=True)
     return state_dir
+
 
 def _write(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
 
+
 def test_start_session_creates_start_event_and_lock_file(tmp_path):
-    space_dir = _space_dir(tmp_path)
+    state_root = _state_root(tmp_path)
     chat_id = start_session(
-        space_dir,
+        state_root,
         harness="codex",
         harness_session_id="hs-1",
         model="gpt-5.3-codex",
@@ -42,7 +44,7 @@ def test_start_session_creates_start_event_and_lock_file(tmp_path):
     )
 
     assert chat_id == "c1"
-    paths = SpacePaths.from_space_dir(space_dir)
+    paths = StateRootPaths.from_root_dir(state_root)
     assert (paths.sessions_dir / "c1.lock").exists()
 
     first = paths.sessions_jsonl.read_text(encoding="utf-8").splitlines()[0]
@@ -62,20 +64,21 @@ def test_start_session_creates_start_event_and_lock_file(tmp_path):
     ]
     assert payload["params"] == ["--system-prompt", "Be concise."]
 
-    stop_session(space_dir, chat_id)
+    stop_session(state_root, chat_id)
+
 
 def test_stop_session_appends_stop_event(tmp_path):
-    space_dir = _space_dir(tmp_path)
+    state_root = _state_root(tmp_path)
     chat_id = start_session(
-        space_dir,
+        state_root,
         harness="claude",
         harness_session_id="claude-123",
         model="claude-opus-4-6",
     )
 
-    stop_session(space_dir, chat_id)
+    stop_session(state_root, chat_id)
 
-    lines = (space_dir / "sessions.jsonl").read_text(encoding="utf-8").splitlines()
+    lines = (state_root / "sessions.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(lines) == 2
     stop_payload = json.loads(lines[1])
     assert stop_payload["v"] == 1
@@ -83,23 +86,24 @@ def test_stop_session_appends_stop_event(tmp_path):
     assert stop_payload["chat_id"] == "c1"
     assert isinstance(stop_payload["stopped_at"], str)
 
+
 def test_get_last_session_returns_most_recent_start(tmp_path):
-    space_dir = _space_dir(tmp_path)
+    state_root = _state_root(tmp_path)
     c1 = start_session(
-        space_dir,
+        state_root,
         harness="claude",
         harness_session_id="hs-a",
         model="claude-opus-4-6",
     )
     c2 = start_session(
-        space_dir,
+        state_root,
         harness="codex",
         harness_session_id="hs-b",
         model="gpt-5.3-codex",
         params=("--append-system-prompt", "Focus on tests"),
     )
 
-    last = get_last_session(space_dir)
+    last = get_last_session(state_root)
     assert last is not None
     assert last.chat_id == c2
     assert last.harness == "codex"
@@ -111,58 +115,60 @@ def test_get_last_session_returns_most_recent_start(tmp_path):
     assert last.skill_paths == ()
     assert last.params == ("--append-system-prompt", "Focus on tests")
 
-    stop_session(space_dir, c1)
-    stop_session(space_dir, c2)
+    stop_session(state_root, c1)
+    stop_session(state_root, c2)
+
 
 def test_resolve_session_ref_by_harness_session_id(tmp_path):
-    space_dir = _space_dir(tmp_path)
+    state_root = _state_root(tmp_path)
     c1 = start_session(
-        space_dir,
+        state_root,
         harness="claude",
         harness_session_id="claude-thread-1",
         model="claude-opus-4-6",
     )
     c2 = start_session(
-        space_dir,
+        state_root,
         harness="codex",
         harness_session_id="codex-thread-2",
         model="gpt-5.3-codex",
     )
 
-    by_alias = resolve_session_ref(space_dir, c1)
-    by_harness = resolve_session_ref(space_dir, "codex-thread-2")
-    missing = resolve_session_ref(space_dir, "unknown")
+    by_alias = resolve_session_ref(state_root, c1)
+    by_harness = resolve_session_ref(state_root, "codex-thread-2")
+    missing = resolve_session_ref(state_root, "unknown")
 
     assert by_alias is None
     assert by_harness is not None
     assert by_harness.chat_id == c2
     assert by_harness.harness == "codex"
-    assert get_session_harness_id(space_dir, c2) == "codex-thread-2"
-    assert get_session_harness_id(space_dir, "c404") is None
+    assert get_session_harness_id(state_root, c2) == "codex-thread-2"
+    assert get_session_harness_id(state_root, "c404") is None
     assert missing is None
 
-    stop_session(space_dir, c1)
-    stop_session(space_dir, c2)
+    stop_session(state_root, c1)
+    stop_session(state_root, c2)
+
 
 def test_update_session_harness_id_writes_update_event_and_replays(tmp_path):
-    space_dir = _space_dir(tmp_path)
+    state_root = _state_root(tmp_path)
     chat_id = start_session(
-        space_dir,
+        state_root,
         harness="codex",
         harness_session_id="",
         model="gpt-5.3-codex",
     )
 
-    update_session_harness_id(space_dir, chat_id, "hs-updated")
-    resolved = resolve_session_ref(space_dir, "hs-updated")
+    update_session_harness_id(state_root, chat_id, "hs-updated")
+    resolved = resolve_session_ref(state_root, "hs-updated")
 
     assert resolved is not None
     assert resolved.harness_session_id == "hs-updated"
-    assert get_session_harness_id(space_dir, chat_id) == "hs-updated"
+    assert get_session_harness_id(state_root, chat_id) == "hs-updated"
 
     rows = [
         json.loads(line)
-        for line in (space_dir / "sessions.jsonl").read_text(encoding="utf-8").splitlines()
+        for line in (state_root / "sessions.jsonl").read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
     update_rows = [row for row in rows if row.get("event") == "update"]
@@ -170,22 +176,23 @@ def test_update_session_harness_id_writes_update_event_and_replays(tmp_path):
     assert update_rows[0]["chat_id"] == chat_id
     assert update_rows[0]["harness_session_id"] == "hs-updated"
 
-    stop_session(space_dir, chat_id)
+    stop_session(state_root, chat_id)
+
 
 def test_cleanup_stale_sessions_removes_dead_locks_and_writes_stop_events(tmp_path):
-    space_dir = _space_dir(tmp_path)
+    state_root = _state_root(tmp_path)
     live = start_session(
-        space_dir,
+        state_root,
         harness="codex",
         harness_session_id="live-thread",
         model="gpt-5.3-codex",
     )
 
-    stale_lock = space_dir / "sessions" / "c2.lock"
+    stale_lock = state_root / "sessions" / "c2.lock"
     stale_lock.parent.mkdir(parents=True, exist_ok=True)
     stale_lock.touch()
 
-    with (space_dir / "sessions.jsonl").open("a", encoding="utf-8") as handle:
+    with (state_root / "sessions.jsonl").open("a", encoding="utf-8") as handle:
         handle.write(
             json.dumps(
                 {
@@ -204,15 +211,15 @@ def test_cleanup_stale_sessions_removes_dead_locks_and_writes_stop_events(tmp_pa
             + "\n"
         )
 
-    cleanup = cleanup_stale_sessions(space_dir)
+    cleanup = cleanup_stale_sessions(state_root)
     assert cleanup.cleaned_ids == ("c2",)
     assert cleanup.materialized_scopes == (("claude", "c2"),)
     assert not stale_lock.exists()
-    assert (space_dir / "sessions" / f"{live}.lock").exists()
+    assert (state_root / "sessions" / f"{live}.lock").exists()
 
     rows = [
         json.loads(line)
-        for line in (space_dir / "sessions.jsonl").read_text(encoding="utf-8").splitlines()
+        for line in (state_root / "sessions.jsonl").read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
     stop_rows = [row for row in rows if row.get("event") == "stop" and row.get("chat_id") == "c2"]
@@ -220,22 +227,23 @@ def test_cleanup_stale_sessions_removes_dead_locks_and_writes_stop_events(tmp_pa
     assert stop_rows[0]["v"] == 1
     assert isinstance(stop_rows[0]["stopped_at"], str)
 
-    stop_session(space_dir, live)
+    stop_session(state_root, live)
+
 
 def test_cleanup_stale_sessions_removes_materialized_scope_for_stale_chat(tmp_path):
-    space_dir = _space_dir(tmp_path)
+    state_root = _state_root(tmp_path)
     live = start_session(
-        space_dir,
+        state_root,
         harness="codex",
         harness_session_id="live-thread",
         model="gpt-5.3-codex",
     )
 
-    stale_lock = space_dir / "sessions" / "c2.lock"
+    stale_lock = state_root / "sessions" / "c2.lock"
     stale_lock.parent.mkdir(parents=True, exist_ok=True)
     stale_lock.touch()
 
-    with (space_dir / "sessions.jsonl").open("a", encoding="utf-8") as handle:
+    with (state_root / "sessions.jsonl").open("a", encoding="utf-8") as handle:
         handle.write(
             json.dumps(
                 {
@@ -259,7 +267,7 @@ def test_cleanup_stale_sessions_removes_materialized_scope_for_stale_chat(tmp_pa
     _write(tmp_path / ".claude" / "skills" / "__alpha-c2" / "SKILL.md", "x")
     _write(tmp_path / ".claude" / "skills" / "__alpha-c3" / "SKILL.md", "x")
 
-    cleanup = cleanup_stale_sessions(space_dir)
+    cleanup = cleanup_stale_sessions(state_root)
 
     assert cleanup.cleaned_ids == ("c2",)
     assert cleanup.materialized_scopes == (("claude", "c2"),)
@@ -268,26 +276,26 @@ def test_cleanup_stale_sessions_removes_materialized_scope_for_stale_chat(tmp_pa
     assert (tmp_path / ".claude" / "skills" / "__alpha-c2").is_dir()
     assert (tmp_path / ".claude" / "skills" / "__alpha-c3").is_dir()
 
-    stop_session(space_dir, live)
+    stop_session(state_root, live)
 
 
 def test_collect_active_chat_ids_single_root(tmp_path):
-    space_dir = _space_dir(tmp_path)
+    state_root = _state_root(tmp_path)
 
     c1 = start_session(
-        space_dir,
+        state_root,
         harness="claude",
         harness_session_id="hs-1",
         model="claude-opus-4-6",
     )
     c2 = start_session(
-        space_dir,
+        state_root,
         harness="codex",
         harness_session_id="hs-2",
         model="gpt-5.3-codex",
     )
-    stop_session(space_dir, c2)
+    stop_session(state_root, c2)
 
     assert collect_active_chat_ids(tmp_path) == frozenset({c1})
 
-    stop_session(space_dir, c1)
+    stop_session(state_root, c1)
