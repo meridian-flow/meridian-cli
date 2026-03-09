@@ -30,6 +30,13 @@ meridian spawn stats --session ID
 
 Aggregate cost, token, and duration stats across spawns. Use `--session` to scope to a specific coordination session.
 
+## Spawn Show Flags
+
+```bash
+meridian spawn show SPAWN_ID --no-report     # omit the full report text
+meridian spawn show SPAWN_ID --include-files  # include file metadata
+```
+
 ## Debugging & Logs
 
 Each spawn writes a stderr log to `.meridian/spawns/<spawn-id>/stderr.log` — the full harness session trace with every tool call and reasoning step.

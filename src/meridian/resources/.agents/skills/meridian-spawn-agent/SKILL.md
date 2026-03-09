@@ -19,7 +19,6 @@ meridian spawn wait "$SID"
 
 # Inspect result details (includes report by default)
 meridian spawn show "$SID"
-meridian spawn show "$SID" --include-files   # also include file metadata
 ```
 
 State lives under `.meridian/` — spawns.jsonl for events, `spawns/<id>/` for artifacts, `fs/` for shared files between spawns.
