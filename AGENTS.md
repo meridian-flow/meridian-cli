@@ -6,6 +6,18 @@ There are no users and there is no real user data. No need for backwards compati
 
 **Meridian-Channel** is a coordination layer for multi-agent systems—not a file system, execution engine, or data warehouse.
 
+## Dev
+
+use `meridian spawn` to hand off tasks to subagents. Prefer to use gpt-5.4 right now as main implementer and reviewer. Always use reviewers who focus on different aspects of implementation and design so that we can make sure that wee are properly following plans.
+
+NEVER REVERT ANY CHANGES ALWAYS ASSUME THAT ITS SOMEONE ELSES WORK.
+
+Prefer to keep unit tests sparse and ACTUALLY USEFUL FOR KEY COMPONENTS. 
+
+Too many unit tests is bad... especially since we should be constantly refactatoring. Instead, plz follow testing plans to manually test the cli most of the time.
+
+`uv run meridian` to ACTUALLY test the cli in its current state. Please note that someone else could be doing work so it might be broken - u just have to wait - prefer SMOKE TESTS over unit tests. Since this is a tool for YOU to use, this is a perfect chance for yo to test it out yourself.
+
 ### Core Principles
 
 1. **Harness-Agnostic**: Same `meridian` commands work across Claude, Codex, OpenCode, Cursor, **etc.** (extensible to future harnesses) for both primary agents and subagents, with per-harness adapters
