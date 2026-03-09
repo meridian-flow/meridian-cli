@@ -1,6 +1,5 @@
 """Process management for primary agent launch."""
 
-
 import json
 import logging
 import os
@@ -125,8 +124,7 @@ def _cleanup_launch_materialized(*, repo_root: Path, harness_id: str) -> None:
         cleanup_materialized(harness_id, repo_root)
     except Exception:
         logger.warning(
-            "Failed to cleanup primary-session materialized harness resources "
-            "(harness=%s).",
+            "Failed to cleanup primary-session materialized harness resources (harness=%s).",
             harness_id,
             exc_info=True,
         )
@@ -135,8 +133,8 @@ def _cleanup_launch_materialized(*, repo_root: Path, harness_id: str) -> None:
 def _sweep_orphaned_materializations(repo_root: Path, harness_id: str) -> None:
     """Best-effort sweep of materialized files not owned by active sessions."""
 
-    from meridian.lib.harness.materialize import HARNESS_NATIVE_DIRS
     from meridian.lib.harness.materialize import cleanup_orphaned_materializations
+    from meridian.lib.harness.registry import get_default_harness_registry
     from meridian.lib.state.session_store import collect_active_chat_ids
 
     _ = harness_id
@@ -144,9 +142,13 @@ def _sweep_orphaned_materializations(repo_root: Path, harness_id: str) -> None:
         active_ids = collect_active_chat_ids(repo_root)
         if active_ids is None:
             return
-        for known_harness_id in HARNESS_NATIVE_DIRS:
+        registry = get_default_harness_registry()
+        for known_harness_id in registry.ids():
+            adapter = registry.get(known_harness_id)
+            if adapter.native_layout() is None:
+                continue
             cleanup_orphaned_materializations(
-                known_harness_id,
+                str(known_harness_id),
                 repo_root,
                 has_active_sessions=bool(active_ids),
             )
@@ -284,7 +286,9 @@ def run_harness_process(
         exit_code = 2
     finally:
         if primary_spawn_id is not None:
-            duration = max(0.0, time.monotonic() - primary_started) if primary_started > 0.0 else None
+            duration = (
+                max(0.0, time.monotonic() - primary_started) if primary_started > 0.0 else None
+            )
             spawn_store.finalize_spawn(
                 ctx.state_root,
                 primary_spawn_id,

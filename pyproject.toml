@@ -69,6 +69,8 @@ packages = ["src/meridian"]
 pythonVersion = "3.12"
 typeCheckingMode = "strict"
 reportMissingModuleSource = false
+venvPath = "."
+venv = ".venv"
 include = ["src"]
 exclude = [".venv", "build", "dist"]
 

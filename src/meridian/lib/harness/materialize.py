@@ -1,6 +1,5 @@
 """Materialize agents and skills into harness-native directories."""
 
-
 import logging
 import os
 import shutil
@@ -9,52 +8,22 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.catalog.agent import AgentProfile
+from meridian.lib.harness.adapter import HarnessNativeLayout
+from meridian.lib.harness.registry import get_default_harness_registry
+from meridian.lib.core.types import HarnessId
 
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Harness-native layout helpers (absorbed from harness/layout.py)
-# ---------------------------------------------------------------------------
+def harness_layout(harness_id: str) -> HarnessNativeLayout | None:
+    """Return adapter-provided native layout metadata for a harness ID."""
 
-
-class HarnessLayout(BaseModel):
-    """Directories a harness reads agents/skills from natively."""
-
-    model_config = ConfigDict(frozen=True)
-
-    agents: tuple[str, ...]
-    skills: tuple[str, ...]
-    global_agents: tuple[str, ...]
-    global_skills: tuple[str, ...]
-
-
-HARNESS_NATIVE_DIRS: dict[str, HarnessLayout] = {
-    "claude": HarnessLayout(
-        agents=(".claude/agents",),
-        skills=(".claude/skills",),
-        global_agents=("~/.claude/agents",),
-        global_skills=("~/.claude/skills",),
-    ),
-    "codex": HarnessLayout(
-        agents=(".agents/agents", ".codex/agents"),
-        skills=(".agents/skills", ".codex/skills"),
-        global_agents=("~/.codex/agents",),
-        global_skills=("~/.codex/skills",),
-    ),
-    "opencode": HarnessLayout(
-        agents=(".agents/agents", ".opencode/agents"),
-        skills=(".agents/skills", ".opencode/skills"),
-        global_agents=("~/.opencode/agents",),
-        global_skills=("~/.opencode/skills",),
-    ),
-}
-
-
-def harness_layout(harness_id: str) -> HarnessLayout | None:
-    """Return native layout metadata for a harness ID, if known."""
-
-    return HARNESS_NATIVE_DIRS.get(harness_id)
+    registry = get_default_harness_registry()
+    try:
+        adapter = registry.get(HarnessId(harness_id))
+    except KeyError:
+        return None
+    return adapter.native_layout()
 
 
 def resolve_native_dir(raw_path: str, repo_root: Path) -> Path:
@@ -64,23 +33,23 @@ def resolve_native_dir(raw_path: str, repo_root: Path) -> Path:
     return candidate.resolve()
 
 
-def materialization_target_agents(layout: HarnessLayout, repo_root: Path) -> Path:
+def materialization_target_agents(layout: HarnessNativeLayout, repo_root: Path) -> Path:
     """Resolve the first configured project-local agents path to an absolute target."""
 
     if not layout.agents:
-        raise ValueError("HarnessLayout.agents must contain at least one path")
+        raise ValueError("HarnessNativeLayout.agents must contain at least one path")
     return resolve_native_dir(layout.agents[0], repo_root)
 
 
-def materialization_target_skills(layout: HarnessLayout, repo_root: Path) -> Path:
+def materialization_target_skills(layout: HarnessNativeLayout, repo_root: Path) -> Path:
     """Resolve the first configured project-local skills path to an absolute target."""
 
     if not layout.skills:
-        raise ValueError("HarnessLayout.skills must contain at least one path")
+        raise ValueError("HarnessNativeLayout.skills must contain at least one path")
     return resolve_native_dir(layout.skills[0], repo_root)
 
 
-def is_agent_native(agent_name: str, layout: HarnessLayout, repo_root: Path) -> bool:
+def is_agent_native(agent_name: str, layout: HarnessNativeLayout, repo_root: Path) -> bool:
     """Return whether an agent markdown file exists in any harness-native location."""
 
     agent_filename = f"{agent_name}.md"
@@ -90,7 +59,7 @@ def is_agent_native(agent_name: str, layout: HarnessLayout, repo_root: Path) -> 
     return False
 
 
-def is_skill_native(skill_name: str, layout: HarnessLayout, repo_root: Path) -> bool:
+def is_skill_native(skill_name: str, layout: HarnessNativeLayout, repo_root: Path) -> bool:
     """Return whether a skill directory with SKILL.md exists in any native location."""
 
     for raw_dir in (*layout.skills, *layout.global_skills):
@@ -141,6 +110,7 @@ def _rewrite_agent_skills(raw_content: str, skill_mapping: dict[str, str]) -> st
     skills: object = post.metadata.get("skills")
     if isinstance(skills, list):
         from typing import cast
+
         items = cast("list[object]", skills)
         post.metadata["skills"] = [skill_mapping.get(str(s), str(s)) for s in items]
     elif isinstance(skills, str):
@@ -182,7 +152,9 @@ def _rewrite_skill_frontmatter(raw_content: str, new_name: str) -> str:
     return str(frontmatter.dumps(post))
 
 
-def _reconstruct_builtin_agent(profile: AgentProfile, skill_names: list[str], *, materialized_name: str = "") -> str:
+def _reconstruct_builtin_agent(
+    profile: AgentProfile, skill_names: list[str], *, materialized_name: str = ""
+) -> str:
     """Reconstruct a minimal markdown profile for built-in agents."""
     import frontmatter  # type: ignore[import-untyped]
 
@@ -222,7 +194,7 @@ def _copy_missing_skills(
     *,
     missing_skills: list[str],
     skill_sources: dict[str, Path],
-    layout: HarnessLayout,
+    layout: HarnessNativeLayout,
     repo_root: Path,
 ) -> tuple[str, ...]:
     target_skills_root = materialization_target_skills(layout, repo_root)
@@ -249,7 +221,7 @@ def _materialize_agent(
     *,
     profile: AgentProfile,
     skill_mapping: dict[str, str],
-    layout: HarnessLayout,
+    layout: HarnessNativeLayout,
     repo_root: Path,
 ) -> str:
     materialized_name = _materialized_name(profile.name)
@@ -261,19 +233,19 @@ def _materialize_agent(
         rewritten = _rewrite_agent_skills(profile.raw_content, skill_mapping)
         rewritten = _rewrite_frontmatter_name(rewritten, materialized_name)
     else:
-        rewritten = _reconstruct_builtin_agent(profile, final_skill_names, materialized_name=materialized_name)
+        rewritten = _reconstruct_builtin_agent(
+            profile, final_skill_names, materialized_name=materialized_name
+        )
 
     (target_agents_root / f"{materialized_name}.md").write_text(rewritten, encoding="utf-8")
     return materialized_name
 
 
-_MATERIALIZED_GITIGNORE_PATTERNS = (
-    "__meridian--*",
-)
+_MATERIALIZED_GITIGNORE_PATTERNS = ("__meridian--*",)
 """Glob patterns matching materialized agent/skill artifacts."""
 
 
-def _ensure_materialized_gitignore(repo_root: Path, layout: HarnessLayout) -> None:
+def _ensure_materialized_gitignore(repo_root: Path, layout: HarnessNativeLayout) -> None:
     """Ensure the root .gitignore excludes materialized artifacts.
 
     Appends ignore rules for each harness-native directory that doesn't
@@ -343,7 +315,9 @@ def materialize_for_harness(
         agent_native = is_agent_native(agent_profile.name, layout=layout, repo_root=repo_root)
 
     skills_rewritten = bool(missing_skills)
-    needs_agent_materialization = agent_profile is not None and (not agent_native or skills_rewritten)
+    needs_agent_materialization = agent_profile is not None and (
+        not agent_native or skills_rewritten
+    )
 
     if agent_native and not missing_skills:
         return MaterializeResult(
@@ -395,7 +369,7 @@ def materialize_for_harness(
 
 def _cleanup_matching(
     *,
-    layout: HarnessLayout,
+    layout: HarnessNativeLayout,
     repo_root: Path,
     agents_pattern: str,
     skills_pattern: str,

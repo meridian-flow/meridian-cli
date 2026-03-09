@@ -1,7 +1,7 @@
 """OpenCode CLI harness adapter."""
 
-
 import re
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import ClassVar
@@ -24,15 +24,23 @@ from meridian.lib.harness.adapter import (
     ArtifactStore,
     BaseHarnessAdapter,
     HarnessCapabilities,
+    HarnessNativeLayout,
     McpConfig,
     PermissionResolver,
+    RunPromptPolicy,
     SpawnParams,
     StreamEvent,
 )
 from meridian.lib.harness.launch_types import PromptPolicy
-from meridian.lib.harness.session_detection import resolve_opencode_primary_session_id
 from meridian.lib.safety.permissions import PermissionConfig, opencode_permission_json
 from meridian.lib.core.types import HarnessId, SpawnId
+
+logger = logging.getLogger(__name__)
+
+OPENCODE_SESSION_CREATED_RE = re.compile(
+    r"^\w+\s+(?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})\s+\+\d+ms\s+"
+    r"service=session\s+id=(?P<session_id>\S+)\s+.*?\bdirectory=(?P<directory>\S+)\b.*\bcreated\b"
+)
 
 
 def _strip_opencode_prefix(model: str) -> str:
@@ -41,6 +49,85 @@ def _strip_opencode_prefix(model: str) -> str:
 
 def _opencode_model_transform(value: object, args: list[str]) -> None:
     args.extend(["--model", _strip_opencode_prefix(str(value))])
+
+
+def _detect_primary_session_id(
+    repo_root: Path,
+    started_at_epoch: float,
+    started_at_local_iso: str,
+) -> str | None:
+    logs_root = Path.home() / ".local" / "share" / "opencode" / "log"
+    if not logs_root.is_dir():
+        return None
+
+    resolved_repo = repo_root.resolve()
+    matches: list[tuple[str, str]] = []
+    for candidate in logs_root.glob("*.log"):
+        try:
+            modified_at = candidate.stat().st_mtime
+        except OSError:
+            continue
+        if modified_at + 1 < started_at_epoch:
+            continue
+        try:
+            lines = candidate.read_text(encoding="utf-8", errors="ignore").splitlines()
+        except OSError:
+            logger.debug("Failed to read opencode log %s", candidate, exc_info=True)
+            continue
+        for line in lines:
+            match = OPENCODE_SESSION_CREATED_RE.match(line)
+            if match is None:
+                continue
+            timestamp = match.group("ts")
+            if timestamp < started_at_local_iso:
+                continue
+            directory = match.group("directory")
+            try:
+                directory_matches = Path(directory).expanduser().resolve() == resolved_repo
+            except OSError:
+                continue
+            if not directory_matches:
+                continue
+            session_id = match.group("session_id").strip()
+            if session_id:
+                matches.append((timestamp, session_id))
+
+    if not matches:
+        return None
+    matches.sort(key=lambda item: item[0], reverse=True)
+    return matches[0][1]
+
+
+def _owns_session(repo_root: Path, session_ref: str) -> bool:
+    normalized = session_ref.strip()
+    if not normalized:
+        return False
+
+    resolved_repo = repo_root.resolve()
+    opencode_logs = Path.home() / ".local" / "share" / "opencode" / "log"
+    if not opencode_logs.is_dir():
+        return False
+
+    for candidate in opencode_logs.glob("*.log"):
+        try:
+            lines = candidate.read_text(encoding="utf-8", errors="ignore").splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            match = OPENCODE_SESSION_CREATED_RE.match(line)
+            if match is None:
+                continue
+            if match.group("session_id").strip() != normalized:
+                continue
+            directory = match.group("directory")
+            try:
+                directory_matches = Path(directory).expanduser().resolve() == resolved_repo
+            except OSError:
+                continue
+            if directory_matches:
+                return True
+
+    return False
 
 
 class OpenCodeAdapter(BaseHarnessAdapter):
@@ -92,6 +179,17 @@ class OpenCodeAdapter(BaseHarnessAdapter):
             supports_programmatic_tools=False,
             supports_primary_launch=True,
         )
+
+    def native_layout(self) -> HarnessNativeLayout | None:
+        return HarnessNativeLayout(
+            agents=(".agents/agents", ".opencode/agents"),
+            skills=(".agents/skills", ".opencode/skills"),
+            global_agents=("~/.opencode/agents",),
+            global_skills=("~/.opencode/skills",),
+        )
+
+    def run_prompt_policy(self) -> RunPromptPolicy:
+        return RunPromptPolicy()
 
     def build_command(self, run: SpawnParams, perms: PermissionResolver) -> list[str]:
         base_command = self.PRIMARY_BASE_COMMAND if run.interactive else self.BASE_COMMAND
@@ -154,7 +252,7 @@ class OpenCodeAdapter(BaseHarnessAdapter):
             if started_at_local_iso is not None
             else datetime.fromtimestamp(started_at_epoch).strftime("%Y-%m-%dT%H:%M:%S")
         )
-        return resolve_opencode_primary_session_id(repo_root, started_at_epoch, local_iso)
+        return _detect_primary_session_id(repo_root, started_at_epoch, local_iso)
 
     def extract_session_id(self, artifacts: ArtifactStore, spawn_id: SpawnId) -> str | None:
         return extract_session_id_from_artifacts_with_patterns(
@@ -163,6 +261,9 @@ class OpenCodeAdapter(BaseHarnessAdapter):
             json_keys=self.SESSION_ID_KEYS,
             text_patterns=self.SESSION_ID_TEXT_PATTERNS,
         )
+
+    def owns_untracked_session(self, *, repo_root: Path, session_ref: str) -> bool:
+        return _owns_session(repo_root, session_ref)
 
     def extract_report(self, artifacts: ArtifactStore, spawn_id: SpawnId) -> str | None:
         return extract_opencode_report(artifacts, spawn_id)

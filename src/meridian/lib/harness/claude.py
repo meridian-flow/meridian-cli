@@ -1,6 +1,6 @@
 """Claude CLI harness adapter."""
 
-
+from pathlib import Path
 from typing import ClassVar, cast
 from uuid import uuid4
 
@@ -23,15 +23,16 @@ from meridian.lib.harness.adapter import (
     ArtifactStore,
     BaseHarnessAdapter,
     HarnessCapabilities,
+    HarnessNativeLayout,
     McpConfig,
     PermissionResolver,
+    RunPromptPolicy,
     SpawnParams,
     StreamEvent,
 )
 from meridian.lib.harness.launch_types import PromptPolicy, SessionSeed
 from meridian.lib.safety.permissions import PermissionConfig
 from meridian.lib.core.types import HarnessId, SpawnId
-
 
 
 def _extract_passthrough_session_id(args: tuple[str, ...]) -> str:
@@ -50,10 +51,7 @@ def _normalize_task(item: object) -> dict[str, str] | None:
 
     payload = cast("dict[str, object]", item)
     content_raw = (
-        payload.get("content")
-        or payload.get("task")
-        or payload.get("title")
-        or payload.get("text")
+        payload.get("content") or payload.get("task") or payload.get("title") or payload.get("text")
     )
     if content_raw is None:
         return None
@@ -80,10 +78,7 @@ def _extract_todowrite_tasks(metadata: dict[str, object]) -> list[dict[str, str]
     todo_tool_names = {"todowrite", "todo_write", "todo.write"}
     for payload in iter_nested_dicts(metadata):
         name = str(
-            payload.get("name")
-            or payload.get("tool_name")
-            or payload.get("tool")
-            or ""
+            payload.get("name") or payload.get("tool_name") or payload.get("tool") or ""
         ).strip()
         if name.lower() not in todo_tool_names:
             continue
@@ -128,6 +123,7 @@ class ClaudeAdapter(BaseHarnessAdapter):
         "thinking": "thinking",
         "error": "error",
     }
+
     @property
     def id(self) -> HarnessId:
         return HarnessId("claude")
@@ -143,6 +139,21 @@ class ClaudeAdapter(BaseHarnessAdapter):
             supports_native_agents=True,
             supports_programmatic_tools=False,
             supports_primary_launch=True,
+        )
+
+    def native_layout(self) -> HarnessNativeLayout | None:
+        return HarnessNativeLayout(
+            agents=(".claude/agents",),
+            skills=(".claude/skills",),
+            global_agents=("~/.claude/agents",),
+            global_skills=("~/.claude/skills",),
+        )
+
+    def run_prompt_policy(self) -> RunPromptPolicy:
+        return RunPromptPolicy(
+            include_agent_body=False,
+            include_skills=False,
+            skill_injection_mode="append-system-prompt",
         )
 
     def build_command(self, run: SpawnParams, perms: PermissionResolver) -> list[str]:
@@ -239,6 +250,11 @@ class ClaudeAdapter(BaseHarnessAdapter):
         # (see anthropics/claude-code#29902), so we must inject skill content
         # explicitly through Meridian's --append-system-prompt path.
         return PromptPolicy(prompt=prompt, skill_injection=skill_injection)
+
+    def owns_untracked_session(self, *, repo_root: Path, session_ref: str) -> bool:
+        slug = str(repo_root.resolve()).replace("/", "-")
+        session_file = Path.home() / ".claude" / "projects" / slug / f"{session_ref}.jsonl"
+        return session_file.is_file()
 
     def extract_tasks(self, event: StreamEvent) -> list[dict[str, str]] | None:
         tasks = _extract_todowrite_tasks(event.metadata)

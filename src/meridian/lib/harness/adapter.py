@@ -1,6 +1,5 @@
 """Harness adapter protocol and shared data models."""
 
-
 from pathlib import Path
 from typing import Literal, Protocol, runtime_checkable
 
@@ -34,6 +33,27 @@ class HarnessCapabilities(BaseModel):
     supports_programmatic_tools: bool = False
     supports_primary_launch: bool = False
     reference_input_mode: Literal["inline", "paths"] = "paths"
+
+
+class HarnessNativeLayout(BaseModel):
+    """Directories a harness reads agents/skills from natively."""
+
+    model_config = ConfigDict(frozen=True)
+
+    agents: tuple[str, ...] = ()
+    skills: tuple[str, ...] = ()
+    global_agents: tuple[str, ...] = ()
+    global_skills: tuple[str, ...] = ()
+
+
+class RunPromptPolicy(BaseModel):
+    """Adapter-owned policy for composing one run prompt."""
+
+    model_config = ConfigDict(frozen=True)
+
+    include_agent_body: bool = True
+    include_skills: bool = True
+    skill_injection_mode: Literal["none", "append-system-prompt"] = "none"
 
 
 class SpawnParams(BaseModel):
@@ -117,6 +137,10 @@ class HarnessAdapter(Protocol):
     @property
     def capabilities(self) -> HarnessCapabilities: ...
 
+    def native_layout(self) -> HarnessNativeLayout | None: ...
+
+    def run_prompt_policy(self) -> RunPromptPolicy: ...
+
     def build_command(self, run: SpawnParams, perms: PermissionResolver) -> list[str]: ...
 
     def mcp_config(self, run: SpawnParams) -> McpConfig | None: ...
@@ -158,6 +182,10 @@ class HarnessAdapter(Protocol):
         started_at_local_iso: str | None,
     ) -> str | None: ...
 
+    def owns_untracked_session(self, *, repo_root: Path, session_ref: str) -> bool:
+        """Return True if this harness owns the given untracked session reference."""
+        ...
+
     def extract_tasks(self, event: StreamEvent) -> list[dict[str, str]] | None:
         """Extract structured task updates from one stream event."""
 
@@ -179,6 +207,16 @@ class HarnessAdapter(Protocol):
 
 class BaseHarnessAdapter:
     """Base with default no-op implementations for optional adapter methods."""
+
+    def native_layout(self) -> HarnessNativeLayout | None:
+        return None
+
+    def run_prompt_policy(self) -> RunPromptPolicy:
+        return RunPromptPolicy()
+
+    def owns_untracked_session(self, *, repo_root: Path, session_ref: str) -> bool:
+        _ = repo_root, session_ref
+        return False
 
     def blocked_child_env_vars(self) -> frozenset[str]:
         return frozenset()

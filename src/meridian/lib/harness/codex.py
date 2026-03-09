@@ -1,9 +1,10 @@
 """Codex CLI harness adapter."""
 
-
+import json
+import logging
 from pathlib import Path
 import re
-from typing import ClassVar
+from typing import ClassVar, cast
 
 from meridian.lib.harness.common import (
     categorize_stream_event,
@@ -23,15 +24,166 @@ from meridian.lib.harness.adapter import (
     ArtifactStore,
     BaseHarnessAdapter,
     HarnessCapabilities,
+    HarnessNativeLayout,
     McpConfig,
     PermissionResolver,
+    RunPromptPolicy,
     SpawnParams,
     StreamEvent,
 )
 from meridian.lib.harness.launch_types import PromptPolicy
-from meridian.lib.harness.session_detection import resolve_codex_primary_session_id
 from meridian.lib.safety.permissions import PermissionConfig
 from meridian.lib.core.types import HarnessId, SpawnId
+
+logger = logging.getLogger(__name__)
+
+CODEX_ROLLOUT_FILENAME_RE = re.compile(
+    r"^rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-(?P<session_id>[0-9a-fA-F-]{36})\.jsonl$"
+)
+
+
+def _resolve_rollout_session_id(path: Path, resolved_repo: Path) -> str | None:
+    session_id: str | None = None
+    saw_assistant_message = False
+    saw_turn_aborted = False
+
+    with path.open("r", encoding="utf-8", errors="ignore") as handle:
+        for line in handle:
+            try:
+                raw_payload_obj = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(raw_payload_obj, dict):
+                continue
+            payload_obj = cast("dict[str, object]", raw_payload_obj)
+            payload_type = payload_obj.get("type")
+            if not isinstance(payload_type, str):
+                continue
+
+            if payload_type == "session_meta":
+                raw_payload = payload_obj.get("payload")
+                if not isinstance(raw_payload, dict):
+                    continue
+                payload = cast("dict[str, object]", raw_payload)
+                candidate_session_id = payload.get("id")
+                cwd = payload.get("cwd")
+                if not isinstance(candidate_session_id, str) or not candidate_session_id.strip():
+                    continue
+                if not isinstance(cwd, str):
+                    continue
+                try:
+                    cwd_matches = Path(cwd).expanduser().resolve() == resolved_repo
+                except OSError:
+                    continue
+                if not cwd_matches:
+                    return None
+                session_id = candidate_session_id.strip()
+                continue
+
+            if payload_type == "response_item":
+                raw_payload = payload_obj.get("payload")
+                if not isinstance(raw_payload, dict):
+                    continue
+                payload = cast("dict[str, object]", raw_payload)
+                if payload.get("type") == "message" and payload.get("role") == "assistant":
+                    saw_assistant_message = True
+                continue
+
+            if payload_type == "event_msg":
+                raw_payload = payload_obj.get("payload")
+                payload = (
+                    cast("dict[str, object] | None", raw_payload)
+                    if isinstance(raw_payload, dict)
+                    else None
+                )
+                if payload is not None and payload.get("type") == "turn_aborted":
+                    saw_turn_aborted = True
+                continue
+
+            if payload_type == "turn_aborted":
+                saw_turn_aborted = True
+
+    if session_id is None:
+        return None
+    if saw_turn_aborted and not saw_assistant_message:
+        return None
+    return session_id
+
+
+def _detect_primary_session_id(repo_root: Path, started_at_epoch: float) -> str | None:
+    sessions_root = Path.home() / ".codex" / "sessions"
+    if not sessions_root.is_dir():
+        return None
+
+    resolved_repo = repo_root.resolve()
+    candidates: list[tuple[float, Path]] = []
+    for candidate in sessions_root.rglob("rollout-*.jsonl"):
+        if CODEX_ROLLOUT_FILENAME_RE.match(candidate.name) is None:
+            continue
+        try:
+            modified_at = candidate.stat().st_mtime
+        except OSError:
+            continue
+        if modified_at + 1 < started_at_epoch:
+            continue
+        candidates.append((modified_at, candidate))
+
+    for _, path in sorted(candidates, key=lambda item: item[0], reverse=True):
+        try:
+            resolved = _resolve_rollout_session_id(path, resolved_repo)
+        except OSError:
+            logger.debug("Failed to read codex rollout %s", path, exc_info=True)
+            continue
+        if resolved is not None:
+            return resolved
+    return None
+
+
+def _owns_session(repo_root: Path, session_ref: str) -> bool:
+    normalized = session_ref.strip()
+    if not normalized:
+        return False
+
+    resolved_repo = repo_root.resolve()
+    codex_root = Path.home() / ".codex" / "sessions"
+    if not codex_root.is_dir():
+        return False
+
+    for candidate in codex_root.rglob(f"rollout-*-{normalized}.jsonl"):
+        if CODEX_ROLLOUT_FILENAME_RE.match(candidate.name) is None:
+            continue
+        try:
+            with candidate.open("r", encoding="utf-8", errors="ignore") as handle:
+                for _ in range(5):
+                    line = handle.readline()
+                    if not line:
+                        break
+                    raw_payload_obj = json.loads(line)
+                    if not isinstance(raw_payload_obj, dict):
+                        continue
+                    payload_obj = cast("dict[str, object]", raw_payload_obj)
+                    if payload_obj.get("type") != "session_meta":
+                        continue
+                    raw_payload = payload_obj.get("payload")
+                    if not isinstance(raw_payload, dict):
+                        continue
+                    payload = cast("dict[str, object]", raw_payload)
+                    session_id = payload.get("id")
+                    cwd = payload.get("cwd")
+                    if not isinstance(session_id, str) or session_id.strip() != normalized:
+                        continue
+                    if not isinstance(cwd, str):
+                        continue
+                    try:
+                        cwd_matches = Path(cwd).expanduser().resolve() == resolved_repo
+                    except OSError:
+                        continue
+                    if cwd_matches:
+                        return True
+        except (OSError, json.JSONDecodeError):
+            continue
+
+    return False
 
 
 class CodexAdapter(BaseHarnessAdapter):
@@ -85,6 +237,17 @@ class CodexAdapter(BaseHarnessAdapter):
             supports_primary_launch=True,
             reference_input_mode="paths",
         )
+
+    def native_layout(self) -> HarnessNativeLayout | None:
+        return HarnessNativeLayout(
+            agents=(".agents/agents", ".codex/agents"),
+            skills=(".agents/skills", ".codex/skills"),
+            global_agents=("~/.codex/agents",),
+            global_skills=("~/.codex/skills",),
+        )
+
+    def run_prompt_policy(self) -> RunPromptPolicy:
+        return RunPromptPolicy()
 
     def build_command(self, run: SpawnParams, perms: PermissionResolver) -> list[str]:
         harness_session_id = (run.continue_harness_session_id or "").strip()
@@ -169,7 +332,7 @@ class CodexAdapter(BaseHarnessAdapter):
         started_at_local_iso: str | None,
     ) -> str | None:
         _ = started_at_local_iso
-        return resolve_codex_primary_session_id(repo_root, started_at_epoch)
+        return _detect_primary_session_id(repo_root, started_at_epoch)
 
     def extract_session_id(self, artifacts: ArtifactStore, spawn_id: SpawnId) -> str | None:
         return extract_session_id_from_artifacts_with_patterns(
@@ -178,6 +341,9 @@ class CodexAdapter(BaseHarnessAdapter):
             json_keys=self.SESSION_ID_KEYS,
             text_patterns=self.SESSION_ID_TEXT_PATTERNS,
         )
+
+    def owns_untracked_session(self, *, repo_root: Path, session_ref: str) -> bool:
+        return _owns_session(repo_root, session_ref)
 
     def extract_report(self, artifacts: ArtifactStore, spawn_id: SpawnId) -> str | None:
         return extract_codex_report(artifacts, spawn_id)

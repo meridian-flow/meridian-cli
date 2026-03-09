@@ -1,6 +1,5 @@
 """Spawn create-input validation and payload preparation helpers."""
 
-
 from difflib import get_close_matches
 from pathlib import Path
 import structlog
@@ -91,8 +90,7 @@ def _model_validation_context(
         return ""
 
     available_aliases = ", ".join(
-        f"{entry.alias} -> {entry.model_id} [{entry.harness}]"
-        for entry in aliases
+        f"{entry.alias} -> {entry.model_id} [{entry.harness}]" for entry in aliases
     )
 
     discovered_model_ids = sorted({model.id for model in discovered_models})
@@ -146,9 +144,7 @@ def _validate_requested_model(
         resolved = resolve_model(normalized, repo_root=explicit_root)
     except ValueError:
         validation_context = _model_validation_context(normalized, repo_root=explicit_root)
-        message = (
-            f"Unknown model '{normalized}'. Spawn `meridian models list` to inspect supported models."
-        )
+        message = f"Unknown model '{normalized}'. Spawn `meridian models list` to inspect supported models."
         if validation_context:
             message = f"{message}\n{validation_context}"
         raise ValueError(message) from None
@@ -228,6 +224,7 @@ def build_create_payload(
         repo_root=runtime_view.repo_root,
     )
     reference_mode = harness.capabilities.reference_input_mode
+    prompt_policy = harness.run_prompt_policy()
     use_reference_paths = reference_mode == "paths"
     loaded_references = load_reference_files(
         payload.files,
@@ -235,26 +232,16 @@ def build_create_payload(
         include_content=not use_reference_paths,
     )
     parsed_template_vars = parse_template_assignments(payload.template_vars)
-    # Native agent passthrough is stricter than native skill support.
-    # We only suppress agent/skill prompt injection when the harness can load
-    # the full agent profile natively. This avoids relying on partial native
-    # skill semantics that vary by harness. Claude is a concrete example:
-    # `claude --agent <name>` still does not reliably preload `skills:` in the
-    # same way as Claude subagents (see anthropics/claude-code#29902), so
-    # below we inject loaded skill content via appended_system_prompt as a
-    # prompt-side workaround until the harness behavior is fixed.
-    native_agents = harness.capabilities.supports_native_agents
 
     # With --skills removed, skills come exclusively from the agent profile.
-    # Native-agent harnesses either use the profile name directly or no agent.
     adhoc_agent_json = ""
     agent_for_params = defaults.agent_name
 
     composed_prompt = compose_run_prompt_text(
-        skills=() if native_agents else resolved_skills.loaded_skills,
+        skills=resolved_skills.loaded_skills if prompt_policy.include_skills else (),
         references=loaded_references,
         user_prompt=payload.prompt,
-        agent_body="" if native_agents else defaults.agent_body,
+        agent_body=defaults.agent_body if prompt_policy.include_agent_body else "",
         template_variables=parsed_template_vars,
         reference_mode=reference_mode,
     )
@@ -325,10 +312,9 @@ def build_create_payload(
         cli_permission_override=payload.permission_tier is not None,
     )
 
-    # Claude --agent does not expand skills: from the profile into the system
-    # prompt (anthropics/claude-code#29902). Inject skill content explicitly
-    # via appended_system_prompt as a workaround.
-    appended_system_prompt = compose_skill_injections(resolved_skills.loaded_skills) or None
+    appended_system_prompt = None
+    if prompt_policy.skill_injection_mode == "append-system-prompt":
+        appended_system_prompt = compose_skill_injections(resolved_skills.loaded_skills) or None
 
     preview_command = tuple(
         harness.build_command(
