@@ -126,7 +126,8 @@ def spawn_list_sync(
 ) -> SpawnListOutput:
     _ = (ctx, sink)
     repo_root, _ = resolve_runtime_root_and_config(payload.repo_root)
-    spawns = list(reversed(spawn_store.list_spawns(_state_root(repo_root), reconcile=True)))
+    from meridian.lib.state.reaper import reconcile_spawns
+    spawns = list(reversed(reconcile_spawns(_state_root(repo_root), spawn_store.list_spawns(_state_root(repo_root)))))
 
     # When statuses is empty tuple, show all statuses but cap intelligently:
     # always include all active spawns, pad with recent non-active up to limit.
@@ -194,7 +195,8 @@ def spawn_stats_sync(
 ) -> SpawnStatsOutput:
     _ = (ctx, sink)
     repo_root, _ = resolve_runtime_root_and_config(payload.repo_root)
-    spawns = spawn_store.list_spawns(_state_root(repo_root), reconcile=True)
+    from meridian.lib.state.reaper import reconcile_spawns
+    spawns = reconcile_spawns(_state_root(repo_root), spawn_store.list_spawns(_state_root(repo_root)))
     if payload.session is not None and payload.session.strip():
         wanted_session = payload.session.strip()
         spawns = [row for row in spawns if row.chat_id == wanted_session]
@@ -580,7 +582,7 @@ def spawn_gc_sync(
         if row is None:
             raise ValueError(f"Spawn '{spawn_id}' not found")
         if row.status == "running":
-            reason = reap_stuck_spawn(state_root, spawn_id) or "forced"
+            reason = reap_stuck_spawn(state_root, spawn_id, force=True)
         else:
             reason = None
         if reason is not None:

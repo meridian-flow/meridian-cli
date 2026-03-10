@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import time
 from pathlib import Path
+from typing import Literal
 
 import structlog
 
@@ -15,6 +16,8 @@ logger = structlog.get_logger(__name__)
 
 _STALE_THRESHOLD_SECS = 300  # 5 minutes of no output = stale
 _KILL_GRACE_SECS = 10
+
+ReapReason = Literal["orphan_run", "harness_completed", "stale", "forced"]
 
 
 # ---------------------------------------------------------------------------
@@ -75,9 +78,10 @@ def _pid_is_alive(pid: int, pid_file: Path) -> bool:
     return True
 
 
-def _spawn_is_stale(spawn_dir: Path) -> bool:
+def _spawn_is_stale(spawn_dir: Path, pid_file: Path) -> bool:
     """Check if a spawn has stopped producing output for >5 minutes."""
     now = time.time()
+    # Check output files first
     for name in ("output.jsonl", "stderr.log"):
         path = spawn_dir / name
         try:
@@ -85,7 +89,13 @@ def _spawn_is_stale(spawn_dir: Path) -> bool:
                 return False  # Recent activity
         except OSError:
             continue
-    return True  # No recent output from any file
+    # If no output files exist, check pid file age as spawn start proxy
+    try:
+        if now - pid_file.stat().st_mtime < _STALE_THRESHOLD_SECS:
+            return False  # Spawn started recently
+    except OSError:
+        pass
+    return True
 
 
 def _kill_pid_escalate(pid: int) -> None:
@@ -140,19 +150,29 @@ def reconcile_running_spawn(state_root: Path, record: SpawnRecord) -> SpawnRecor
         return record
 
     spawn_dir = state_root / "spawns" / record.id
-    pid_file = spawn_dir / "background.pid"
+    bg_pid_file = spawn_dir / "background.pid"
+    harness_pid_file = spawn_dir / "harness.pid"
 
-    # Only reconcile background spawns
     bg_pid = _read_pid_file(spawn_dir, "background.pid")
-    if bg_pid is None:
-        return record  # No PID file — not a background spawn or unknown
+    harness_pid = _read_pid_file(spawn_dir, "harness.pid")
 
-    if _pid_is_alive(bg_pid, pid_file):
-        # Process is alive — don't touch it on the read path.
-        # gc / doctor will handle stuck-alive cases.
+    if bg_pid is None and harness_pid is None:
+        return record  # No PID files — can't determine state
+
+    if bg_pid is None:
+        # No background.pid — likely a foreground spawn. Foreground spawns are
+        # managed by the runner process, so we can't safely reconcile from the
+        # read path using harness.pid alone.
         return record
 
-    # PID is dead — this is an orphan. Finalize as failed.
+    # Check if ANY known process is still alive
+    bg_alive = _pid_is_alive(bg_pid, bg_pid_file)
+    harness_alive = harness_pid is not None and _pid_is_alive(harness_pid, harness_pid_file)
+
+    if bg_alive or harness_alive:
+        return record  # At least one process alive — don't touch
+
+    # All known processes are dead — orphan
     error = "orphan_run"
     finalized = finalize_spawn_if_running(
         state_root,
@@ -184,10 +204,11 @@ def reconcile_spawns(state_root: Path, spawns: list[SpawnRecord]) -> list[SpawnR
 # ---------------------------------------------------------------------------
 
 
-def reap_stuck_spawn(state_root: Path, spawn_id: str) -> str | None:
+def reap_stuck_spawn(state_root: Path, spawn_id: str, *, force: bool = False) -> ReapReason | None:
     """Active cleanup for gc/doctor. Kills processes and finalizes.
 
     Returns a reason string if the spawn was reaped, or None if nothing to do.
+    When force=True, missing PID files are treated as forced finalization.
     """
     from meridian.lib.state.spawn_store import get_spawn
 
@@ -196,16 +217,18 @@ def reap_stuck_spawn(state_root: Path, spawn_id: str) -> str | None:
         return None
 
     spawn_dir = state_root / "spawns" / record.id
-    pid_file = spawn_dir / "background.pid"
+    bg_pid_file = spawn_dir / "background.pid"
+    harness_pid_file = spawn_dir / "harness.pid"
     report_file = spawn_dir / "report.md"
 
     bg_pid = _read_pid_file(spawn_dir, "background.pid")
     harness_pid = _read_pid_file(spawn_dir, "harness.pid")
 
-    bg_alive = bg_pid is not None and _pid_is_alive(bg_pid, pid_file)
+    bg_alive = bg_pid is not None and _pid_is_alive(bg_pid, bg_pid_file)
+    harness_alive = harness_pid is not None and _pid_is_alive(harness_pid, harness_pid_file)
     has_report = report_file.exists()
 
-    reason: str | None = None
+    reason: ReapReason | None = None
 
     if not bg_alive and bg_pid is not None:
         # Dead background worker — orphan
@@ -213,19 +236,22 @@ def reap_stuck_spawn(state_root: Path, spawn_id: str) -> str | None:
     elif bg_alive and has_report:
         # Harness wrote report but process is still alive — hung wrapper
         reason = "harness_completed"
-    elif bg_alive and not has_report and _spawn_is_stale(spawn_dir):
+    elif bg_alive and not has_report and _spawn_is_stale(spawn_dir, bg_pid_file):
         # Alive but no output for 5 minutes — stale
         reason = "stale"
     elif bg_pid is None:
-        # No background PID file — can't determine state, but if someone
-        # explicitly asked to gc this spawn, treat it as an orphan
-        reason = "orphan_run"
+        if harness_pid is not None and not harness_alive:
+            # Harness process is dead — orphan
+            reason = "orphan_run"
+        elif force:
+            reason = "forced"
+        # else: no PID file, can't determine state — skip
 
     if reason is None:
         return None  # Spawn looks healthy
 
     # Kill processes: harness child first, then background worker
-    if harness_pid is not None:
+    if harness_pid is not None and harness_alive:
         _kill_pid_escalate(harness_pid)
     if bg_pid is not None and bg_alive:
         _kill_pid_escalate(bg_pid)

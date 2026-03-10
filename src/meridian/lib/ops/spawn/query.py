@@ -30,7 +30,8 @@ def _select_latest_spawn_id(
     *,
     statuses: tuple[str, ...] | None,
 ) -> str | None:
-    spawns = spawn_store.list_spawns(_state_root(repo_root), reconcile=True)
+    from meridian.lib.state.reaper import reconcile_spawns
+    spawns = reconcile_spawns(_state_root(repo_root), spawn_store.list_spawns(_state_root(repo_root)))
     if statuses is not None:
         wanted = set(statuses)
         spawns = [item for item in spawns if item.status in wanted]
@@ -62,7 +63,11 @@ def resolve_spawn_references(repo_root: Path, refs: tuple[str, ...]) -> tuple[st
 
 
 def read_spawn_row(repo_root: Path, spawn_id: str) -> spawn_store.SpawnRecord | None:
-    return spawn_store.get_spawn(_state_root(repo_root), spawn_id, reconcile=True)
+    record = spawn_store.get_spawn(_state_root(repo_root), spawn_id)
+    if record is not None and record.status == "running":
+        from meridian.lib.state.reaper import reconcile_running_spawn
+        record = reconcile_running_spawn(_state_root(repo_root), record)
+    return record
 
 
 def read_report_text(repo_root: Path, spawn_id: str) -> tuple[str | None, str | None]:

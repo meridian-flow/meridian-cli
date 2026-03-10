@@ -211,14 +211,13 @@ async def _terminate_after_cancellation(
 async def _report_watchdog(
     report_path: Path,
     process: asyncio.subprocess.Process,
-    stale_check_path: Path,
     grace_secs: float = 60.0,
 ) -> None:
-    """Kill harness process if report.md appears and output goes idle.
+    """Kill harness process if report.md appears but process doesn't exit.
 
-    Polls for report.md creation, then waits a grace period checking for
-    continued output activity. If the process is still alive after grace,
-    terminates it via the existing terminate_process() helper.
+    Polls for report.md creation, then waits a grace period for clean exit.
+    If the process is still alive after grace, terminates it via the
+    existing terminate_process() helper.
     """
     poll_interval = 5.0
     while not report_path.exists():
@@ -310,7 +309,6 @@ async def spawn_and_stream(
             _report_watchdog(
                 report_path=report_watchdog_path,
                 process=process,
-                stale_check_path=output_log_path,
             )
         )
 

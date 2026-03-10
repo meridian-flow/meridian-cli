@@ -327,7 +327,8 @@ def work_dashboard_sync(
     grouped: dict[str, list[WorkDashboardSpawn]] = {}
     ungrouped: list[WorkDashboardSpawn] = []
 
-    for spawn in spawn_store.list_spawns(state_root, reconcile=True):
+    from meridian.lib.state.reaper import reconcile_spawns
+    for spawn in reconcile_spawns(state_root, spawn_store.list_spawns(state_root)):
         if spawn.status not in _ACTIVE_SPAWN_STATUSES:
             continue
         row = _dashboard_spawn(spawn)
@@ -407,6 +408,7 @@ def work_show_sync(
 ) -> WorkShowOutput:
     _ = ctx
     repo_root, state_root = _resolve_roots(payload.repo_root)
+    from meridian.lib.state.reaper import reconcile_spawns
     item = _require_work_item(state_root, payload.work_id)
     return WorkShowOutput(
         name=item.name,
@@ -416,7 +418,7 @@ def work_show_sync(
         work_dir=_display_path(repo_root, state_root / "work" / item.name),
         spawns=tuple(
             _dashboard_spawn(spawn)
-            for spawn in spawn_store.list_spawns(state_root, filters={"work_id": item.name}, reconcile=True)
+            for spawn in reconcile_spawns(state_root, spawn_store.list_spawns(state_root, filters={"work_id": item.name}))
         ),
     )
 
