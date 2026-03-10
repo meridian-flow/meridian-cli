@@ -331,12 +331,45 @@ class SpawnListFilters(BaseModel):
     limit: int = 20
 
 
+class SpawnGcInput(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    force_id: str | None = None
+    repo_root: str | None = None
+
+
+class SpawnGcEntry(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    spawn_id: str
+    reason: str  # "orphan_run", "harness_completed", "stale", "forced"
+    status: str  # always "failed" for reaped spawns
+
+
+class SpawnGcOutput(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    reaped: tuple[SpawnGcEntry, ...] = ()
+
+    def format_text(self, ctx: FormatContext | None = None) -> str:
+        _ = ctx
+        if not self.reaped:
+            return "No stuck spawns found."
+        lines = [f"Reaped {len(self.reaped)} spawn(s):"]
+        for entry in self.reaped:
+            lines.append(f"  {entry.spawn_id}  {entry.reason}")
+        return "\n".join(lines)
+
+
 __all__ = [
     "SpawnActionOutput",
     "SpawnCancelInput",
     "SpawnContinueInput",
     "SpawnCreateInput",
     "SpawnDetailOutput",
+    "SpawnGcEntry",
+    "SpawnGcInput",
+    "SpawnGcOutput",
     "SpawnListEntry",
     "SpawnListFilters",
     "SpawnListInput",

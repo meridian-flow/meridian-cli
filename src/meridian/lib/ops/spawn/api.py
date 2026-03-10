@@ -25,6 +25,9 @@ from .models import (
     SpawnContinueInput,
     SpawnCreateInput,
     SpawnDetailOutput,
+    SpawnGcEntry,
+    SpawnGcInput,
+    SpawnGcOutput,
     SpawnListEntry,
     SpawnListInput,
     SpawnListOutput,
@@ -555,3 +558,49 @@ async def spawn_continue(
     sink: OutputSink | None = None,
 ) -> SpawnActionOutput:
     return await asyncio.to_thread(spawn_continue_sync, payload, ctx=ctx, sink=sink)
+
+
+def spawn_gc_sync(
+    payload: SpawnGcInput,
+    ctx: RuntimeContext | None = None,
+    *,
+    sink: OutputSink | None = None,
+) -> SpawnGcOutput:
+    _ = (ctx, sink)
+    from meridian.lib.state.reaper import reap_stuck_spawn
+
+    repo_root, _ = resolve_runtime_root_and_config(payload.repo_root)
+    state_root = _state_root(repo_root)
+    reaped: list[SpawnGcEntry] = []
+
+    if payload.force_id is not None:
+        # Force-finalize a specific spawn
+        spawn_id = resolve_spawn_reference(repo_root, payload.force_id)
+        row = read_spawn_row(repo_root, spawn_id)
+        if row is None:
+            raise ValueError(f"Spawn '{spawn_id}' not found")
+        if row.status == "running":
+            reason = reap_stuck_spawn(state_root, spawn_id) or "forced"
+        else:
+            reason = None
+        if reason is not None:
+            reaped.append(SpawnGcEntry(spawn_id=spawn_id, reason=reason, status="failed"))
+    else:
+        # Reap all stuck running spawns
+        for run in spawn_store.list_spawns(state_root):
+            if run.status != "running":
+                continue
+            reason = reap_stuck_spawn(state_root, run.id)
+            if reason is not None:
+                reaped.append(SpawnGcEntry(spawn_id=run.id, reason=reason, status="failed"))
+
+    return SpawnGcOutput(reaped=tuple(reaped))
+
+
+async def spawn_gc(
+    payload: SpawnGcInput,
+    ctx: RuntimeContext | None = None,
+    *,
+    sink: OutputSink | None = None,
+) -> SpawnGcOutput:
+    return await asyncio.to_thread(spawn_gc_sync, payload, ctx=ctx, sink=sink)

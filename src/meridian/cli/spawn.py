@@ -15,6 +15,7 @@ from meridian.lib.ops.spawn.api import (
     SpawnCancelInput,
     SpawnContinueInput,
     SpawnCreateInput,
+    SpawnGcInput,
     SpawnListInput,
     SpawnShowInput,
     SpawnStatsInput,
@@ -22,6 +23,7 @@ from meridian.lib.ops.spawn.api import (
     spawn_continue_sync,
     spawn_create_sync,
     spawn_cancel_sync,
+    spawn_gc_sync,
     spawn_list_sync,
     spawn_show_sync,
     spawn_stats_sync,
@@ -353,10 +355,25 @@ def _spawn_wait(
         raise SystemExit(1)
 
 
+def _spawn_gc(
+    emit: Any,
+    force: Annotated[
+        str | None,
+        Parameter(name="--force", help="Force-finalize a specific spawn ID."),
+    ] = None,
+) -> None:
+    result = spawn_gc_sync(
+        SpawnGcInput(force_id=force),
+        sink=current_output_sink(),
+    )
+    emit(result)
+
+
 def register_spawn_commands(app: App, emit: Emitter) -> tuple[set[str], dict[str, str]]:
     """Register spawn CLI commands using registry metadata as source of truth."""
 
     handlers: dict[str, Callable[[], Callable[..., None]]] = {
+        "spawn.gc": lambda: partial(_spawn_gc, emit),
         "spawn.list": lambda: partial(_spawn_list, emit),
         "spawn.stats": lambda: partial(_spawn_stats, emit),
         "spawn.show": lambda: partial(_spawn_show, emit),
