@@ -1,6 +1,6 @@
 # Advanced Spawn Commands
 
-Read this when you need continue, cancel, stats, debugging, or model selection — commands outside the core spawn → wait → show loop.
+Read this when you need continue, cancel, stats, shared filesystem, permissions, or model selection — commands outside the core spawn → wait → show loop. For troubleshooting, read `debugging.md`.
 
 ## Continue & Fork
 
@@ -37,19 +37,6 @@ meridian spawn show SPAWN_ID --no-report     # omit the full report text
 meridian spawn show SPAWN_ID --include-files  # include file metadata
 ```
 
-## Debugging & Logs
-
-Each spawn writes a stderr log to `.meridian/spawns/<spawn-id>/stderr.log` — the full harness session trace with every tool call and reasoning step.
-
-```bash
-# Get the log path from spawn metadata
-meridian spawn show SPAWN_ID
-# → look for "log_path" in the JSON output
-
-# Tail a running spawn's log
-tail -f ".meridian/spawns/SPAWN_ID/stderr.log"
-```
-
 ## Model Selection
 
 ```bash
@@ -61,7 +48,7 @@ The CLI routes each model to the correct harness automatically — you don't nee
 
 ## Shared Filesystem
 
-Spawns can exchange data through `$MERIDIAN_FS_DIR` (defaults to `.meridian/fs/`):
+Spawns can exchange data through `$MERIDIAN_FS_DIR`:
 
 ```bash
 mkdir -p "$MERIDIAN_FS_DIR"
@@ -79,4 +66,9 @@ Override tool access with `--permission`:
 meridian spawn -m MODEL -p "Read-only analysis" --permission read-only
 ```
 
-Tiers: `read-only`, `workspace-write`, `full-access`.
+Tiers:
+- `read-only` — can read files but not write or execute
+- `workspace-write` — can write within the project directory
+- `full-access` — unrestricted tool access
+
+For stuck spawns, logs, or low-level state inspection, see `debugging.md`.

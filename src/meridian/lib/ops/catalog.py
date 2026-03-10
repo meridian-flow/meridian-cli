@@ -274,6 +274,10 @@ def _is_default_visible(model: CatalogModel, all_model_ids: set[str]) -> bool:
     if model_id.startswith(("o1", "o3", "o4")):
         return False
 
+    # Hide expensive models ($$$$+) from the default listing.
+    if model.cost_input is not None and model.cost_input >= 10.0:
+        return False
+
     return True
 
 

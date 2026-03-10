@@ -1,6 +1,6 @@
 ---
 name: meridian-spawn-agent
-description: Multi-agent coordination via the meridian CLI. Teaches how to spawn, track, and manage subagent spawns.
+description: Multi-agent coordination via the meridian CLI — spawning subagents, waiting for results, checking status, and inspecting outputs. Use this skill whenever you need to delegate work to another agent, run tasks in parallel, check on spawn progress, or coordinate multiple agents. Also use when working with `meridian spawn`, `meridian models`, shared filesystems, or any multi-agent workflow.
 ---
 
 # meridian-spawn-agent
@@ -11,17 +11,20 @@ In agent mode, all CLI output is JSON.
 ## Core Loop: Spawn → Wait → Show
 
 ```bash
-# Launch a spawn (returns immediately with spawn_id)
-SID=$(meridian spawn -m MODEL -p "task description" | jq -r .spawn_id)
+meridian spawn -m MODEL -p "task description"
+# → {"spawn_id": "p107", "status": "running"}
 
-# Wait for completion (blocks, returns report by default)
-meridian spawn wait "$SID"
+meridian spawn wait p107
+# → {"spawn_id": "p107", "status": "succeeded", "report": "..."}
 
-# Inspect result details (includes report by default)
-meridian spawn show "$SID"
+meridian spawn show p107
+# → Full details including report, tokens, cost
 ```
 
-State lives under `.meridian/` — spawns.jsonl for events, `spawns/<id>/` for artifacts, `fs/` for shared files between spawns.
+**Capturing spawn IDs:** Agent harnesses often sandbox shell execution, so command substitution like `ID=$(meridian spawn ...)` may silently fail. Always read the `spawn_id` from the JSON output and pass it literally to `spawn wait` or `spawn show`.
+
+If you need to pass files between spawns, use the shared filesystem at `$MERIDIAN_FS_DIR` (automatically set by meridian). On-disk state layout is an implementation detail; see `resources/debugging.md` for low-level inspection and `resources/advanced-commands.md` for advanced coordination.
+If something looks wrong — a spawn seems stuck, output is missing, or state does not match expectations — read [`resources/debugging.md`](resources/debugging.md).
 
 ## Composing Spawns
 
@@ -44,16 +47,18 @@ meridian spawn -m MODEL \
 meridian spawn --dry-run -m MODEL -p "Plan the migration"
 ```
 
-Start minimal, then add context only when needed. Use `meridian models list` to discover available models.
+Start minimal, then add context only when needed. Models support short aliases (e.g. `opus`, `sonnet`, `gpt`) — run `meridian models list` to see what's available.
 
 ## Parallel Spawns
 
 Launch independent spawns in the background, then wait for all:
 
 ```bash
-SID_A=$(meridian spawn -m MODEL -p "Step A" | jq -r .spawn_id)
-SID_B=$(meridian spawn -m MODEL -p "Step B" | jq -r .spawn_id)
-meridian spawn wait "$SID_A" "$SID_B"
+meridian spawn -m MODEL -p "Step A"
+meridian spawn -m MODEL -p "Step B"
+
+# Read both returned spawn_ids from the JSON results, then wait for both.
+meridian spawn wait p108 p109
 ```
 
 ## Checking Status
@@ -71,6 +76,13 @@ meridian spawn list --all
 meridian spawn list --all --limit 20
 ```
 
+Stuck spawns auto-recover: if a spawn's process dies or goes stale, the next read (`list`, `show`, `wait`) detects it and marks it failed. You don't need to manually clean up — just check the status and move on.
+
+## When a Spawn Fails
+
+If `spawn wait` returns `"status": "failed"`, check the `report` field first — it usually contains the error or the agent's last output. For deeper investigation, use `spawn show SPAWN_ID` and see [`resources/debugging.md`](resources/debugging.md) for log inspection.
+
 ## Beyond the Basics
 
-For continue/fork, cancel, stats, debugging logs, shared filesystem, model discovery, and permission tiers, see [`resources/advanced-commands.md`](resources/advanced-commands.md).
+For continue/fork, cancel, stats, shared filesystem, model discovery, and permission tiers, see [`resources/advanced-commands.md`](resources/advanced-commands.md).
+For troubleshooting strange behavior, see [`resources/debugging.md`](resources/debugging.md).
