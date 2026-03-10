@@ -13,7 +13,7 @@ from meridian.lib.harness.materialize import cleanup_materialized
 from meridian.lib.ops.runtime import build_runtime
 from meridian.lib.state import spawn_store
 from meridian.lib.state.paths import resolve_state_paths
-from meridian.lib.state.session_store import cleanup_stale_sessions, list_active_sessions
+from meridian.lib.state.session_store import cleanup_stale_sessions
 
 
 class DoctorInput(BaseModel):
@@ -68,46 +68,16 @@ def _repair_stale_session_locks(repo_root: Path) -> int:
 
 
 def _repair_orphan_runs(repo_root: Path) -> int:
+    from meridian.lib.state.reaper import reap_stuck_spawn
+
     state_root = _state_root(repo_root)
-
-    def _background_pid(spawn_id: str) -> int | None:
-        pid_path = state_root / "spawns" / spawn_id / "background.pid"
-        if not pid_path.is_file():
-            return None
-        try:
-            value = int(pid_path.read_text(encoding="utf-8").strip())
-        except ValueError:
-            return None
-        return value if value > 0 else None
-
-    def _pid_is_alive(pid: int) -> bool:
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            return False
-        except PermissionError:
-            return True
-        return True
-
     repaired = 0
-    active_sessions = set(list_active_sessions(state_root))
     for run in spawn_store.list_spawns(state_root):
         if run.status != "running":
             continue
-        pid = _background_pid(run.id)
-        if pid is not None and _pid_is_alive(pid):
-            continue
-        if run.chat_id is not None and run.chat_id in active_sessions:
-            continue
-
-        spawn_store.finalize_spawn(
-            state_root,
-            run.id,
-            status="failed",
-            exit_code=1,
-            error="orphan_run",
-        )
-        repaired += 1
+        reason = reap_stuck_spawn(state_root, run.id)
+        if reason is not None:
+            repaired += 1
     return repaired
 
 
