@@ -12,6 +12,8 @@ git -C /tmp/meridian-sync-repo init --quiet
 for var in $(env | awk -F= '/^MERIDIAN_/ {print $1}'); do unset "$var"; done
 export MERIDIAN_REPO_ROOT=/tmp/meridian-sync-repo
 export MERIDIAN_STATE_ROOT=/tmp/meridian-sync-repo/.meridian
+export UV_CACHE_DIR=/tmp/uv-cache
+mkdir -p "$UV_CACHE_DIR"
 cat > /tmp/meridian-sync-src/skills/demo/SKILL.md <<'EOF'
 # Demo Skill
 
@@ -61,4 +63,23 @@ uv run meridian sync remove smoke-source >/tmp/meridian-sync-remove.out 2>&1 && 
 test ! -e /tmp/meridian-sync-repo/.agents/skills/demo && \
 test ! -e /tmp/meridian-sync-repo/.agents/agents/helper.md && \
 echo "PASS: sync remove cleaned managed artifacts" || echo "FAIL: sync remove left managed artifacts behind"
+```
+
+### SYNC-5. Remote GitHub install works for a real repo [IMPORTANT]
+
+Run this when you changed remote source resolution, lock semantics, or `.claude/` materialization. This complements the local-path round trip above.
+
+```bash
+rm -rf /tmp/meridian-sync-gh-repo
+mkdir -p /tmp/meridian-sync-gh-repo
+git -C /tmp/meridian-sync-gh-repo init --quiet
+export MERIDIAN_REPO_ROOT=/tmp/meridian-sync-gh-repo
+export MERIDIAN_STATE_ROOT=/tmp/meridian-sync-gh-repo/.meridian
+export UV_CACHE_DIR=/tmp/uv-cache
+uv run meridian sync install haowjy/orchestrate --name orchestrate >/tmp/meridian-sync-gh-install.out 2>&1 && \
+uv run meridian sync status >/tmp/meridian-sync-gh-status.out 2>&1 && \
+grep -q '"source_value": "haowjy/orchestrate"' /tmp/meridian-sync-gh-repo/.meridian/sync.lock && \
+grep -q '"status": "in-sync"' /tmp/meridian-sync-gh-status.out && \
+test -L /tmp/meridian-sync-gh-repo/.claude/skills/orchestrate && \
+echo "PASS: remote GitHub sync installed and locked a real source" || echo "FAIL: remote GitHub sync did not behave as expected"
 ```
