@@ -327,7 +327,7 @@ def work_dashboard_sync(
     grouped: dict[str, list[WorkDashboardSpawn]] = {}
     ungrouped: list[WorkDashboardSpawn] = []
 
-    for spawn in spawn_store.list_spawns(state_root):
+    for spawn in spawn_store.list_spawns(state_root, reconcile=True):
         if spawn.status not in _ACTIVE_SPAWN_STATUSES:
             continue
         row = _dashboard_spawn(spawn)
@@ -416,7 +416,7 @@ def work_show_sync(
         work_dir=_display_path(repo_root, state_root / "work" / item.name),
         spawns=tuple(
             _dashboard_spawn(spawn)
-            for spawn in spawn_store.list_spawns(state_root, filters={"work_id": item.name})
+            for spawn in spawn_store.list_spawns(state_root, filters={"work_id": item.name}, reconcile=True)
         ),
     )
 

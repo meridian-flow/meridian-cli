@@ -372,11 +372,15 @@ def _spawn_sort_key(spawn: SpawnRecord) -> tuple[int, str]:
     return (10**9, spawn.id)
 
 
-def list_spawns(state_root: Path, filters: Mapping[str, Any] | None = None) -> list[SpawnRecord]:
+def list_spawns(state_root: Path, filters: Mapping[str, Any] | None = None, *, reconcile: bool = False) -> list[SpawnRecord]:
     """List derived spawn records with optional equality filters."""
 
     paths = StateRootPaths.from_root_dir(state_root)
     spawns = list(_record_from_events(_read_events(paths.spawns_jsonl)).values())
+
+    if reconcile:
+        from meridian.lib.state.reaper import reconcile_spawns
+        spawns = reconcile_spawns(state_root, spawns)
 
     if filters:
         filtered: list[SpawnRecord] = []
@@ -398,20 +402,20 @@ def list_spawns(state_root: Path, filters: Mapping[str, Any] | None = None) -> l
     return sorted(spawns, key=_spawn_sort_key)
 
 
-def get_spawn(state_root: Path, spawn_id: SpawnId | str) -> SpawnRecord | None:
+def get_spawn(state_root: Path, spawn_id: SpawnId | str, *, reconcile: bool = False) -> SpawnRecord | None:
     """Return one spawn by ID."""
 
     wanted = str(spawn_id)
-    for spawn in list_spawns(state_root):
+    for spawn in list_spawns(state_root, reconcile=reconcile):
         if spawn.id == wanted:
             return spawn
     return None
 
 
-def spawn_stats(state_root: Path) -> dict[str, Any]:
+def spawn_stats(state_root: Path, *, reconcile: bool = False) -> dict[str, Any]:
     """Aggregate high-level spawn stats from JSONL-derived records."""
 
-    spawns = list_spawns(state_root)
+    spawns = list_spawns(state_root, reconcile=reconcile)
     by_status: dict[str, int] = {}
     by_model: dict[str, int] = {}
     total_duration_secs = 0.0

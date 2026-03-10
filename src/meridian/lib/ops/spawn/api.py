@@ -123,7 +123,7 @@ def spawn_list_sync(
 ) -> SpawnListOutput:
     _ = (ctx, sink)
     repo_root, _ = resolve_runtime_root_and_config(payload.repo_root)
-    spawns = list(reversed(spawn_store.list_spawns(_state_root(repo_root))))
+    spawns = list(reversed(spawn_store.list_spawns(_state_root(repo_root), reconcile=True)))
 
     # When statuses is empty tuple, show all statuses but cap intelligently:
     # always include all active spawns, pad with recent non-active up to limit.
@@ -191,7 +191,7 @@ def spawn_stats_sync(
 ) -> SpawnStatsOutput:
     _ = (ctx, sink)
     repo_root, _ = resolve_runtime_root_and_config(payload.repo_root)
-    spawns = spawn_store.list_spawns(_state_root(repo_root))
+    spawns = spawn_store.list_spawns(_state_root(repo_root), reconcile=True)
     if payload.session is not None and payload.session.strip():
         wanted_session = payload.session.strip()
         spawns = [row for row in spawns if row.chat_id == wanted_session]

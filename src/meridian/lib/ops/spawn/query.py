@@ -30,7 +30,7 @@ def _select_latest_spawn_id(
     *,
     statuses: tuple[str, ...] | None,
 ) -> str | None:
-    spawns = spawn_store.list_spawns(_state_root(repo_root))
+    spawns = spawn_store.list_spawns(_state_root(repo_root), reconcile=True)
     if statuses is not None:
         wanted = set(statuses)
         spawns = [item for item in spawns if item.status in wanted]
@@ -62,7 +62,7 @@ def resolve_spawn_references(repo_root: Path, refs: tuple[str, ...]) -> tuple[st
 
 
 def read_spawn_row(repo_root: Path, spawn_id: str) -> spawn_store.SpawnRecord | None:
-    return spawn_store.get_spawn(_state_root(repo_root), spawn_id)
+    return spawn_store.get_spawn(_state_root(repo_root), spawn_id, reconcile=True)
 
 
 def read_report_text(repo_root: Path, spawn_id: str) -> tuple[str | None, str | None]:
