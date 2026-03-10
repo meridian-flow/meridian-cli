@@ -563,6 +563,14 @@ async def execute_with_finalization(
     output_log_path = log_dir / OUTPUT_FILENAME
     report_path = log_dir / REPORT_FILENAME
 
+    # Workaround: when running inside Claude Code, a child `claude -p` CLI
+    # shares the same CWD-derived task directory and deletes the parent's
+    # task output file during its own startup cleanup.  Using a distinct CWD
+    # for the child gives it a separate task directory and avoids the
+    # collision.  The project root is re-injected via `--add-dir` so the
+    # child can still access project files.
+    child_cwd = execution_cwd
+
     if harness_id is None:
         harness, _warning = registry.route(str(run.model), repo_root=repo_root)
     else:
@@ -625,6 +633,12 @@ async def execute_with_finalization(
 
     try:
         command = tuple(harness.build_command(run_params, resolved_perms))
+
+        if os.environ.get("CLAUDECODE") and str(harness.id) == "claude":
+            child_cwd = log_dir
+            child_cwd.mkdir(parents=True, exist_ok=True)
+            command = (*command, "--add-dir", str(execution_cwd))
+
         retries_attempted = 0
 
         while True:
@@ -643,7 +657,7 @@ async def execute_with_finalization(
             spawn_result = await spawn_and_stream(
                 spawn_id=run.spawn_id,
                 command=command,
-                cwd=execution_cwd,
+                cwd=child_cwd,
                 artifacts=artifacts,
                 output_log_path=output_log_path,
                 stderr_log_path=log_dir / STDERR_FILENAME,
