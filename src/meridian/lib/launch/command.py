@@ -277,6 +277,7 @@ def build_launch_env(
         repo_root=repo_root.resolve(),
         state_root=resolve_state_paths(repo_root).root_dir.resolve(),
         chat_id=resolved_chat_id,
+        work_id=current_context.work_id,
     )
     env_overrides = runtime_context.to_env_overrides()
     if spawn_id is not None and spawn_id.strip():

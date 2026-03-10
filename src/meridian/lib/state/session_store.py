@@ -32,6 +32,7 @@ class SessionRecord(BaseModel):
     params: tuple[str, ...]
     started_at: str
     stopped_at: str | None
+    active_work_id: str | None = None
 
 
 class SessionStartEvent(BaseModel):
@@ -67,6 +68,7 @@ class SessionUpdateEvent(BaseModel):
     event: Literal["update"] = "update"
     chat_id: str
     harness_session_id: str
+    active_work_id: str | None = None
 
 
 type SessionEvent = SessionStartEvent | SessionStopEvent | SessionUpdateEvent
@@ -152,6 +154,7 @@ def _record_from_start_event(event: SessionStartEvent) -> SessionRecord:
         params=event.params,
         started_at=event.started_at,
         stopped_at=None,
+        active_work_id=None,
     )
 
 
@@ -178,12 +181,21 @@ def _records_by_session(state_root: Path) -> dict[str, SessionRecord]:
         if existing is None:
             continue
         session_ids = existing.harness_session_ids
-        if event.harness_session_id not in session_ids:
-            session_ids = (*session_ids, event.harness_session_id)
+        harness_session_id = existing.harness_session_id
+        updated_work_id = existing.active_work_id
+        normalized_harness_session_id = event.harness_session_id.strip()
+        if normalized_harness_session_id:
+            if normalized_harness_session_id not in session_ids:
+                session_ids = (*session_ids, normalized_harness_session_id)
+            harness_session_id = normalized_harness_session_id
+        if event.active_work_id is not None:
+            normalized_work_id = event.active_work_id.strip()
+            updated_work_id = normalized_work_id or None
         records[event.chat_id] = existing.model_copy(
             update={
-                "harness_session_id": event.harness_session_id,
+                "harness_session_id": harness_session_id,
                 "harness_session_ids": session_ids,
+                "active_work_id": updated_work_id,
             }
         )
     return records
@@ -268,7 +280,21 @@ def update_session_harness_id(state_root: Path, chat_id: str, harness_session_id
     paths = StateRootPaths.from_root_dir(state_root)
     event = SessionUpdateEvent(chat_id=chat_id, harness_session_id=harness_session_id)
     with _lock_file(paths.sessions_lock):
-        _append_event(paths.sessions_jsonl, event.model_dump())
+        _append_event(paths.sessions_jsonl, event.model_dump(exclude_none=True))
+
+
+def update_session_work_id(state_root: Path, chat_id: str, work_id: str | None) -> None:
+    """Set or clear the active work item for a session."""
+
+    paths = StateRootPaths.from_root_dir(state_root)
+    normalized_work_id = work_id.strip() if work_id is not None else ""
+    event = SessionUpdateEvent(
+        chat_id=chat_id,
+        harness_session_id="",
+        active_work_id=normalized_work_id,
+    )
+    with _lock_file(paths.sessions_lock):
+        _append_event(paths.sessions_jsonl, event.model_dump(exclude_none=True))
 
 
 def list_active_sessions(state_root: Path) -> list[str]:

@@ -38,6 +38,7 @@ class StateRootPaths(BaseModel):
     sessions_lock: Path
     sessions_dir: Path
     fs_dir: Path
+    work_dir: Path
     spawns_dir: Path
 
     @classmethod
@@ -52,6 +53,7 @@ class StateRootPaths(BaseModel):
             sessions_lock=root_dir / "sessions.lock",
             sessions_dir=root_dir / "sessions",
             fs_dir=root_dir / "fs",
+            work_dir=root_dir / "work",
             spawns_dir=root_dir / "spawns",
         )
 
@@ -112,6 +114,12 @@ def resolve_fs_dir(repo_root: Path) -> Path:
     """Return `.meridian/fs/` for a repository root."""
 
     return resolve_state_paths(repo_root).root_dir / "fs"
+
+
+def resolve_work_dir(repo_root: Path) -> Path:
+    """Return `.meridian/work/` for a repository root."""
+
+    return resolve_state_paths(repo_root).root_dir / "work"
 
 
 def spawn_log_subpath(spawn_id: SpawnId | str) -> Path:

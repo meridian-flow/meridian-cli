@@ -18,6 +18,7 @@ class RuntimeContext(BaseModel):
     repo_root: Path | None = None
     state_root: Path | None = None
     chat_id: str = ""
+    work_id: str | None = None
 
     @classmethod
     def from_environment(cls) -> Self:
@@ -31,6 +32,7 @@ class RuntimeContext(BaseModel):
         repo_root_raw = os.getenv("MERIDIAN_REPO_ROOT", "").strip()
         state_root_raw = os.getenv("MERIDIAN_STATE_ROOT", "").strip()
         chat_id_raw = os.getenv("MERIDIAN_CHAT_ID", "").strip()
+        work_id_raw = os.getenv("MERIDIAN_WORK_ID", "").strip()
 
         depth = 0
         try:
@@ -45,6 +47,7 @@ class RuntimeContext(BaseModel):
             repo_root=Path(repo_root_raw) if repo_root_raw else None,
             state_root=Path(state_root_raw) if state_root_raw else None,
             chat_id=chat_id_raw,
+            work_id=work_id_raw or None,
         )
 
     def child_context(self, *, spawn_id: SpawnId) -> "RuntimeContext":
@@ -57,6 +60,7 @@ class RuntimeContext(BaseModel):
             repo_root=self.repo_root,
             state_root=self.state_root,
             chat_id=self.chat_id,
+            work_id=self.work_id,
         )
 
     def to_env_overrides(self) -> dict[str, str]:
@@ -73,4 +77,8 @@ class RuntimeContext(BaseModel):
             overrides["MERIDIAN_STATE_ROOT"] = self.state_root.as_posix()
         if self.chat_id:
             overrides["MERIDIAN_CHAT_ID"] = self.chat_id
+        if self.work_id:
+            overrides["MERIDIAN_WORK_ID"] = self.work_id
+            if self.state_root is not None:
+                overrides["MERIDIAN_WORK_DIR"] = (self.state_root / "work" / self.work_id).as_posix()
         return overrides

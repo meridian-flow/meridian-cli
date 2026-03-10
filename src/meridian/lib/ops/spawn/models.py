@@ -26,6 +26,8 @@ class SpawnCreateInput(BaseModel):
     files: tuple[str, ...] = ()
     template_vars: tuple[str, ...] = ()
     agent: str | None = None
+    desc: str = ""
+    work: str = ""
     dry_run: bool = False
     verbose: bool = False
     quiet: bool = False

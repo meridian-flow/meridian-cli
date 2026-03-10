@@ -79,6 +79,8 @@ class SpawnRecord(BaseModel):
     agent: str | None
     harness: str | None
     kind: str
+    desc: str | None
+    work_id: str | None
     harness_session_id: str | None
     status: str
     prompt: str | None
@@ -103,6 +105,8 @@ class SpawnStartEvent(BaseModel):
     agent: str | None = None
     harness: str | None = None
     kind: str | None = None
+    desc: str | None = None
+    work_id: str | None = None
     harness_session_id: str | None = None
     status: str = "running"
     prompt: str | None = None
@@ -192,6 +196,8 @@ def start_spawn(
     harness: str,
     kind: str = "child",
     prompt: str,
+    desc: str | None = None,
+    work_id: str | None = None,
     spawn_id: SpawnId | str | None = None,
     harness_session_id: str | None = None,
     started_at: str | None = None,
@@ -212,6 +218,8 @@ def start_spawn(
             agent=agent,
             harness=harness,
             kind=kind,
+            desc=desc,
+            work_id=work_id,
             harness_session_id=harness_session_id,
             status="running",
             started_at=started,
@@ -261,6 +269,8 @@ def _empty_record(spawn_id: str) -> SpawnRecord:
         agent=None,
         harness=None,
         kind="child",
+        desc=None,
+        work_id=None,
         harness_session_id=None,
         status="unknown",
         prompt=None,
@@ -292,6 +302,8 @@ def _record_from_events(events: list[SpawnEvent]) -> dict[str, SpawnRecord]:
                     "agent": event.agent if event.agent is not None else current.agent,
                     "harness": event.harness if event.harness is not None else current.harness,
                     "kind": event.kind if event.kind is not None else current.kind,
+                    "desc": event.desc if event.desc is not None else current.desc,
+                    "work_id": event.work_id if event.work_id is not None else current.work_id,
                     "harness_session_id": (
                         event.harness_session_id
                         if event.harness_session_id is not None

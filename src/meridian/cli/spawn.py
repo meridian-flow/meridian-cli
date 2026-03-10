@@ -76,6 +76,14 @@ def _spawn_create(
         str | None,
         Parameter(name=["--agent", "-a"], help="Agent profile name to execute."),
     ] = None,
+    desc: Annotated[
+        str,
+        Parameter(name="--desc", help="Short description for the spawn."),
+    ] = "",
+    work: Annotated[
+        str,
+        Parameter(name="--work", help="Associate the spawn with a work item id."),
+    ] = "",
     dry_run: Annotated[
         bool,
         Parameter(name="--dry-run", help="Preview without executing harness."),
@@ -142,6 +150,8 @@ def _spawn_create(
                 files=references,
                 template_vars=template_vars,
                 agent=agent,
+                desc=desc,
+                work=work,
                 dry_run=dry_run,
                 verbose=verbose,
                 quiet=quiet,

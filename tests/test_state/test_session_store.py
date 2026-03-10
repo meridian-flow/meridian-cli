@@ -7,6 +7,7 @@ from meridian.lib.state.session_store import (
     start_session,
     stop_session,
     update_session_harness_id,
+    update_session_work_id,
 )
 
 
@@ -90,5 +91,29 @@ def test_session_record_preserves_harness_session_history(tmp_path):
     latest_record = resolve_session_ref(state_root, "session-3")
     assert latest_record is not None
     assert latest_record.chat_id == chat_id
+
+    stop_session(state_root, chat_id)
+
+
+def test_session_record_tracks_active_work_id(tmp_path):
+    state_root = _state_root(tmp_path)
+    chat_id = start_session(
+        state_root,
+        harness="codex",
+        harness_session_id="session-1",
+        model="gpt-5.4",
+    )
+
+    update_session_work_id(state_root, chat_id, "work-1")
+    record = resolve_session_ref(state_root, "session-1")
+    assert record is not None
+    assert record.active_work_id == "work-1"
+
+    update_session_work_id(state_root, chat_id, None)
+    cleared = resolve_session_ref(state_root, "session-1")
+    assert cleared is not None
+    assert cleared.active_work_id is None
+    assert cleared.harness_session_id == "session-1"
+    assert cleared.harness_session_ids == ("session-1",)
 
     stop_session(state_root, chat_id)

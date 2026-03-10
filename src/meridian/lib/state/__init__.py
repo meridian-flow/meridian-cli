@@ -14,6 +14,7 @@ from meridian.lib.state.paths import (
     resolve_fs_dir,
     resolve_spawn_log_dir,
     resolve_state_paths,
+    resolve_work_dir,
     spawn_log_subpath,
 )
 from meridian.lib.state.spawn_store import SpawnRecord, finalize_spawn, get_spawn, list_spawns, spawn_stats, start_spawn
@@ -35,6 +36,7 @@ __all__ = [
     "next_chat_id",
     "resolve_spawn_log_dir",
     "resolve_state_paths",
+    "resolve_work_dir",
     "spawn_log_subpath",
     "spawn_stats",
     "start_spawn",

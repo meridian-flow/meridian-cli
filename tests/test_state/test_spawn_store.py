@@ -1,7 +1,7 @@
 
 import json
 
-from meridian.lib.state.spawn_store import list_spawns
+from meridian.lib.state.spawn_store import get_spawn, list_spawns, start_spawn
 
 
 def _state_root(tmp_path):
@@ -37,3 +37,23 @@ def test_list_runs_skips_truncated_trailing_json(tmp_path):
     assert len(spawns) == 1
     assert spawns[0].id == "r1"
     assert spawns[0].status == "running"
+
+
+def test_spawn_record_preserves_desc_and_work_id(tmp_path):
+    state_root = _state_root(tmp_path)
+
+    spawn_id = start_spawn(
+        state_root,
+        chat_id="c1",
+        model="gpt-5.4",
+        agent="coder",
+        harness="codex",
+        prompt="hello",
+        desc="investigate bug",
+        work_id="work-7",
+    )
+
+    row = get_spawn(state_root, spawn_id)
+    assert row is not None
+    assert row.desc == "investigate bug"
+    assert row.work_id == "work-7"

@@ -7,7 +7,6 @@ import json
 import os
 import subprocess
 import sys
-import tempfile
 import time
 from contextlib import contextmanager
 from collections.abc import Sequence
@@ -121,6 +120,7 @@ class _SpawnContext(BaseModel):
     spawn: Spawn
     state_root: Path
     current_depth: int
+    work_id: str | None = None
 
 
 class _SessionExecutionContext(BaseModel):
@@ -184,6 +184,8 @@ def depth_exceeded_output(current_depth: int, max_depth: int) -> SpawnActionOutp
 def _spawn_child_env(
     spawn_id: str | None = None,
     *,
+    work_id: str | None = None,
+    state_root: Path | None = None,
     ctx: RuntimeContext | None = None,
 ) -> dict[str, str]:
     runtime_context = _runtime_context(ctx)
@@ -199,14 +201,28 @@ def _spawn_child_env(
             parent_spawn_id=runtime_context.spawn_id if runtime_context.spawn_id is not None else None,
             depth=runtime_context.depth + 1,
             repo_root=runtime_context.repo_root,
-            state_root=runtime_context.state_root,
+            state_root=state_root or runtime_context.state_root,
             chat_id=runtime_context.chat_id,
+            work_id=runtime_context.work_id,
+        )
+    resolved_work_id = (work_id or "").strip() or child_context.work_id
+    if resolved_work_id != child_context.work_id or (
+        state_root is not None and state_root != child_context.state_root
+    ):
+        child_context = child_context.model_copy(
+            update={
+                "state_root": state_root if state_root is not None else child_context.state_root,
+                "work_id": resolved_work_id,
+            }
         )
     child_env.update(child_context.to_env_overrides())
     if runtime_context.spawn_id is None:
         child_env.pop("MERIDIAN_PARENT_SPAWN_ID", None)
     if resolved_spawn_id is None:
         child_env.pop("MERIDIAN_SPAWN_ID", None)
+    if not resolved_work_id:
+        child_env.pop("MERIDIAN_WORK_ID", None)
+        child_env.pop("MERIDIAN_WORK_DIR", None)
     # Drop legacy name now that canonical spawn vars are used everywhere.
     child_env.pop("MERIDIAN_PARENT_RUN_ID", None)
     return child_env
@@ -323,15 +339,36 @@ def _resolve_chat_id(*, ctx: RuntimeContext | None = None) -> str:
     return "c0"
 
 
+def _resolve_work_id(
+    *,
+    payload: SpawnCreateInput,
+    runtime_context: RuntimeContext,
+    work_id: str | None = None,
+) -> str | None:
+    requested_work_id = (work_id or payload.work).strip()
+    if requested_work_id:
+        return requested_work_id
+    inherited_work_id = (runtime_context.work_id or "").strip()
+    return inherited_work_id or None
+
+
 def _init_spawn(
     *,
     payload: SpawnCreateInput,
     prepared: _PreparedCreateLike,
     runtime: OperationRuntime,
+    desc: str | None = None,
+    work_id: str | None = None,
     ctx: RuntimeContext | None = None,
 ) -> _SpawnContext:
     runtime_context = _runtime_context(ctx)
     state_root = resolve_state_paths(runtime.repo_root).root_dir
+    resolved_work_id = _resolve_work_id(
+        payload=payload,
+        runtime_context=runtime_context,
+        work_id=work_id,
+    )
+    resolved_desc = (desc if desc is not None else payload.desc).strip() or None
     spawn_id = spawn_store.start_spawn(
         state_root,
         chat_id=_resolve_chat_id(ctx=runtime_context),
@@ -340,6 +377,8 @@ def _init_spawn(
         harness=prepared.harness_id,
         kind="child",
         prompt=prepared.composed_prompt,
+        desc=resolved_desc,
+        work_id=resolved_work_id,
         harness_session_id=prepared.continue_harness_session_id,
     )
     spawn = Spawn(
@@ -362,6 +401,7 @@ def _init_spawn(
         spawn=spawn,
         state_root=state_root,
         current_depth=current_depth,
+        work_id=resolved_work_id,
     )
 
 
@@ -369,14 +409,20 @@ def _write_params_json(
     repo_root: Path,
     spawn_id: SpawnId,
     prepared: _PreparedCreateLike,
+    *,
+    desc: str = "",
+    work_id: str | None = None,
 ) -> None:
     """Write resolved execution params to the spawn directory."""
     params_path = resolve_spawn_log_dir(repo_root, spawn_id) / "params.json"
+    prompt_path = resolve_spawn_log_dir(repo_root, spawn_id) / "prompt.md"
     params_path.parent.mkdir(parents=True, exist_ok=True)
     params_payload = {
         "model": prepared.model,
         "harness": prepared.harness_id,
         "agent": prepared.agent_name,
+        "desc": desc,
+        "work_id": work_id,
         "prompt_length": len(prepared.composed_prompt),
         "reference_files": list(prepared.reference_files),
         "template_vars": prepared.template_vars,
@@ -385,14 +431,8 @@ def _write_params_json(
         "continue_session": prepared.continue_harness_session_id,
         "continue_fork": prepared.continue_fork,
     }
-    fd, tmp = tempfile.mkstemp(dir=str(params_path.parent), suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(params_payload, handle, indent=2)
-        os.replace(tmp, params_path)
-    except BaseException:
-        Path(tmp).unlink(missing_ok=True)
-        raise
+    atomic_write_text(params_path, json.dumps(params_payload, indent=2) + "\n")
+    atomic_write_text(prompt_path, prepared.composed_prompt)
 
 
 @contextmanager
@@ -524,6 +564,8 @@ async def _execute_existing_spawn(
             mcp_tools=mcp_tools,
             env_overrides=_spawn_child_env(
                 str(spawn.spawn_id),
+                work_id=spawn_record.work_id,
+                state_root=state_root,
                 ctx=runtime_context,
             ),
             max_retries=runtime.config.max_retries,
@@ -597,10 +639,23 @@ def execute_spawn_background(
     runtime_context = _runtime_context(ctx)
     if payload.stream:
         logger.warning("--stream is ignored with --background; output goes to spawn log files.")
-    context = _init_spawn(payload=payload, prepared=prepared, runtime=runtime, ctx=runtime_context)
+    context = _init_spawn(
+        payload=payload,
+        prepared=prepared,
+        runtime=runtime,
+        desc=payload.desc,
+        work_id=payload.work,
+        ctx=runtime_context,
+    )
     spawn_id_text = str(context.spawn.spawn_id)
     try:
-        _write_params_json(runtime.repo_root, context.spawn.spawn_id, prepared)
+        _write_params_json(
+            runtime.repo_root,
+            context.spawn.spawn_id,
+            prepared,
+            desc=payload.desc,
+            work_id=context.work_id,
+        )
     except Exception:
         logger.warning("Failed to write params.json", spawn_id=spawn_id_text, exc_info=True)
 
@@ -626,6 +681,14 @@ def execute_spawn_background(
     stderr_path = log_dir / _BACKGROUND_STDERR_FILENAME
 
     launch_env = dict(os.environ)
+    launch_env.update(
+        _spawn_child_env(
+            spawn_id=spawn_id_text,
+            work_id=context.work_id,
+            state_root=context.state_root,
+            ctx=runtime_context,
+        )
+    )
     try:
         with (
             stdout_path.open("ab") as stdout_handle,
@@ -696,10 +759,23 @@ def execute_spawn_blocking(
     ctx: RuntimeContext | None = None,
 ) -> SpawnActionOutput:
     runtime_context = _runtime_context(ctx)
-    context = _init_spawn(payload=payload, prepared=prepared, runtime=runtime, ctx=runtime_context)
+    context = _init_spawn(
+        payload=payload,
+        prepared=prepared,
+        runtime=runtime,
+        desc=payload.desc,
+        work_id=payload.work,
+        ctx=runtime_context,
+    )
     spawn = context.spawn
     try:
-        _write_params_json(runtime.repo_root, spawn.spawn_id, prepared)
+        _write_params_json(
+            runtime.repo_root,
+            spawn.spawn_id,
+            prepared,
+            desc=payload.desc,
+            work_id=context.work_id,
+        )
     except Exception:
         logger.warning("Failed to write params.json", spawn_id=str(spawn.spawn_id), exc_info=True)
     started = time.monotonic()
@@ -739,6 +815,8 @@ def execute_spawn_blocking(
                 mcp_tools=prepared.mcp_tools,
                 env_overrides=_spawn_child_env(
                     str(spawn.spawn_id),
+                    work_id=context.work_id,
+                    state_root=context.state_root,
                     ctx=runtime_context,
                 ),
                 max_retries=runtime.config.max_retries,
