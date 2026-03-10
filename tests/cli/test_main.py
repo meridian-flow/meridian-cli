@@ -84,3 +84,17 @@ def test_agent_sink_disabled_for_interactive_terminal(monkeypatch: pytest.Monkey
     monkeypatch.setattr(main_module.sys, "stdout", _TTYStringIO())
 
     assert main_module._agent_sink_enabled(output_explicit=False) is False
+
+
+def test_registered_cli_commands_include_work_group() -> None:
+    commands = main_module.get_registered_cli_commands()
+
+    assert {
+        "work.clear",
+        "work.done",
+        "work.list",
+        "work.show",
+        "work.start",
+        "work.switch",
+        "work.update",
+    }.issubset(commands)
