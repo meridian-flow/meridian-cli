@@ -1,5 +1,6 @@
 """Process management for primary agent launch."""
 
+import fcntl
 import json
 import logging
 import os
@@ -11,6 +12,7 @@ import sys
 import termios
 import time
 import tty
+import struct
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -185,6 +187,7 @@ def _copy_primary_pty_output(
     saved_tty_attrs: Any = None
 
     output_log_path.parent.mkdir(parents=True, exist_ok=True)
+    restore_resize = _install_winsize_forwarding(source_fd=stdout_fd, target_fd=master_fd)
     try:
         if os.isatty(stdin_fd):
             saved_tty_attrs = termios.tcgetattr(stdin_fd)
@@ -215,6 +218,7 @@ def _copy_primary_pty_output(
                     else:
                         os.write(master_fd, data)
     finally:
+        restore_resize()
         if saved_tty_attrs is not None:
             termios.tcsetattr(stdin_fd, termios.TCSADRAIN, saved_tty_attrs)
 
@@ -255,6 +259,7 @@ def _run_primary_process_with_capture(
             os._exit(1)
 
     try:
+        _sync_pty_winsize(source_fd=sys.stdout.fileno(), target_fd=master_fd)
         exit_code = _copy_primary_pty_output(
             child_pid=child_pid,
             master_fd=master_fd,
@@ -266,6 +271,57 @@ def _run_primary_process_with_capture(
             os.close(master_fd)
         except OSError:
             pass
+
+
+def _read_winsize(fd: int) -> bytes | None:
+    """Return packed winsize bytes for one terminal fd, or None if unavailable."""
+
+    try:
+        return fcntl.ioctl(fd, termios.TIOCGWINSZ, struct.pack("HHHH", 0, 0, 0, 0))
+    except OSError:
+        return None
+
+
+def _sync_pty_winsize(*, source_fd: int, target_fd: int) -> None:
+    """Copy the current terminal winsize onto the PTY master."""
+
+    winsize = _read_winsize(source_fd)
+    if winsize is None:
+        return
+    try:
+        fcntl.ioctl(target_fd, termios.TIOCSWINSZ, winsize)
+    except OSError:
+        return
+
+
+def _invoke_previous_sigwinch_handler(
+    previous: signal.Handlers,
+    *,
+    signum: int,
+    frame: Any,
+) -> None:
+    if previous in {signal.SIG_DFL, signal.SIG_IGN, None}:
+        return
+    if callable(previous):
+        previous(signum, frame)
+
+
+def _install_winsize_forwarding(*, source_fd: int, target_fd: int) -> Any:
+    """Sync PTY size now and on future terminal resize signals."""
+
+    _sync_pty_winsize(source_fd=source_fd, target_fd=target_fd)
+    previous = cast("signal.Handlers", signal.getsignal(signal.SIGWINCH))
+
+    def _handle_resize(signum: int, frame: Any) -> None:
+        _sync_pty_winsize(source_fd=source_fd, target_fd=target_fd)
+        _invoke_previous_sigwinch_handler(previous, signum=signum, frame=frame)
+
+    signal.signal(signal.SIGWINCH, _handle_resize)
+
+    def _restore() -> None:
+        signal.signal(signal.SIGWINCH, previous)
+
+    return _restore
 
 
 def prepare_launch_context(
@@ -345,6 +401,7 @@ def run_harness_process(
             harness=ctx.session_metadata.harness,
             harness_session_id=ctx.seed_harness_session_id,
             model=ctx.session_metadata.model,
+            chat_id=request.continue_chat_id,
             agent=ctx.session_metadata.agent,
             agent_path=ctx.session_metadata.agent_path,
             skills=ctx.session_metadata.skills,
