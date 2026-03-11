@@ -138,6 +138,7 @@ def _spawn_create(
                 spawn_id=continue_from,
                 prompt=prompt,
                 model=model,
+                agent=agent,
                 fork=fork,
                 dry_run=dry_run,
                 timeout=timeout,

@@ -619,6 +619,7 @@ def spawn_continue_sync(
     create_input = SpawnCreateInput(
         prompt=derived_prompt,
         model=_model_for_follow_up(source_spawn, payload.model),
+        agent=payload.agent,
         repo_root=payload.repo_root,
         dry_run=payload.dry_run,
         timeout=payload.timeout,

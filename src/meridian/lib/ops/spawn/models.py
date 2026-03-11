@@ -288,6 +288,7 @@ class SpawnContinueInput(BaseModel):
     spawn_id: str
     prompt: str
     model: str = ""
+    agent: str | None = None
     fork: bool = False
     dry_run: bool = False
     timeout: float | None = None
