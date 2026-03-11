@@ -25,6 +25,8 @@ from .models import (
     SpawnContinueInput,
     SpawnCreateInput,
     SpawnDetailOutput,
+    SpawnFilesInput,
+    SpawnFilesOutput,
     SpawnListEntry,
     SpawnListInput,
     SpawnListOutput,
@@ -35,7 +37,13 @@ from .models import (
     SpawnWaitMultiOutput,
 )
 from .prepare import build_create_payload, validate_create_input
-from .query import detail_from_row, read_spawn_row, resolve_spawn_reference, resolve_spawn_references
+from .query import (
+    detail_from_row,
+    read_files_touched,
+    read_spawn_row,
+    resolve_spawn_reference,
+    resolve_spawn_references,
+)
 
 _WAIT_HEARTBEAT_INTERVAL_SECS = 5.0
 
@@ -273,16 +281,45 @@ async def spawn_show(
     return await asyncio.to_thread(spawn_show_sync, payload, ctx=ctx, sink=sink)
 
 
-def _read_background_pid(state_root: Path, spawn_id: str) -> int:
+def spawn_files_sync(
+    payload: SpawnFilesInput,
+    ctx: RuntimeContext | None = None,
+    *,
+    sink: OutputSink | None = None,
+) -> SpawnFilesOutput:
+    _ = (ctx, sink)
+    repo_root, _ = resolve_runtime_root_and_config(payload.repo_root)
+    spawn_id = resolve_spawn_reference(repo_root, payload.spawn_id)
+    row = read_spawn_row(repo_root, spawn_id)
+    if row is None:
+        raise ValueError(f"Spawn '{spawn_id}' not found")
+    files = read_files_touched(repo_root, spawn_id)
+    return SpawnFilesOutput(
+        spawn_id=spawn_id,
+        files=files,
+        null_delimited=payload.null_delimited,
+    )
+
+
+async def spawn_files(
+    payload: SpawnFilesInput,
+    ctx: RuntimeContext | None = None,
+    *,
+    sink: OutputSink | None = None,
+) -> SpawnFilesOutput:
+    return await asyncio.to_thread(spawn_files_sync, payload, ctx=ctx, sink=sink)
+
+
+def _read_background_pid(state_root: Path, spawn_id: str) -> int | None:
     pid_path = state_root / "spawns" / spawn_id / "background.pid"
     if not pid_path.is_file():
-        raise ValueError(f"Spawn '{spawn_id}' has no background worker PID.")
+        return None
     try:
         pid = int(pid_path.read_text(encoding="utf-8").strip())
-    except ValueError as exc:
-        raise ValueError(f"Spawn '{spawn_id}' has invalid background PID.") from exc
+    except ValueError:
+        return None
     if pid <= 0:
-        raise ValueError(f"Spawn '{spawn_id}' has invalid background PID.")
+        return None
     return pid
 
 
@@ -296,7 +333,7 @@ def spawn_cancel_sync(
     repo_root, _ = resolve_runtime_root_and_config(payload.repo_root)
     spawn_id = resolve_spawn_reference(repo_root, payload.spawn_id)
     state_root = _state_root(repo_root)
-    row = read_spawn_row(repo_root, spawn_id)
+    row = spawn_store.get_spawn(state_root, spawn_id)
     if row is None:
         raise ValueError(f"Spawn '{spawn_id}' not found")
 
@@ -311,18 +348,33 @@ def spawn_cancel_sync(
         )
 
     pid = _read_background_pid(state_root, spawn_id)
-    try:
-        os.kill(pid, signal.SIGTERM)
-    except ProcessLookupError:
-        pass
+    if pid is not None:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
 
-    spawn_store.finalize_spawn(
+    finalized = spawn_store.finalize_spawn_if_running(
         state_root,
         spawn_id,
         status="cancelled",
         exit_code=130,
         error="cancelled",
     )
+    if not finalized:
+        latest = spawn_store.get_spawn(state_root, spawn_id)
+        if latest is None:
+            raise ValueError(f"Spawn '{spawn_id}' not found")
+        return SpawnActionOutput(
+            command="spawn.cancel",
+            status=latest.status,
+            spawn_id=spawn_id,
+            message=f"Spawn '{spawn_id}' is already {latest.status}.",
+            model=latest.model,
+            harness_id=latest.harness,
+            exit_code=latest.exit_code,
+        )
+
     return SpawnActionOutput(
         command="spawn.cancel",
         status="cancelled",
@@ -557,5 +609,3 @@ async def spawn_continue(
     sink: OutputSink | None = None,
 ) -> SpawnActionOutput:
     return await asyncio.to_thread(spawn_continue_sync, payload, ctx=ctx, sink=sink)
-
-

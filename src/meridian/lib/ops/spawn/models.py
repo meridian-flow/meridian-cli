@@ -262,6 +262,29 @@ class SpawnDetailOutput(BaseModel):
         return kv_block(pairs)
 
 
+class SpawnFilesInput(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    spawn_id: str
+    null_delimited: bool = False
+    repo_root: str | None = None
+
+
+class SpawnFilesOutput(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    spawn_id: str
+    files: tuple[str, ...]
+    null_delimited: bool = False
+
+    def format_text(self, ctx: FormatContext | None = None) -> str:
+        _ = ctx
+        if not self.files:
+            return ""
+        sep = "\0" if self.null_delimited else "\n"
+        return sep.join(self.files)
+
+
 class SpawnContinueInput(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -337,6 +360,8 @@ __all__ = [
     "SpawnContinueInput",
     "SpawnCreateInput",
     "SpawnDetailOutput",
+    "SpawnFilesInput",
+    "SpawnFilesOutput",
     "SpawnListEntry",
     "SpawnListFilters",
     "SpawnListInput",

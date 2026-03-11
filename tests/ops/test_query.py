@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 from meridian.lib.ops.spawn.models import SpawnDetailOutput
-from meridian.lib.ops.spawn.query import _extract_last_assistant_message, detail_from_row
+from meridian.lib.ops.spawn.query import detail_from_row, extract_last_assistant_message
 from meridian.lib.state.spawn_store import SpawnRecord
 
 
@@ -18,7 +18,7 @@ def test_extract_last_assistant_message_ignores_codex_substrings() -> None:
             "provider=openai",
         ]
     )
-    assert _extract_last_assistant_message(stderr_text) is None
+    assert extract_last_assistant_message(stderr_text) is None
 
 
 def test_extract_last_assistant_message_reads_lines_after_codex_marker() -> None:
@@ -35,7 +35,7 @@ def test_extract_last_assistant_message_reads_lines_after_codex_marker() -> None
             "Final assistant reply.",
         ]
     )
-    assert _extract_last_assistant_message(stderr_text) == "Final assistant reply."
+    assert extract_last_assistant_message(stderr_text) == "Final assistant reply."
 
 
 def test_extract_last_assistant_message_keeps_json_assistant_events() -> None:
@@ -45,7 +45,7 @@ def test_extract_last_assistant_message_keeps_json_assistant_events() -> None:
             "exec",
         ]
     )
-    assert _extract_last_assistant_message(stderr_text) == "json assistant message"
+    assert extract_last_assistant_message(stderr_text) == "json assistant message"
 
 
 def test_detail_from_row_carries_work_and_desc_fields(tmp_path: Path) -> None:

@@ -15,6 +15,7 @@ from meridian.lib.ops.spawn.api import (
     SpawnCancelInput,
     SpawnContinueInput,
     SpawnCreateInput,
+    SpawnFilesInput,
     SpawnListInput,
     SpawnShowInput,
     SpawnStatsInput,
@@ -22,6 +23,7 @@ from meridian.lib.ops.spawn.api import (
     spawn_continue_sync,
     spawn_create_sync,
     spawn_cancel_sync,
+    spawn_files_sync,
     spawn_list_sync,
     spawn_show_sync,
     spawn_stats_sync,
@@ -353,10 +355,29 @@ def _spawn_wait(
         raise SystemExit(1)
 
 
+def _spawn_files(
+    emit: Any,
+    spawn_id: str,
+    null: Annotated[
+        bool,
+        Parameter(name=["-0", "--null"], help="Null-delimited output for xargs -0."),
+    ] = False,
+) -> None:
+    result = spawn_files_sync(
+        SpawnFilesInput(
+            spawn_id=spawn_id,
+            null_delimited=null,
+        ),
+        sink=current_output_sink(),
+    )
+    emit(result)
+
+
 def register_spawn_commands(app: App, emit: Emitter) -> tuple[set[str], dict[str, str]]:
     """Register spawn CLI commands using registry metadata as source of truth."""
 
     handlers: dict[str, Callable[[], Callable[..., None]]] = {
+        "spawn.files": lambda: partial(_spawn_files, emit),
         "spawn.list": lambda: partial(_spawn_list, emit),
         "spawn.stats": lambda: partial(_spawn_stats, emit),
         "spawn.show": lambda: partial(_spawn_show, emit),

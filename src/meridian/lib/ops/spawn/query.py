@@ -123,7 +123,7 @@ def _assistant_texts(payload: object) -> list[str]:
     return found
 
 
-def _extract_last_assistant_message(stderr_text: str) -> str | None:
+def extract_last_assistant_message(stderr_text: str) -> str | None:
     last_message: str | None = None
     pending_assistant_lines: list[str] | None = None
 
@@ -173,10 +173,10 @@ def _read_running_log_details(repo_root: Path, spawn_id: str) -> tuple[str, str 
     if not stderr_path.is_file():
         return stderr_path.as_posix(), None
     stderr_text = stderr_path.read_text(encoding="utf-8", errors="ignore")
-    return stderr_path.as_posix(), _extract_last_assistant_message(stderr_text)
+    return stderr_path.as_posix(), extract_last_assistant_message(stderr_text)
 
 
-def _read_files_touched(repo_root: Path, spawn_id: str) -> tuple[str, ...]:
+def read_files_touched(repo_root: Path, spawn_id: str) -> tuple[str, ...]:
     from meridian.lib.core.types import SpawnId
     from meridian.lib.launch.files_touched import extract_files_touched
     from meridian.lib.state.artifact_store import LocalStore
@@ -197,7 +197,7 @@ def detail_from_row(
 
     files_touched: tuple[str, ...] | None = None
     if include_files:
-        files_touched = _read_files_touched(repo_root, row.id)
+        files_touched = read_files_touched(repo_root, row.id)
 
     last_message: str | None = None
     log_path: str | None = None
@@ -230,6 +230,8 @@ def detail_from_row(
 
 __all__ = [
     "detail_from_row",
+    "extract_last_assistant_message",
+    "read_files_touched",
     "read_report_text",
     "read_spawn_row",
     "resolve_spawn_reference",

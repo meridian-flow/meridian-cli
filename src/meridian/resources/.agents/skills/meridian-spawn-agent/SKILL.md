@@ -141,6 +141,21 @@ echo "result" > "$MERIDIAN_FS_DIR/step-a-output.txt"
 
 Meridian provides the directory — agents organize it however they want.
 
+## Committing Spawn Changes
+
+After a spawn finishes, use `spawn files` to get the list of touched files and pipe it to git:
+
+```bash
+# Stage all files the spawn touched
+meridian spawn files p107 | xargs git add
+
+# Null-delimited for paths with spaces
+meridian spawn files p107 -0 | xargs -0 git add
+
+# Review what changed before staging
+meridian spawn files p107
+```
+
 ## Beyond the Basics
 
 For continue/fork, cancel, stats, permission tiers, template vars, and dry-run, see [`resources/advanced-commands.md`](resources/advanced-commands.md).
