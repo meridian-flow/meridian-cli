@@ -301,7 +301,7 @@ class ClaudeAdapter(BaseHarnessAdapter):
     ) -> PromptPolicy:
         _ = harness_session_id
         if is_resume:
-            return PromptPolicy()
+            return PromptPolicy(skill_injection=skill_injection)
         # Claude does not currently expand profile skills via --agent
         # (see anthropics/claude-code#29902), so we must inject skill content
         # explicitly through Meridian's --append-system-prompt path.

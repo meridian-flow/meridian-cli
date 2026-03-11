@@ -181,6 +181,13 @@ Practical recommendation:
 - OpenCode has adapter support and routing, but day-to-day Meridian guidance and
   examples are lighter there right now
 
+**Primary session harness:** Only Claude Code supports `--append-system-prompt`,
+which is how Meridian injects agent profile skills (like `orchestrate` and
+`meridian-spawn-agent`) into the primary session. Codex and OpenCode lack a
+system prompt channel, so they work well as **spawn targets** (`meridian spawn
+-m gpt-5.3-codex ...`) but are not suited as the primary harness for
+`meridian` sessions that rely on skill injection.
+
 ### Platform support
 
 - macOS: supported
