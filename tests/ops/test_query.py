@@ -74,7 +74,7 @@ def test_detail_from_row_carries_work_and_desc_fields(tmp_path: Path) -> None:
         error=None,
     )
 
-    result = detail_from_row(repo_root=tmp_path, row=row, report=False, include_files=False)
+    result = detail_from_row(repo_root=tmp_path, row=row, report=False)
 
     assert result.work_id == "auth-refactor"
     assert result.desc == "Implement step 2"
@@ -99,7 +99,6 @@ def test_spawn_detail_format_text_shows_work_and_desc_when_present() -> None:
         report_path="/tmp/.meridian/spawns/p5/report.md",
         report_summary=None,
         report=None,
-        files_touched=None,
         last_message=None,
         log_path=None,
     )
@@ -136,7 +135,6 @@ def test_spawn_detail_format_text_omits_blank_work_and_desc() -> None:
         report_path=None,
         report_summary=None,
         report=None,
-        files_touched=None,
         last_message=None,
         log_path=None,
     )

@@ -184,7 +184,6 @@ class SpawnShowInput(BaseModel):
 
     spawn_id: str
     report: bool = False
-    include_files: bool = False
     repo_root: str | None = None
 
 
@@ -215,7 +214,6 @@ class SpawnDetailOutput(BaseModel):
     report_path: str | None
     report_summary: str | None
     report: str | None
-    files_touched: tuple[str, ...] | None
     last_message: str | None = None
     log_path: str | None = None
 
@@ -263,24 +261,24 @@ class SpawnDetailOutput(BaseModel):
         return kv_block(pairs)
 
 
-class SpawnFilesInput(BaseModel):
+class SpawnWrittenFilesInput(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     spawn_id: str
     repo_root: str | None = None
 
 
-class SpawnFilesOutput(BaseModel):
+class SpawnWrittenFilesOutput(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     spawn_id: str
-    files: tuple[str, ...]
+    written_files: tuple[str, ...]
 
     def format_text(self, ctx: FormatContext | None = None) -> str:
         _ = ctx
-        if not self.files:
+        if not self.written_files:
             return ""
-        return "\n".join(self.files)
+        return "\n".join(self.written_files)
 
 
 class SpawnContinueInput(BaseModel):
@@ -308,7 +306,6 @@ class SpawnWaitInput(BaseModel):
     verbose: bool = False
     quiet: bool = False
     report: bool = False
-    include_files: bool = False
     repo_root: str | None = None
 
 
@@ -349,8 +346,8 @@ __all__ = [
     "SpawnContinueInput",
     "SpawnCreateInput",
     "SpawnDetailOutput",
-    "SpawnFilesInput",
-    "SpawnFilesOutput",
+    "SpawnWrittenFilesInput",
+    "SpawnWrittenFilesOutput",
     "SpawnListEntry",
     "SpawnListInput",
     "SpawnListOutput",

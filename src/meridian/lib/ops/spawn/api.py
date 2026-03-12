@@ -30,8 +30,6 @@ from .models import (
     SpawnContinueInput,
     SpawnCreateInput,
     SpawnDetailOutput,
-    SpawnFilesInput,
-    SpawnFilesOutput,
     SpawnListEntry,
     SpawnListInput,
     SpawnListOutput,
@@ -40,12 +38,14 @@ from .models import (
     SpawnStatsOutput,
     SpawnWaitInput,
     SpawnWaitMultiOutput,
+    SpawnWrittenFilesInput,
+    SpawnWrittenFilesOutput,
 )
 from .prepare import build_create_payload, validate_create_input
 from .query import (
     detail_from_row,
-    read_files_touched,
     read_spawn_row,
+    read_written_files,
     resolve_spawn_reference,
     resolve_spawn_references,
 )
@@ -270,7 +270,6 @@ def spawn_show_sync(
         repo_root=repo_root,
         row=row,
         report=payload.report,
-        include_files=payload.include_files,
     )
 
 
@@ -284,30 +283,30 @@ async def spawn_show(
 
 
 def spawn_files_sync(
-    payload: SpawnFilesInput,
+    payload: SpawnWrittenFilesInput,
     ctx: RuntimeContext | None = None,
     *,
     sink: OutputSink | None = None,
-) -> SpawnFilesOutput:
+) -> SpawnWrittenFilesOutput:
     _ = (ctx, sink)
     repo_root, _ = resolve_runtime_root_and_config(payload.repo_root)
     spawn_id = resolve_spawn_reference(repo_root, payload.spawn_id)
     row = read_spawn_row(repo_root, spawn_id)
     if row is None:
         raise ValueError(f"Spawn '{spawn_id}' not found")
-    files = read_files_touched(repo_root, spawn_id)
-    return SpawnFilesOutput(
+    written_files = read_written_files(repo_root, spawn_id)
+    return SpawnWrittenFilesOutput(
         spawn_id=spawn_id,
-        files=files,
+        written_files=written_files,
     )
 
 
 async def spawn_files(
-    payload: SpawnFilesInput,
+    payload: SpawnWrittenFilesInput,
     ctx: RuntimeContext | None = None,
     *,
     sink: OutputSink | None = None,
-) -> SpawnFilesOutput:
+) -> SpawnWrittenFilesOutput:
     return await asyncio.to_thread(spawn_files_sync, payload, ctx=ctx, sink=sink)
 
 
@@ -548,7 +547,6 @@ def spawn_wait_sync(
                     repo_root=repo_root,
                     row=completed_rows[spawn_id],
                     report=payload.report,
-                    include_files=payload.include_files,
                 )
                 for spawn_id in spawn_ids
             )

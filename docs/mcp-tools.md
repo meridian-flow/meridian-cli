@@ -53,8 +53,7 @@ Not MCP-exposed (CLI-only): config_*, skills_search, sync_*.
 ```json
 {
   "spawn_id": "p7",
-  "report": true,
-  "include_files": true
+  "report": true
 }
 ```
 
@@ -66,8 +65,7 @@ Not MCP-exposed (CLI-only): config_*, skills_search, sync_*.
 {
   "spawn_ids": ["p7", "p8"],
   "timeout": 30,
-  "report": true,
-  "include_files": false
+  "report": true
 }
 ```
 

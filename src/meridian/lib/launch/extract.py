@@ -8,7 +8,6 @@ from pydantic import BaseModel, ConfigDict
 from meridian.lib.core.domain import TokenUsage
 from meridian.lib.harness.adapter import SubprocessHarness
 from meridian.lib.launch.artifact_io import read_artifact_text
-from meridian.lib.launch.files_touched import extract_files_touched
 from meridian.lib.launch.report import ExtractedReport, extract_or_fallback_report
 from meridian.lib.safety.redaction import SecretSpec, redact_secrets
 from meridian.lib.state.atomic import atomic_write_text
@@ -31,7 +30,6 @@ class FinalizeExtraction(BaseModel):
 
     usage: TokenUsage
     harness_session_id: str | None
-    files_touched: tuple[str, ...]
     report_path: Path | None
     report: ExtractedReport
     output_is_empty: bool
@@ -105,7 +103,6 @@ def enrich_finalize(
 
     usage = adapter.extract_usage(artifacts, spawn_id)
     harness_session_id = adapter.extract_session_id(artifacts, spawn_id)
-    files_touched = extract_files_touched(artifacts, spawn_id)
     report = extract_or_fallback_report(artifacts, spawn_id, adapter=adapter)
     report_path = _persist_report(
         artifacts=artifacts,
@@ -118,7 +115,6 @@ def enrich_finalize(
     return FinalizeExtraction(
         usage=usage,
         harness_session_id=harness_session_id,
-        files_touched=files_touched,
         report_path=report_path,
         report=report,
         output_is_empty=_is_empty_output(

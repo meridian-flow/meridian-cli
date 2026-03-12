@@ -15,11 +15,11 @@ from meridian.lib.ops.spawn.api import (
     SpawnCancelInput,
     SpawnContinueInput,
     SpawnCreateInput,
-    SpawnFilesInput,
     SpawnListInput,
     SpawnShowInput,
     SpawnStatsInput,
     SpawnWaitInput,
+    SpawnWrittenFilesInput,
     spawn_continue_sync,
     spawn_create_sync,
     spawn_cancel_sync,
@@ -268,17 +268,12 @@ def _spawn_show(
             help="Include full spawn report in output (default: on). Use --no-report to omit.",
         ),
     ] = True,
-    include_files: Annotated[
-        bool,
-        Parameter(name="--include-files", help="Include spawn file metadata in output."),
-    ] = False,
 ) -> None:
     emit(
         spawn_show_sync(
             SpawnShowInput(
                 spawn_id=spawn_id,
                 report=report,
-                include_files=include_files,
             ),
             sink=current_output_sink(),
         )
@@ -345,10 +340,6 @@ def _spawn_wait(
             help="Include spawn report in output (default: on). Use --no-report to omit.",
         ),
     ] = True,
-    include_files: Annotated[
-        bool,
-        Parameter(name="--include-files", help="Include spawn file metadata in output."),
-    ] = False,
 ) -> None:
     result = spawn_wait_sync(
         SpawnWaitInput(
@@ -357,7 +348,6 @@ def _spawn_wait(
             verbose=verbose,
             quiet=quiet,
             report=report,
-            include_files=include_files,
         ),
         sink=current_output_sink(),
     )
@@ -375,13 +365,13 @@ def _spawn_files(
     ] = False,
 ) -> None:
     result = spawn_files_sync(
-        SpawnFilesInput(spawn_id=spawn_id),
+        SpawnWrittenFilesInput(spawn_id=spawn_id),
         sink=current_output_sink(),
     )
-    if null and result.files:
+    if null and result.written_files:
         import sys
 
-        sys.stdout.write("\0".join(result.files))
+        sys.stdout.write("\0".join(result.written_files))
         sys.stdout.flush()
     else:
         emit(result)

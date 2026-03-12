@@ -142,7 +142,7 @@ src/meridian/
       runner.py                # execute_with_finalization (spawn subprocess orchestration)
       extract.py               # Post-run token/session/report extraction
       report.py                # Report extraction logic
-      files_touched.py         # File change detection
+      written_files.py         # Explicit written-file metadata extraction
       artifact_io.py           # Artifact I/O helpers
       signals.py               # Signal forwarding (SIGINT/SIGTERM) + process groups
       env.py                   # Child process environment (MERIDIAN_* vars)

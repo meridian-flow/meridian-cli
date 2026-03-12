@@ -178,13 +178,13 @@ def _read_running_log_details(repo_root: Path, spawn_id: str) -> tuple[str, str 
     return stderr_path.as_posix(), extract_last_assistant_message(stderr_text)
 
 
-def read_files_touched(repo_root: Path, spawn_id: str) -> tuple[str, ...]:
+def read_written_files(repo_root: Path, spawn_id: str) -> tuple[str, ...]:
     from meridian.lib.core.types import SpawnId
-    from meridian.lib.launch.files_touched import extract_files_touched
+    from meridian.lib.launch.written_files import extract_written_files
     from meridian.lib.state.artifact_store import LocalStore
 
     artifacts = LocalStore(root_dir=resolve_state_paths(repo_root).artifacts_dir)
-    return extract_files_touched(artifacts, SpawnId(spawn_id))
+    return extract_written_files(artifacts, SpawnId(spawn_id))
 
 
 def detail_from_row(
@@ -192,14 +192,9 @@ def detail_from_row(
     repo_root: Path,
     row: spawn_store.SpawnRecord,
     report: bool,
-    include_files: bool,
 ) -> SpawnDetailOutput:
     report_path, report_text = read_report_text(repo_root, row.id)
     report_summary = report_text[:500] if report_text else None
-
-    files_touched: tuple[str, ...] | None = None
-    if include_files:
-        files_touched = read_files_touched(repo_root, row.id)
 
     last_message: str | None = None
     log_path: str | None = None
@@ -224,7 +219,6 @@ def detail_from_row(
         report_path=report_path,
         report_summary=report_summary,
         report=report_text if report else None,
-        files_touched=files_touched,
         last_message=last_message,
         log_path=log_path,
     )
@@ -233,7 +227,7 @@ def detail_from_row(
 __all__ = [
     "detail_from_row",
     "extract_last_assistant_message",
-    "read_files_touched",
+    "read_written_files",
     "read_report_text",
     "read_spawn_row",
     "resolve_spawn_reference",

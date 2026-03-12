@@ -2,7 +2,7 @@
 
 
 from meridian.lib.launch.report import extract_or_fallback_report
-from meridian.lib.launch.files_touched import extract_files_touched
+from meridian.lib.launch.written_files import extract_written_files
 from meridian.lib.harness.adapter import ArtifactStore
 from meridian.lib.harness.claude import ClaudeAdapter
 from meridian.lib.harness.codex import CodexAdapter
@@ -169,18 +169,18 @@ def test_extract_or_fallback_report_tolerates_adapter_errors_and_bad_jsonl() -> 
     assert extracted.source == "assistant_message"
 
 
-def test_extract_files_touched_prefers_explicit_artifacts_only() -> None:
+def test_extract_written_files_prefers_explicit_artifacts_only() -> None:
     artifacts = InMemoryStore()
     spawn_id = SpawnId("r-files-explicit")
     artifacts.put(
-        make_artifact_key(spawn_id, "files_touched.json"),
+        make_artifact_key(spawn_id, "written_files.json"),
         (
-            b'{"files_touched":["src/kept.py"],"events":[{"path":"docs/also-kept.md"}],'
+            b'{"written_files":["src/kept.py"],"events":[{"path":"docs/also-kept.md"}],'
             b'"ignored":"tests/read_only_fixture.py"}'
         ),
     )
     artifacts.put(
-        make_artifact_key(spawn_id, "files_touched.txt"),
+        make_artifact_key(spawn_id, "written_files.txt"),
         b"scripts/finalize.sh\nsrc/kept.py\n",
     )
     artifacts.put(
@@ -192,14 +192,14 @@ def test_extract_files_touched_prefers_explicit_artifacts_only() -> None:
         b"Reviewed `docs/mentioned_only.md` while working.\n",
     )
 
-    assert extract_files_touched(artifacts, spawn_id) == (
+    assert extract_written_files(artifacts, spawn_id) == (
         "src/kept.py",
         "docs/also-kept.md",
         "scripts/finalize.sh",
     )
 
 
-def test_extract_files_touched_ignores_report_and_output_without_explicit_signal() -> None:
+def test_extract_written_files_ignores_report_and_output_without_explicit_signal() -> None:
     artifacts = InMemoryStore()
     spawn_id = SpawnId("r-files-no-fallback")
     artifacts.put(
@@ -211,7 +211,7 @@ def test_extract_files_touched_ignores_report_and_output_without_explicit_signal
         b"Referenced `docs/mentioned_only.md` and `scripts/check-mermaid.sh`.\n",
     )
 
-    assert extract_files_touched(artifacts, spawn_id) == ()
+    assert extract_written_files(artifacts, spawn_id) == ()
 
 
 def test_extract_or_fallback_report_tolerates_malformed_jsonl_and_blank_adapter_output() -> None:

@@ -1,12 +1,12 @@
-"""File-touch extraction helpers from explicit harness artifacts."""
+"""Written-file extraction helpers from explicit harness artifacts."""
 
 
 import json
 from typing import cast
 
 from .artifact_io import read_artifact_text
-from meridian.lib.state.artifact_store import ArtifactStore
 from meridian.lib.core.types import SpawnId
+from meridian.lib.state.artifact_store import ArtifactStore
 
 _PATH_KEYS: frozenset[str] = frozenset(
     {
@@ -21,9 +21,11 @@ _PATH_KEYS: frozenset[str] = frozenset(
 _FILE_LIST_KEYS: frozenset[str] = frozenset(
     {
         "files",
+        "written_files",
+        "edited_files",
+        "modified_files",
         "files_touched",
         "touched_files",
-        "modified_files",
         "paths",
     }
 )
@@ -41,6 +43,8 @@ _KNOWN_DIR_PREFIXES: tuple[str, ...] = (
     ".meridian/",
     "config/",
 )
+_EXPLICIT_JSON_FILENAMES: tuple[str, ...] = ("written_files.json", "files_touched.json")
+_EXPLICIT_TEXT_FILENAMES: tuple[str, ...] = ("written_files.txt", "files_touched.txt")
 
 
 def _strip_relative_prefixes(path: str) -> str:
@@ -86,6 +90,7 @@ def _append_path(found: list[str], seen: set[str], candidate: str) -> None:
     seen.add(normalized)
     found.append(normalized)
 
+
 def _extract_from_json_value(value: object, found: list[str], seen: set[str]) -> None:
     if isinstance(value, dict):
         payload = cast("dict[str, object]", value)
@@ -108,26 +113,27 @@ def _extract_from_json_value(value: object, found: list[str], seen: set[str]) ->
     if isinstance(value, list):
         for nested in cast("list[object]", value):
             _extract_from_json_value(nested, found, seen)
-        return
 
 
-def extract_files_touched(artifacts: ArtifactStore, spawn_id: SpawnId) -> tuple[str, ...]:
-    """Extract touched file paths from explicit file-touch artifacts only."""
+def extract_written_files(artifacts: ArtifactStore, spawn_id: SpawnId) -> tuple[str, ...]:
+    """Extract explicit written-file metadata for one spawn."""
 
     found: list[str] = []
     seen: set[str] = set()
 
-    explicit_json = read_artifact_text(artifacts, spawn_id, "files_touched.json").strip()
-    if explicit_json:
+    for filename in _EXPLICIT_JSON_FILENAMES:
+        explicit_json = read_artifact_text(artifacts, spawn_id, filename).strip()
+        if not explicit_json:
+            continue
         try:
             payload_obj = json.loads(explicit_json)
         except json.JSONDecodeError:
-            payload_obj = None
-        if payload_obj is not None:
-            _extract_from_json_value(payload_obj, found, seen)
+            continue
+        _extract_from_json_value(payload_obj, found, seen)
 
-    explicit_text = read_artifact_text(artifacts, spawn_id, "files_touched.txt")
-    for line in explicit_text.splitlines():
-        _append_path(found, seen, line)
+    for filename in _EXPLICIT_TEXT_FILENAMES:
+        explicit_text = read_artifact_text(artifacts, spawn_id, filename)
+        for line in explicit_text.splitlines():
+            _append_path(found, seen, line)
 
     return tuple(found)
