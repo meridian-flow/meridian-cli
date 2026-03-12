@@ -1,41 +1,201 @@
-# Design: SOLID & Consistency Refactor
+# Design: Consistency, Frontend-Readiness, and Legibility Refactor
 
-Comprehensive refactor addressing findings from the state-safety, SOLID/extensibility, and consistency reviews. The goal: shared implementations, consistent patterns, and clean extension points.
+This revision replaces the prior SOLID & Consistency Refactor design. It incorporates findings from all previous reviews (`review-risk.md`, `review-design-quality.md`, `review-fresh-eyes.md`, `review-correctness.md`, and the source reviews they cite), a full codebase exploration, and an architectural reassessment against three explicit goals.
 
-## Overview
+All code snippets below are illustrative, not final.
 
-Twelve targeted refactors, ordered by dependency and impact. Each phase is independently shippable and testable.
+## Goals
 
-| Phase | Focus | Risk | Files touched |
-|-------|-------|------|---------------|
-| 1 | Dead code & quick fixes | Low | 4 |
-| 2 | Shared JSONL event store | Medium | 5 |
-| 3 | Unified error semantics | Low | 4 |
-| 4 | Ops helper consolidation | Low | 8 |
-| 5 | Async wrapper consistency | Low | 4 |
-| 6 | Session lifecycle extraction | Medium | 3 |
-| 7 | Harness adapter ISP | Medium | 7 |
-| 8 | CLI registration consolidation | Low | 8 |
-| 9 | Session lock-order fix | Medium | 1 |
-| 10 | PID-before-fork & launch mutex | Medium | 4 |
-| 11 | Spawn state machine | Medium | 6 |
-| 12 | Stale detection & reused chat IDs | Low | 2 |
+1. **Squash bugs, be consistent.** Fix crash-causing defects, concurrency races, and inconsistencies that have produced or will produce incorrect behavior.
+2. **Frontend-ready architecture.** Build the state infrastructure so a future `meridian view` web UI can read state efficiently, receive real-time updates, and display conversation history — without re-architecting the core.
+3. **Codebase legibility for AI agents.** Meridian's primary users are AI agents. The agents it orchestrates are also the agents that read, modify, and extend its code. Single sources of truth, focused protocols, and predictable patterns directly reduce friction for agent exploration and implementation.
+
+## Architecture Context
+
+Meridian already has infrastructure that supports multiple surfaces:
+
+- **Operation manifest** — typed operations with declared surfaces (`cli`, `mcp`), input/output models with `.to_wire()` serialization
+- **MCP server** — persistent process exposing all manifest operations as tools via FastMCP
+- **OutputSink protocol** — pluggable output routing (TextSink, JsonSink, AgentSink, NullSink)
+- **Stream event observer** — `event_observer` callback in spawn execution for real-time stream parsing
+
+What's missing for a frontend:
+
+- **Observable state** — state changes are silent; no notification when a spawn finishes or a session starts
+- **Queryable state** — every read re-scans the full JSONL file; no indexing or caching
+- **Conversation model** — no unified representation of harness conversation history
+- **Sink fan-out** — only one sink active at a time; no composite routing
+
+What creates friction for agents exploring the codebase:
+
+- **Duplicated JSONL mechanics** across spawn_store and session_store (locking, reading, timestamps, error handling — already drifted once, producing the Phase 1 bug)
+- **Duplicated ops helpers** across spawn/execute.py, spawn/api.py, and work.py (`_runtime_context()`, `_state_root()`, `_resolve_chat_id()` with subtly different defaults)
+- **Duplicated policy resolution** in primary launch (`prepare_launch_context()` and `build_harness_context()` both resolve model/harness/agent/skills independently)
+- **Kitchen-sink harness protocol** (17 methods, DirectAdapter stubs 12 of them via base class defaults)
+- **Wide function signatures** (`execute_with_finalization` takes 15+ parameters instead of a structured plan)
+- **Inconsistent error semantics** (work-store rename raises ValueError, update raises KeyError, get returns None)
+
+## Ship Order
+
+Safety fixes ship first. Infrastructure phases build on each other. Legibility phases land alongside the infrastructure they clarify.
+
+### Tier 1: Immediate Safety
+
+1. Phase `10b` — primary-launch flock mutex
+2. Phase `1` — malformed-event guard + dead code removal
+3. Phase `12a.1` — heartbeat lifecycle wiring
+4. Phase `12a.2` — stale-policy flip
+
+### Tier 2: Consistent Foundations
+
+5. Phase `2a` — shared JSONL event store mechanics
+6. Phase `2b` — observable event store (observer hooks)
+7. Phase `4` — ops helper consolidation
+8. Phase `5` — async wrapper consistency
+9. Phase `3b` — work-store mutation safety
+10. Phase `3` — work-store error semantics
+
+### Tier 3: Session Safety
+
+11. Phase `6` — session lifecycle extraction
+12. Phase `9a+9b` — session start lock ordering + generation-safe stale-session cleanup (shipped as one atomic commit — the window between them is unsafe because stale-session cleanup runs on every CLI startup)
+
+### Tier 4: Legibility
+
+13. Phase `6a` — resolved primary launch plan
+14. Phase `6b` — prepared spawn plan DTO
+15. Phase `7` — harness adapter protocol split (narrowed)
+16. Phase `8` — CLI registration consolidation
+17. Phase `11a` — spawn transition model
+
+### Tier 5: Frontend-Ready Infrastructure
+
+18. State projections (SpawnIndex, SessionIndex, WorkIndex; absorbs Phase `11b`)
+19. Conversation model + per-adapter extractors
+20. Sink fan-out (CompositeSink)
+
+## Verification Gates
+
+Each risky phase carries targeted verification. This closes the test-planning gap called out in `review-risk.md` §3.
+
+- Phase `1`: confirm `list_spawns()` and `get_spawn()` survive a malformed JSONL row without crashing.
+- Phase `2a`: unit tests for truncated trailing lines, mid-file malformed JSON, `ValidationError` skips, concurrent append serialization. CLI smoke for `spawn create/show/wait`.
+- Phase `2b`: observer notification delivery tests. Test that observer exceptions do not propagate to callers.
+- Phase `3b`: store tests for rename/update races and crash recovery from an in-progress rename intent.
+- Phase `9a+9b` (atomic): multiprocessing tests for concurrent `start_session()`, `stop_session()`, and stale cleanup on reused chat IDs with generation tokens. Including verification that stale-session cleanup during the implementation window does not stop live sessions.
+- Phase `10b`: mutex tests that probe `flock`, not only JSON payloads. Process-lifetime gate: flock ownership held across full primary launch lifetime. Real two-process concurrent launch smoke test. Crash/restart cleanup smoke test. Verification that startup cleanup cannot remove a live flock-held lock.
+- Phase `6a` / `6b`: smoke tests proving primary launch and background/resume execution consume one resolved plan each.
+- Phase `7`: registry/type-routing tests proving direct mode never enters subprocess-only code.
+- Phase `11a`: transition-table tests and store-mutation tests that validate inside the locked append path.
+- Phase `12a.1`: heartbeat start/cancel/await tests proving heartbeat files are written in all execution paths (background spawn, primary launch, foreground).
+- Phase `12a.2`: regression test showing a quiet but live PID is not finalized as stale. Test that observer exceptions do not fail the append path. Smoke test for spawn wait on a long-running quiet spawn.
+- State projections: tests verifying projection consistency with raw JSONL reads after concurrent appends.
+
+## Known Limitations Kept Explicit
+
+These are acknowledged but not solved in this refactor:
+
+- JSONL stores still append without compaction. State projections solve the read-performance problem; compaction remains future work.
+- `flock` remains a local-filesystem assumption. Meridian does not claim correctness on NFS/shared storage.
+- Primary launch still has an ambiguous post-fork/pre-registration window. Phase `10b` makes the reaper conservative in that window instead of claiming certainty it does not have.
+- Phase `2b` observers are process-local. A persistent frontend server in a separate process would not receive callbacks from CLI invocations or harness workers writing to JSONL on disk. Cross-process state notification (file-tailing, inotify, append broker) is future work needed before a web UI can receive real-time updates.
+- Read operations still perform reconciliation side effects. The reaper runs from query paths (spawn list, work show, etc.) and can append finalize events or send SIGTERM. Separating query from repair is future work.
+- Cross-store work reference integrity is not transactional. Work rename/start can leave dangling `work_id` references in `spawns.jsonl` or `sessions.jsonl` if a crash occurs between the work-store mutation and the cross-store reference update. Full cross-store repair is future work.
+- The conversation model provides extraction, not mutation. Injecting messages into a running harness session requires a new execution mode beyond the scope of this refactor.
 
 ---
 
-## Phase 1: Dead Code & Quick Fixes
+## Phase 10b: Primary-Launch Flock Mutex
 
-Remove dead code and fix the one-liner consistency gap that can crash read paths.
+**Goal:** Bug fix (Goal 1)
 
-### 1a. Fix `spawn_store._parse_event` validation gap
+**Addresses:** `review-state-safety.md` finding 1, `review-correctness.md` Phase 10, `review-risk.md` §4 and §6.
 
-**Problem:** `session_store._parse_event` catches `ValidationError` and returns `None`. `spawn_store._parse_event` does not. A single malformed event crashes `list_spawns()`, `get_spawn()`, `spawn show`, `spawn wait`, and the dashboard.
+### Problem
 
-**Fix:**
+`active-primary.lock` is a JSON marker file written with `atomic_write_text`, not an actual mutex. Two concurrent `meridian` launches both proceed, both write state, and corruption follows. The prior design also opened the file with `"w"`, which truncates before the lock is acquired.
+
+### Solution
+
+Make `active-primary.lock` an `flock`-backed mutex:
+
+- Open with `a+` (no truncation before lock)
+- Acquire `LOCK_EX | LOCK_NB` (fail immediately if contended)
+- Rewrite the JSON payload only after acquiring the lock
+- `cleanup_orphaned_locks()` probes the flock itself, not just the JSON payload
+
+IMPORTANT: The flock must be held for the ENTIRE primary launch lifetime, not just during the lock file write. This requires structural changes to `launch_primary()` and `run_harness_process()` to thread the flocked file descriptor through the full execution path. The current code writes a JSON marker with `_write_lock()` and unlinks the path at the end — both of those operations must be replaced by the flock context manager wrapping the entire launch.
+
+```python
+# src/meridian/lib/launch/process.py
+@contextmanager
+def primary_launch_lock(lock_path: Path, payload: dict[str, object]) -> Iterator[None]:
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+", encoding="utf-8") as handle:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise ValueError("A primary launch is already active.")
+
+        handle.seek(0)
+        handle.truncate()
+        handle.write(json.dumps(payload, sort_keys=True, indent=2) + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+```
+
+```python
+def cleanup_orphaned_locks(repo_root: Path) -> bool:
+    lock_path = active_primary_lock_path(repo_root)
+    if not lock_path.is_file():
+        return False
+
+    with lock_path.open("a+", encoding="utf-8") as handle:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return False  # Lock is held — primary is active
+        payload = _read_lock_payload(handle)
+        if _lock_payload_is_live(payload):
+            return False
+        lock_path.unlink(missing_ok=True)
+        return True
+```
+
+Phase 10b also requires coordinating with the reaper. `cleanup_orphaned_locks()` currently probes the JSON payload; it must switch to probing the flock. The reaper in `src/meridian/lib/state/reaper.py` must also be updated: foreground reconciliation that fails a queued run on `missing_worker_pid`/`orphan_run` needs to respect the flock-held window.
+
+---
+
+## Phase 1: Malformed-Event Guard + Dead Code Removal
+
+**Goal:** Bug fix (Goal 1)
+
+**Addresses:** `review-consistency.md` HIGH finding 1, `review-correctness.md` gap 4, `review-design-quality.md` finding 5, `review-fresh-eyes.md` §7.1.
+
+### Problem
+
+- `spawn_store._parse_event()` propagates `ValidationError` and crashes all read paths (`list_spawns()`, `get_spawn()`, `spawn show`, `spawn wait`, the dashboard) on one malformed JSONL row. `session_store._parse_event()` already catches this — the inconsistency is a confirmed drift bug.
+- Dead code remains: `SpawnListFilters`, `reconcile_running_spawn()`.
+- The prior design contradicted itself by deleting `resolve_state_root()` in Phase 1 and recreating it in Phase 4.
+- `spawn_continue_sync()` in `spawn/api.py` drops the provided `RuntimeContext` — it ignores the `ctx` parameter and calls `spawn_create_sync()` without passing it, potentially losing explicit RuntimeContext state for depth/work/chat inheritance.
+
+### Solution
+
+1. Guard `ValidationError` in `spawn_store._parse_event()`, matching session_store's existing behavior.
+2. Remove confirmed dead code: `SpawnListFilters`, `reconcile_running_spawn()`.
+3. Do **not** remove `resolve_state_root()`. Phase `4` standardizes it.
+4. Fix `spawn_continue_sync()` to pass the RuntimeContext through to `spawn_create_sync()`.
+
+### Snippet
 
 ```python
 # src/meridian/lib/state/spawn_store.py
 from pydantic import ValidationError
+
 
 def _parse_event(payload: dict[str, Any]) -> SpawnEvent | None:
     event_type = payload.get("event")
@@ -51,251 +211,247 @@ def _parse_event(payload: dict[str, Any]) -> SpawnEvent | None:
     return None
 ```
 
-### 1b. Remove dead code
+---
 
-Remove these unused artifacts:
+## Phase 12a.1: Heartbeat Lifecycle Wiring
 
-1. **`SpawnListFilters`** in `src/meridian/lib/ops/spawn/models.py` (lines 346-355) -- never imported anywhere. The docstring references "parameterized SQL" which no longer exists.
+**Goal:** Bug fix (Goal 1) — mechanism; reported as `bug-spawn-wait-false-failure.md`
 
-2. **`resolve_state_root()`** in `src/meridian/lib/ops/runtime.py` (lines 70-72) -- unused wrapper around `resolve_state_paths().root_dir`. Every call site already uses the direct path.
+**Addresses:** `review-state-safety.md` finding 7, `review-risk.md` §3, `review-correctness.md` Phase 12, `review-fresh-eyes.md` §5d.
+
+### Problem
+
+A quiet but healthy spawn (model thinking for 6+ minutes) gets reaped as "stale" because the hardcoded 5-minute threshold fires. The user sees a false failure. Additionally:
+
+- `_heartbeat_loop()` is not integrated into any lifecycle
+- Config bounds for stale threshold are unspecified
+
+### Solution
+
+Wire heartbeat into every execution lifecycle the reaper depends on: background spawn execution (`runner.py`), primary launch (`process.py`), and foreground execution. The heartbeat file must be written before the reaper's stale-threshold window opens.
+
+1. Validated reaper timing config with bounds:
+
+```python
+# src/meridian/lib/state/reaper_config.py
+def validate_stale_threshold_secs(value: object) -> int:
+    parsed = int(value)
+    if parsed < 60 or parsed > 86_400:
+        raise ValueError("stale_threshold_secs must be between 60 and 86400")
+    return parsed
+```
+
+2. Heartbeat writers integrated into actual execution lifecycles:
+
+```python
+# src/meridian/lib/launch/heartbeat.py
+@asynccontextmanager
+async def heartbeat_scope(path: Path, *, interval_secs: int) -> AsyncIterator[None]:
+    task = asyncio.create_task(_heartbeat_loop(path, interval_secs))
+    try:
+        yield
+    finally:
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+```
+
+The heartbeat helper is async but primary launch is synchronous — the primary launch path needs a threaded heartbeat writer or the heartbeat must be started from the async wrapper layer.
 
 ---
 
-## Phase 2: Shared JSONL Event Store
+## Phase 12a.2: Stale-Policy Flip
 
-**Problem:** `spawn_store.py` and `session_store.py` independently implement identical JSONL mechanics: file locking, event appending, line-by-line parsing with truncation recovery, and event dispatch. They've already drifted (ValidationError handling). Any future JSONL store will copy-paste again.
+**Goal:** Bug fix (Goal 1) — policy; reported as `bug-spawn-wait-false-failure.md`
 
-**Solution:** Extract a generic `JSONLEventStore` that owns the shared mechanics. Each domain store becomes a thin layer on top.
+**Addresses:** `review-state-safety.md` finding 7, `review-risk.md` §3, `review-correctness.md` Phase 12, `review-fresh-eyes.md` §5d.
 
-### New file: `src/meridian/lib/state/event_store.py`
+### Problem
+
+Before this flip, "PID alive but quiet" falls through to failure.
+
+### Solution
+
+Only safe to land after 12a.1 confirms heartbeat evidence exists in all execution paths. If the policy flips before heartbeat is wired, dead spawns stop getting finalized and remain stuck in queued/running.
+
+Also addresses hung-but-alive processes: a live wrapper/harness that stops producing output is now preserved rather than falsely failed, but this means genuinely wedged processes can persist indefinitely. A future health-check rule (e.g., heartbeat age threshold) can address this without reverting to the stale-only heuristic.
 
 ```python
-"""Generic JSONL event store with locking, append, and crash-tolerant reads."""
+# src/meridian/lib/state/reaper.py
+def _should_finalize_stale(inspection: _SpawnInspection) -> bool:
+    if inspection.harness_alive or inspection.wrapper_alive:
+        return False  # Live but quiet → suspect, not terminal
+    return inspection.stale and inspection.grace_elapsed
+```
 
-from __future__ import annotations
+---
 
-import fcntl
-import json
-from contextlib import contextmanager
-from pathlib import Path
-from typing import Any, TypeVar
+## Phase 2a: Shared JSONL Event Store Mechanics
 
-from pydantic import BaseModel, ValidationError
+**Goal:** Consistency (Goal 1) + Legibility (Goal 3)
 
-from meridian.lib.state.atomic import append_text_line
+**Addresses:** `review-consistency.md` HIGH finding 1 and cross-file note 1, `review-solid.md` LOW finding, `review-correctness.md` Phase 2, `review-fresh-eyes.md` §3c, §3d, §4a, §6a, `review-design-quality.md` SRP/DIP notes.
 
-T = TypeVar("T", bound=BaseModel)
+### Problem
+
+- `spawn_store.py` and `session_store.py` duplicate JSONL mechanics (locking, reading, appending, timestamp generation). The error-handling drift already produced the Phase 1 bug.
+- `_utc_now_iso()` is defined identically in three files.
+
+### Solution
+
+Extract `event_store.py` with shared mechanics:
+
+```python
+# src/meridian/lib/state/event_store.py
+from collections.abc import Callable, Iterator
+
+
+def utc_now_iso() -> str:
+    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 @contextmanager
-def lock_file(lock_path: Path):
-    """Acquire an exclusive advisory lock on a sidecar lock file."""
+def lock_file(lock_path: Path) -> Iterator[IO[bytes]]:
     lock_path.parent.mkdir(parents=True, exist_ok=True)
-    handle = open(lock_path, "w")  # noqa: SIM115
-    try:
-        fcntl.flock(handle, fcntl.LOCK_EX)
-        yield handle
-    finally:
-        fcntl.flock(handle, fcntl.LOCK_UN)
-        handle.close()
+    with lock_path.open("a+b") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield handle
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def append_event(
     data_path: Path,
     lock_path: Path,
     event: BaseModel,
+    *,
+    store_name: str,
+    exclude_none: bool = False,
 ) -> None:
-    """Serialize and append a single event under exclusive lock."""
-    line = json.dumps(
-        event.model_dump(mode="json"),
-        separators=(",", ":"),
-        sort_keys=True,
-    )
+    payload = event.model_dump(mode="json", exclude_none=exclude_none)
+    line = json.dumps(payload, separators=(",", ":"), sort_keys=True)
     with lock_file(lock_path):
-        append_text_line(data_path, line)
+        append_text_line(data_path, line + chr(10))  # append_text_line does not add newline; callers must include it
 
 
 def read_events(
     data_path: Path,
     parse_event: Callable[[dict[str, Any]], T | None],
 ) -> list[T]:
-    """Read all events from a JSONL file, tolerating truncation and validation errors.
-
-    - Malformed JSON on the last line is silently skipped (interrupted write recovery).
-    - Events that fail schema validation are silently skipped (forward compatibility).
-    - All other lines are parsed via the caller-supplied dispatch function.
-    """
     if not data_path.is_file():
         return []
 
-    text = data_path.read_text(encoding="utf-8")
-    lines = text.splitlines()
-    events: list[T] = []
-
-    for index, raw in enumerate(lines):
-        stripped = raw.strip()
-        if not stripped:
-            continue
-        try:
-            payload = json.loads(stripped)
-        except json.JSONDecodeError:
-            if index == len(lines) - 1:
-                continue  # Truncated trailing append -- self-healing.
-            continue  # Mid-file corruption -- skip silently.
-
-        parsed = parse_event(payload)
-        if parsed is not None:
-            events.append(parsed)
-
-    return events
+    rows: list[T] = []
+    with data_path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                payload = json.loads(stripped)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(payload, dict):
+                continue
+            try:
+                parsed = parse_event(cast("dict[str, Any]", payload))
+            except ValidationError:
+                continue
+            if parsed is not None:
+                rows.append(parsed)
+    return rows
 ```
 
-The `Callable` import is missing above -- add `from collections.abc import Callable`.
+Key design decisions:
 
-### Refactored `spawn_store.py` (relevant parts)
-
-```python
-from meridian.lib.state.event_store import append_event, lock_file, read_events
-
-def _parse_event(payload: dict[str, Any]) -> SpawnEvent | None:
-    event_type = payload.get("event")
-    try:
-        if event_type == "start":
-            return SpawnStartEvent.model_validate(payload)
-        if event_type == "update":
-            return SpawnUpdateEvent.model_validate(payload)
-        if event_type == "finalize":
-            return SpawnFinalizeEvent.model_validate(payload)
-    except ValidationError:
-        return None
-    return None
-
-# Replace _read_events() with:
-def _read_events(state_root: Path) -> list[SpawnEvent]:
-    paths = resolve_state_paths(state_root)
-    return read_events(paths.spawns_jsonl, _parse_event)
-
-# Replace _append_event() with:
-def _append_spawn_event(state_root: Path, event: BaseModel) -> None:
-    paths = resolve_state_paths(state_root)
-    append_event(paths.spawns_jsonl, paths.spawns_lock, event)
-```
-
-### Refactored `session_store.py` (relevant parts)
-
-Same pattern. Replace `_lock_file`, `_append_event`, `_read_events` with calls to the shared `event_store` module.
-
-### What stays domain-specific
-
-- **Event type definitions** (SpawnStartEvent, SessionStartEvent, etc.)
-- **State reconstruction** (_record_from_events, _records_by_session) -- different fold logic per domain
-- **Session lifetime locks** (_SESSION_LOCK_HANDLES) -- session-specific concern, stays in session_store
-- **Query/filter functions** -- domain-specific
+- `read_events()` catches `ValidationError` around the parser callback. The guarantee belongs in the shared helper, not in every domain store.
+- `append_event()` keeps `exclude_none` explicit so stores preserve current JSON shape.
+- `read_events()` uses line-streaming, not `read_text().splitlines()`, to avoid memory spikes.
 
 ### Impact
 
-- Eliminates ~150 lines of duplicated locking/parsing/appending code
-- Guarantees consistent truncation recovery and validation error handling
-- Future JSONL stores (e.g., audit log) get the same guarantees for free
+Spawn and session stores stop drifting on crash-tolerance behavior. `_utc_now_iso()` is deduplicated. An agent exploring the codebase finds one file for how JSONL works instead of two divergent copies.
 
 ---
 
-## Phase 3: Unified Error Semantics
+## Phase 2b: Observable Event Store (Observer Hooks)
 
-**Problem:** The state layer uses three different patterns for "resource not found":
-- `get_work_item()` returns `None`
-- `update_work_item()` raises `KeyError`
-- `rename_work_item()` raises `ValueError`
+**Goal:** Frontend-ready (Goal 2)
 
-The CLI then special-cases `KeyError` formatting to avoid Python repr noise. Callers can't predict which exception to catch.
+**Addresses:** `review-consistency.md` HIGH finding 1 and cross-file note 1, `review-solid.md` LOW finding, `review-correctness.md` Phase 2, `review-fresh-eyes.md` §3c, §3d, §4a, §6a, `review-design-quality.md` SRP/DIP notes.
 
-**Convention:**
+### Problem
 
-| Operation | Not found | Validation error |
-|-----------|-----------|-----------------|
-| Pure getter | Return `None` | Return `None` |
-| Mutation (update, rename, delete) | Raise `ValueError` | Raise `ValueError` |
+State changes are silent — no notification when events are appended. A future frontend would need to poll files.
 
-`ValueError` is already used by `rename_work_item` and is the natural Python choice for "this operation can't proceed because the input is invalid." `KeyError` implies dict-like semantics that don't match a directory-backed store.
+### Solution
 
-### Changes to `work_store.py`
+Move observer hooks into the event store layer:
 
 ```python
-def update_work_item(
-    state_root: Path,
-    work_id: str,
-    *,
-    status: str | None = None,
-    description: str | None = None,
-    auto_generated: bool | None = None,
-) -> WorkItem:
-    current = get_work_item(state_root, work_id)
-    if current is None:
-        raise ValueError(f"Work item '{work_id}' not found")  # was KeyError
+# src/meridian/lib/state/event_store.py
+from collections.abc import Callable
 
-    # ... rest unchanged
+EventObserver = Callable[[str, dict[str, Any]], None]  # (store_name, event_payload)
+_observers: list[EventObserver] = []
+
+
+def register_observer(observer: EventObserver) -> None:
+    _observers.append(observer)
+
+
+def append_event(...) -> None:
+    payload = event.model_dump(mode="json", exclude_none=exclude_none)
+    line = json.dumps(payload, separators=(",", ":"), sort_keys=True)
+    with lock_file(lock_path):
+        append_text_line(data_path, line + chr(10))
+    for observer in _observers:
+        try:
+            observer(store_name, payload)
+        except Exception:
+            pass  # Log but do not fail the append path
 ```
 
-### CLI error handling simplification
+Observer callbacks are invoked after the durable write completes and outside the lock. If an observer raises, the event is already committed — observer failures must not propagate to the caller. Wrap each observer call in a try/except that logs but does not re-raise.
 
-The CLI currently catches `KeyError` separately:
+### Impact
 
-```python
-# Before (cli/main.py)
-except KeyError as exc:
-    emit_error(str(exc).strip("'\""))  # Strip Python repr quotes
-```
-
-After the change, all store mutations raise `ValueError` with human-readable messages. The CLI catches `ValueError` uniformly:
-
-```python
-# After
-except ValueError as exc:
-    emit_error(str(exc))
-```
-
-### `collect_active_chat_ids` return type
-
-**Problem:** Returns `None` on OSError, `frozenset[str]` otherwise. Callers must handle two types.
-
-**Fix:** Return empty `frozenset()` on error instead of `None`. The semantics are the same -- "we don't know of any active sessions" -- but the type is uniform.
-
-```python
-def collect_active_chat_ids(repo_root: Path) -> frozenset[str]:
-    """Return chat IDs with unclosed sessions. Empty set on error."""
-    try:
-        ...
-    except OSError:
-        return frozenset()
-```
+State changes become observable — the foundation for projections. Note: observers are process-local. A persistent frontend server in a separate process would not receive these callbacks. Cross-process state notification (file-tailing, inotify, append broker) is future work.
 
 ---
 
 ## Phase 4: Ops Helper Consolidation
 
-**Problem:** `_runtime_context()`, `_state_root()`, `_resolve_chat_id()`, and `_resolve_roots()` are duplicated across 6+ ops modules with subtle differences. `_resolve_chat_id` in `work.py` accepts a `payload_chat_id` parameter; in `spawn/execute.py` it defaults to `"c0"`; in `work.py` it returns an empty string for missing context.
+**Goal:** Legibility (Goal 3)
 
-**Solution:** Move shared helpers to `src/meridian/lib/ops/runtime.py` (which already exists and is underused).
+**Addresses:** `review-consistency.md` MEDIUM finding 5, `review-correctness.md` Phase 4, `review-fresh-eyes.md` §3b.
 
-### New helpers in `ops/runtime.py`
+### Problem
+
+`_runtime_context()`, `_state_root()`, `_resolve_roots()`, and `_resolve_chat_id()` are duplicated across spawn/execute.py, spawn/api.py, and work.py. Defaults disagree (`""` versus `"c0"`). An agent reading the codebase encounters the same helper in three files and has to verify they're equivalent.
+
+### Solution
+
+Consolidate into `src/meridian/lib/ops/runtime.py`:
 
 ```python
-def resolve_runtime_context(ctx: RuntimeContext | None) -> RuntimeContext:
-    """Return the provided context or resolve from environment."""
-    if ctx is not None:
-        return ctx
-    return RuntimeContext.from_environment()
+@dataclass(frozen=True)
+class ResolvedRoots:
+    repo_root: Path
+    state_root: Path
+
+
+def resolve_roots(repo_root: str | None) -> ResolvedRoots:
+    resolved_repo, _ = resolve_runtime_root_and_config(repo_root)
+    return ResolvedRoots(
+        repo_root=resolved_repo,
+        state_root=resolve_state_paths(resolved_repo).root_dir,
+    )
 
 
 def resolve_state_root(repo_root: Path) -> Path:
-    """Resolve the .meridian state root for a repository."""
     return resolve_state_paths(repo_root).root_dir
-
-
-def resolve_repo_and_state(repo_root: str | None) -> tuple[Path, Path]:
-    """Resolve both repo root and state root from an optional path string."""
-    resolved_repo, _ = resolve_runtime_root_and_config(repo_root)
-    return resolved_repo, resolve_state_paths(resolved_repo).root_dir
 
 
 def resolve_chat_id(
@@ -304,10 +460,6 @@ def resolve_chat_id(
     ctx: RuntimeContext | None = None,
     fallback: str = "",
 ) -> str:
-    """Resolve a chat ID from an explicit payload value or runtime context.
-
-    Resolution order: payload_chat_id > ctx.chat_id > fallback.
-    """
     if payload_chat_id.strip():
         return payload_chat_id.strip()
     if ctx is not None and ctx.chat_id:
@@ -315,1094 +467,785 @@ def resolve_chat_id(
     return fallback
 ```
 
-### Migration
-
-Replace all per-module copies:
-- `spawn/api.py:_runtime_context` -> `from meridian.lib.ops.runtime import resolve_runtime_context`
-- `spawn/api.py:_state_root` -> `from meridian.lib.ops.runtime import resolve_state_root`
-- `spawn/query.py:_state_root` -> same
-- `diag.py:_state_root` -> same
-- `work.py:_runtime_context` -> same
-- `work.py:_resolve_roots` -> `from meridian.lib.ops.runtime import resolve_repo_and_state`
-- `work.py:_resolve_chat_id` -> `from meridian.lib.ops.runtime import resolve_chat_id`
-- `report.py:_runtime_context` -> same
-- `spawn/execute.py:_runtime_context` -> same
-- `spawn/execute.py:_resolve_chat_id` -> `resolve_chat_id(..., fallback="c0")`
-
-The `fallback` parameter unifies the divergent defaults: `work.py` uses `fallback=""`, `execute.py` uses `fallback="c0"`.
-
-### Impact
-
-- Eliminates 6 duplicate function definitions
-- Makes the divergent `_resolve_chat_id` defaults explicit via parameter
-- Single place to evolve resolution logic
+All ops modules import from one place. One default policy. One place for an agent to read.
 
 ---
 
 ## Phase 5: Async Wrapper Consistency
 
-**Problem:** Ops modules expose async functions on the MCP surface. Some use `asyncio.to_thread()` to avoid blocking the event loop; others call sync implementations directly, blocking the MCP server.
+**Goal:** Consistency (Goal 1) + Frontend-ready (Goal 2)
 
-| Module | Pattern | Blocks event loop? |
-|--------|---------|-------------------|
-| `spawn/api.py` | `await asyncio.to_thread(sync_fn, ...)` | No |
-| `config.py` | `await asyncio.to_thread(sync_fn, ...)` | No |
-| `diag.py` | `await asyncio.to_thread(sync_fn, ...)` | No |
-| `report.py` | `return sync_fn(...)` | **Yes** |
-| `work.py` | `return sync_fn(...)` | **Yes** |
-| `catalog.py` | `return sync_fn(...)` | **Yes** |
+**Addresses:** `review-consistency.md` HIGH finding 2, `review-risk.md` §3, `review-correctness.md` Phase 5.
 
-**Solution:** Standardize on `asyncio.to_thread` for all async wrappers. Better yet, generate them from a single pattern.
+### Problem
 
-### Option A: Helper decorator (preferred)
+Some MCP-facing async operations use `asyncio.to_thread()` while others call sync implementations directly and block the event loop. If the MCP server becomes the backend for a web UI, blocking calls break concurrent tool execution.
+
+### Solution
+
+One decorator, mechanical application:
 
 ```python
 # src/meridian/lib/ops/runtime.py
+P = ParamSpec("P")
+T = TypeVar("T")
+
 
 def async_from_sync(sync_fn: Callable[P, T]) -> Callable[P, Coroutine[Any, Any, T]]:
-    """Create an async wrapper that runs a sync function in a thread."""
     @functools.wraps(sync_fn)
     async def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
         return await asyncio.to_thread(sync_fn, *args, **kwargs)
     return wrapper
 ```
 
-Usage in ops modules:
-
 ```python
-# src/meridian/lib/ops/work.py
-from meridian.lib.ops.runtime import async_from_sync
-
-work_start = async_from_sync(work_start_sync)
-work_list = async_from_sync(work_list_sync)
-work_show = async_from_sync(work_show_sync)
-# ... etc
+# src/meridian/lib/ops/report.py
+report_create = async_from_sync(report_create_sync)
+report_show = async_from_sync(report_show_sync)
 ```
 
-### Option B: Generate in manifest registration
+Applied to all `report.*`, `work.*`, and `catalog.*` operations.
 
-Make the manifest accept only sync handlers and auto-wrap them for MCP:
+---
+
+## Phase 3b: Work-Store Mutation Safety
+
+**Goal:** Bug fix (Goal 1)
+
+**Addresses:** `review-state-safety.md` findings 5 and 6, `review-correctness.md` gap 1, `review-risk.md` §5.
+
+### Problem
+
+`work_store.py` has no file-level locking. A concurrent `rename` + `update` can recreate the old directory. A crash between directory rename and `work.json` rewrite leaves inconsistent state.
+
+### Solution
+
+1. All work mutations under a shared `work.lock`.
+2. Rename uses a `work-rename.intent.json` journal for crash recovery.
+3. `reconcile_work_store()` runs on every mutating entry point and before `list_work_items()`.
+4. State is re-read after acquiring the lock, never before.
 
 ```python
-# In manifest.py, when building MCP handlers:
-if op.sync_handler and not op.handler:
-    op = op._replace(handler=async_from_sync(op.sync_handler))
+# src/meridian/lib/state/work_store.py
+class WorkRenameIntent(BaseModel):
+    old_work_id: str
+    new_work_id: str
+    started_at: str
+
+
+def rename_work_item(state_root: Path, old_work_id: str, new_name: str) -> WorkItem:
+    paths = StateRootPaths.from_root_dir(state_root)
+    with lock_file(paths.work_lock):
+        reconcile_work_store(state_root)
+
+        old_item = _get_work_item_unlocked(state_root, old_work_id)
+        if old_item is None:
+            raise ValueError(f"Work item '{old_work_id}' not found")
+
+        normalized = _validate_new_slug(new_name)
+        old_dir = paths.work_dir / old_work_id
+        new_dir = paths.work_dir / normalized
+        if new_dir.exists():
+            raise ValueError(f"Work item '{normalized}' already exists.")
+
+        intent = WorkRenameIntent(
+            old_work_id=old_work_id,
+            new_work_id=normalized,
+            started_at=utc_now_iso(),
+        )
+        atomic_write_text(paths.work_rename_intent, intent.model_dump_json(indent=2) + "\n")
+
+        old_dir.rename(new_dir)
+        updated = old_item.model_copy(update={"name": normalized})
+        atomic_write_text(new_dir / "work.json", _serialize_work_item(updated))
+        paths.work_rename_intent.unlink(missing_ok=True)
+        return updated
 ```
 
-Option A is simpler and more explicit. Option B is more automatic but changes the manifest contract.
+The visible work directory layout and `MERIDIAN_WORK_DIR` remain unchanged.
 
-### Impact
+---
 
-- Fixes event-loop blocking for `report.*`, `work.*`, `catalog.*` MCP operations
-- Eliminates boilerplate async wrapper functions (~60 lines across 3 modules)
-- Single pattern to maintain
+## Phase 3: Work-Store Error Semantics
+
+**Goal:** Consistency (Goal 1) + Legibility (Goal 3)
+
+**Addresses:** `review-consistency.md` MEDIUM finding 4, `review-correctness.md` Phase 3.
+
+### Problem
+
+- `get_work_item()` returns `None`
+- `rename_work_item()` raises `ValueError`
+- `update_work_item()` raises `KeyError`
+
+An agent encountering work-store code has to check each function to know which error to expect.
+
+### Solution
+
+Getters return `None`. All mutations raise `ValueError` on not-found.
+
+```python
+def update_work_item(...) -> WorkItem:
+    ...
+    if current is None:
+        raise ValueError(f"Work item '{work_id}' not found")
+```
+
+```python
+# src/meridian/cli/main.py
+except ValueError as exc:
+    emit_error(str(exc))
+```
 
 ---
 
 ## Phase 6: Session Lifecycle Extraction
 
-**Problem:** `_session_execution_context` (spawn/execute.py) and `run_harness_process` (launch/process.py) both implement session start/stop, auto-work creation, materialization cleanup, and harness session ID observation. They're already close but not identical, and they'll drift further as new session-level concerns are added.
+**Goal:** Legibility (Goal 3) + Risk reduction for Phase 9a
 
-**Solution:** Extract a `SessionScope` context manager that owns the shared lifecycle. Let each call site compose it with transport-specific concerns.
+**Addresses:** `review-solid.md` HIGH finding 2, `review-design-quality.md` finding 3, `review-risk.md` §1 and §7, `review-correctness.md` Phase 6.
 
-### New file: `src/meridian/lib/state/session_scope.py`
+### Problem
+
+Session start/stop orchestration is duplicated between primary launch (`process.py`) and spawn execution (`spawn/execute.py`). Phase 9a changes session start semantics significantly — lock ordering, chat-ID reservation, instance IDs. With the orchestration in two places, Phase 9a must make coordinated changes in both, increasing the risk of inconsistency.
+
+### Solution
+
+Extract shared session lifetime to `launch/session_scope.py`. Keep it narrowly scoped to session lifetime only:
 
 ```python
-"""Shared session lifecycle scope for primary launch and child spawn execution."""
-
-from __future__ import annotations
-
-import logging
-from contextlib import contextmanager
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Iterator
-
-from meridian.lib.state import work_store
-from meridian.lib.state.session_store import (
-    get_session_active_work_id,
-    start_session,
-    stop_session,
-    update_session_work_id,
-)
-
-logger = logging.getLogger(__name__)
-
-
+# src/meridian/lib/launch/session_scope.py
 @dataclass(frozen=True)
-class SessionScopeResult:
-    """Resolved values from session startup."""
+class ManagedSession:
     chat_id: str
-    work_id: str | None
+    record_harness_session_id: Callable[[str], None]
 
 
 @contextmanager
-def session_scope(
-    state_root: Path,
-    *,
-    harness: str,
-    harness_session_id: str | None = None,
-    model: str = "",
-    chat_id: str | None = None,
-    agent: str = "",
-    agent_path: str = "",
-    skills: tuple[str, ...] = (),
-    skill_paths: tuple[str, ...] = (),
-) -> Iterator[SessionScopeResult]:
-    """Manage session start, auto-work creation, and session stop.
-
-    On entry:
-      1. Starts the session (acquires lifetime lock).
-      2. Auto-creates a work item if the session has none.
-    On exit:
-      3. Stops the session (releases lifetime lock).
-
-    Transport-specific concerns (lock files, PID tracking, materialization)
-    remain the caller's responsibility.
-    """
-    resolved_chat_id = start_session(
-        state_root,
-        harness=harness,
-        harness_session_id=harness_session_id,
-        model=model,
-        chat_id=chat_id,
-        agent=agent,
-        agent_path=agent_path,
-        skills=skills,
-        skill_paths=skill_paths,
-    )
-
-    # Auto-create work item if session has none.
-    work_id = get_session_active_work_id(state_root, resolved_chat_id)
-    if not work_id:
-        auto_item = work_store.create_auto_work_item(state_root)
-        update_session_work_id(state_root, resolved_chat_id, auto_item.name)
-        work_id = auto_item.name
-
+def session_scope(...) -> Iterator[ManagedSession]:
+    resolved_chat_id = start_session(...)
     try:
-        yield SessionScopeResult(chat_id=resolved_chat_id, work_id=work_id)
-    finally:
-        try:
-            stop_session(state_root, resolved_chat_id)
-        except Exception:
-            logger.warning(
-                "Failed to stop session %s cleanly.", resolved_chat_id, exc_info=True
-            )
-```
-
-### Integration: spawn/execute.py
-
-```python
-from meridian.lib.state.session_scope import session_scope
-
-@contextmanager
-def _session_execution_context(...) -> Iterator[_SessionExecutionContext]:
-    with session_scope(
-        state_root,
-        harness=harness_id,
-        harness_session_id=harness_session_id,
-        model=model,
-        agent=session_agent,
-        agent_path=session_agent_path,
-        skills=skills,
-        skill_paths=session_skill_paths,
-    ) as scope:
-        # Transport-specific: resolve agent materialization
-        resolved_agent_name = _materialize_session_agent_name(...)
-        try:
-            yield _SessionExecutionContext(
-                chat_id=scope.chat_id,
-                resolved_agent_name=resolved_agent_name,
-                ...
-            )
-        finally:
-            _cleanup_session_materialized(...)
-```
-
-### Integration: launch/process.py
-
-```python
-from meridian.lib.state.session_scope import session_scope
-
-def run_harness_process(ctx, request, ...):
-    with session_scope(
-        ctx.state_root,
-        harness=ctx.session_metadata.harness,
-        harness_session_id=ctx.seed_harness_session_id,
-        model=ctx.session_metadata.model,
-        chat_id=request.continue_chat_id,
-        agent=ctx.session_metadata.agent,
-        agent_path=ctx.session_metadata.agent_path,
-        skills=ctx.session_metadata.skills,
-        skill_paths=ctx.session_metadata.skill_paths,
-    ) as scope:
-        chat_id = scope.chat_id
-        # Transport-specific: primary spawn, lock files, PID tracking, etc.
-        ...
-```
-
-### Also extract: materialization cleanup
-
-```python
-# src/meridian/lib/state/session_scope.py (or a small helper module)
-
-def cleanup_materialized_resources(
-    *,
-    harness_id: str,
-    repo_root: Path,
-    harness_registry: HarnessRegistry,
-) -> None:
-    """Clean up materialized harness resources. Logs warnings on failure."""
-    normalized = harness_id.strip()
-    if not normalized:
-        return
-    try:
-        cleanup_materialized(normalized, repo_root, registry=harness_registry)
-    except Exception:
-        logger.warning(
-            "Failed to cleanup materialized resources for harness %s.",
-            normalized,
-            exc_info=True,
+        yield ManagedSession(
+            chat_id=resolved_chat_id,
+            record_harness_session_id=lambda session_id: update_session_harness_id(
+                state_root, resolved_chat_id, session_id,
+            ),
         )
+    finally:
+        stop_session(state_root, resolved_chat_id)
 ```
 
-This replaces both `_cleanup_session_materialized` (execute.py) and `_cleanup_launch_materialized` (process.py), which are identical.
+Auto-work-item creation is NOT part of session scope — it's explicit policy in a separate helper:
+
+```python
+# src/meridian/lib/ops/session_policy.py
+def ensure_session_work_item(state_root: Path, chat_id: str) -> str:
+    existing = get_session_active_work_id(state_root, chat_id)
+    if existing:
+        return existing
+    auto_item = work_store.create_auto_work_item(state_root)
+    update_session_work_id(state_root, chat_id, auto_item.name)
+    return auto_item.name
+```
 
 ### Impact
 
-- Session start/stop and auto-work creation defined once
-- Adding session-level concerns (e.g., pinned artifacts, session metadata) requires editing one file
-- Transport-specific concerns (lock files, PID tracking, materialization) stay where they belong
+- One place for session lifetime logic — Phase 9a changes land once.
+- An agent reading "how does a session start?" finds one file.
+- Policy (auto-work creation) stays out of mechanism (session lifetime).
 
 ---
 
-## Phase 7: Harness Adapter ISP
+## Phase 9a+9b: Session Start Lock Ordering and Generation-Safe Stale-Session Cleanup
 
-**Problem:** `HarnessAdapter` is a 15+ method protocol mixing subprocess launch, stream parsing, session detection, and in-process execution. `DirectAdapter` stubs out most methods with fake returns. Adding another non-subprocess harness will require more fake methods.
+**Goal:** Bug fix (Goal 1)
 
-**Solution:** Split into focused protocols. Each adapter implements only the protocols it supports.
+**Addresses:** `review-state-safety.md` findings 3 and 4, `review-risk.md` §6, `review-correctness.md` Phase 9, `review-fresh-eyes.md` §4b.
 
-### Protocol hierarchy
+### Problem
+
+- `next_chat_id()` counts start events without any lock on the counter — concurrent session starts can allocate the same `c7`.
+- `start_session()` appends the start event before acquiring the lifetime lock. If the lock fails, the session is recorded but unowned.
+- No generation identity to distinguish an old dead session from a newly restarted one.
+- Cleanup can mark `c7` stale, then a new process restarts `c7`, then cleanup appends `stop(c7)` against the new live session.
+
+### Solution
+
+Ship 9a+9b atomically. Stale-session cleanup runs on every CLI startup, so landing lock-order fixes and generation-safe cleanup in separate commits introduces an unsafe window.
+
+1. Reserve chat IDs through a dedicated counter file under its own lock.
+2. Add `session_instance_id` (ULID) to start/stop/update events.
+3. Acquire the per-session lifetime lock before appending the start event.
+4. Release the lock in an `except` path if the append fails.
+5. Write a per-session lease file for stale-cleanup validation.
+6. In stale cleanup: append stop only when lease generation matches the current record, then finalize stale files.
+
+```python
+# src/meridian/lib/state/session_store.py
+def reserve_chat_id(state_root: Path) -> str:
+    paths = StateRootPaths.from_root_dir(state_root)
+    with lock_file(paths.session_id_counter_lock):
+        next_value = _read_session_counter(paths) + 1
+        atomic_write_text(paths.session_id_counter, f"{next_value}\n")
+        return f"c{next_value}"
+
+
+def start_session(...) -> str:
+    paths = StateRootPaths.from_root_dir(state_root)
+    resolved_chat_id = chat_id.strip() if chat_id else reserve_chat_id(state_root)
+    lock_path = paths.sessions_dir / f"{resolved_chat_id}.lock"
+    handle = _acquire_session_lock(lock_path)
+    session_instance_id = ulid.new().str
+
+    try:
+        with lock_file(paths.sessions_lock):
+            _append_session_event(
+                state_root,
+                SessionStartEvent(
+                    chat_id=resolved_chat_id,
+                    session_instance_id=session_instance_id,
+                    ...,
+                    started_at=utc_now_iso(),
+                ),
+            )
+        atomic_write_text(
+            paths.sessions_dir / f"{resolved_chat_id}.lease.json",
+            json.dumps({
+                "chat_id": resolved_chat_id,
+                "session_instance_id": session_instance_id,
+                "owner_pid": os.getpid(),
+            }, sort_keys=True) + "\n",
+        )
+    except Exception:
+        _unlock_handle(handle)
+        raise
+
+    _SESSION_LOCK_HANDLES[_session_lock_key(state_root, resolved_chat_id)] = handle
+    return resolved_chat_id
+```
+
+```python
+def cleanup_stale_sessions(state_root: Path) -> StaleSessionCleanup:
+    paths = StateRootPaths.from_root_dir(state_root)
+    candidates = _collect_unlocked_session_candidates(paths.sessions_dir)
+    if not candidates:
+        return StaleSessionCleanup(cleaned_ids=(), materialized_scopes=())
+
+    cleaned: list[str] = []
+    scopes: list[str] = []
+    with lock_file(paths.sessions_lock):
+        records = _records_by_session(state_root)
+        stopped_at = utc_now_iso()
+        for candidate in candidates:
+            record = records.get(candidate.chat_id)
+            if record is None or record.stopped_at is not None:
+                continue
+            if record.session_instance_id != candidate.session_instance_id:
+                continue  # Different generation — do not stop
+            _append_session_event(
+                state_root,
+                SessionStopEvent(
+                    chat_id=candidate.chat_id,
+                    session_instance_id=candidate.session_instance_id,
+                    stopped_at=stopped_at,
+                ),
+                exclude_none=True,
+            )
+            cleaned.append(candidate.chat_id)
+            if record.harness.strip():
+                scopes.append(record.harness.strip())
+
+    _finalize_stale_session_files(paths, candidates, cleaned)
+    return StaleSessionCleanup(
+        cleaned_ids=tuple(sorted(cleaned, key=_session_sort_key)),
+        materialized_scopes=tuple(sorted(set(scopes))),
+    )
+```
+
+---
+
+## Phase 6a: Resolved Primary Launch Plan
+
+**Goal:** Legibility (Goal 3) + Frontend-ready (Goal 2)
+
+**Addresses:** `review-solid.md` MEDIUM finding 3, `review-correctness.md` gap 2, `review-fresh-eyes.md` §4c.
+
+### Problem
+
+Primary launch resolves policies twice: `prepare_launch_context()` loads profile/model/harness/skills for session tracking, then `build_harness_context()` repeats the same resolution for command construction. Both call `load_agent_profile_with_fallback()`, `resolve_run_defaults()`, `resolve_harness()`, `resolve_skills_from_profile()` independently.
+
+An agent tracing "what model did this launch use?" must follow two resolution paths and verify they agree. A frontend displaying launch configuration would need to pick one of the two representations.
+
+### Solution
+
+One immutable, serializable plan that resolves all policies once:
+
+```python
+# src/meridian/lib/launch/plan.py
+class ResolvedPrimaryLaunchPlan(BaseModel):
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
+
+    repo_root: Path
+    state_root: Path
+    prompt: str
+    request: LaunchRequest
+    adapter: SubprocessLaunchHarness
+    metadata: PrimarySessionMetadata
+    run_params: SpawnParams
+    permission_config: PermissionConfig
+    command: tuple[str, ...]
+    launch_env: dict[str, str]
+    seed_harness_session_id: str
+
+
+def resolve_primary_launch_plan(...) -> ResolvedPrimaryLaunchPlan:
+    profile = load_agent_profile_with_fallback(...)
+    defaults = resolve_run_defaults(...)
+    adapter = harness_registry.get_subprocess_harness(...)
+    resolved_skills = resolve_skills_from_profile(...)
+    materialized = materialize_for_harness(...)
+    policy = adapter.filter_launch_content(...)
+    run_params = SpawnParams(...)
+    command = tuple(adapter.build_command(run_params, resolver))
+    launch_env = build_launch_env_from_plan(...)
+    return ResolvedPrimaryLaunchPlan(...)
+```
+
+`run_harness_process()` receives the resolved plan and consumes it. No second resolution pass.
+
+---
+
+## Phase 6b: Prepared Spawn Plan DTO
+
+**Goal:** Legibility (Goal 3) + Frontend-ready (Goal 2)
+
+**Addresses:** `review-solid.md` MEDIUM finding 4, `review-correctness.md` gap 3, `review-risk.md` §1.
+
+### Problem
+
+`execute_with_finalization()` takes 15+ parameters. `_PreparedCreateLike` is a Protocol with 17+ properties spread across multiple files. An agent reading spawn execution must mentally assemble the full parameter surface. A frontend showing "what is this spawn doing?" has no single inspectable object.
+
+### Solution
+
+One concrete, frozen, serializable plan:
+
+```python
+# src/meridian/lib/ops/spawn/plan.py
+class ExecutionPolicy(BaseModel):
+    timeout_secs: float | None = None
+    permission_config: PermissionConfig
+    allowed_tools: tuple[str, ...] = ()
+
+
+class SessionContinuation(BaseModel):
+    chat_id: str
+    harness_session_id: str | None = None
+    continue_fork: bool = False
+
+
+class PreparedSpawnPlan(BaseModel):
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
+
+    model: str
+    harness_id: str
+    prompt: str
+    agent_name: str | None
+    skills: tuple[str, ...]
+    reference_files: tuple[str, ...]
+    template_vars: dict[str, str]
+    session: SessionContinuation
+    execution: ExecutionPolicy
+    cli_command: tuple[str, ...]
+```
+
+```python
+async def execute_with_finalization(
+    plan: PreparedSpawnPlan,
+    *,
+    runtime: OperationRuntime,
+    sink: OutputSink | None = None,
+) -> int:
+    ...
+```
+
+---
+
+## Phase 7: Harness Adapter Protocol Split
+
+**Goal:** Legibility (Goal 3)
+
+**Addresses:** `review-solid.md` HIGH finding 1, `review-design-quality.md` finding 1, `review-risk.md` §1, `review-correctness.md` Phase 7.
+
+### Problem
+
+`HarnessAdapter` is one protocol with 17 methods. `DirectAdapter` stubs 12 of them via base class defaults because the interface conflates subprocess launching with in-process execution — two fundamentally different execution modes behind one type.
+
+### Solution
+
+Split at the execution-mode boundary. `SubprocessHarness` is one cohesive lifecycle protocol — callers that launch subprocesses need all of these behaviors bundled together, and splitting them further would fragment the main execution paths without improving legibility. `InProcessHarness` is the separate execution mode for direct/in-process adapters. `ConversationExtractingHarness` is opt-in for the conversation model feature.
 
 ```python
 # src/meridian/lib/harness/adapter.py
-
-class HarnessIdentity(Protocol):
-    """Every harness has an identity and capabilities."""
+class SubprocessHarness(Protocol):
     @property
     def id(self) -> HarnessId: ...
     @property
     def capabilities(self) -> HarnessCapabilities: ...
-
-
-class SubprocessHarness(HarnessIdentity, Protocol):
-    """Harness that launches a CLI subprocess."""
-    def build_command(self, run: SpawnParams, perms: PermissionConfig) -> list[str]: ...
+    def native_layout(self) -> HarnessNativeLayout | None: ...
+    def run_prompt_policy(self) -> RunPromptPolicy: ...
+    def build_command(self, run: SpawnParams, perms: PermissionResolver) -> list[str]: ...
+    def mcp_config(self, run: SpawnParams) -> McpConfig | None: ...
     def env_overrides(self, config: PermissionConfig) -> dict[str, str]: ...
     def blocked_child_env_vars(self) -> frozenset[str]: ...
-    def mcp_config(self, run: SpawnParams) -> McpConfig | None: ...
-
-
-class StreamParsingHarness(Protocol):
-    """Harness that emits parseable stream events."""
     def parse_stream_event(self, line: str) -> StreamEvent | None: ...
-    def extract_usage(self, artifacts: Path, spawn_id: str) -> TokenUsage: ...
-    def extract_report(self, artifacts: Path, spawn_id: str) -> str | None: ...
-    def extract_session_id(self, artifacts: Path, spawn_id: str) -> str | None: ...
+    def extract_usage(self, artifacts: ArtifactStore, spawn_id: SpawnId) -> TokenUsage: ...
+    def extract_report(self, artifacts: ArtifactStore, spawn_id: SpawnId) -> str | None: ...
+    def extract_session_id(self, artifacts: ArtifactStore, spawn_id: SpawnId) -> str | None: ...
+    def seed_session(...) -> SessionSeed: ...
+    def detect_primary_session_id(...) -> str | None: ...
+    def owns_untracked_session(...) -> bool: ...
+    def filter_launch_content(...) -> PromptPolicy: ...
 
 
-class SessionAwareHarness(Protocol):
-    """Harness with session lifecycle support."""
-    def seed_session(self, is_resume: bool, harness_session_id: str | None, passthrough_args: list[str]) -> SessionSeed: ...
-    def filter_launch_content(self, prompt: str, skill_injection: str, is_resume: bool, harness_session_id: str | None) -> PromptPolicy: ...
-    def detect_primary_session_id(self, repo_root: Path, started_at_epoch: float, started_at_local_iso: str) -> str | None: ...
-    def owns_untracked_session(self, repo_root: Path, session_ref: str) -> bool: ...
+class InProcessHarness(Protocol):
+    async def execute(self, request: DirectRunRequest) -> SpawnResult: ...
 
 
-class InProcessHarness(HarnessIdentity, Protocol):
-    """Harness that executes in-process (no subprocess)."""
-    async def execute(self, ...) -> SpawnResult: ...
+class ConversationExtractingHarness(Protocol):
+    def extract_conversation(
+        self, artifacts: ArtifactStore, spawn_id: SpawnId,
+    ) -> Conversation | None: ...
 ```
 
-### Adapter changes
-
-**ClaudeAdapter, CodexAdapter, OpenCodeAdapter:** Implement `SubprocessHarness + StreamParsingHarness + SessionAwareHarness`. No changes to method signatures -- they already implement all of these.
-
-**DirectAdapter:** Implements only `InProcessHarness`. Drops the fake `build_command()`, `parse_stream_event()`, etc.
-
-### BaseHarnessAdapter stays
-
-`BaseHarnessAdapter` continues to provide sensible defaults for optional methods (`extract_tasks`, `extract_findings`, `native_layout`, `run_prompt_policy`). The subprocess adapters inherit from it. `DirectAdapter` does not.
-
-### Registry changes
-
-The registry currently returns a single `HarnessAdapter` type. After the split:
+Registry lookups become typed:
 
 ```python
 class HarnessRegistry:
-    def get_subprocess_adapter(self, harness_id: str) -> SubprocessHarness: ...
-    def get_in_process_adapter(self, harness_id: str) -> InProcessHarness: ...
-    def get_adapter(self, harness_id: str) -> HarnessIdentity: ...
+    def get_subprocess_harness(self, id: HarnessId) -> SubprocessHarness: ...
+    def get_in_process_harness(self, id: HarnessId) -> InProcessHarness: ...
+    def get_conversation_harness(self, id: HarnessId) -> ConversationExtractingHarness | None: ...
 ```
 
-The launch pipeline calls `get_subprocess_adapter()` and gets type-safe access to subprocess methods. Direct mode calls `get_in_process_adapter()`.
-
-### Impact
-
-- `DirectAdapter` no longer needs fake subprocess methods
-- New non-subprocess harnesses (e.g., API-backed, container-based) only implement relevant protocols
-- Launch code is type-safe: can't accidentally call `build_command()` on a direct adapter
-- Existing subprocess adapters require minimal changes (they already implement all methods)
+An agent reading the code can now answer "what does a subprocess harness need to do?" by reading one cohesive lifecycle protocol, not a 17-method kitchen sink.
 
 ---
 
 ## Phase 8: CLI Registration Consolidation
 
-**Problem:** 7 CLI modules repeat an identical ~70-line registration pattern: define handler dict, query manifest, match by group, register with cyclopts.
+**Goal:** Legibility (Goal 3)
 
-**Solution:** Extract a generic `register_cli_group()` function.
+**Addresses:** `review-consistency.md` LOW finding 6, `review-solid.md` MEDIUM finding 5, `review-design-quality.md` finding 4, `review-correctness.md` Phase 8.
 
-### New helper: `src/meridian/cli/registry.py`
+### Problem
+
+Each CLI module (`spawn.py`, `work_cmd.py`, `report_cmd.py`, `models_cmd.py`, etc.) has a similar `register_X_commands()` function with the same manifest iteration loop. An agent reading CLI registration sees the same pattern in 6 files and has to verify they're all equivalent.
+
+### Solution
+
+One shared helper:
 
 ```python
-"""Generic CLI group registration from the ops manifest."""
-
-from __future__ import annotations
-
-from collections.abc import Callable
-from functools import partial
-from typing import Any
-
-from cyclopts import App
-
-from meridian.lib.ops.manifest import get_operations_for_surface
-
-
-def register_cli_group(
+# src/meridian/cli/common.py
+def register_manifest_cli_group(
     app: App,
-    group: str,
-    handlers: dict[str, Callable[[], Callable[..., None]]],
     *,
-    default_command: str | None = None,
-) -> tuple[set[str], dict[str, str]]:
-    """Register CLI commands for a manifest group.
-
-    Args:
-        app: The cyclopts App (or sub-app) to register commands on.
-        group: The manifest cli_group to filter by (e.g., "spawn", "work").
-        handlers: Map of operation name -> factory returning the handler function.
-        default_command: Optional operation name to set as the default command.
-
-    Returns:
-        Tuple of (registered command names, {op_name: description}).
-
-    Raises:
-        ValueError: If a manifest operation has no matching handler.
-    """
-    registered: set[str] = set()
-    descriptions: dict[str, str] = {}
-
+    group: str,
+    handlers: Mapping[str, Callable[..., Any]],
+    default_handler: Callable[..., Any] | None = None,
+) -> None:
     for op in get_operations_for_surface("cli"):
         if op.cli_group != group:
             continue
-
-        handler_factory = handlers.get(op.name)
-        if handler_factory is None:
-            raise ValueError(
-                f"No CLI handler registered for operation '{op.name}' in group '{group}'"
-            )
-
-        handler = handler_factory()
-        handler.__name__ = f"cmd_{op.cli_group}_{op.cli_name}"
-
-        is_default = op.name == default_command
-        app.command(handler, name=op.cli_name, help=op.description, default=is_default)
-
-        registered.add(f"{op.cli_group}.{op.cli_name}")
-        descriptions[op.name] = op.description
-
-    return registered, descriptions
+        handler = handlers.get(op.name)
+        if handler is None:
+            raise RuntimeError(f"Missing CLI handler for {group}.{op.name}")
+        app.command(name=op.name)(handler)
+    if default_handler is not None:
+        app.default(default_handler)
 ```
 
-### Migration example (spawn.py)
-
-```python
-# Before: 30 lines of boilerplate
-def register_spawn_commands(app: App, emit: Emitter) -> tuple[set[str], dict[str, str]]:
-    handlers = {
-        "spawn.files": lambda: partial(_spawn_files, emit),
-        "spawn.list": lambda: partial(_spawn_list, emit),
-        # ...
-    }
-    registered: set[str] = set()
-    descriptions: dict[str, str] = {}
-    for op in get_operations_for_surface("cli"):
-        if op.cli_group != "spawn":
-            continue
-        handler_factory = handlers.get(op.name)
-        if handler_factory is None:
-            raise ValueError(...)
-        handler = handler_factory()
-        handler.__name__ = ...
-        app.command(handler, ...)
-        registered.add(...)
-        descriptions[op.name] = op.description
-    return registered, descriptions
-
-# After: 1 call
-def register_spawn_commands(app: App, emit: Emitter) -> tuple[set[str], dict[str, str]]:
-    return register_cli_group(app, "spawn", {
-        "spawn.files": lambda: partial(_spawn_files, emit),
-        "spawn.list": lambda: partial(_spawn_list, emit),
-        # ...
-    }, default_command="spawn.create")
-```
-
-### Impact
-
-- Eliminates ~400 lines of duplicated registration boilerplate (7 modules x ~60 lines)
-- Consistent error handling for missing handlers
-- Single place to evolve registration mechanics (e.g., add middleware, validation)
+`main.py` remains the explicit composition root. Adding a new CLI group still requires a `main.py` edit — this design is honest about that.
 
 ---
 
-## Implementation Sequence
+## Phase 11a: Spawn Transition Model
 
-```
-Phase 1  ─────────────────────────>  commit
-    │
-Phase 2  ─────────────────────────>  commit
-    │
-Phase 3  ──────>  commit
-    │
-Phase 4  ──────>  commit        Phase 5  ──────>  commit
-    │                                │
-Phase 6  ─────────────────────────>  commit
-    │
-Phase 7  ─────────────────────────>  commit
-    │
-Phase 8  ──────>  commit
-```
+**Goal:** Legibility (Goal 3) + Supports projection correctness (Goal 2)
 
-Phases 1-3 are prerequisites (they fix the state layer). Phases 4-5 are independent. Phase 6 depends on Phase 2 (uses shared session helpers). Phase 7 is independent. Phase 8 is independent. Phases 9-12 address the concurrency/safety findings and benefit from the cleaner abstractions established in Phases 1-8.
+**Addresses:** `review-solid.md` MEDIUM finding 4, `review-design-quality.md` finding 2, `review-correctness.md` Phase 11, `review-fresh-eyes.md` §4d.
 
----
+### Problem
 
-## Phase 9: Session Lock-Order Fix
+Spawn lifecycle rules are fragmented across `finalize_spawn()`, `finalize_spawn_if_running()`, `finalize_spawn_if_active()`, the reaper, and the CLI. An agent reading the code must check multiple functions to understand what transitions are legal. State projections (tier 5) need an authoritative transition table to validate changes.
 
-**Problem:** `start_session()` and `stop_session()` acquire locks in order GLOBAL → PER-SESSION. But `cleanup_stale_sessions()` acquires them PER-SESSION → GLOBAL. This is a textbook lock-order inversion that can deadlock:
+### Solution
 
-```
-Process A (stopping session):                    Process B (cleanup):
-  stop_session()                                   cleanup_stale_sessions()
-    wants GLOBAL lock ← blocked                      holds GLOBAL lock
-    holds PER-SESSION lock                            wants PER-SESSION lock ← blocked
-                        ↑ DEADLOCK ↑
-```
-
-The deadlock hasn't been triggered in practice because `cleanup_stale_sessions()` uses `LOCK_NB` (non-blocking) for per-session locks, so it skips held locks rather than blocking. But the pattern is still dangerous: if `cleanup_stale_sessions` is ever called from a path that needs to wait (e.g., a "force cleanup" mode), or if a future change adds a blocking variant, the deadlock becomes live.
-
-**Root cause:** The two-lock design mixes two concerns -- event-log serialization (global lock) and session-liveness signaling (per-session lock) -- without a strict acquisition order.
-
-### Fix: Separate detection from mutation
-
-The key insight is that `cleanup_stale_sessions()` doesn't need the global lock during detection -- it only needs it when writing stop events. And it doesn't need the per-session locks when writing -- it only needs them to identify stale sessions.
-
-**Current flow (buggy order):**
-```
-1. For each *.lock file:
-     Try LOCK_NB on per-session lock     ← acquires per-session
-     If acquired → stale
-2. With global lock:                      ← acquires global (INVERSION)
-     Write stop events
-     Delete lock files
-3. Release per-session locks
-```
-
-**Fixed flow (consistent order):**
-```
-1. For each *.lock file:
-     Try LOCK_NB on per-session lock
-     If acquired → record as stale
-     Release per-session lock immediately  ← don't hold across phases
-2. With global lock:                       ← only lock held
-     Write stop events
-3. For each stale lock:
-     Re-acquire per-session lock (NB)      ← safe: no global lock held
-     Delete lock file
-     Release
-```
-
-```python
-def cleanup_stale_sessions(state_root: Path) -> list[str]:
-    """Detect and clean up sessions whose owning process has died."""
-    paths = resolve_state_paths(state_root)
-
-    if not paths.sessions_dir.is_dir():
-        return []
-
-    # Phase 1: Detect stale sessions by probing per-session locks.
-    # Release each lock immediately -- do NOT hold across phases.
-    stale_chat_ids: list[str] = []
-    for lock_path in paths.sessions_dir.glob("*.lock"):
-        chat_id = lock_path.stem
-        try:
-            handle = lock_path.open("a+b")
-            try:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                # Acquired → no other process holds it → stale.
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-                stale_chat_ids.append(chat_id)
-            except BlockingIOError:
-                pass  # Lock held → session is active.
-            finally:
-                handle.close()
-        except OSError:
-            continue
-
-    if not stale_chat_ids:
-        return []
-
-    # Phase 2: Write stop events under global lock.
-    # No per-session locks held here -- order is safe.
-    stale_set = set(stale_chat_ids)
-    with lock_file(paths.sessions_lock):
-        records = _records_by_session(state_root)
-        for chat_id in stale_chat_ids:
-            existing = records.get(chat_id)
-            if existing is not None and existing.stopped_at is None:
-                _append_event(paths.sessions_jsonl, SessionStopEvent(
-                    event="stop", chat_id=chat_id,
-                ))
-
-    # Phase 3: Delete stale lock files.
-    # Re-probe each lock (NB) to confirm still stale before deleting.
-    cleaned: list[str] = []
-    for chat_id in stale_chat_ids:
-        lock_path = paths.sessions_dir / f"{chat_id}.lock"
-        try:
-            handle = lock_path.open("a+b")
-            try:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                lock_path.unlink(missing_ok=True)
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-                cleaned.append(chat_id)
-            except BlockingIOError:
-                pass  # Someone else grabbed it between phases -- skip.
-            finally:
-                handle.close()
-        except OSError:
-            continue
-
-    # Phase 4: Clean up in-process handle references.
-    for chat_id in cleaned:
-        _SESSION_LOCK_HANDLES.pop(
-            _session_lock_key(state_root, chat_id), None
-        )
-
-    return cleaned
-```
-
-### Why this is safe
-
-- **No lock-order inversion:** Per-session locks are never held while the global lock is acquired. Each phase uses at most one lock type.
-- **TOCTOU between phases:** A session could start between Phase 1 (detection) and Phase 3 (deletion). The re-probe in Phase 3 catches this: if the new session grabbed the lock, `LOCK_NB` fails and we skip the delete.
-- **Stop event idempotence:** Writing a stop event for an already-stopped session is a no-op in the event fold (`_records_by_session` ignores duplicate stops).
-
-### Also fix: `start_session()` event-before-lock gap
-
-**Problem (Finding #4 from state-safety review):** `start_session()` appends the start event to `sessions.jsonl` before acquiring the per-session lifetime lock. If the process crashes between the event write and lock acquisition, the session is "logically active" forever -- `cleanup_stale_sessions()` only cleans up sessions that have a lock file.
-
-**Fix:** Acquire the per-session lifetime lock first, then write the start event.
-
-```python
-def start_session(state_root: Path, *, harness: str, ...) -> str:
-    paths = resolve_state_paths(state_root)
-    resolved_chat_id = chat_id or _generate_chat_id()
-
-    # 1. Acquire lifetime lock FIRST -- before recording anything.
-    lock_path = paths.sessions_dir / f"{resolved_chat_id}.lock"
-    handle = _acquire_session_lock(lock_path)
-    _SESSION_LOCK_HANDLES[_session_lock_key(state_root, resolved_chat_id)] = handle
-
-    # 2. Then record the start event under global lock.
-    with lock_file(paths.sessions_lock):
-        _append_event(paths.sessions_jsonl, SessionStartEvent(...))
-
-    return resolved_chat_id
-```
-
-Now if the process crashes after step 1 but before step 2, the lock file exists and `cleanup_stale_sessions()` will detect and clean it up. If it crashes before step 1, nothing was recorded.
-
----
-
-## Phase 10: PID-Before-Fork & Launch Mutex
-
-Two related fixes: close the crash window where a child process exists but its PID isn't recorded, and make `active-primary.lock` an actual mutex.
-
-### 10a. PID intent file: write before fork
-
-**Problem:** All three launch paths (background wrapper, foreground primary, runner child) start the child process before writing the PID file. If meridian crashes between `Popen()`/`fork()` and the PID write, the child runs orphaned and the reaper can't find it.
-
-The crash window is:
-```
-Popen()/fork()  →  [CRASH WINDOW]  →  write PID file  →  mark_spawn_running()
-```
-
-**Solution:** Write a **PID intent file** before forking, then update it with the actual PID after fork succeeds. The reaper can then distinguish "launcher still starting" from "launcher crashed after fork."
-
-```python
-# New convention: <spawn_dir>/launch_intent.json
-# Written BEFORE fork. Updated AFTER fork. Checked by reaper.
-
-def write_launch_intent(spawn_dir: Path, *, parent_pid: int) -> None:
-    """Record that this process intends to launch a child. Written before fork."""
-    atomic_write_text(spawn_dir / "launch_intent.json", json.dumps({
-        "parent_pid": parent_pid,
-        "child_pid": None,          # Not yet known.
-        "started_at": _utc_now_iso(),
-    }) + "\n")
-
-
-def update_launch_intent(spawn_dir: Path, *, child_pid: int) -> None:
-    """Record the child PID after successful fork."""
-    intent_path = spawn_dir / "launch_intent.json"
-    existing = json.loads(intent_path.read_text())
-    existing["child_pid"] = child_pid
-    atomic_write_text(intent_path, json.dumps(existing) + "\n")
-```
-
-**Launch sequence becomes:**
-
-```python
-# Background spawn (execute.py)
-spawn_dir = resolve_spawn_log_dir(...)
-spawn_dir.mkdir(parents=True, exist_ok=True)
-write_launch_intent(spawn_dir, parent_pid=os.getpid())    # BEFORE fork
-
-process = subprocess.Popen(launch_command, ...)
-
-update_launch_intent(spawn_dir, child_pid=process.pid)     # AFTER fork
-atomic_write_text(spawn_dir / "background.pid", f"{process.pid}\n")
-mark_spawn_running(...)
-```
-
-**Reaper changes:**
-
-When the reaper sees a missing PID file but `launch_intent.json` exists:
-1. If `child_pid` is set → use it (same as reading the PID file).
-2. If `child_pid` is None → check if `parent_pid` is alive.
-   - Parent alive → still launching, respect grace period.
-   - Parent dead → launcher crashed before fork completed. Safe to finalize as failed.
-
-```python
-def _inspect_spawn_runtime(record: SpawnRecord, spawn_dir: Path, ...) -> _SpawnInspection:
-    # ... existing PID file checks ...
-
-    # Fallback: check launch intent for crash-window recovery.
-    if wrapper_pid is None and harness_pid is None:
-        intent = _read_launch_intent(spawn_dir)
-        if intent is not None:
-            if intent.child_pid is not None:
-                # Fork succeeded but PID file never written.
-                # Use the intent's child_pid.
-                if launch_mode == BACKGROUND_LAUNCH_MODE:
-                    wrapper_pid = intent.child_pid
-                    wrapper_alive = _pid_is_alive(wrapper_pid, ...)
-                else:
-                    harness_pid = intent.child_pid
-                    harness_alive = _pid_is_alive(harness_pid, ...)
-            elif intent.parent_pid is not None:
-                # Fork never completed. Check if launcher is still alive.
-                if _pid_is_alive(intent.parent_pid, ...):
-                    # Launcher still running -- extend grace.
-                    grace_elapsed = False
-                # else: launcher dead, child never started.
-                # Let normal grace-elapsed logic finalize it.
-```
-
-### 10b. Make `active-primary.lock` an actual mutex
-
-**Problem:** `active-primary.lock` is a JSON status file, not a lock. Two primary launches can race without serialization.
-
-**Fix:** Use `fcntl.flock` on the file in addition to writing status. The lock file becomes both a mutex and a status marker.
-
-```python
-# src/meridian/lib/launch/process.py
-
-@contextmanager
-def primary_launch_lock(lock_path: Path, *, command: tuple[str, ...]):
-    """Acquire exclusive primary launch lock. Blocks if another primary is starting."""
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    handle = open(lock_path, "w")
-    try:
-        # Non-blocking first to give a better error message.
-        try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            # Another primary launch is active. Could block or error.
-            # For now, block with a timeout.
-            fcntl.flock(handle, fcntl.LOCK_EX)
-
-        # Write status payload (for observability, not mutual exclusion).
-        payload = {
-            "parent_pid": os.getpid(),
-            "child_pid": None,
-            "started_at": _utc_now_iso(),
-            "command": list(command),
-        }
-        handle.write(json.dumps(payload) + "\n")
-        handle.flush()
-
-        yield handle  # Caller can update child_pid later.
-    finally:
-        fcntl.flock(handle, fcntl.LOCK_UN)
-        handle.close()
-```
-
-Usage in `run_harness_process`:
-```python
-with primary_launch_lock(ctx.lock_path, command=command) as lock_handle:
-    # ... fork child ...
-    # Update child_pid in lock file after fork.
-    _update_lock_child_pid(lock_handle, child_pid)
-    # ... run until completion ...
-# Lock released automatically on exit.
-```
-
-`cleanup_orphaned_locks()` continues to work: it tries `LOCK_NB` on the file. If the lock is held, the primary is alive. If acquired, the primary is dead and the lock is stale.
-
----
-
-## Phase 11: Spawn State Machine
-
-**Problem:** Spawn lifecycle states are partially centralized in `spawn_lifecycle.py`, but transition logic is spread across `spawn_store.py`, `runner.py`, `reaper.py`, `execute.py`, and `api.py`. Status checks use hardcoded strings (`== "running"`, `== "queued"`) in 15+ locations. Adding a new state (e.g., `retrying`, `paused`) requires coordinated edits across all these modules.
-
-**Solution:** Define an explicit state machine with typed transitions in `spawn_lifecycle.py`. All status changes go through the machine. Direct string comparisons are replaced by predicates.
-
-### State machine definition
+One transition table, one active/terminal classification, validation inside locked mutations:
 
 ```python
 # src/meridian/lib/core/spawn_lifecycle.py
+ACTIVE_SPAWN_STATUSES = frozenset({"queued", "running"})
+TERMINAL_SPAWN_STATUSES = frozenset({"succeeded", "failed", "cancelled"})
 
-from __future__ import annotations
-
-from enum import Enum
-from typing import Literal
-
-from meridian.lib.core.domain import SpawnStatus
-
-
-class SpawnTransition(Enum):
-    """All legal spawn state transitions."""
-    # Normal lifecycle
-    CREATE        = ("queued",)           # → queued (initial)
-    START_RUNNING = ("queued", "running") # queued → running
-    SUCCEED       = ("running", "succeeded")
-    FAIL          = ("running", "failed")
-    CANCEL        = ("running", "cancelled")
-
-    # Recovery transitions (reaper)
-    RECOVER_RUNNING   = ("queued", "running")    # reaper promotes queued → running
-    RECOVER_SUCCEEDED = ("running", "succeeded") # reaper: durable report found
-    RECOVER_FAILED    = ("running", "failed")    # reaper: orphan/stale
-    FAIL_QUEUED       = ("queued", "failed")     # reaper: missing PID after grace
-
-    def __init__(self, *states: str):
-        if len(states) == 1:
-            self._from_status = None
-            self._to_status = states[0]
-        else:
-            self._from_status = states[0]
-            self._to_status = states[1]
-
-    @property
-    def from_status(self) -> SpawnStatus | None:
-        return self._from_status
-
-    @property
-    def to_status(self) -> SpawnStatus:
-        return self._to_status
-
-
-# Legal transitions as a lookup table.
-_ALLOWED_TRANSITIONS: dict[SpawnStatus | None, frozenset[SpawnStatus]] = {
-    None:        frozenset({"queued"}),                          # initial
-    "queued":    frozenset({"running", "failed", "cancelled"}),  # start, fail, cancel
-    "running":   frozenset({"succeeded", "failed", "cancelled"}),
-    "succeeded": frozenset(),  # terminal
-    "failed":    frozenset(),  # terminal
-    "cancelled": frozenset(),  # terminal
+_ALLOWED_TRANSITIONS = {
+    "queued": frozenset({"running", "failed", "cancelled"}),
+    "running": frozenset({"succeeded", "failed", "cancelled"}),
 }
 
-TERMINAL_STATUSES: frozenset[SpawnStatus] = frozenset({"succeeded", "failed", "cancelled"})
 
-
-def is_terminal(status: SpawnStatus) -> bool:
-    """Return True if the status is a terminal (final) state."""
-    return status in TERMINAL_STATUSES
-
-
-def is_active(status: SpawnStatus) -> bool:
-    """Return True if the status is an active (non-terminal) state."""
-    return status not in TERMINAL_STATUSES
-
-
-def validate_transition(from_status: SpawnStatus | None, to_status: SpawnStatus) -> None:
-    """Raise ValueError if the transition is not allowed."""
+def validate_transition(from_status: SpawnStatus, to_status: SpawnStatus) -> None:
     allowed = _ALLOWED_TRANSITIONS.get(from_status, frozenset())
     if to_status not in allowed:
-        raise ValueError(
-            f"Invalid spawn transition: {from_status!r} → {to_status!r}. "
-            f"Allowed from {from_status!r}: {sorted(allowed)}"
-        )
+        raise ValueError(f"Illegal spawn transition: {from_status} -> {to_status}")
 ```
-
-### Integration with spawn_store
 
 ```python
 # src/meridian/lib/state/spawn_store.py
-
-from meridian.lib.core.spawn_lifecycle import validate_transition, is_active, is_terminal
-
-def mark_spawn_running(state_root: Path, spawn_id: str, *, launch_mode: str, ...) -> None:
-    """Transition a spawn from queued to running."""
-    record = get_spawn(state_root, spawn_id)
-    if record is not None:
-        validate_transition(record.status, "running")
-    # ... existing update logic ...
-
-def finalize_spawn(state_root: Path, spawn_id: str, *, status: SpawnStatus, ...) -> None:
-    """Transition a spawn to a terminal state."""
-    validate_transition("running", status)  # Only running → terminal is normal.
-    # ... existing finalize logic ...
-
-def finalize_spawn_if_active(state_root: Path, spawn_id: str, *, status: SpawnStatus, ...) -> SpawnRecord | None:
-    """Finalize only if currently active. Used by cancel and reaper."""
-    record = get_spawn(state_root, spawn_id)
-    if record is None or is_terminal(record.status):
-        return record
-    validate_transition(record.status, status)
-    # ... existing logic ...
+def finalize_spawn(..., status: SpawnStatus, ...) -> None:
+    with lock_file(paths.spawns_lock):
+        record = _current_spawn_record_unlocked(state_root, spawn_id)
+        if record is None or record.status not in ACTIVE_SPAWN_STATUSES:
+            return
+        validate_transition(cast("SpawnStatus", record.status), status)
+        _append_spawn_event(...)
 ```
 
-### Replace hardcoded string comparisons
+Note: `queued -> failed` is explicitly allowed (startup failures). This corrects the prior design's bug where `finalize_spawn` hardcoded `running` as the only valid source status.
 
-Create additional predicates so callers never compare strings directly:
+---
+
+## State Projections
+
+**Goal:** Frontend-ready (Goal 2)
+
+### Problem
+
+Every read operation re-scans the full JSONL file. `list_spawns()` reads all of `spawns.jsonl` every time. `collect_active_chat_ids()` reads all of `sessions.jsonl` every time. For a CLI (short-lived process), this is fine at current scale. For a future persistent server (MCP, web), this becomes a bottleneck — every API call, every poll, every dashboard refresh re-reads everything.
+
+### Solution
+
+In-memory projections that subscribe to the observable event store (Phase 2b):
+
+SpawnIndex.stats() absorbs the Phase 11b concern. Stats are a derived view of the index — computing them from the projection avoids building a separate aggregation layer that would be replaced when projections land.
 
 ```python
-# spawn_lifecycle.py
+# src/meridian/lib/state/projections.py
+class SpawnStats(BaseModel):
+    total_runs: int
+    by_status: dict[str, int]
+    by_model: dict[str, int]
+    total_duration_secs: float
+    total_cost_usd: float
+    total_input_tokens: int
+    total_output_tokens: int
 
-def is_succeeded(status: SpawnStatus) -> bool:
-    return status == "succeeded"
 
-def is_failed(status: SpawnStatus) -> bool:
-    return status == "failed"
+class SpawnIndex:
+    """O(1) spawn lookup, maintained by event observation."""
 
-def is_cancelled(status: SpawnStatus) -> bool:
-    return status == "cancelled"
+    def __init__(self) -> None:
+        self._by_id: dict[SpawnId, SpawnRecord] = {}
+        self._by_status: dict[str, set[SpawnId]] = defaultdict(set)
+        self._by_work_id: dict[str, set[SpawnId]] = defaultdict(set)
+        self._stats: SpawnStats | None = None  # invalidated on change
 
-def is_queued(status: SpawnStatus) -> bool:
-    return status == "queued"
+    def rebuild(self, state_root: Path) -> None:
+        """Full rebuild from JSONL. Called once on startup."""
+        events = read_events(paths.spawns_jsonl, _parse_event)
+        self._by_id = _record_from_events(events)
+        self._rebuild_indexes()
 
-def is_running(status: SpawnStatus) -> bool:
-    return status == "running"
+    def on_event(self, store_name: str, payload: dict[str, Any]) -> None:
+        """Incremental update from event observer."""
+        if store_name != "spawns":
+            return
+        # Apply single event to existing projection
+        ...
 
-def is_failed_or_cancelled(status: SpawnStatus) -> bool:
-    return status in {"failed", "cancelled"}
+    def get(self, spawn_id: SpawnId) -> SpawnRecord | None:
+        return self._by_id.get(spawn_id)
+
+    def list(self, *, status: str | None = None, work_id: str | None = None) -> list[SpawnRecord]:
+        ...
+
+    def stats(self) -> SpawnStats:
+        ...
+
+
+def spawn_stats(state_root: Path) -> SpawnStats:
+    index = SpawnIndex()
+    index.rebuild(state_root)
+    return index.stats()
+
+
+class SessionIndex:
+    """Active session tracking via event ordering."""
+
+    def active_chat_ids(self) -> frozenset[str]:
+        """Correctly handles reused chat IDs by processing events in order."""
+        ...
+
+    def on_event(self, store_name: str, payload: dict[str, Any]) -> None:
+        if store_name != "sessions":
+            return
+        ...
+
+
+class WorkIndex:
+    """Work items with spawn associations."""
+    ...
 ```
 
-**Migration examples:**
+Usage:
 
 ```python
-# Before (reaper.py):
-if record.status == "queued":
+# For CLI (short-lived): rebuild on first access, equivalent to current full-scan
+index = SpawnIndex()
+index.rebuild(state_root)
 
-# After:
-from meridian.lib.core.spawn_lifecycle import is_queued
-if is_queued(record.status):
-
-# Before (api.py):
-if row.status == "failed":
-
-# After:
-from meridian.lib.core.spawn_lifecycle import is_failed
-if is_failed(row.status):
-
-# Before (spawn_store.py):
-None if event.status == "succeeded" else ...
-
-# After:
-None if is_succeeded(event.status) else ...
-```
-
-### Eliminate duplicate stats aggregation
-
-**Problem (from consistency review):** `spawn_store.spawn_stats()` and `spawn_stats_sync()` in `api.py` both aggregate spawn statistics with different output shapes.
-
-**Fix:** Keep one authoritative aggregation in the state layer, shape output in the ops layer.
-
-```python
-# spawn_store.py -- single source of truth
-def spawn_stats(state_root: Path) -> dict[SpawnStatus, int]:
-    """Count spawns by status."""
-    records = list_spawns(state_root)
-    counts: dict[SpawnStatus, int] = {}
-    for r in records:
-        counts[r.status] = counts.get(r.status, 0) + 1
-    return counts
-
-# api.py -- shapes for CLI/MCP output
-def spawn_stats_sync(payload, ctx=None) -> SpawnStatsOutput:
-    counts = spawn_store.spawn_stats(state_root)
-    return SpawnStatsOutput(
-        total=sum(counts.values()),
-        succeeded=counts.get("succeeded", 0),
-        failed=counts.get("failed", 0),
-        cancelled=counts.get("cancelled", 0),
-        running=counts.get("running", 0),
-        queued=counts.get("queued", 0),
-        by_status=counts,
-    )
+# For persistent server: rebuild once, stay in sync via observer
+index = SpawnIndex()
+index.rebuild(state_root)
+register_observer(index.on_event)
 ```
 
 ### Impact
 
-- All state transitions validated at the boundary -- invalid transitions fail fast
-- New states (e.g., `retrying`) require one edit to `_ALLOWED_TRANSITIONS` + predicates
-- No more string literals for status checks scattered across the codebase
-- Stats aggregation defined once, shaped at the output layer
+- `SessionIndex.active_chat_ids()` replaces `collect_active_chat_ids()`, fixing the reused-chat-ID bug (absorbs Phase 12b) by using event ordering instead of set subtraction.
+- `SpawnIndex.stats()` is a derived view of the index (absorbs Phase 11b's concern about re-aggregation).
+- CLI performance is unchanged (same full scan, just through the projection).
+- Future persistent server gets O(1) lookups for free.
 
 ---
 
-## Phase 12: Stale Detection & Reused Chat IDs
+## Conversation Model
 
-Two smaller fixes that depend on the cleaner abstractions from earlier phases.
+**Goal:** Frontend-ready (Goal 2)
 
-### 12a. Configurable stale threshold with heartbeat support
+### Problem
 
-**Problem:** The reaper marks spawns as stale after 5 minutes of no output. Any harness that buffers output or spends more than 5 minutes in a quiet tool call gets killed while healthy.
+Each harness stores conversation history in its own format and location:
 
-**Solution:** Two changes:
+- Claude: `.claude/projects/<repo-slug>/<session>.jsonl` (JSONL conversation turns)
+- Codex: `~/.codex/sessions/rollout-*.jsonl` (session meta + conversation events)
+- OpenCode: `~/.local/share/opencode/log/*.log` (structured log entries)
 
-1. **Make the threshold configurable** via project config:
-```python
-# Default in reaper.py
-_DEFAULT_STALE_THRESHOLD_SECS = 300  # 5 minutes
+Meridian captures raw stream events in `.meridian/artifacts/<spawn_id>/output.jsonl`, but this is stdout parsing, not a clean conversation. There is no unified representation. A `meridian history` command, a web conversation viewer, or cross-harness comparison are all impossible without per-adapter extraction and a shared model.
 
-def _get_stale_threshold(state_root: Path) -> int:
-    """Read stale threshold from config, falling back to default."""
-    # Reads from .meridian/config.json "stale_threshold_secs" key.
-    config = _read_config(state_root)
-    return config.get("stale_threshold_secs", _DEFAULT_STALE_THRESHOLD_SECS)
-```
+### Solution
 
-2. **Add a heartbeat file** that harnesses can touch to signal liveness without producing output:
+A unified conversation model with a per-adapter extraction protocol:
 
 ```python
-# reaper.py -- check heartbeat in staleness detection
-_HEARTBEAT_FILENAME = "heartbeat"
+# src/meridian/lib/core/conversation.py
+class ToolCall(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    tool_name: str
+    input: dict[str, Any]
+    output: str | None = None
 
-def _spawn_is_stale(spawn_dir: Path, pid_file: Path, *, threshold: int) -> bool:
-    now = time.time()
 
-    # Check output activity.
-    for name in ("output.jsonl", "stderr.log", _HEARTBEAT_FILENAME):
-        path = spawn_dir / name
-        try:
-            if now - path.stat().st_mtime < threshold:
-                return False
-        except OSError:
-            continue
+class ConversationTurn(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    role: Literal["user", "assistant", "system"]
+    content: str
+    tool_calls: tuple[ToolCall, ...] = ()
+    timestamp: str | None = None
 
-    # Fall back to PID file age as proxy for spawn start time.
-    try:
-        if now - pid_file.stat().st_mtime < threshold:
-            return False
-    except OSError:
-        pass
 
-    return True
+class Conversation(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    spawn_id: str
+    harness: str
+    turns: tuple[ConversationTurn, ...]
 ```
 
-The runner can touch the heartbeat file periodically during long operations:
+Extraction protocol on harness adapters:
 
 ```python
-# runner.py -- touch heartbeat every 60s during execution
-async def _heartbeat_loop(spawn_dir: Path, interval: float = 60.0):
-    heartbeat_path = spawn_dir / "heartbeat"
-    while True:
-        await asyncio.sleep(interval)
-        heartbeat_path.touch()
+# src/meridian/lib/harness/adapter.py
+class ConversationExtractingHarness(Protocol):
+    def extract_conversation(
+        self, artifacts: ArtifactStore, spawn_id: SpawnId,
+    ) -> Conversation | None: ...
 ```
 
-This is non-invasive: harnesses that don't touch the heartbeat file get the same behavior as before (stale after threshold). Harnesses that do touch it extend their liveness window.
+Each adapter provides its own extraction from its native format. Claude's is the most straightforward (parse the JSONL conversation file). Codex and OpenCode need format-specific parsing.
 
-### 12b. Fix `collect_active_chat_ids()` for reused chat IDs
-
-**Problem:** The function uses set subtraction (`started - stopped`), which ignores event ordering. The sequence `start(c7)`, `stop(c7)`, `start(c7)` yields `started={"c7"}`, `stopped={"c7"}`, result = empty set -- but `c7` is active.
-
-**Fix:** Process events in order, tracking the latest state per chat ID:
-
-```python
-def collect_active_chat_ids(repo_root: Path) -> frozenset[str]:
-    """Return chat IDs with currently-active sessions.
-
-    Processes events in order so reused chat IDs are handled correctly.
-    """
-    state_root = resolve_state_paths(resolve_repo_root(repo_root)).root_dir
-    sessions_file = state_root / "sessions.jsonl"
-
-    try:
-        events = read_events(sessions_file, _parse_event)
-    except OSError:
-        return frozenset()
-
-    # Track latest state per chat_id. Last event wins.
-    latest: dict[str, str] = {}  # chat_id -> "start" | "stop"
-    for event in events:
-        if isinstance(event, SessionStartEvent):
-            latest[event.chat_id] = "start"
-        elif isinstance(event, SessionStopEvent):
-            latest[event.chat_id] = "stop"
-
-    return frozenset(
-        chat_id for chat_id, state in latest.items() if state == "start"
-    )
-```
-
-This is a one-for-one replacement. The event log is already ordered (append-only JSONL), so processing in file order gives the correct latest state.
+This also enables a future `meridian history <spawn_id>` CLI command and a web UI conversation viewer, both consuming the same model.
 
 ---
 
-## Updated Implementation Sequence
+## Sink Fan-Out
 
-```
-Phase 1   Dead code & quick fixes ──────────────────────────>  commit
-    │
-Phase 2   Shared JSONL event store ──────────────────────────>  commit
-    │
-Phase 3   Unified error semantics ──────>  commit
-    │
-Phase 4   Ops helpers ──────>  commit       Phase 5   Async wrappers ──────>  commit
-    │                                            │
-Phase 6   Session lifecycle extraction ──────────────────────>  commit
-    │
-Phase 7   Harness adapter ISP ──────────────────────────────>  commit
-    │
-Phase 8   CLI registration ──────>  commit
-    │
-Phase 9   Session lock-order fix ──────>  commit
-    │
-Phase 10  PID-before-fork & launch mutex ───────────────────>  commit
-    │
-Phase 11  Spawn state machine ──────────────────────────────>  commit
-    │
-Phase 12  Stale detection & reused chat IDs ──────>  commit
+**Goal:** Frontend-ready (Goal 2)
+
+### Problem
+
+Only one `OutputSink` is active at a time. A future web UI needs to push events to a WebSocket AND log to a file AND display in a terminal. Plugin sinks (metrics, audit) need to run alongside the primary sink.
+
+### Solution
+
+```python
+# src/meridian/lib/core/sink.py
+class CompositeSink:
+    """Fan-out to multiple sinks."""
+
+    def __init__(self, *sinks: OutputSink) -> None:
+        self._sinks = sinks
+
+    def result(self, payload: Any) -> None:
+        for sink in self._sinks:
+            sink.result(payload)
+
+    def status(self, message: str) -> None:
+        for sink in self._sinks:
+            sink.status(message)
+
+    def warning(self, message: str) -> None:
+        for sink in self._sinks:
+            sink.warning(message)
+
+    def error(self, message: str, exit_code: int = 1) -> None:
+        for sink in self._sinks:
+            sink.error(message, exit_code)
+
+    def heartbeat(self, message: str) -> None:
+        for sink in self._sinks:
+            sink.heartbeat(message)
+
+    def event(self, payload: dict[str, Any]) -> None:
+        for sink in self._sinks:
+            sink.event(payload)
+
+    def flush(self) -> None:
+        for sink in self._sinks:
+            if hasattr(sink, "flush"):
+                sink.flush()
 ```
 
-Phases 9-12 build on the cleaner abstractions from 1-8:
-- Phase 9 uses `lock_file` from Phase 2's shared event store.
-- Phase 10 integrates with Phase 6's `SessionScope` for the primary launch path.
-- Phase 11 replaces the `ACTIVE_SPAWN_STATUSES` checks that Phase 2's shared store uses.
-- Phase 12 uses `read_events` from Phase 2 for the chat ID fix.
+Small implementation. Architecturally important as the extension point for any future output destination.
+
+---
+
+## Result
+
+This plan addresses three goals with 19 work items:
+
+**Goal 1 — Bug fixes and consistency** (Phases 10b, 1, 12a.1, 12a.2, 2a, 3b, 3, 6, 9a+9b): Fix malformed-event crashes, the primary-launch non-mutex, heartbeat lifecycle gaps, stale detection false failures, shared JSONL consistency drift, work-store races, work-store error inconsistency, session lifecycle duplication, and generation-safe session cleanup. Phase `9a+9b` ships atomically.
+
+**Goal 2 — Frontend-ready** (Phase 2b observer hooks, state projections, conversation model, sink fan-out, Phase 5 async correctness): Build observable state, queryable state via projections, a unified conversation model, and sink fan-out — so a future `meridian view` web UI has efficient foundations to build on.
+
+**Goal 3 — Legibility for AI agents** (Phases 2a, 4, 6, 6a, 6b, 7, 8, 11a, State projections): Consolidate duplicated helpers, extract session lifecycle to one place, replace duplicated policy resolution with single plans, narrow the harness protocol split to execution-mode boundaries, consolidate CLI registration, and establish an authoritative spawn transition model with projection-derived stats — so that agents exploring and modifying the codebase find single sources of truth and predictable patterns.
+
+### What's Deferred
+
+- JSONL compaction — projections solve the read problem; compaction is future work.
+- `flock` on NFS — local-filesystem assumption remains.
+- Cross-process state observation/invalidation — file-tailing or inotify needed for a persistent frontend server to receive real-time updates from other meridian processes.
+- Read-path reconciliation isolation — separating reaper/repair behavior from query/read behavior so that reads are side-effect-free.
+- Web UI (`meridian view`) — separate project consuming this infrastructure.
+- HTTP/WebSocket transport — separate project reusing manifest + projections + sinks.
+- Plugin loading mechanism — harness adapters are already registrable via code; config-driven external registration is future work when there's community demand.
+- Interactive chat (injecting messages into running sessions) — requires a new execution mode.
+- Primary launch post-fork ambiguity — reaper is conservative, not solved.
