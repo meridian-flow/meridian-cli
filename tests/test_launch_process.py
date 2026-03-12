@@ -13,11 +13,13 @@ from typing import Any
 import pytest
 
 from meridian.lib.launch import process
-from meridian.lib.launch.command import PrimaryHarnessContext
-from meridian.lib.launch.process import LaunchContext
+from meridian.lib.launch.plan import ResolvedPrimaryLaunchPlan
 from meridian.lib.launch.types import LaunchRequest, PrimarySessionMetadata
 from meridian.lib.config.settings import load_config
+from meridian.lib.core.types import HarnessId, ModelId
+from meridian.lib.harness.adapter import SpawnParams
 from meridian.lib.harness.registry import get_default_harness_registry
+from meridian.lib.safety.permissions import PermissionConfig
 from meridian.lib.state import spawn_store
 
 
@@ -115,9 +117,13 @@ def test_run_harness_process_reuses_tracked_chat_id_on_resume(
         continue_harness_session_id="session-2",
         continue_chat_id="c7",
     )
-    ctx = LaunchContext(
-        config=config,
+    plan = ResolvedPrimaryLaunchPlan(
+        repo_root=repo_root,
+        state_root=tmp_path / ".meridian",
         prompt="resume prompt",
+        request=request,
+        config=config,
+        adapter=harness_registry.get_subprocess_harness(HarnessId("codex")),
         session_metadata=PrimarySessionMetadata(
             harness="codex",
             model="gpt-5.4",
@@ -126,7 +132,9 @@ def test_run_harness_process_reuses_tracked_chat_id_on_resume(
             skills=(),
             skill_paths=(),
         ),
-        state_root=tmp_path / ".meridian",
+        run_params=SpawnParams(prompt="resume prompt", model=ModelId("gpt-5.4"), interactive=True),
+        permission_config=PermissionConfig(),
+        command=("true",),
         lock_path=tmp_path / ".meridian" / "active-primary.lock",
         seed_harness_session_id="session-2",
         command_request=request,
@@ -136,10 +144,6 @@ def test_run_harness_process_reuses_tracked_chat_id_on_resume(
 
     def fake_sweep_orphaned_materializations(*args: object, **kwargs: object) -> None:
         _ = (args, kwargs)
-
-    def fake_build_harness_context(**kwargs: object) -> PrimaryHarnessContext:
-        _ = kwargs
-        return PrimaryHarnessContext(command=("true",))
 
     def fake_build_launch_env(*args: object, **kwargs: object) -> dict[str, str]:
         _ = (args, kwargs)
@@ -166,7 +170,6 @@ def test_run_harness_process_reuses_tracked_chat_id_on_resume(
         "_sweep_orphaned_materializations",
         fake_sweep_orphaned_materializations,
     )
-    monkeypatch.setattr(process, "build_harness_context", fake_build_harness_context)
     monkeypatch.setattr(process, "build_launch_env", fake_build_launch_env)
     monkeypatch.setattr(
         process,
@@ -191,12 +194,12 @@ def test_run_harness_process_reuses_tracked_chat_id_on_resume(
 
     monkeypatch.setattr(process, "start_session", fake_start_session)
 
-    outcome = process.run_harness_process(repo_root, request, ctx, harness_registry)
+    outcome = process.run_harness_process(plan, harness_registry)
 
     assert captured["chat_id_arg"] == "c7"
     assert outcome.chat_id == "c7"
     assert outcome.primary_spawn_id is not None
-    row = spawn_store.get_spawn(ctx.state_root, outcome.primary_spawn_id)
+    row = spawn_store.get_spawn(plan.state_root, outcome.primary_spawn_id)
     assert row is not None
     assert row.worker_pid == 123
 

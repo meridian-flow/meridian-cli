@@ -21,9 +21,11 @@ from typing import Any, TextIO, cast
 
 from pydantic import BaseModel, ConfigDict
 
-from meridian.lib.config.settings import MeridianConfig, load_config
-from meridian.lib.core.spawn_lifecycle import resolve_execution_terminal_state
-from meridian.lib.core.types import HarnessId, SpawnId
+from meridian.lib.core.spawn_lifecycle import (
+    has_durable_report_completion,
+    resolve_execution_terminal_state,
+)
+from meridian.lib.core.types import SpawnId
 from meridian.lib.harness.adapter import SubprocessHarness
 from meridian.lib.harness.materialize import cleanup_materialized
 from meridian.lib.harness.registry import HarnessRegistry
@@ -35,12 +37,11 @@ from meridian.lib.state.paths import resolve_spawn_log_dir, resolve_state_paths
 from meridian.lib.state.session_store import start_session, stop_session, update_session_harness_id
 from meridian.lib.state.spawn_store import FOREGROUND_LAUNCH_MODE
 
-from .command import build_harness_context, build_launch_env
+from .command import build_launch_env
 from .heartbeat import threaded_heartbeat_scope
-from .resolve import resolve_primary_session_metadata
+from .plan import ResolvedPrimaryLaunchPlan
 from .session_scope import ManagedSession, session_scope
 from .session_ids import extract_latest_session_id
-from .types import LaunchRequest, PrimarySessionMetadata, build_primary_prompt
 
 logger = logging.getLogger(__name__)
 _PRIMARY_OUTPUT_FILENAME = "output.jsonl"
@@ -50,20 +51,6 @@ def active_primary_lock_path(repo_root: Path) -> Path:
     """Return the active primary-session lock path."""
 
     return resolve_state_paths(repo_root).active_primary_lock
-
-
-class LaunchContext(BaseModel):
-    """Resolved configuration for one primary launch."""
-
-    model_config = ConfigDict(frozen=True)
-
-    config: MeridianConfig
-    prompt: str
-    session_metadata: PrimarySessionMetadata
-    state_root: Path
-    lock_path: Path
-    seed_harness_session_id: str
-    command_request: LaunchRequest
 
 
 class ProcessOutcome(BaseModel):
@@ -361,109 +348,60 @@ def _install_winsize_forwarding(*, source_fd: int, target_fd: int) -> Any:
     return _restore
 
 
-def prepare_launch_context(
-    repo_root: Path,
-    request: LaunchRequest,
-    harness_registry: HarnessRegistry,
-) -> LaunchContext:
-    """Config loading, prompt building, session-ID seeding, command-request patching."""
-
-    config = load_config(repo_root)
-    session_metadata = resolve_primary_session_metadata(
-        repo_root=repo_root,
-        request=request,
-        config=config,
-        harness_registry=harness_registry,
-    )
-    state_root = resolve_state_paths(repo_root).root_dir
-    lock_path = active_primary_lock_path(repo_root)
-
-    explicit_session_id = (
-        request.continue_harness_session_id.strip()
-        if request.continue_harness_session_id is not None
-        else ""
-    )
-    prompt = build_primary_prompt(request)
-
-    adapter = harness_registry.get_subprocess_harness(HarnessId(session_metadata.harness))
-    seed = adapter.seed_session(
-        is_resume=bool(explicit_session_id),
-        harness_session_id=explicit_session_id,
-        passthrough_args=request.passthrough_args,
-    )
-    seed_harness_session_id = seed.session_id
-    command_request = request
-    if seed.session_args:
-        command_request = request.model_copy(
-            update={"passthrough_args": (*request.passthrough_args, *seed.session_args)},
-        )
-
-    return LaunchContext(
-        config=config,
-        prompt=prompt,
-        session_metadata=session_metadata,
-        state_root=state_root,
-        lock_path=lock_path,
-        seed_harness_session_id=seed_harness_session_id,
-        command_request=command_request,
-    )
-
-
 def run_harness_process(
-    repo_root: Path,
-    request: LaunchRequest,
-    ctx: LaunchContext,
+    plan: ResolvedPrimaryLaunchPlan,
     harness_registry: HarnessRegistry,
 ) -> ProcessOutcome:
     """Start session, spawn tracking, launch process, wait for exit."""
 
-    command: tuple[str, ...] = ()
+    repo_root = plan.repo_root
+    command = plan.command
     chat_id: str | None = None
     primary_spawn_id: SpawnId | None = None
     primary_started = 0.0
     primary_started_epoch = 0.0
     primary_started_local_iso: str | None = None
-    resolved_harness_session_id = ctx.seed_harness_session_id
+    resolved_harness_session_id = plan.seed_harness_session_id
     managed_session: ManagedSession | None = None
-    artifacts = LocalStore(root_dir=resolve_state_paths(repo_root).artifacts_dir)
+    artifacts = LocalStore(root_dir=resolve_state_paths(plan.repo_root).artifacts_dir)
 
     exit_code = 2
     with primary_launch_lock(
-        ctx.lock_path,
+        plan.lock_path,
         _primary_launch_lock_payload(command=command, child_pid=None),
     ) as lock_handle:
         try:
             _sweep_orphaned_materializations(
-                repo_root,
-                ctx.session_metadata.harness,
+                plan.repo_root,
+                plan.session_metadata.harness,
                 harness_registry=harness_registry,
             )
             with session_scope(
-                state_root=ctx.state_root,
-                harness=ctx.session_metadata.harness,
-                harness_session_id=ctx.seed_harness_session_id,
-                model=ctx.session_metadata.model,
-                chat_id=request.continue_chat_id,
-                agent=ctx.session_metadata.agent,
-                agent_path=ctx.session_metadata.agent_path,
-                skills=ctx.session_metadata.skills,
-                skill_paths=ctx.session_metadata.skill_paths,
+                state_root=plan.state_root,
+                harness=plan.session_metadata.harness,
+                harness_session_id=plan.seed_harness_session_id,
+                model=plan.session_metadata.model,
+                chat_id=plan.request.continue_chat_id,
+                agent=plan.session_metadata.agent,
+                agent_path=plan.session_metadata.agent_path,
+                skills=plan.session_metadata.skills,
+                skill_paths=plan.session_metadata.skill_paths,
                 _start_session=start_session,
                 _stop_session=stop_session,
                 _update_session_harness_id=update_session_harness_id,
             ) as managed:
                 managed_session = managed
                 chat_id = managed.chat_id
-                ensure_session_work_item(ctx.state_root, chat_id)
+                ensure_session_work_item(plan.state_root, chat_id)
                 try:
                     primary_spawn_id = spawn_store.start_spawn(
-                        ctx.state_root,
+                        plan.state_root,
                         chat_id=chat_id,
-                        model=ctx.session_metadata.model,
-                        agent=ctx.session_metadata.agent,
-                        harness=ctx.session_metadata.harness,
+                        model=plan.session_metadata.model,
+                        agent=plan.session_metadata.agent,
+                        harness=plan.session_metadata.harness,
                         kind="primary",
-                        prompt=ctx.prompt,
+                        prompt=plan.prompt,
                         launch_mode=FOREGROUND_LAUNCH_MODE,
                         status="queued",
                     )
@@ -472,26 +410,19 @@ def run_harness_process(
                         primary_started = time.monotonic()
                         primary_started_epoch = time.time()
                         primary_started_local_iso = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-                        harness_context = build_harness_context(
-                            repo_root=repo_root,
-                            request=ctx.command_request,
-                            prompt=ctx.prompt,
-                            harness_registry=harness_registry,
-                            chat_id=chat_id,
-                            config=ctx.config,
-                        )
-                        command = harness_context.command
                         _rewrite_primary_launch_lock_payload(
                             lock_handle,
                             _primary_launch_lock_payload(command=command, child_pid=None),
                         )
                         child_env = build_launch_env(
                             repo_root,
-                            request,
+                            plan.request,
                             chat_id=chat_id,
-                            default_autocompact_pct=ctx.config.primary.autocompact_pct,
+                            default_autocompact_pct=plan.config.primary.autocompact_pct,
                             spawn_id=primary_spawn_id,
-                            harness_context=harness_context,
+                            adapter=plan.adapter,
+                            run_params=plan.run_params,
+                            permission_config=plan.permission_config,
                         )
                         output_log_path = log_dir / _PRIMARY_OUTPUT_FILENAME
 
@@ -505,7 +436,7 @@ def run_harness_process(
                                 f"{child_pid}\n",
                             )
                             spawn_store.mark_spawn_running(
-                                ctx.state_root,
+                                plan.state_root,
                                 primary_spawn_id,
                                 launch_mode=FOREGROUND_LAUNCH_MODE,
                                 worker_pid=child_pid,
@@ -524,9 +455,23 @@ def run_harness_process(
                                 output_log_path.read_bytes(),
                             )
                 finally:
+                    durable_report = False
+                    terminated_after_completion = False
+                    if primary_spawn_id is not None:
+                        report_path = resolve_spawn_log_dir(repo_root, primary_spawn_id) / "report.md"
+                        try:
+                            report_text = report_path.read_text(encoding="utf-8") if report_path.is_file() else None
+                        except OSError:
+                            report_text = None
+                        durable_report = has_durable_report_completion(report_text)
+                        terminated_after_completion = (
+                            durable_report and exit_code in (143, -15)
+                        )
                     status, exit_code, _failure_reason = resolve_execution_terminal_state(
                         exit_code=exit_code,
                         failure_reason=None,
+                        durable_report_completion=durable_report,
+                        terminated_after_completion=terminated_after_completion,
                     )
                     if primary_spawn_id is not None:
                         duration = (
@@ -535,19 +480,16 @@ def run_harness_process(
                             else None
                         )
                         spawn_store.finalize_spawn(
-                            ctx.state_root,
+                            plan.state_root,
                             primary_spawn_id,
                             status=status,
                             exit_code=exit_code,
                             duration_secs=duration,
                         )
                     observed_harness_session_id = None
-                    adapter = harness_registry.get_subprocess_harness(
-                        HarnessId(ctx.session_metadata.harness)
-                    )
                     if primary_started_epoch > 0.0:
                         observed_harness_session_id = extract_latest_session_id(
-                            adapter=adapter,
+                            adapter=plan.adapter,
                             current_session_id=resolved_harness_session_id,
                             artifacts=artifacts,
                             spawn_id=primary_spawn_id,
@@ -568,8 +510,8 @@ def run_harness_process(
         finally:
             if managed_session is not None:
                 _cleanup_launch_materialized(
-                    repo_root=repo_root,
-                    harness_id=ctx.session_metadata.harness,
+                    repo_root=plan.repo_root,
+                    harness_id=plan.session_metadata.harness,
                     harness_registry=harness_registry,
                 )
 
@@ -586,11 +528,9 @@ def run_harness_process(
 
 
 __all__ = [
-    "LaunchContext",
     "ProcessOutcome",
     "active_primary_lock_path",
     "cleanup_orphaned_locks",
-    "prepare_launch_context",
     "primary_launch_lock",
     "run_harness_process",
 ]
