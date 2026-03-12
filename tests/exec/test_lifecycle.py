@@ -25,6 +25,7 @@ from meridian.lib.harness.adapter import (
 )
 from meridian.lib.harness.registry import HarnessRegistry
 from meridian.lib.safety.permissions import PermissionConfig
+from meridian.lib.ops.spawn.plan import ExecutionPolicy, PreparedSpawnPlan, SessionContinuation
 from meridian.lib.state import spawn_store
 from meridian.lib.state.artifact_store import LocalStore, make_artifact_key
 from meridian.lib.state.paths import resolve_state_paths
@@ -90,6 +91,47 @@ def _read_output_payload(artifacts: LocalStore, spawn_id: SpawnId) -> dict[str, 
     return json.loads(raw.strip())
 
 
+class _NoopPermissionResolver:
+    def resolve_flags(self, harness_id: HarnessId) -> list[str]:
+        _ = harness_id
+        return []
+
+
+def _build_plan(
+    run: Spawn,
+    harness_id: HarnessId,
+    *,
+    timeout_seconds: float | None = None,
+    kill_grace_seconds: float = 30.0,
+    max_retries: int = 0,
+    retry_backoff_seconds: float = 2.0,
+) -> PreparedSpawnPlan:
+    return PreparedSpawnPlan(
+        model=str(run.model),
+        harness_id=str(harness_id),
+        prompt=run.prompt,
+        agent_name=None,
+        skills=(),
+        skill_paths=(),
+        reference_files=(),
+        template_vars={},
+        mcp_tools=(),
+        session_agent="",
+        session_agent_path="",
+        session=SessionContinuation(),
+        execution=ExecutionPolicy(
+            timeout_secs=timeout_seconds,
+            kill_grace_secs=kill_grace_seconds,
+            max_retries=max_retries,
+            retry_backoff_secs=retry_backoff_seconds,
+            permission_config=PermissionConfig(),
+            permission_resolver=_NoopPermissionResolver(),
+            allowed_tools=(),
+        ),
+        cli_command=(),
+    )
+
+
 @pytest.mark.asyncio
 async def test_execute_retries_retryable_errors_up_to_max(tmp_path: Path) -> None:
     run, state_root = _create_run(tmp_path, prompt="retry me")
@@ -120,14 +162,18 @@ async def test_execute_retries_retryable_errors_up_to_max(tmp_path: Path) -> Non
 
     exit_code = await execute_with_finalization(
         run,
+        plan=_build_plan(
+            run,
+            adapter.id,
+            max_retries=3,
+            retry_backoff_seconds=0.0,
+        ),
         repo_root=tmp_path,
         state_root=state_root,
         artifacts=artifacts,
         registry=registry,
         harness_id=adapter.id,
         cwd=tmp_path,
-        max_retries=3,
-        retry_backoff_seconds=0.0,
     )
 
     assert exit_code == 1
@@ -167,14 +213,18 @@ async def test_execute_does_not_retry_unrecoverable_errors(tmp_path: Path) -> No
 
     exit_code = await execute_with_finalization(
         run,
+        plan=_build_plan(
+            run,
+            adapter.id,
+            max_retries=3,
+            retry_backoff_seconds=0.0,
+        ),
         repo_root=tmp_path,
         state_root=resolve_state_paths(tmp_path).root_dir,
         artifacts=artifacts,
         registry=registry,
         harness_id=adapter.id,
         cwd=tmp_path,
-        max_retries=3,
-        retry_backoff_seconds=0.0,
     )
 
     assert exit_code == 1
@@ -201,16 +251,20 @@ async def test_execute_sets_timeout_failure_reason(tmp_path: Path) -> None:
 
     exit_code = await execute_with_finalization(
         run,
+        plan=_build_plan(
+            run,
+            adapter.id,
+            timeout_seconds=0.05,
+            kill_grace_seconds=0.05,
+            max_retries=3,
+            retry_backoff_seconds=0.0,
+        ),
         repo_root=tmp_path,
         state_root=state_root,
         artifacts=artifacts,
         registry=registry,
         harness_id=adapter.id,
         cwd=tmp_path,
-        timeout_seconds=0.05,
-        kill_grace_seconds=0.05,
-        max_retries=3,
-        retry_backoff_seconds=0.0,
     )
 
     assert exit_code == 3
@@ -261,13 +315,17 @@ async def test_execute_handles_large_stdout_json_lines(tmp_path: Path) -> None:
 
     exit_code = await execute_with_finalization(
         run,
+        plan=_build_plan(
+            run,
+            adapter.id,
+            max_retries=0,
+        ),
         repo_root=tmp_path,
         state_root=state_root,
         artifacts=artifacts,
         registry=registry,
         harness_id=adapter.id,
         cwd=tmp_path,
-        max_retries=0,
     )
 
     assert exit_code == 0
@@ -335,13 +393,17 @@ async def test_execute_treats_watchdog_termination_after_report_as_success(
 
     exit_code = await execute_with_finalization(
         run,
+        plan=_build_plan(
+            run,
+            adapter.id,
+            max_retries=0,
+        ),
         repo_root=tmp_path,
         state_root=state_root,
         artifacts=artifacts,
         registry=registry,
         harness_id=adapter.id,
         cwd=tmp_path,
-        max_retries=0,
     )
 
     assert exit_code == 0
@@ -373,15 +435,19 @@ async def test_execute_sets_cancelled_failure_reason(tmp_path: Path) -> None:
     task = asyncio.create_task(
         execute_with_finalization(
             run,
+            plan=_build_plan(
+                run,
+                adapter.id,
+                timeout_seconds=None,
+                kill_grace_seconds=0.05,
+                max_retries=0,
+            ),
             repo_root=tmp_path,
             state_root=state_root,
             artifacts=artifacts,
             registry=registry,
             harness_id=adapter.id,
             cwd=tmp_path,
-            timeout_seconds=None,
-            kill_grace_seconds=0.05,
-            max_retries=0,
         )
     )
     await asyncio.sleep(0.05)

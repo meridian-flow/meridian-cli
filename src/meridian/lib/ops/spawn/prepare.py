@@ -8,7 +8,6 @@ from pydantic import BaseModel, ConfigDict
 from meridian.lib.catalog.models import load_merged_aliases, resolve_model
 from meridian.lib.catalog.models import load_discovered_models
 from meridian.lib.config.settings import MeridianConfig
-from meridian.lib.harness.adapter import PermissionResolver
 from meridian.lib.harness.registry import HarnessRegistry, get_default_harness_registry
 from meridian.lib.core.context import RuntimeContext
 from meridian.lib.launch.prompt import (
@@ -24,7 +23,6 @@ from meridian.lib.launch.resolve import (
     resolve_skills_from_profile,
 )
 from meridian.lib.safety.permissions import (
-    PermissionConfig,
     build_permission_config,
     build_permission_resolver,
     validate_child_permission_tier,
@@ -34,9 +32,16 @@ from meridian.lib.core.types import ModelId
 
 from ..runtime import OperationRuntime, build_runtime, resolve_runtime_root_and_config
 from .models import SpawnCreateInput
+from .plan import ExecutionPolicy, PreparedSpawnPlan, SessionContinuation
 
 logger = structlog.get_logger(__name__)
 _DISCOVERED_MODEL_CONTEXT_LIMIT = 12
+
+
+def _minutes_to_seconds(timeout_minutes: float | None) -> float | None:
+    if timeout_minutes is None:
+        return None
+    return timeout_minutes * 60.0
 
 
 def merge_warnings(*warnings: str | None) -> str | None:
@@ -46,29 +51,6 @@ def merge_warnings(*warnings: str | None) -> str | None:
     if not parts:
         return None
     return "; ".join(parts)
-
-
-class _PreparedCreate(BaseModel):
-    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
-
-    model: str
-    harness_id: str
-    warning: str | None
-    composed_prompt: str
-    skills: tuple[str, ...]
-    reference_files: tuple[str, ...]
-    template_vars: dict[str, str]
-    mcp_tools: tuple[str, ...]
-    agent_name: str | None
-    session_agent: str
-    session_agent_path: str
-    skill_paths: tuple[str, ...]
-    cli_command: tuple[str, ...]
-    permission_config: PermissionConfig
-    permission_resolver: PermissionResolver
-    allowed_tools: tuple[str, ...]
-    continue_harness_session_id: str | None
-    continue_fork: bool
 
 
 class _CreateRuntimeView(BaseModel):
@@ -175,7 +157,7 @@ def build_create_payload(
     runtime: OperationRuntime | None = None,
     preflight_warning: str | None = None,
     ctx: RuntimeContext | None = None,
-) -> _PreparedCreate:
+) -> PreparedSpawnPlan:
     runtime_context = ctx or RuntimeContext.from_environment()
     runtime_view: _CreateRuntimeView
     if runtime is not None:
@@ -336,11 +318,11 @@ def build_create_payload(
         for skill in resolved_skills.loaded_skills
     )
 
-    return _PreparedCreate(
+    return PreparedSpawnPlan(
         model=defaults.model,
         harness_id=str(harness.id),
         warning=warning,
-        composed_prompt=composed_prompt,
+        prompt=composed_prompt,
         skills=resolved_skills.skill_names,
         reference_files=tuple(str(reference.path) for reference in loaded_references),
         template_vars=parsed_template_vars,
@@ -350,11 +332,20 @@ def build_create_payload(
         session_agent_path=session_agent_path,
         skill_paths=session_skill_paths,
         cli_command=preview_command,
-        permission_config=permission_config,
-        permission_resolver=resolver,
-        allowed_tools=profile.allowed_tools if profile is not None else (),
-        continue_harness_session_id=resolved_continue_harness_session_id,
-        continue_fork=resolved_continue_fork,
+        appended_system_prompt=appended_system_prompt,
+        session=SessionContinuation(
+            harness_session_id=resolved_continue_harness_session_id,
+            continue_fork=resolved_continue_fork,
+        ),
+        execution=ExecutionPolicy(
+            timeout_secs=_minutes_to_seconds(payload.timeout),
+            kill_grace_secs=_minutes_to_seconds(runtime_view.config.kill_grace_minutes) or 0.0,
+            max_retries=runtime_view.config.max_retries,
+            retry_backoff_secs=runtime_view.config.retry_backoff_seconds,
+            permission_config=permission_config,
+            permission_resolver=resolver,
+            allowed_tools=profile.allowed_tools if profile is not None else (),
+        ),
     )
 
 

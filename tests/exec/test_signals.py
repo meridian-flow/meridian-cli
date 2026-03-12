@@ -28,6 +28,7 @@ from meridian.lib.harness.adapter import (
     StreamEvent,
 )
 from meridian.lib.harness.registry import HarnessRegistry
+from meridian.lib.ops.spawn.plan import ExecutionPolicy, PreparedSpawnPlan, SessionContinuation
 from meridian.lib.safety.permissions import PermissionConfig
 from meridian.lib.state import spawn_store
 from meridian.lib.state.artifact_store import LocalStore
@@ -91,6 +92,43 @@ def _create_run(repo_root: Path, *, prompt: str) -> tuple[Spawn, Path]:
     return run, resolve_state_paths(repo_root).root_dir
 
 
+class _NoopPermissionResolver:
+    def resolve_flags(self, harness_id: HarnessId) -> list[str]:
+        _ = harness_id
+        return []
+
+
+def _build_plan(
+    run: Spawn,
+    harness_id: HarnessId,
+    *,
+    timeout_seconds: float | None = None,
+    kill_grace_seconds: float = 30.0,
+) -> PreparedSpawnPlan:
+    return PreparedSpawnPlan(
+        model=str(run.model),
+        harness_id=str(harness_id),
+        prompt=run.prompt,
+        agent_name=None,
+        skills=(),
+        skill_paths=(),
+        reference_files=(),
+        template_vars={},
+        mcp_tools=(),
+        session_agent="",
+        session_agent_path="",
+        session=SessionContinuation(),
+        execution=ExecutionPolicy(
+            timeout_secs=timeout_seconds,
+            kill_grace_secs=kill_grace_seconds,
+            permission_config=PermissionConfig(),
+            permission_resolver=_NoopPermissionResolver(),
+            allowed_tools=(),
+        ),
+        cli_command=(),
+    )
+
+
 @pytest.mark.asyncio
 async def test_execute_with_finalization_ignores_sigterm_during_finalize_write(
     monkeypatch: pytest.MonkeyPatch,
@@ -137,13 +175,13 @@ async def test_execute_with_finalization_ignores_sigterm_during_finalize_write(
 
     exit_code = await execute_with_finalization(
         run,
+        plan=_build_plan(run, adapter.id, timeout_seconds=1.0),
         repo_root=tmp_path,
         state_root=state_root,
         artifacts=artifacts,
         registry=registry,
         harness_id=adapter.id,
         cwd=tmp_path,
-        timeout_seconds=1.0,
     )
 
     assert exit_code == 2
@@ -258,6 +296,11 @@ def test_kill_running_parent_process_still_finalizes_run(
                 StreamEvent,
             )
             from meridian.lib.harness.registry import HarnessRegistry
+            from meridian.lib.ops.spawn.plan import (
+                ExecutionPolicy,
+                PreparedSpawnPlan,
+                SessionContinuation,
+            )
             from meridian.lib.safety.permissions import PermissionConfig
             from meridian.lib.state.artifact_store import LocalStore
             from meridian.lib.state.paths import resolve_state_paths
@@ -297,6 +340,11 @@ def test_kill_running_parent_process_still_finalizes_run(
                     _ = (artifacts, spawn_id)
                     return None
 
+            class NoopResolver:
+                def resolve_flags(self, harness_id: HarnessId) -> list[str]:
+                    _ = harness_id
+                    return []
+
             async def main() -> int:
                 repo_root = Path("{repo_root.as_posix()}")
                 run = Spawn(
@@ -308,15 +356,36 @@ def test_kill_running_parent_process_still_finalizes_run(
                 artifacts = LocalStore(root_dir=Path("{(tmp_path / '.artifacts-worker').as_posix()}"))
                 registry = HarnessRegistry()
                 registry.register(WorkerAdapter())
+                plan = PreparedSpawnPlan(
+                    model=str(run.model),
+                    harness_id="worker-mock",
+                    prompt=run.prompt,
+                    agent_name=None,
+                    skills=(),
+                    skill_paths=(),
+                    reference_files=(),
+                    template_vars={{}},
+                    mcp_tools=(),
+                    session_agent="",
+                    session_agent_path="",
+                    session=SessionContinuation(),
+                    execution=ExecutionPolicy(
+                        timeout_secs=30.0,
+                        permission_config=PermissionConfig(),
+                        permission_resolver=NoopResolver(),
+                        allowed_tools=(),
+                    ),
+                    cli_command=(),
+                )
                 return await execute_with_finalization(
                     run,
+                    plan=plan,
                     repo_root=repo_root,
                     state_root=resolve_state_paths(repo_root).root_dir,
                     artifacts=artifacts,
                     registry=registry,
                     harness_id=HarnessId("worker-mock"),
                     cwd=repo_root,
-                    timeout_seconds=30.0,
                 )
 
             raise SystemExit(asyncio.run(main()))

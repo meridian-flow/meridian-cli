@@ -8,6 +8,7 @@ import signal
 import time
 from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict
 import structlog
@@ -31,14 +32,12 @@ from .stream_capture import (
     extract_latest_tokens_payload,
 )
 from meridian.lib.harness.adapter import (
-    PermissionResolver,
     SpawnParams,
     StreamEvent,
 )
 from meridian.lib.harness.registry import HarnessRegistry
 from meridian.lib.safety.budget import Budget, BudgetBreach, LiveBudgetTracker
 from meridian.lib.safety.guardrails import GuardrailFailure, run_guardrails
-from meridian.lib.safety.permissions import PermissionConfig
 from meridian.lib.safety.redaction import SecretSpec, redact_secret_bytes
 from meridian.lib.state import spawn_store
 from meridian.lib.state.artifact_store import ArtifactStore, make_artifact_key
@@ -57,6 +56,8 @@ from .timeout import (
     wait_for_process_exit,
     wait_for_process_returncode,
 )
+if TYPE_CHECKING:
+    from meridian.lib.ops.spawn.plan import PreparedSpawnPlan
 
 OUTPUT_FILENAME = "output.jsonl"
 STDERR_FILENAME = "stderr.log"
@@ -65,8 +66,6 @@ REPORT_FILENAME = "report.md"
 DEFAULT_INFRA_EXIT_CODE = 2
 POST_EXIT_PIPE_DRAIN_TIMEOUT_SECONDS = 1.0
 _DEFAULT_CONFIG = MeridianConfig()
-DEFAULT_MAX_RETRIES = _DEFAULT_CONFIG.max_retries
-DEFAULT_RETRY_BACKOFF_SECONDS = _DEFAULT_CONFIG.retry_backoff_seconds
 DEFAULT_GUARDRAIL_TIMEOUT_SECONDS = _DEFAULT_CONFIG.guardrail_timeout_minutes * 60.0
 logger = structlog.get_logger(__name__)
 
@@ -78,14 +77,6 @@ def _raw_return_code_matches_sigterm(raw_return_code: int) -> bool:
         return signal.Signals(-raw_return_code) == signal.SIGTERM
     except ValueError:
         return False
-
-
-class SafeDefaultPermissionResolver(PermissionResolver):
-    """Safe default resolver for run execution."""
-
-    def resolve_flags(self, harness_id: HarnessId) -> list[str]:
-        _ = harness_id
-        return []
 
 
 class SpawnResult(BaseModel):
@@ -485,30 +476,19 @@ def _spawn_kind(state_root: Path, spawn_id: SpawnId) -> str:
 async def execute_with_finalization(
     run: Spawn,
     *,
+    plan: "PreparedSpawnPlan",
     repo_root: Path,
     state_root: Path,
     artifacts: ArtifactStore,
     registry: HarnessRegistry,
-    permission_resolver: PermissionResolver | None = None,
-    permission_config: PermissionConfig | None = None,
     cwd: Path | None = None,
-    timeout_seconds: float | None = None,
-    kill_grace_seconds: float = DEFAULT_KILL_GRACE_SECONDS,
-    skills: tuple[str, ...] = (),
-    agent: str | None = None,
-    mcp_tools: tuple[str, ...] = (),
-    extra_args: tuple[str, ...] = (),
     env_overrides: dict[str, str] | None = None,
     harness_id: HarnessId | None = None,
-    max_retries: int = DEFAULT_MAX_RETRIES,
-    retry_backoff_seconds: float = DEFAULT_RETRY_BACKOFF_SECONDS,
     budget: Budget | None = None,
     space_spent_usd: float = 0.0,
     guardrails: tuple[Path, ...] = (),
     guardrail_timeout_seconds: float = DEFAULT_GUARDRAIL_TIMEOUT_SECONDS,
     secrets: tuple[SecretSpec, ...] = (),
-    continue_harness_session_id: str | None = None,
-    continue_fork: bool = False,
     harness_session_id_observer: Callable[[str], None] | None = None,
     event_observer: Callable[[StreamEvent], None] | None = None,
     stream_stdout_to_terminal: bool = False,
@@ -529,27 +509,30 @@ async def execute_with_finalization(
     # child can still access project files.
     child_cwd = execution_cwd
 
-    if harness_id is None:
-        harness, _warning = registry.route(str(run.model), repo_root=repo_root)
-    else:
-        harness = registry.get_subprocess_harness(harness_id)
+    resolved_harness_id = harness_id or HarnessId(plan.harness_id)
+    harness = registry.get_subprocess_harness(resolved_harness_id)
 
+    timeout_seconds = plan.execution.timeout_secs
+    kill_grace_seconds = plan.execution.kill_grace_secs
+    max_retries = plan.execution.max_retries
+    retry_backoff_seconds = plan.execution.retry_backoff_secs
     run_params = SpawnParams(
         prompt=run.prompt,
         model=run.model,
-        skills=skills,
-        agent=agent,
-        extra_args=extra_args,
+        skills=plan.skills,
+        agent=plan.agent_name,
+        extra_args=(),
         repo_root=execution_cwd.as_posix(),
-        mcp_tools=mcp_tools,
-        continue_harness_session_id=continue_harness_session_id,
-        continue_fork=continue_fork,
+        mcp_tools=plan.mcp_tools,
+        continue_harness_session_id=plan.session.harness_session_id,
+        continue_fork=plan.session.continue_fork,
         report_output_path=report_path.as_posix(),
+        appended_system_prompt=plan.appended_system_prompt,
     )
     prompt_stdin = run.prompt if harness.capabilities.supports_stdin_prompt else None
 
-    resolved_perms = permission_resolver or SafeDefaultPermissionResolver()
-    resolved_permission_config = permission_config or PermissionConfig()
+    resolved_perms = plan.execution.permission_resolver
+    resolved_permission_config = plan.execution.permission_config
     runtime_env_overrides = {
         "MERIDIAN_REPO_ROOT": execution_cwd.as_posix(),
         "MERIDIAN_STATE_ROOT": resolve_state_paths(repo_root).root_dir.resolve().as_posix(),
@@ -580,11 +563,11 @@ async def execute_with_finalization(
             spawn_id=run.spawn_id,
             chat_id=os.getenv("MERIDIAN_CHAT_ID", "").strip() or "c0",
             model=str(run.model),
-            agent=agent or "",
+            agent=plan.agent_name or "",
             harness=str(harness.id),
             kind="child",
             prompt=run.prompt,
-            harness_session_id=continue_harness_session_id,
+            harness_session_id=plan.session.harness_session_id,
             launch_mode=FOREGROUND_LAUNCH_MODE,
             status="queued",
         )

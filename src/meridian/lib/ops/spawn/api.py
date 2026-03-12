@@ -92,7 +92,7 @@ def spawn_create_sync(
             agent=prepared.agent_name,
             reference_files=prepared.reference_files,
             template_vars=prepared.template_vars,
-            composed_prompt=prepared.composed_prompt,
+            composed_prompt=prepared.prompt,
             cli_command=prepared.cli_command,
             message="Dry run complete.",
         )

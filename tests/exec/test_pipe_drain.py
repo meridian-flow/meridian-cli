@@ -23,6 +23,7 @@ from meridian.lib.harness.common import (
     extract_usage_from_artifacts,
 )
 from meridian.lib.harness.registry import HarnessRegistry
+from meridian.lib.ops.spawn.plan import ExecutionPolicy, PreparedSpawnPlan, SessionContinuation
 from meridian.lib.safety.permissions import PermissionConfig
 from meridian.lib.state import spawn_store
 from meridian.lib.state.artifact_store import LocalStore
@@ -83,6 +84,46 @@ def _write_script(path: Path, source: str) -> None:
     path.write_text(textwrap.dedent(source), encoding="utf-8")
 
 
+class _NoopPermissionResolver:
+    def resolve_flags(self, harness_id: HarnessId) -> list[str]:
+        _ = harness_id
+        return []
+
+
+def _build_plan(
+    run: Spawn,
+    harness_id: HarnessId,
+    *,
+    timeout_seconds: float | None,
+    kill_grace_seconds: float,
+    max_retries: int,
+) -> PreparedSpawnPlan:
+    return PreparedSpawnPlan(
+        model=str(run.model),
+        harness_id=str(harness_id),
+        prompt=run.prompt,
+        agent_name=None,
+        skills=(),
+        skill_paths=(),
+        reference_files=(),
+        template_vars={},
+        mcp_tools=(),
+        session_agent="",
+        session_agent_path="",
+        session=SessionContinuation(),
+        execution=ExecutionPolicy(
+            timeout_secs=timeout_seconds,
+            kill_grace_secs=kill_grace_seconds,
+            max_retries=max_retries,
+            retry_backoff_secs=0.0,
+            permission_config=PermissionConfig(),
+            permission_resolver=_NoopPermissionResolver(),
+            allowed_tools=(),
+        ),
+        cli_command=(),
+    )
+
+
 @pytest.mark.asyncio
 async def test_execute_finalizes_when_descendant_keeps_stdio_open(tmp_path: Path) -> None:
     run, state_root = _create_run(tmp_path, prompt="drain")
@@ -120,15 +161,19 @@ async def test_execute_finalizes_when_descendant_keeps_stdio_open(tmp_path: Path
         exit_code = await asyncio.wait_for(
             execute_with_finalization(
                 run,
+                plan=_build_plan(
+                    run,
+                    adapter.id,
+                    timeout_seconds=5.0,
+                    kill_grace_seconds=0.05,
+                    max_retries=0,
+                ),
                 repo_root=tmp_path,
                 state_root=state_root,
                 artifacts=artifacts,
                 registry=registry,
                 harness_id=adapter.id,
                 cwd=tmp_path,
-                timeout_seconds=5.0,
-                kill_grace_seconds=0.05,
-                max_retries=0,
             ),
             timeout=10.0,
         )

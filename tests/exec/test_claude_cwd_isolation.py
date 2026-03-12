@@ -29,6 +29,7 @@ from meridian.lib.harness.adapter import (
     StreamEvent,
 )
 from meridian.lib.harness.registry import HarnessRegistry
+from meridian.lib.ops.spawn.plan import ExecutionPolicy, PreparedSpawnPlan, SessionContinuation
 from meridian.lib.safety.permissions import PermissionConfig
 from meridian.lib.state.artifact_store import LocalStore
 from meridian.lib.state.paths import resolve_state_paths, resolve_spawn_log_dir
@@ -114,6 +115,34 @@ def _write_cwd_reporter_script(path: Path, output_path: Path) -> None:
     )
 
 
+class _NoopPermissionResolver:
+    def resolve_flags(self, harness_id: HarnessId) -> list[str]:
+        _ = harness_id
+        return []
+
+
+def _build_plan(run: Spawn, harness_id: HarnessId) -> PreparedSpawnPlan:
+    return PreparedSpawnPlan(
+        model=str(run.model),
+        harness_id=str(harness_id),
+        prompt=run.prompt,
+        agent_name=None,
+        skills=(),
+        skill_paths=(),
+        reference_files=(),
+        template_vars={},
+        mcp_tools=(),
+        session_agent="",
+        session_agent_path="",
+        session=SessionContinuation(),
+        execution=ExecutionPolicy(
+            permission_config=PermissionConfig(),
+            permission_resolver=_NoopPermissionResolver(),
+        ),
+        cli_command=(),
+    )
+
+
 @pytest.mark.asyncio
 async def test_claude_harness_uses_log_dir_cwd_when_claudecode_set(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
@@ -136,6 +165,7 @@ async def test_claude_harness_uses_log_dir_cwd_when_claudecode_set(
 
     exit_code = await execute_with_finalization(
         run,
+        plan=_build_plan(run, adapter.id),
         repo_root=tmp_path,
         state_root=state_root,
         artifacts=artifacts,
@@ -175,6 +205,7 @@ async def test_claude_harness_adds_add_dir_flag_when_claudecode_set(
 
     await execute_with_finalization(
         run,
+        plan=_build_plan(run, adapter.id),
         repo_root=tmp_path,
         state_root=state_root,
         artifacts=artifacts,
@@ -217,6 +248,7 @@ async def test_claude_harness_uses_project_cwd_when_claudecode_not_set(
 
     await execute_with_finalization(
         run,
+        plan=_build_plan(run, adapter.id),
         repo_root=tmp_path,
         state_root=state_root,
         artifacts=artifacts,
@@ -257,6 +289,7 @@ async def test_non_claude_harness_uses_project_cwd_even_when_claudecode_set(
 
     await execute_with_finalization(
         run,
+        plan=_build_plan(run, adapter.id),
         repo_root=tmp_path,
         state_root=state_root,
         artifacts=artifacts,

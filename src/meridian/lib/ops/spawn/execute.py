@@ -11,7 +11,7 @@ import time
 from contextlib import contextmanager
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Callable, Iterator, Protocol, cast
+from typing import Any, Callable, Iterator, cast
 
 import structlog
 from pydantic import BaseModel, ConfigDict
@@ -24,7 +24,6 @@ from meridian.lib.core.context import RuntimeContext
 from meridian.lib.core.domain import Spawn, SpawnStatus
 from meridian.lib.launch.runner import execute_with_finalization
 from meridian.lib.launch.session_scope import session_scope
-from meridian.lib.harness.adapter import PermissionResolver
 from meridian.lib.harness.materialize import cleanup_materialized, materialize_for_harness
 from meridian.lib.safety.permissions import (
     PermissionConfig,
@@ -46,6 +45,7 @@ from meridian.lib.core.types import ModelId, SpawnId
 from ..session_policy import ensure_session_work_item
 from ..runtime import OperationRuntime, build_runtime, resolve_chat_id, runtime_context
 from .models import SpawnActionOutput, SpawnCreateInput
+from .plan import ExecutionPolicy, PreparedSpawnPlan, SessionContinuation
 from .query import read_report_text, read_spawn_row
 
 logger = structlog.get_logger(__name__)
@@ -59,62 +59,6 @@ def minutes_to_seconds(timeout_minutes: float | None) -> float | None:
     if timeout_minutes is None:
         return None
     return timeout_minutes * 60.0
-
-
-class _PreparedCreateLike(Protocol):
-    @property
-    def model(self) -> str: ...
-
-    @property
-    def harness_id(self) -> str: ...
-
-    @property
-    def warning(self) -> str | None: ...
-
-    @property
-    def composed_prompt(self) -> str: ...
-
-    @property
-    def skills(self) -> tuple[str, ...]: ...
-
-    @property
-    def reference_files(self) -> tuple[str, ...]: ...
-
-    @property
-    def template_vars(self) -> dict[str, str]: ...
-
-    @property
-    def mcp_tools(self) -> tuple[str, ...]: ...
-
-    @property
-    def agent_name(self) -> str | None: ...
-
-    @property
-    def session_agent(self) -> str: ...
-
-    @property
-    def session_agent_path(self) -> str: ...
-
-    @property
-    def skill_paths(self) -> tuple[str, ...]: ...
-
-    @property
-    def cli_command(self) -> tuple[str, ...]: ...
-
-    @property
-    def permission_config(self) -> PermissionConfig: ...
-
-    @property
-    def permission_resolver(self) -> PermissionResolver: ...
-
-    @property
-    def allowed_tools(self) -> tuple[str, ...]: ...
-
-    @property
-    def continue_harness_session_id(self) -> str | None: ...
-
-    @property
-    def continue_fork(self) -> bool: ...
 
 
 class _SpawnContext(BaseModel):
@@ -352,7 +296,7 @@ def _resolve_work_id(
 def _init_spawn(
     *,
     payload: SpawnCreateInput,
-    prepared: _PreparedCreateLike,
+    prepared: PreparedSpawnPlan,
     runtime: OperationRuntime,
     desc: str | None = None,
     work_id: str | None = None,
@@ -375,16 +319,16 @@ def _init_spawn(
         agent=prepared.agent_name or "",
         harness=prepared.harness_id,
         kind="child",
-        prompt=prepared.composed_prompt,
+        prompt=prepared.prompt,
         desc=resolved_desc,
         work_id=resolved_work_id,
-        harness_session_id=prepared.continue_harness_session_id,
+        harness_session_id=prepared.session.harness_session_id,
         launch_mode=launch_mode,
         status=status,
     )
     spawn = Spawn(
         spawn_id=SpawnId(spawn_id),
-        prompt=prepared.composed_prompt,
+        prompt=prepared.prompt,
         model=ModelId(prepared.model),
         status=status,
     )
@@ -409,7 +353,7 @@ def _init_spawn(
 def _write_params_json(
     repo_root: Path,
     spawn_id: SpawnId,
-    prepared: _PreparedCreateLike,
+    prepared: PreparedSpawnPlan,
     *,
     desc: str = "",
     work_id: str | None = None,
@@ -424,16 +368,16 @@ def _write_params_json(
         "agent": prepared.agent_name,
         "desc": desc,
         "work_id": work_id,
-        "prompt_length": len(prepared.composed_prompt),
+        "prompt_length": len(prepared.prompt),
         "reference_files": list(prepared.reference_files),
         "template_vars": prepared.template_vars,
         "skills": list(prepared.skills),
-        "permission_tier": prepared.permission_config.tier.value,
-        "continue_session": prepared.continue_harness_session_id,
-        "continue_fork": prepared.continue_fork,
+        "permission_tier": prepared.execution.permission_config.tier.value,
+        "continue_session": prepared.session.harness_session_id,
+        "continue_fork": prepared.session.continue_fork,
     }
     atomic_write_text(params_path, json.dumps(params_payload, indent=2) + "\n")
-    atomic_write_text(prompt_path, prepared.composed_prompt)
+    atomic_write_text(prompt_path, prepared.prompt)
 
 
 @contextmanager
@@ -508,6 +452,7 @@ async def _execute_existing_spawn(
     session_agent: str = "",
     session_agent_path: str = "",
     session_skill_paths: tuple[str, ...] = (),
+    appended_system_prompt: str | None = None,
     sink: OutputSink | None = None,
     ctx: RuntimeContext | None = None,
 ) -> int:
@@ -533,6 +478,34 @@ async def _execute_existing_spawn(
         permission_config=permission_config,
         cli_permission_override=cli_permission_override,
     )
+    plan = PreparedSpawnPlan(
+        model=spawn_record.model,
+        harness_id=spawn_record.harness or "",
+        prompt=spawn.prompt,
+        agent_name=agent_name,
+        skills=skills,
+        skill_paths=session_skill_paths,
+        reference_files=(),
+        template_vars={},
+        mcp_tools=mcp_tools,
+        session_agent=session_agent,
+        session_agent_path=session_agent_path,
+        appended_system_prompt=appended_system_prompt,
+        session=SessionContinuation(
+            harness_session_id=continue_harness_session_id,
+            continue_fork=continue_fork,
+        ),
+        execution=ExecutionPolicy(
+            timeout_secs=minutes_to_seconds(timeout),
+            kill_grace_secs=minutes_to_seconds(runtime.config.kill_grace_minutes) or 0.0,
+            max_retries=runtime.config.max_retries,
+            retry_backoff_secs=runtime.config.retry_backoff_seconds,
+            permission_config=permission_config,
+            permission_resolver=resolver,
+            allowed_tools=allowed_tools,
+        ),
+        cli_command=(),
+    )
 
     with _session_execution_context(
         state_root=state_root,
@@ -547,33 +520,22 @@ async def _execute_existing_spawn(
         run_agent_name=agent_name,
         harness_registry=runtime.harness_registry,
     ) as session_context:
+        resolved_plan = plan.model_copy(update={"agent_name": session_context.resolved_agent_name})
         return await execute_with_finalization(
             spawn,
+            plan=resolved_plan,
             repo_root=runtime.repo_root,
             state_root=state_root,
             artifacts=runtime.artifacts,
             registry=runtime.harness_registry,
-            permission_resolver=resolver,
-            permission_config=permission_config,
             cwd=runtime.repo_root,
-            timeout_seconds=minutes_to_seconds(timeout),
-            kill_grace_seconds=(
-                minutes_to_seconds(runtime.config.kill_grace_minutes) or 0.0
-            ),
-            skills=skills,
-            agent=session_context.resolved_agent_name,
-            mcp_tools=mcp_tools,
             env_overrides=_spawn_child_env(
                 str(spawn.spawn_id),
                 work_id=spawn_record.work_id,
                 state_root=state_root,
-                permission_tier=permission_config.tier.value,
+                permission_tier=resolved_plan.execution.permission_config.tier.value,
                 ctx=resolved_context,
             ),
-            max_retries=runtime.config.max_retries,
-            retry_backoff_seconds=runtime.config.retry_backoff_seconds,
-            continue_harness_session_id=continue_harness_session_id,
-            continue_fork=continue_fork,
             harness_session_id_observer=session_context.harness_session_id_observer,
         )
 
@@ -594,6 +556,7 @@ def _build_background_worker_command(
     session_agent: str,
     session_agent_path: str,
     session_skill_paths: tuple[str, ...],
+    appended_system_prompt: str | None = None,
 ) -> tuple[str, ...]:
     command: list[str] = [
         sys.executable,
@@ -628,13 +591,15 @@ def _build_background_worker_command(
         command.extend(["--session-agent-path", session_agent_path])
     for skill_path in session_skill_paths:
         command.extend(["--session-skill-path", skill_path])
+    if appended_system_prompt is not None:
+        command.extend(["--appended-system-prompt", appended_system_prompt])
     return tuple(command)
 
 
 def execute_spawn_background(
     *,
     payload: SpawnCreateInput,
-    prepared: _PreparedCreateLike,
+    prepared: PreparedSpawnPlan,
     runtime: OperationRuntime,
     ctx: RuntimeContext | None = None,
 ) -> SpawnActionOutput:
@@ -670,14 +635,15 @@ def execute_spawn_background(
         skills=prepared.skills,
         agent_name=prepared.agent_name,
         mcp_tools=prepared.mcp_tools,
-        permission_config=prepared.permission_config,
-        allowed_tools=prepared.allowed_tools,
+        permission_config=prepared.execution.permission_config,
+        allowed_tools=prepared.execution.allowed_tools,
         cli_permission_override=payload.permission_tier is not None,
-        continue_harness_session_id=prepared.continue_harness_session_id,
-        continue_fork=prepared.continue_fork,
+        continue_harness_session_id=prepared.session.harness_session_id,
+        continue_fork=prepared.session.continue_fork,
         session_agent=prepared.session_agent,
         session_agent_path=prepared.session_agent_path,
         session_skill_paths=prepared.skill_paths,
+        appended_system_prompt=prepared.appended_system_prompt,
     )
     log_dir = resolve_spawn_log_dir(runtime.repo_root, context.spawn.spawn_id)
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -690,7 +656,7 @@ def execute_spawn_background(
             spawn_id=spawn_id_text,
             work_id=context.work_id,
             state_root=context.state_root,
-            permission_tier=prepared.permission_config.tier.value,
+            permission_tier=prepared.execution.permission_config.tier.value,
             ctx=resolved_context,
         )
     )
@@ -765,7 +731,7 @@ def execute_spawn_background(
 def execute_spawn_blocking(
     *,
     payload: SpawnCreateInput,
-    prepared: _PreparedCreateLike,
+    prepared: PreparedSpawnPlan,
     runtime: OperationRuntime,
     ctx: RuntimeContext | None = None,
 ) -> SpawnActionOutput:
@@ -799,7 +765,7 @@ def execute_spawn_blocking(
     with _session_execution_context(
         state_root=context.state_root,
         harness_id=prepared.harness_id,
-        harness_session_id=prepared.continue_harness_session_id or "",
+        harness_session_id=prepared.session.harness_session_id or "",
         model=prepared.model,
         session_agent=prepared.session_agent,
         session_agent_path=prepared.session_agent_path,
@@ -809,34 +775,23 @@ def execute_spawn_blocking(
         run_agent_name=prepared.agent_name,
         harness_registry=runtime.harness_registry,
     ) as session_context:
+        resolved_plan = prepared.model_copy(update={"agent_name": session_context.resolved_agent_name})
         exit_code = asyncio.run(
             execute_with_finalization(
                 spawn,
+                plan=resolved_plan,
                 repo_root=runtime.repo_root,
                 state_root=context.state_root,
                 artifacts=runtime.artifacts,
                 registry=runtime.harness_registry,
-                permission_resolver=prepared.permission_resolver,
-                permission_config=prepared.permission_config,
                 cwd=runtime.repo_root,
-                timeout_seconds=minutes_to_seconds(payload.timeout),
-                kill_grace_seconds=(
-                    minutes_to_seconds(runtime.config.kill_grace_minutes) or 0.0
-                ),
-                skills=prepared.skills,
-                agent=session_context.resolved_agent_name,
-                mcp_tools=prepared.mcp_tools,
                 env_overrides=_spawn_child_env(
                     str(spawn.spawn_id),
                     work_id=context.work_id,
                     state_root=context.state_root,
-                    permission_tier=prepared.permission_config.tier.value,
+                    permission_tier=resolved_plan.execution.permission_config.tier.value,
                     ctx=resolved_context,
                 ),
-                max_retries=runtime.config.max_retries,
-                retry_backoff_seconds=runtime.config.retry_backoff_seconds,
-                continue_harness_session_id=prepared.continue_harness_session_id,
-                continue_fork=prepared.continue_fork,
                 event_observer=event_observer,
                 stream_stdout_to_terminal=stream_stdout_to_terminal,
                 stream_stderr_to_terminal=payload.stream,
@@ -905,6 +860,7 @@ def _build_background_worker_parser() -> argparse.ArgumentParser:
     parser.add_argument("--session-agent", default="")
     parser.add_argument("--session-agent-path", default="")
     parser.add_argument("--session-skill-path", action="append", default=[])
+    parser.add_argument("--appended-system-prompt", default=None)
     return parser
 
 
@@ -938,6 +894,7 @@ def _background_worker_main(
             session_agent=str(parsed.session_agent),
             session_agent_path=str(parsed.session_agent_path),
             session_skill_paths=tuple(str(item) for item in parsed.session_skill_path),
+            appended_system_prompt=cast("str | None", parsed.appended_system_prompt),
             ctx=resolved_context,
         )
     )
