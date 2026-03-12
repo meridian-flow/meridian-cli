@@ -2,16 +2,19 @@
 
 
 import fcntl
+import json
+import os
+import uuid
 from pathlib import Path
-from typing import Any, BinaryIO, Literal, NamedTuple
+from typing import Any, BinaryIO, Literal, NamedTuple, cast
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
+from meridian.lib.state.atomic import atomic_write_text
 from meridian.lib.state.event_store import append_event, lock_file, read_events, utc_now_iso
-from meridian.lib.state.spawn_store import next_chat_id
 from meridian.lib.state.paths import StateRootPaths
 
-_SESSION_LOCK_HANDLES: dict[tuple[Path, str], BinaryIO] = {}
+_SESSION_LOCK_HANDLES: dict[tuple[Path, str], tuple[BinaryIO, str]] = {}
 
 
 class SessionRecord(BaseModel):
@@ -29,6 +32,7 @@ class SessionRecord(BaseModel):
     params: tuple[str, ...]
     started_at: str
     stopped_at: str | None
+    session_instance_id: str = ""
     active_work_id: str | None = None
 
 
@@ -46,6 +50,7 @@ class SessionStartEvent(BaseModel):
     skills: tuple[str, ...] = ()
     skill_paths: tuple[str, ...] = ()
     params: tuple[str, ...] = ()
+    session_instance_id: str = ""
     started_at: str
 
 
@@ -55,6 +60,7 @@ class SessionStopEvent(BaseModel):
     v: int = 1
     event: Literal["stop"] = "stop"
     chat_id: str
+    session_instance_id: str = ""
     stopped_at: str | None = None
 
 
@@ -65,6 +71,7 @@ class SessionUpdateEvent(BaseModel):
     event: Literal["update"] = "update"
     chat_id: str
     harness_session_id: str
+    session_instance_id: str = ""
     active_work_id: str | None = None
 
 
@@ -105,8 +112,105 @@ def _record_from_start_event(event: SessionStartEvent) -> SessionRecord:
         params=event.params,
         started_at=event.started_at,
         stopped_at=None,
+        session_instance_id=event.session_instance_id,
         active_work_id=None,
     )
+
+
+def _session_lease_path(paths: StateRootPaths, chat_id: str) -> Path:
+    return paths.sessions_dir / f"{chat_id}.lease.json"
+
+
+def _normalized_generation(generation: str) -> str:
+    return generation.strip()
+
+
+def _generation_matches(expected: str, actual: str) -> bool:
+    normalized_expected = _normalized_generation(expected)
+    normalized_actual = _normalized_generation(actual)
+    if not normalized_expected and not normalized_actual:
+        return True
+    return normalized_expected == normalized_actual
+
+
+def _read_session_lease(paths: StateRootPaths, chat_id: str) -> tuple[bool, str]:
+    lease_path = _session_lease_path(paths, chat_id)
+    if not lease_path.is_file():
+        return (False, "")
+    try:
+        payload = json.loads(lease_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return (False, "")
+    if not isinstance(payload, dict):
+        return (False, "")
+    payload_dict = cast("dict[str, Any]", payload)
+    generation = payload_dict.get("session_instance_id")
+    if isinstance(generation, str):
+        return (True, generation)
+    return (True, "")
+
+
+def _write_session_lease(paths: StateRootPaths, chat_id: str, session_instance_id: str) -> None:
+    payload = {
+        "chat_id": chat_id,
+        "owner_pid": os.getpid(),
+        "session_instance_id": session_instance_id,
+    }
+    atomic_write_text(
+        _session_lease_path(paths, chat_id),
+        json.dumps(payload, separators=(",", ":"), sort_keys=True) + "\n",
+    )
+
+
+def _session_instance_for_event(paths: StateRootPaths, state_root: Path, chat_id: str) -> str:
+    held = _SESSION_LOCK_HANDLES.get(_session_lock_key(state_root, chat_id))
+    if held is not None:
+        _, session_instance_id = held
+        return session_instance_id
+
+    _, lease_session_instance_id = _read_session_lease(paths, chat_id)
+    if lease_session_instance_id.strip():
+        return lease_session_instance_id
+
+    record = _records_by_session(state_root).get(chat_id)
+    if record is None:
+        return ""
+    return record.session_instance_id
+
+
+def _read_session_counter(paths: StateRootPaths) -> int:
+    if not paths.session_id_counter.is_file():
+        return 0
+    try:
+        return int(paths.session_id_counter.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return 0
+
+
+def _seed_counter_from_events(paths: StateRootPaths) -> int:
+    """Scan sessions.jsonl for the highest c<N> chat ID to seed the counter on upgrade."""
+
+    max_id = 0
+    if not paths.sessions_jsonl.is_file():
+        return max_id
+    for event in read_events(paths.sessions_jsonl, _parse_event):
+        if not isinstance(event, SessionStartEvent):
+            continue
+        chat_id = event.chat_id
+        if chat_id.startswith("c") and chat_id[1:].isdigit():
+            max_id = max(max_id, int(chat_id[1:]))
+    return max_id
+
+
+def reserve_chat_id(state_root: Path) -> str:
+    paths = StateRootPaths.from_root_dir(state_root)
+    with lock_file(paths.session_id_counter_lock):
+        current = _read_session_counter(paths)
+        if current == 0 and not paths.session_id_counter.is_file():
+            current = _seed_counter_from_events(paths)
+        next_value = current + 1
+        atomic_write_text(paths.session_id_counter, f"{next_value}\n")
+        return f"c{next_value}"
 
 
 def _records_by_session(state_root: Path) -> dict[str, SessionRecord]:
@@ -122,23 +226,31 @@ def _records_by_session(state_root: Path) -> dict[str, SessionRecord]:
             existing = records.get(event.chat_id)
             if existing is None:
                 continue
+            if not _generation_matches(existing.session_instance_id, event.session_instance_id):
+                continue
             records[event.chat_id] = existing.model_copy(
                 update={
-                    "stopped_at": event.stopped_at if event.stopped_at is not None else existing.stopped_at
+                    "stopped_at": event.stopped_at if event.stopped_at is not None else existing.stopped_at,
+                    "session_instance_id": event.session_instance_id or existing.session_instance_id,
                 }
             )
             continue
         existing = records.get(event.chat_id)
         if existing is None:
             continue
+        if not _generation_matches(existing.session_instance_id, event.session_instance_id):
+            continue
         session_ids = existing.harness_session_ids
         harness_session_id = existing.harness_session_id
         updated_work_id = existing.active_work_id
+        session_instance_id = existing.session_instance_id
         normalized_harness_session_id = event.harness_session_id.strip()
         if normalized_harness_session_id:
             if normalized_harness_session_id not in session_ids:
                 session_ids = (*session_ids, normalized_harness_session_id)
             harness_session_id = normalized_harness_session_id
+        if event.session_instance_id.strip():
+            session_instance_id = event.session_instance_id
         if event.active_work_id is not None:
             normalized_work_id = event.active_work_id.strip()
             updated_work_id = normalized_work_id or None
@@ -146,6 +258,7 @@ def _records_by_session(state_root: Path) -> dict[str, SessionRecord]:
             update={
                 "harness_session_id": harness_session_id,
                 "harness_session_ids": session_ids,
+                "session_instance_id": session_instance_id,
                 "active_work_id": updated_work_id,
             }
         )
@@ -164,15 +277,25 @@ def _session_lock_key(state_root: Path, chat_id: str) -> tuple[Path, str]:
 
 def _acquire_session_lock(lock_path: Path) -> BinaryIO:
     lock_path.parent.mkdir(parents=True, exist_ok=True)
-    handle = lock_path.open("a+b")
-    fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-    return handle
+    while True:
+        handle = lock_path.open("a+b")
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            stat_handle = os.fstat(handle.fileno())
+            stat_path = lock_path.stat()
+            if stat_handle.st_ino == stat_path.st_ino and stat_handle.st_dev == stat_path.st_dev:
+                return handle
+        except FileNotFoundError:
+            pass
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        handle.close()
 
 
 def _release_session_lock(state_root: Path, chat_id: str) -> None:
-    handle = _SESSION_LOCK_HANDLES.pop(_session_lock_key(state_root, chat_id), None)
-    if handle is None:
+    lock_data = _SESSION_LOCK_HANDLES.pop(_session_lock_key(state_root, chat_id), None)
+    if lock_data is None:
         return
+    handle, _ = lock_data
     fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
     handle.close()
 
@@ -193,11 +316,14 @@ def start_session(
 
     paths = StateRootPaths.from_root_dir(state_root)
     started_at = utc_now_iso()
+    resolved_chat_id = chat_id.strip() if chat_id is not None else ""
+    if not resolved_chat_id:
+        resolved_chat_id = reserve_chat_id(state_root)
 
-    with lock_file(paths.sessions_lock):
-        resolved_chat_id = chat_id.strip() if chat_id is not None else ""
-        if not resolved_chat_id:
-            resolved_chat_id = next_chat_id(state_root)
+    lock_path = paths.sessions_dir / f"{resolved_chat_id}.lock"
+    handle = _acquire_session_lock(lock_path)
+    session_instance_id = uuid.uuid4().hex
+    try:
         event = SessionStartEvent(
             chat_id=resolved_chat_id,
             harness=harness,
@@ -208,21 +334,34 @@ def start_session(
             skills=skills,
             skill_paths=skill_paths,
             params=params,
+            session_instance_id=session_instance_id,
             started_at=started_at,
         )
-        append_event(paths.sessions_jsonl, paths.sessions_lock, event, store_name="session")
+        with lock_file(paths.sessions_lock):
+            append_event(paths.sessions_jsonl, paths.sessions_lock, event, store_name="session")
+            _write_session_lease(paths, resolved_chat_id, session_instance_id)
+    except Exception:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        handle.close()
+        raise
 
-        lock_path = paths.sessions_dir / f"{resolved_chat_id}.lock"
-        handle = _acquire_session_lock(lock_path)
-        _SESSION_LOCK_HANDLES[_session_lock_key(state_root, resolved_chat_id)] = handle
-        return resolved_chat_id
+    _SESSION_LOCK_HANDLES[_session_lock_key(state_root, resolved_chat_id)] = (
+        handle,
+        session_instance_id,
+    )
+    return resolved_chat_id
 
 
 def stop_session(state_root: Path, chat_id: str) -> None:
     """Append a session stop event and release the lifetime session lock."""
 
     paths = StateRootPaths.from_root_dir(state_root)
-    event = SessionStopEvent(chat_id=chat_id, stopped_at=utc_now_iso())
+    session_instance_id = _session_instance_for_event(paths, state_root, chat_id)
+    event = SessionStopEvent(
+        chat_id=chat_id,
+        session_instance_id=session_instance_id,
+        stopped_at=utc_now_iso(),
+    )
     with lock_file(paths.sessions_lock):
         append_event(
             paths.sessions_jsonl,
@@ -231,14 +370,19 @@ def stop_session(state_root: Path, chat_id: str) -> None:
             store_name="session",
             exclude_none=True,
         )
-        _release_session_lock(state_root, chat_id)
+        _session_lease_path(paths, chat_id).unlink(missing_ok=True)
+    _release_session_lock(state_root, chat_id)
 
 
 def update_session_harness_id(state_root: Path, chat_id: str, harness_session_id: str) -> None:
     """Append a session update event carrying the resolved harness session ID."""
 
     paths = StateRootPaths.from_root_dir(state_root)
-    event = SessionUpdateEvent(chat_id=chat_id, harness_session_id=harness_session_id)
+    event = SessionUpdateEvent(
+        chat_id=chat_id,
+        harness_session_id=harness_session_id,
+        session_instance_id=_session_instance_for_event(paths, state_root, chat_id),
+    )
     append_event(
         paths.sessions_jsonl,
         paths.sessions_lock,
@@ -256,6 +400,7 @@ def update_session_work_id(state_root: Path, chat_id: str, work_id: str | None) 
     event = SessionUpdateEvent(
         chat_id=chat_id,
         harness_session_id="",
+        session_instance_id=_session_instance_for_event(paths, state_root, chat_id),
         active_work_id=normalized_work_id,
     )
     append_event(
@@ -389,31 +534,62 @@ def cleanup_stale_sessions(state_root: Path) -> StaleSessionCleanup:
     if not stale:
         return StaleSessionCleanup(cleaned_ids=(), materialized_scopes=())
 
-    cleaned_ids = sorted((chat_id for chat_id, _, _ in stale), key=_session_sort_key)
+    cleaned_ids: list[str] = []
     stale_cleanup_scopes: list[str] = []
     with lock_file(paths.sessions_lock):
         records = _records_by_session(state_root)
         stopped_at = utc_now_iso()
         for chat_id, lock_path, _ in stale:
             existing = records.get(chat_id)
-            if existing is not None and existing.stopped_at is None:
+            lease_exists, lease_session_instance_id = _read_session_lease(paths, chat_id)
+            stop_session_instance_id = lease_session_instance_id
+            if not lease_exists and existing is not None:
+                stop_session_instance_id = existing.session_instance_id
+            if (
+                existing is not None
+                and existing.stopped_at is None
+                and (
+                    not lease_exists
+                    or _generation_matches(
+                        existing.session_instance_id,
+                        lease_session_instance_id,
+                    )
+                )
+            ):
                 append_event(
                     paths.sessions_jsonl,
                     paths.sessions_lock,
-                    SessionStopEvent(chat_id=chat_id, stopped_at=stopped_at),
+                    SessionStopEvent(
+                        chat_id=chat_id,
+                        session_instance_id=stop_session_instance_id,
+                        stopped_at=stopped_at,
+                    ),
                     store_name="session",
                     exclude_none=True,
                 )
+                records[chat_id] = existing.model_copy(update={"stopped_at": stopped_at})
+
+            should_clean = existing is None or existing.stopped_at is not None or not lease_exists
+            if existing is not None and existing.stopped_at is None:
+                should_clean = not lease_exists or _generation_matches(
+                    existing.session_instance_id, lease_session_instance_id
+                )
+            if not should_clean:
+                continue
+
             if existing is not None and existing.harness.strip():
                 stale_cleanup_scopes.append(existing.harness.strip())
+            cleaned_ids.append(chat_id)
             lock_path.unlink(missing_ok=True)
+            _session_lease_path(paths, chat_id).unlink(missing_ok=True)
 
     for chat_id, _, handle in stale:
         fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
         handle.close()
-        _SESSION_LOCK_HANDLES.pop(_session_lock_key(state_root, chat_id), None)
+        if chat_id in cleaned_ids:
+            _SESSION_LOCK_HANDLES.pop(_session_lock_key(state_root, chat_id), None)
 
     return StaleSessionCleanup(
-        cleaned_ids=tuple(cleaned_ids),
+        cleaned_ids=tuple(sorted(cleaned_ids, key=_session_sort_key)),
         materialized_scopes=tuple(sorted(set(stale_cleanup_scopes))),
     )

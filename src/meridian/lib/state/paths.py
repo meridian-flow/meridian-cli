@@ -36,6 +36,8 @@ class StateRootPaths(BaseModel):
     spawns_lock: Path
     sessions_jsonl: Path
     sessions_lock: Path
+    session_id_counter: Path
+    session_id_counter_lock: Path
     sessions_dir: Path
     fs_dir: Path
     work_dir: Path
@@ -53,6 +55,8 @@ class StateRootPaths(BaseModel):
             spawns_lock=root_dir / "spawns.lock",
             sessions_jsonl=root_dir / "sessions.jsonl",
             sessions_lock=root_dir / "sessions.lock",
+            session_id_counter=root_dir / "session-id-counter",
+            session_id_counter_lock=root_dir / "session-id-counter.lock",
             sessions_dir=root_dir / "sessions",
             fs_dir=root_dir / "fs",
             work_dir=root_dir / "work",
