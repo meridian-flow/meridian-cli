@@ -256,7 +256,7 @@ def update_work_item(
         reconcile_work_store(state_root)
         current = get_work_item(state_root, work_id)
         if current is None:
-            raise KeyError(work_id)
+            raise ValueError(f"Work item '{work_id}' not found")
 
         updated = current.model_copy(
             update={

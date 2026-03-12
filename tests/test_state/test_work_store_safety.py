@@ -208,10 +208,10 @@ def test_list_work_items_reconciles_before_listing(tmp_path: Path) -> None:
     assert not paths.work_rename_intent.exists()
 
 
-def test_update_work_item_not_found_still_raises_key_error(tmp_path: Path) -> None:
+def test_update_work_item_not_found_raises_value_error(tmp_path: Path) -> None:
     state_root = _state_root(tmp_path)
 
-    with pytest.raises(KeyError):
+    with pytest.raises(ValueError, match="not found"):
         work_store.update_work_item(state_root, "missing-work")
 
 

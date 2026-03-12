@@ -53,7 +53,7 @@ def test_create_list_and_update_work_items(tmp_path: Path) -> None:
     items = list_work_items(state_root)
     assert [item.name for item in items] == [first.name, second.name]
 
-    with pytest.raises(KeyError):
+    with pytest.raises(ValueError, match="not found"):
         update_work_item(state_root, "missing")
 
 
