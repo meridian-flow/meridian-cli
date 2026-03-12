@@ -8,20 +8,8 @@ from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.core.context import RuntimeContext
 from meridian.lib.core.util import FormatContext
-from meridian.lib.ops.runtime import resolve_runtime_root_and_config
+from meridian.lib.ops.runtime import resolve_chat_id, resolve_roots, runtime_context
 from meridian.lib.state import session_store, spawn_store, work_store
-from meridian.lib.state.paths import resolve_state_paths
-
-
-def _runtime_context(ctx: RuntimeContext | None) -> RuntimeContext:
-    if ctx is not None:
-        return ctx
-    return RuntimeContext.from_environment()
-
-
-def _resolve_roots(repo_root: str | None) -> tuple[Path, Path]:
-    resolved_repo_root, _ = resolve_runtime_root_and_config(repo_root)
-    return resolved_repo_root, resolve_state_paths(resolved_repo_root).root_dir
 
 
 def _display_path(repo_root: Path, path: Path) -> str:
@@ -63,13 +51,6 @@ def _format_spawn_rows(spawns: tuple["WorkDashboardSpawn", ...], *, indent: str)
 
     table = tabular([[spawn.id, spawn.model, spawn.status, spawn.desc] for spawn in spawns])
     return [f"{indent}{line}" for line in table.splitlines()]
-
-
-def _resolve_chat_id(*, payload_chat_id: str = "", ctx: RuntimeContext | None = None) -> str:
-    normalized = payload_chat_id.strip()
-    if normalized:
-        return normalized
-    return _runtime_context(ctx).chat_id.strip()
 
 
 def _session_exists(state_root: Path, chat_id: str) -> bool:
@@ -355,7 +336,7 @@ def work_dashboard_sync(
     ctx: RuntimeContext | None = None,
 ) -> WorkDashboardOutput:
     _ = ctx
-    _, state_root = _resolve_roots(payload.repo_root)
+    state_root = resolve_roots(payload.repo_root).state_root
     items_by_name = {item.name: item for item in work_store.list_work_items(state_root)}
     grouped: dict[str, list[WorkDashboardSpawn]] = {}
     ungrouped: list[WorkDashboardSpawn] = []
@@ -397,8 +378,10 @@ def work_start_sync(
     payload: WorkStartInput,
     ctx: RuntimeContext | None = None,
 ) -> WorkStartOutput:
-    repo_root, state_root = _resolve_roots(payload.repo_root)
-    chat_id = _resolve_chat_id(payload_chat_id=payload.chat_id, ctx=ctx)
+    roots = resolve_roots(payload.repo_root)
+    repo_root = roots.repo_root
+    state_root = roots.state_root
+    chat_id = resolve_chat_id(payload_chat_id=payload.chat_id, ctx=runtime_context(ctx))
 
     # Check if current work item is auto-generated — rename instead of creating new
     current_work_id = session_store.get_session_active_work_id(state_root, chat_id)
@@ -447,7 +430,7 @@ def work_list_sync(
     ctx: RuntimeContext | None = None,
 ) -> WorkListOutput:
     _ = ctx
-    _, state_root = _resolve_roots(payload.repo_root)
+    state_root = resolve_roots(payload.repo_root).state_root
     items = work_store.list_work_items(state_root)
     if payload.active:
         items = [item for item in items if item.status != "done"]
@@ -469,7 +452,9 @@ def work_show_sync(
     ctx: RuntimeContext | None = None,
 ) -> WorkShowOutput:
     _ = ctx
-    repo_root, state_root = _resolve_roots(payload.repo_root)
+    roots = resolve_roots(payload.repo_root)
+    repo_root = roots.repo_root
+    state_root = roots.state_root
     from meridian.lib.state.reaper import reconcile_spawns
     item = _require_work_item(state_root, payload.work_id)
     return WorkShowOutput(
@@ -492,7 +477,7 @@ def work_update_sync(
     _ = ctx
     if payload.status is None and payload.description is None:
         raise ValueError("Nothing to update. Pass --status and/or --description.")
-    _, state_root = _resolve_roots(payload.repo_root)
+    state_root = resolve_roots(payload.repo_root).state_root
     item = work_store.update_work_item(
         state_root,
         payload.work_id,
@@ -516,9 +501,9 @@ def work_switch_sync(
     payload: WorkSwitchInput,
     ctx: RuntimeContext | None = None,
 ) -> WorkSwitchOutput:
-    _, state_root = _resolve_roots(payload.repo_root)
+    state_root = resolve_roots(payload.repo_root).state_root
     item = _require_work_item(state_root, payload.work_id)
-    chat_id = _resolve_chat_id(payload_chat_id=payload.chat_id, ctx=ctx)
+    chat_id = resolve_chat_id(payload_chat_id=payload.chat_id, ctx=runtime_context(ctx))
     updated = _set_active_work_id(state_root, chat_id=chat_id, work_id=item.name)
     _annotate_primary_spawn(state_root, chat_id=chat_id, work_id=item.name)
     message = (
@@ -533,7 +518,7 @@ def work_rename_sync(
     payload: WorkRenameInput,
     ctx: RuntimeContext | None = None,
 ) -> WorkRenameOutput:
-    _, state_root = _resolve_roots(payload.repo_root)
+    state_root = resolve_roots(payload.repo_root).state_root
     old_name = payload.work_id
     _require_work_item(state_root, old_name)
     item = work_store.rename_work_item(state_root, old_name, payload.new_name)
@@ -547,7 +532,7 @@ def work_rename_sync(
         spawn_store.update_spawn(state_root, spawn.id, work_id=item.name)
 
     # Only update session active_work_id if it currently points to the old name
-    chat_id = _resolve_chat_id(payload_chat_id=payload.chat_id, ctx=ctx)
+    chat_id = resolve_chat_id(payload_chat_id=payload.chat_id, ctx=runtime_context(ctx))
     current_work_id = session_store.get_session_active_work_id(state_root, chat_id)
     if current_work_id == old_name:
         _set_active_work_id(state_root, chat_id=chat_id, work_id=item.name)
@@ -559,10 +544,10 @@ def work_clear_sync(
     payload: WorkClearInput,
     ctx: RuntimeContext | None = None,
 ) -> WorkClearOutput:
-    _, state_root = _resolve_roots(payload.repo_root)
+    state_root = resolve_roots(payload.repo_root).state_root
     updated = _set_active_work_id(
         state_root,
-        chat_id=_resolve_chat_id(payload_chat_id=payload.chat_id, ctx=ctx),
+        chat_id=resolve_chat_id(payload_chat_id=payload.chat_id, ctx=runtime_context(ctx)),
         work_id=None,
     )
     message = "Cleared active work item." if updated else "No active session; nothing to clear."

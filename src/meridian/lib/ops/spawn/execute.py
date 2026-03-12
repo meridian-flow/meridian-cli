@@ -50,7 +50,7 @@ from meridian.lib.state.atomic import atomic_write_text
 from meridian.lib.state.paths import resolve_spawn_log_dir, resolve_state_paths
 from meridian.lib.core.types import ModelId, SpawnId
 
-from ..runtime import OperationRuntime, build_runtime
+from ..runtime import OperationRuntime, build_runtime, resolve_chat_id, runtime_context
 from .models import SpawnActionOutput, SpawnCreateInput
 from .query import read_report_text, read_spawn_row
 
@@ -140,12 +140,6 @@ class _SessionExecutionContext(BaseModel):
     harness_session_id_observer: Callable[[str], None]
 
 
-def _runtime_context(ctx: RuntimeContext | None) -> RuntimeContext:
-    if ctx is not None:
-        return ctx
-    return RuntimeContext.from_environment()
-
-
 def _optional_spawn_id(spawn_id: str | None) -> SpawnId | None:
     if spawn_id is None:
         return None
@@ -156,7 +150,7 @@ def _optional_spawn_id(spawn_id: str | None) -> SpawnId | None:
 
 
 def depth_limits(max_depth: int, *, ctx: RuntimeContext | None = None) -> tuple[int, int]:
-    current_depth = _runtime_context(ctx).depth
+    current_depth = runtime_context(ctx).depth
     if max_depth < 0:
         raise ValueError("max_depth must be >= 0.")
     return current_depth, max_depth
@@ -168,12 +162,12 @@ def _emit_subrun_event(
     sink: OutputSink,
     ctx: RuntimeContext | None = None,
 ) -> None:
-    runtime_context = _runtime_context(ctx)
-    if runtime_context.depth <= 0:
+    resolved_context = runtime_context(ctx)
+    if resolved_context.depth <= 0:
         return
     event_payload = dict(payload)
     event_payload["v"] = 1
-    parent_spawn_id = str(runtime_context.spawn_id or "")
+    parent_spawn_id = str(resolved_context.spawn_id or "")
     event_payload["parent"] = parent_spawn_id or None
     event_payload["ts"] = time.time()
     sink.event(event_payload)
@@ -198,22 +192,22 @@ def _spawn_child_env(
     permission_tier: str | None = None,
     ctx: RuntimeContext | None = None,
 ) -> dict[str, str]:
-    runtime_context = _runtime_context(ctx)
+    resolved_context = runtime_context(ctx)
     # Preserve Meridian spawn context across nesting without forwarding unrelated
     # parent process environment variables.
     child_env = {key: value for key, value in os.environ.items() if key.startswith("MERIDIAN_")}
     resolved_spawn_id = _optional_spawn_id(spawn_id)
     if resolved_spawn_id is not None:
-        child_context = runtime_context.child_context(spawn_id=resolved_spawn_id)
+        child_context = resolved_context.child_context(spawn_id=resolved_spawn_id)
     else:
         child_context = RuntimeContext(
             spawn_id=resolved_spawn_id,
-            parent_spawn_id=runtime_context.spawn_id if runtime_context.spawn_id is not None else None,
-            depth=runtime_context.depth + 1,
-            repo_root=runtime_context.repo_root,
-            state_root=state_root or runtime_context.state_root,
-            chat_id=runtime_context.chat_id,
-            work_id=runtime_context.work_id,
+            parent_spawn_id=resolved_context.spawn_id if resolved_context.spawn_id is not None else None,
+            depth=resolved_context.depth + 1,
+            repo_root=resolved_context.repo_root,
+            state_root=state_root or resolved_context.state_root,
+            chat_id=resolved_context.chat_id,
+            work_id=resolved_context.work_id,
         )
     resolved_work_id = (work_id or "").strip() or child_context.work_id
     resolved_permission_tier = (
@@ -232,7 +226,7 @@ def _spawn_child_env(
             }
         )
     child_env.update(child_context.to_env_overrides())
-    if runtime_context.spawn_id is None:
+    if resolved_context.spawn_id is None:
         child_env.pop("MERIDIAN_PARENT_SPAWN_ID", None)
     if resolved_spawn_id is None:
         child_env.pop("MERIDIAN_SPAWN_ID", None)
@@ -348,13 +342,6 @@ def _cleanup_session_materialized(
         )
 
 
-def _resolve_chat_id(*, ctx: RuntimeContext | None = None) -> str:
-    chat_id = _runtime_context(ctx).chat_id
-    if chat_id:
-        return chat_id
-    return "c0"
-
-
 def _resolve_work_id(
     *,
     payload: SpawnCreateInput,
@@ -379,17 +366,17 @@ def _init_spawn(
     launch_mode: LaunchMode | None = None,
     ctx: RuntimeContext | None = None,
 ) -> _SpawnContext:
-    runtime_context = _runtime_context(ctx)
+    resolved_context = runtime_context(ctx)
     state_root = resolve_state_paths(runtime.repo_root).root_dir
     resolved_work_id = _resolve_work_id(
         payload=payload,
-        runtime_context=runtime_context,
+        runtime_context=resolved_context,
         work_id=work_id,
     )
     resolved_desc = (desc if desc is not None else payload.desc).strip() or None
     spawn_id = spawn_store.start_spawn(
         state_root,
-        chat_id=_resolve_chat_id(ctx=runtime_context),
+        chat_id=resolve_chat_id(ctx=resolved_context, fallback="c0"),
         model=prepared.model,
         agent=prepared.agent_name or "",
         harness=prepared.harness_id,
@@ -407,7 +394,7 @@ def _init_spawn(
         model=ModelId(prepared.model),
         status=status,
     )
-    current_depth = runtime_context.depth
+    current_depth = resolved_context.depth
     run_start_event: dict[str, Any] = {
         "t": "meridian.spawn.start",
         "id": str(spawn.spawn_id),
@@ -416,7 +403,7 @@ def _init_spawn(
     }
     if prepared.agent_name is not None:
         run_start_event["agent"] = prepared.agent_name
-    _emit_subrun_event(run_start_event, sink=runtime.sink, ctx=runtime_context)
+    _emit_subrun_event(run_start_event, sink=runtime.sink, ctx=resolved_context)
     return _SpawnContext(
         spawn=spawn,
         state_root=state_root,
@@ -538,7 +525,7 @@ async def _execute_existing_spawn(
     sink: OutputSink | None = None,
     ctx: RuntimeContext | None = None,
 ) -> int:
-    runtime_context = _runtime_context(ctx)
+    resolved_context = runtime_context(ctx)
     runtime = build_runtime(str(repo_root), sink=sink)
     state_root = resolve_state_paths(repo_root).root_dir
     spawn_record = spawn_store.get_spawn(state_root, spawn_id)
@@ -595,7 +582,7 @@ async def _execute_existing_spawn(
                 work_id=spawn_record.work_id,
                 state_root=state_root,
                 permission_tier=permission_config.tier.value,
-                ctx=runtime_context,
+                ctx=resolved_context,
             ),
             max_retries=runtime.config.max_retries,
             retry_backoff_seconds=runtime.config.retry_backoff_seconds,
@@ -665,7 +652,7 @@ def execute_spawn_background(
     runtime: OperationRuntime,
     ctx: RuntimeContext | None = None,
 ) -> SpawnActionOutput:
-    runtime_context = _runtime_context(ctx)
+    resolved_context = runtime_context(ctx)
     if payload.stream:
         logger.warning("--stream is ignored with --background; output goes to spawn log files.")
     context = _init_spawn(
@@ -676,7 +663,7 @@ def execute_spawn_background(
         work_id=payload.work,
         status="queued",
         launch_mode=BACKGROUND_LAUNCH_MODE,
-        ctx=runtime_context,
+        ctx=resolved_context,
     )
     spawn_id_text = str(context.spawn.spawn_id)
     try:
@@ -718,7 +705,7 @@ def execute_spawn_background(
             work_id=context.work_id,
             state_root=context.state_root,
             permission_tier=prepared.permission_config.tier.value,
-            ctx=runtime_context,
+            ctx=resolved_context,
         )
     )
     try:
@@ -796,7 +783,7 @@ def execute_spawn_blocking(
     runtime: OperationRuntime,
     ctx: RuntimeContext | None = None,
 ) -> SpawnActionOutput:
-    runtime_context = _runtime_context(ctx)
+    resolved_context = runtime_context(ctx)
     context = _init_spawn(
         payload=payload,
         prepared=prepared,
@@ -805,7 +792,7 @@ def execute_spawn_blocking(
         work_id=payload.work,
         status="queued",
         launch_mode=FOREGROUND_LAUNCH_MODE,
-        ctx=runtime_context,
+        ctx=resolved_context,
     )
     spawn = context.spawn
     try:
@@ -858,7 +845,7 @@ def execute_spawn_blocking(
                     work_id=context.work_id,
                     state_root=context.state_root,
                     permission_tier=prepared.permission_config.tier.value,
-                    ctx=runtime_context,
+                    ctx=resolved_context,
                 ),
                 max_retries=runtime.config.max_retries,
                 retry_backoff_seconds=runtime.config.retry_backoff_seconds,
@@ -896,7 +883,7 @@ def execute_spawn_blocking(
             "d": context.current_depth,
         },
         sink=runtime.sink,
-        ctx=runtime_context,
+        ctx=resolved_context,
     )
 
     return SpawnActionOutput(
@@ -940,7 +927,7 @@ def _background_worker_main(
     *,
     ctx: RuntimeContext | None = None,
 ) -> int:
-    runtime_context = _runtime_context(ctx)
+    resolved_context = runtime_context(ctx)
     parser = _build_background_worker_parser()
     parsed = parser.parse_args(list(argv) if argv is not None else None)
 
@@ -965,7 +952,7 @@ def _background_worker_main(
             session_agent=str(parsed.session_agent),
             session_agent_path=str(parsed.session_agent_path),
             session_skill_paths=tuple(str(item) for item in parsed.session_skill_path),
-            ctx=runtime_context,
+            ctx=resolved_context,
         )
     )
 

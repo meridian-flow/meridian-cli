@@ -9,9 +9,13 @@ from pathlib import Path
 
 from meridian.lib.core.context import RuntimeContext
 from meridian.lib.core.sink import NullSink, OutputSink
-from meridian.lib.ops.runtime import build_runtime_from_root_and_config, resolve_runtime_root_and_config
+from meridian.lib.ops.runtime import (
+    build_runtime_from_root_and_config,
+    resolve_runtime_root_and_config,
+    resolve_state_root,
+    runtime_context,
+)
 from meridian.lib.state import spawn_store
-from meridian.lib.state.paths import resolve_state_paths
 from meridian.lib.state.spawn_store import ACTIVE_SPAWN_STATUSES, is_active_spawn_status
 
 from .execute import (
@@ -55,29 +59,19 @@ def minutes_to_seconds(timeout_minutes: float | None) -> float | None:
     return timeout_minutes * 60.0
 
 
-def _runtime_context(ctx: RuntimeContext | None) -> RuntimeContext:
-    if ctx is not None:
-        return ctx
-    return RuntimeContext.from_environment()
-
-
-def _state_root(repo_root: Path) -> Path:
-    return resolve_state_paths(repo_root).root_dir
-
-
 def spawn_create_sync(
     payload: SpawnCreateInput,
     ctx: RuntimeContext | None = None,
     *,
     sink: OutputSink | None = None,
 ) -> SpawnActionOutput:
-    runtime_context = _runtime_context(ctx)
+    resolved_context = runtime_context(ctx)
     payload, preflight_warning = validate_create_input(payload)
     resolved_root, config = resolve_runtime_root_and_config(payload.repo_root)
 
     runtime = None
     if not payload.dry_run:
-        current_depth, max_depth = depth_limits(config.max_depth, ctx=runtime_context)
+        current_depth, max_depth = depth_limits(config.max_depth, ctx=resolved_context)
         if current_depth >= max_depth:
             return depth_exceeded_output(current_depth, max_depth)
         runtime = build_runtime_from_root_and_config(resolved_root, config, sink=sink)
@@ -86,7 +80,7 @@ def spawn_create_sync(
         payload,
         runtime=runtime,
         preflight_warning=preflight_warning,
-        ctx=runtime_context,
+        ctx=resolved_context,
     )
     if payload.dry_run:
         return SpawnActionOutput(
@@ -110,13 +104,13 @@ def spawn_create_sync(
             payload=payload,
             prepared=prepared,
             runtime=runtime,
-            ctx=runtime_context,
+            ctx=resolved_context,
         )
     return execute_spawn_blocking(
         payload=payload,
         prepared=prepared,
         runtime=runtime,
-        ctx=runtime_context,
+        ctx=resolved_context,
     )
 
 
@@ -138,7 +132,8 @@ def spawn_list_sync(
     _ = (ctx, sink)
     repo_root, _ = resolve_runtime_root_and_config(payload.repo_root)
     from meridian.lib.state.reaper import reconcile_spawns
-    spawns = list(reversed(reconcile_spawns(_state_root(repo_root), spawn_store.list_spawns(_state_root(repo_root)))))
+    state_root = resolve_state_root(repo_root)
+    spawns = list(reversed(reconcile_spawns(state_root, spawn_store.list_spawns(state_root))))
 
     # When statuses is empty tuple, show all statuses but cap intelligently:
     # always include all active spawns, pad with recent non-active up to limit.
@@ -207,7 +202,8 @@ def spawn_stats_sync(
     _ = (ctx, sink)
     repo_root, _ = resolve_runtime_root_and_config(payload.repo_root)
     from meridian.lib.state.reaper import reconcile_spawns
-    spawns = reconcile_spawns(_state_root(repo_root), spawn_store.list_spawns(_state_root(repo_root)))
+    state_root = resolve_state_root(repo_root)
+    spawns = reconcile_spawns(state_root, spawn_store.list_spawns(state_root))
     if payload.session is not None and payload.session.strip():
         wanted_session = payload.session.strip()
         spawns = [row for row in spawns if row.chat_id == wanted_session]
@@ -373,7 +369,7 @@ def spawn_cancel_sync(
     _ = (ctx, sink)
     repo_root, _ = resolve_runtime_root_and_config(payload.repo_root)
     spawn_id = resolve_spawn_reference(repo_root, payload.spawn_id)
-    state_root = _state_root(repo_root)
+    state_root = resolve_state_root(repo_root)
     row = spawn_store.get_spawn(state_root, spawn_id)
     if row is None:
         raise ValueError(f"Spawn '{spawn_id}' not found")

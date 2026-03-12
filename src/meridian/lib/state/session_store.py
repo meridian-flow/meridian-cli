@@ -2,15 +2,12 @@
 
 
 import fcntl
-import json
-from contextlib import contextmanager
-from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, BinaryIO, Literal, NamedTuple, cast
+from typing import Any, BinaryIO, Literal, NamedTuple
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from meridian.lib.state.atomic import append_text_line
+from meridian.lib.state.event_store import append_event, lock_file, read_events, utc_now_iso
 from meridian.lib.state.spawn_store import next_chat_id
 from meridian.lib.state.paths import StateRootPaths
 
@@ -80,25 +77,6 @@ class StaleSessionCleanup(NamedTuple):
     materialized_scopes: tuple[MaterializedCleanupScope, ...]
 
 
-def _utc_now_iso() -> str:
-    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-
-
-@contextmanager
-def _lock_file(path: Path):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a+b") as handle:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-
-
-def _append_event(path: Path, payload: dict[str, Any]) -> None:
-    append_text_line(path, json.dumps(payload, separators=(",", ":"), sort_keys=True) + "\n")
-
-
 def _parse_event(payload: dict[str, Any]) -> SessionEvent | None:
     event_type = payload.get("event")
     try:
@@ -111,33 +89,6 @@ def _parse_event(payload: dict[str, Any]) -> SessionEvent | None:
     except ValidationError:
         return None
     return None
-
-
-def _read_events(path: Path) -> list[SessionEvent]:
-    if not path.exists():
-        return []
-
-    rows: list[SessionEvent] = []
-    with path.open("r", encoding="utf-8") as handle:
-        lines = handle.readlines()
-
-    for index, line in enumerate(lines):
-        stripped = line.strip()
-        if not stripped:
-            continue
-        try:
-            payload = json.loads(stripped)
-        except json.JSONDecodeError:
-            # Self-healing: ignore interrupted trailing append.
-            if index == len(lines) - 1:
-                continue
-            continue
-        if not isinstance(payload, dict):
-            continue
-        parsed = _parse_event(cast("dict[str, Any]", payload))
-        if parsed is not None:
-            rows.append(parsed)
-    return rows
 
 
 def _record_from_start_event(event: SessionStartEvent) -> SessionRecord:
@@ -162,7 +113,7 @@ def _records_by_session(state_root: Path) -> dict[str, SessionRecord]:
     paths = StateRootPaths.from_root_dir(state_root)
     records: dict[str, SessionRecord] = {}
 
-    for event in _read_events(paths.sessions_jsonl):
+    for event in read_events(paths.sessions_jsonl, _parse_event):
         if isinstance(event, SessionStartEvent):
             record = _record_from_start_event(event)
             records[record.chat_id] = record
@@ -241,9 +192,9 @@ def start_session(
     """Append a session start event and acquire a lifetime session lock."""
 
     paths = StateRootPaths.from_root_dir(state_root)
-    started_at = _utc_now_iso()
+    started_at = utc_now_iso()
 
-    with _lock_file(paths.sessions_lock):
+    with lock_file(paths.sessions_lock):
         resolved_chat_id = chat_id.strip() if chat_id is not None else ""
         if not resolved_chat_id:
             resolved_chat_id = next_chat_id(state_root)
@@ -259,7 +210,7 @@ def start_session(
             params=params,
             started_at=started_at,
         )
-        _append_event(paths.sessions_jsonl, event.model_dump())
+        append_event(paths.sessions_jsonl, paths.sessions_lock, event, store_name="session")
 
         lock_path = paths.sessions_dir / f"{resolved_chat_id}.lock"
         handle = _acquire_session_lock(lock_path)
@@ -271,9 +222,15 @@ def stop_session(state_root: Path, chat_id: str) -> None:
     """Append a session stop event and release the lifetime session lock."""
 
     paths = StateRootPaths.from_root_dir(state_root)
-    event = SessionStopEvent(chat_id=chat_id, stopped_at=_utc_now_iso())
-    with _lock_file(paths.sessions_lock):
-        _append_event(paths.sessions_jsonl, event.model_dump(exclude_none=True))
+    event = SessionStopEvent(chat_id=chat_id, stopped_at=utc_now_iso())
+    with lock_file(paths.sessions_lock):
+        append_event(
+            paths.sessions_jsonl,
+            paths.sessions_lock,
+            event,
+            store_name="session",
+            exclude_none=True,
+        )
         _release_session_lock(state_root, chat_id)
 
 
@@ -282,8 +239,13 @@ def update_session_harness_id(state_root: Path, chat_id: str, harness_session_id
 
     paths = StateRootPaths.from_root_dir(state_root)
     event = SessionUpdateEvent(chat_id=chat_id, harness_session_id=harness_session_id)
-    with _lock_file(paths.sessions_lock):
-        _append_event(paths.sessions_jsonl, event.model_dump(exclude_none=True))
+    append_event(
+        paths.sessions_jsonl,
+        paths.sessions_lock,
+        event,
+        store_name="session",
+        exclude_none=True,
+    )
 
 
 def update_session_work_id(state_root: Path, chat_id: str, work_id: str | None) -> None:
@@ -296,8 +258,13 @@ def update_session_work_id(state_root: Path, chat_id: str, work_id: str | None) 
         harness_session_id="",
         active_work_id=normalized_work_id,
     )
-    with _lock_file(paths.sessions_lock):
-        _append_event(paths.sessions_jsonl, event.model_dump(exclude_none=True))
+    append_event(
+        paths.sessions_jsonl,
+        paths.sessions_lock,
+        event,
+        store_name="session",
+        exclude_none=True,
+    )
 
 
 def list_active_sessions(state_root: Path) -> list[str]:
@@ -325,7 +292,7 @@ def get_last_session(state_root: Path) -> SessionRecord | None:
 
     paths = StateRootPaths.from_root_dir(state_root)
     last_session_id: str | None = None
-    for event in _read_events(paths.sessions_jsonl):
+    for event in read_events(paths.sessions_jsonl, _parse_event):
         if not isinstance(event, SessionStartEvent):
             continue
         last_session_id = event.chat_id
@@ -391,7 +358,7 @@ def collect_active_chat_ids(repo_root: Path) -> frozenset[str] | None:
 
         started: set[str] = set()
         stopped: set[str] = set()
-        for event in _read_events(sessions_file):
+        for event in read_events(sessions_file, _parse_event):
             if isinstance(event, SessionStartEvent):
                 started.add(event.chat_id)
             elif isinstance(event, SessionStopEvent):
@@ -424,17 +391,18 @@ def cleanup_stale_sessions(state_root: Path) -> StaleSessionCleanup:
 
     cleaned_ids = sorted((chat_id for chat_id, _, _ in stale), key=_session_sort_key)
     stale_cleanup_scopes: list[str] = []
-    with _lock_file(paths.sessions_lock):
+    with lock_file(paths.sessions_lock):
         records = _records_by_session(state_root)
-        stopped_at = _utc_now_iso()
+        stopped_at = utc_now_iso()
         for chat_id, lock_path, _ in stale:
             existing = records.get(chat_id)
             if existing is not None and existing.stopped_at is None:
-                _append_event(
+                append_event(
                     paths.sessions_jsonl,
-                    SessionStopEvent(chat_id=chat_id, stopped_at=stopped_at).model_dump(
-                        exclude_none=True
-                    ),
+                    paths.sessions_lock,
+                    SessionStopEvent(chat_id=chat_id, stopped_at=stopped_at),
+                    store_name="session",
+                    exclude_none=True,
                 )
             if existing is not None and existing.harness.strip():
                 stale_cleanup_scopes.append(existing.harness.strip())

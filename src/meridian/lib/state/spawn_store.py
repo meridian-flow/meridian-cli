@@ -4,18 +4,14 @@ Also includes file-backed ID generation for spawns and sessions.
 """
 
 
-import fcntl
-import json
-from contextlib import contextmanager
-from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal, Mapping, cast
+from typing import Any, Literal, Mapping
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from meridian.lib.core.domain import SpawnStatus
 from meridian.lib.core.types import SpawnId
-from meridian.lib.state.atomic import append_text_line
+from meridian.lib.state.event_store import append_event, lock_file, read_events, utc_now_iso
 from meridian.lib.state.paths import StateRootPaths
 
 
@@ -25,30 +21,13 @@ from meridian.lib.state.paths import StateRootPaths
 
 
 def _count_start_events(path: Path) -> int:
-    if not path.exists():
-        return 0
+    def _parse_start_event(payload: dict[str, Any]) -> bool | None:
+        event = payload.get("event")
+        if isinstance(event, str) and event == "start":
+            return True
+        return None
 
-    count = 0
-    with path.open("r", encoding="utf-8") as handle:
-        lines = handle.readlines()
-
-    for index, line in enumerate(lines):
-        stripped = line.strip()
-        if not stripped:
-            continue
-        try:
-            payload = json.loads(stripped)
-        except json.JSONDecodeError:
-            # Self-heal truncated trailing line from interrupted append.
-            if index == len(lines) - 1:
-                continue
-            continue
-        if isinstance(payload, dict):
-            row = cast("dict[str, object]", payload)
-            event = row.get("event")
-            if isinstance(event, str) and event == "start":
-                count += 1
-    return count
+    return len(read_events(path, _parse_start_event))
 
 
 def next_spawn_id(state_root: Path) -> SpawnId:
@@ -163,25 +142,6 @@ class SpawnFinalizeEvent(BaseModel):
 type SpawnEvent = SpawnStartEvent | SpawnUpdateEvent | SpawnFinalizeEvent
 
 
-def _utc_now_iso() -> str:
-    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-
-
-@contextmanager
-def _lock_file(path: Path):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a+b") as handle:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-
-
-def _append_event(path: Path, payload: dict[str, Any]) -> None:
-    append_text_line(path, json.dumps(payload, separators=(",", ":"), sort_keys=True) + "\n")
-
-
 def _parse_event(payload: dict[str, Any]) -> SpawnEvent | None:
     event_type = payload.get("event")
     try:
@@ -194,33 +154,6 @@ def _parse_event(payload: dict[str, Any]) -> SpawnEvent | None:
     except ValidationError:
         return None
     return None
-
-
-def _read_events(path: Path) -> list[SpawnEvent]:
-    if not path.exists():
-        return []
-
-    rows: list[SpawnEvent] = []
-    with path.open("r", encoding="utf-8") as handle:
-        lines = handle.readlines()
-
-    for index, line in enumerate(lines):
-        stripped = line.strip()
-        if not stripped:
-            continue
-        try:
-            payload = json.loads(stripped)
-        except json.JSONDecodeError:
-            # Self-healing: ignore interrupted trailing append.
-            if index == len(lines) - 1:
-                continue
-            continue
-        if not isinstance(payload, dict):
-            continue
-        parsed = _parse_event(cast("dict[str, Any]", payload))
-        if parsed is not None:
-            rows.append(parsed)
-    return rows
 
 
 def start_spawn(
@@ -244,9 +177,9 @@ def start_spawn(
     """Append a spawn start event under `spawns.lock` and return the spawn ID."""
 
     paths = StateRootPaths.from_root_dir(state_root)
-    started = started_at or _utc_now_iso()
+    started = started_at or utc_now_iso()
 
-    with _lock_file(paths.spawns_lock):
+    with lock_file(paths.spawns_lock):
         resolved_spawn_id = (
             SpawnId(str(spawn_id)) if spawn_id is not None else next_spawn_id(state_root)
         )
@@ -266,7 +199,13 @@ def start_spawn(
             started_at=started,
             prompt=prompt,
         )
-        _append_event(paths.spawns_jsonl, event.model_dump(exclude_none=True))
+        append_event(
+            paths.spawns_jsonl,
+            paths.spawns_lock,
+            event,
+            store_name="spawn",
+            exclude_none=True,
+        )
         return resolved_spawn_id
 
 
@@ -295,8 +234,13 @@ def update_spawn(
         desc=desc,
         work_id=work_id,
     )
-    with _lock_file(paths.spawns_lock):
-        _append_event(paths.spawns_jsonl, event.model_dump(exclude_none=True))
+    append_event(
+        paths.spawns_jsonl,
+        paths.spawns_lock,
+        event,
+        store_name="spawn",
+        exclude_none=True,
+    )
 
 
 def finalize_spawn(
@@ -319,7 +263,7 @@ def finalize_spawn(
         id=str(spawn_id),
         status=status,
         exit_code=exit_code,
-        finished_at=finished_at or _utc_now_iso(),
+        finished_at=finished_at or utc_now_iso(),
         duration_secs=duration_secs,
         total_cost_usd=total_cost_usd,
         input_tokens=input_tokens,
@@ -327,8 +271,13 @@ def finalize_spawn(
         error=error,
     )
 
-    with _lock_file(paths.spawns_lock):
-        _append_event(paths.spawns_jsonl, event.model_dump(exclude_none=True))
+    append_event(
+        paths.spawns_jsonl,
+        paths.spawns_lock,
+        event,
+        store_name="spawn",
+        exclude_none=True,
+    )
 
 
 def finalize_spawn_if_running(
@@ -341,8 +290,8 @@ def finalize_spawn_if_running(
 ) -> bool:
     """Append finalize event only if spawn is still running. Returns True if finalized."""
     paths = StateRootPaths.from_root_dir(state_root)
-    with _lock_file(paths.spawns_lock):
-        records = _record_from_events(_read_events(paths.spawns_jsonl))
+    with lock_file(paths.spawns_lock):
+        records = _record_from_events(read_events(paths.spawns_jsonl, _parse_event))
         record = records.get(str(spawn_id))
         if record is None or record.status != "running":
             return False
@@ -350,10 +299,16 @@ def finalize_spawn_if_running(
             id=str(spawn_id),
             status=status,
             exit_code=exit_code,
-            finished_at=_utc_now_iso(),
+            finished_at=utc_now_iso(),
             error=error,
         )
-        _append_event(paths.spawns_jsonl, event.model_dump(exclude_none=True))
+        append_event(
+            paths.spawns_jsonl,
+            paths.spawns_lock,
+            event,
+            store_name="spawn",
+            exclude_none=True,
+        )
         return True
 
 
@@ -368,8 +323,8 @@ def finalize_spawn_if_active(
     """Append finalize event only if spawn is queued or running."""
 
     paths = StateRootPaths.from_root_dir(state_root)
-    with _lock_file(paths.spawns_lock):
-        records = _record_from_events(_read_events(paths.spawns_jsonl))
+    with lock_file(paths.spawns_lock):
+        records = _record_from_events(read_events(paths.spawns_jsonl, _parse_event))
         record = records.get(str(spawn_id))
         if record is None or not is_active_spawn_status(record.status):
             return False
@@ -377,10 +332,16 @@ def finalize_spawn_if_active(
             id=str(spawn_id),
             status=status,
             exit_code=exit_code,
-            finished_at=_utc_now_iso(),
+            finished_at=utc_now_iso(),
             error=error,
         )
-        _append_event(paths.spawns_jsonl, event.model_dump(exclude_none=True))
+        append_event(
+            paths.spawns_jsonl,
+            paths.spawns_lock,
+            event,
+            store_name="spawn",
+            exclude_none=True,
+        )
         return True
 
 
@@ -524,7 +485,7 @@ def list_spawns(state_root: Path, filters: Mapping[str, Any] | None = None) -> l
     """List derived spawn records with optional equality filters."""
 
     paths = StateRootPaths.from_root_dir(state_root)
-    spawns = list(_record_from_events(_read_events(paths.spawns_jsonl)).values())
+    spawns = list(_record_from_events(read_events(paths.spawns_jsonl, _parse_event)).values())
 
     if filters:
         filtered: list[SpawnRecord] = []
