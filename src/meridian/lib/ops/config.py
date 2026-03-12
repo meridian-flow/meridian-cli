@@ -22,7 +22,7 @@ from meridian.lib.config.settings import (
 from meridian.lib.core.util import FormatContext
 from meridian.lib.safety.permissions import parse_permission_tier
 from meridian.lib.core.util import to_jsonable
-from meridian.lib.state.paths import resolve_state_paths
+from meridian.lib.state.paths import ensure_gitignore, resolve_state_paths
 
 
 _SECTION_ORDER: tuple[str, ...] = ("defaults", "timeouts", "permissions", "harness", "output")
@@ -703,6 +703,13 @@ def config_init_sync(payload: ConfigInitInput) -> ConfigInitOutput:
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(_scaffold_template(), encoding="utf-8")
+
+    # Eagerly create standard state directories and .gitignore.
+    state = resolve_state_paths(repo_root)
+    state.spawns_dir.mkdir(parents=True, exist_ok=True)
+    (state.root_dir / "fs").mkdir(parents=True, exist_ok=True)
+    ensure_gitignore(repo_root)
+
     return ConfigInitOutput(path=path.as_posix(), created=True)
 
 
