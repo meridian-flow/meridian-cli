@@ -1,6 +1,7 @@
 
 import asyncio
 import json
+import signal
 import sys
 import textwrap
 from pathlib import Path
@@ -458,3 +459,73 @@ async def test_execute_sets_cancelled_failure_reason(tmp_path: Path) -> None:
     row = _fetch_run_row(state_root, run.spawn_id)
     assert row.status == "failed"
     assert row.error == "cancelled"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("received_signal", "durable_report", "expected_status", "expected_exit_code"),
+    [
+        pytest.param(signal.SIGTERM, True, "succeeded", 0, id="forwarded-sigterm-with-report"),
+        pytest.param(None, True, "succeeded", 0, id="raw-sigterm-with-report"),
+        pytest.param(signal.SIGTERM, False, "failed", 143, id="forwarded-sigterm-without-report"),
+    ],
+)
+async def test_execute_resolves_sigterm_after_report_regardless_of_received_signal(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    received_signal: signal.Signals | None,
+    durable_report: bool,
+    expected_status: str,
+    expected_exit_code: int,
+) -> None:
+    run, state_root = _create_run(tmp_path, prompt="sigterm lifecycle")
+    artifacts = LocalStore(root_dir=tmp_path / ".artifacts")
+    adapter = ScriptHarnessAdapter(command=("unused-command",))
+    registry = HarnessRegistry()
+    registry.register(adapter)
+
+    async def fake_spawn_and_stream(
+        *,
+        spawn_id: SpawnId,
+        output_log_path: Path,
+        stderr_log_path: Path,
+        report_watchdog_path: Path | None = None,
+        **_: object,
+    ) -> launch_runner.SpawnResult:
+        _ = spawn_id
+        if durable_report and report_watchdog_path is not None:
+            report_watchdog_path.parent.mkdir(parents=True, exist_ok=True)
+            report_watchdog_path.write_text("# Done\n\nWork completed.\n", encoding="utf-8")
+
+        return launch_runner.SpawnResult(
+            exit_code=143,
+            raw_return_code=-signal.SIGTERM.value,
+            timed_out=False,
+            received_signal=received_signal,
+            output_log_path=output_log_path,
+            stderr_log_path=stderr_log_path,
+            budget_breach=None,
+            terminated_by_report_watchdog=False,
+        )
+
+    monkeypatch.setattr(launch_runner, "spawn_and_stream", fake_spawn_and_stream)
+
+    exit_code = await execute_with_finalization(
+        run,
+        plan=_build_plan(
+            run,
+            adapter.id,
+            max_retries=0,
+        ),
+        repo_root=tmp_path,
+        state_root=state_root,
+        artifacts=artifacts,
+        registry=registry,
+        harness_id=adapter.id,
+        cwd=tmp_path,
+    )
+
+    assert exit_code == expected_exit_code
+    row = _fetch_run_row(state_root, run.spawn_id)
+    assert row.status == expected_status
+    assert row.exit_code == expected_exit_code
