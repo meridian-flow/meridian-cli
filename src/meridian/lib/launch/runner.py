@@ -594,6 +594,7 @@ async def execute_with_finalization(
     observed_harness_session_id: str | None = None
     terminated_after_completion = False
     last_raw_return_code = DEFAULT_INFRA_EXIT_CODE
+    last_received_signal: signal.Signals | None = None
     last_timed_out = False
     heartbeat_path = log_dir / "heartbeat"
 
@@ -648,6 +649,7 @@ async def execute_with_finalization(
                 )
                 exit_code = spawn_result.exit_code
                 last_raw_return_code = spawn_result.raw_return_code
+                last_received_signal = spawn_result.received_signal
                 last_timed_out = spawn_result.timed_out
                 terminated_after_completion = spawn_result.terminated_by_report_watchdog
                 if spawn_result.timed_out:
@@ -841,7 +843,10 @@ async def execute_with_finalization(
             terminated_after_completion = terminated_after_completion or (
                 durable_report_completion
                 and not last_timed_out
-                and _raw_return_code_matches_sigterm(last_raw_return_code)
+                and (
+                    _raw_return_code_matches_sigterm(last_raw_return_code)
+                    or last_received_signal == signal.SIGTERM
+                )
             )
             status, exit_code, failure_reason = resolve_execution_terminal_state(
                 exit_code=exit_code,
@@ -850,7 +855,7 @@ async def execute_with_finalization(
                 terminated_after_completion=terminated_after_completion,
             )
             with signal_coordinator().mask_sigterm():
-                spawn_store.finalize_spawn(
+                spawn_store.finalize_spawn_if_active(
                     state_root,
                     run.spawn_id,
                     status=status,

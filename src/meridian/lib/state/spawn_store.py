@@ -327,6 +327,10 @@ def finalize_spawn_if_active(
     status: SpawnStatus,
     exit_code: int,
     *,
+    duration_secs: float | None = None,
+    total_cost_usd: float | None = None,
+    input_tokens: int | None = None,
+    output_tokens: int | None = None,
     error: str | None = None,
 ) -> bool:
     """Append finalize event only if spawn is queued or running."""
@@ -343,6 +347,10 @@ def finalize_spawn_if_active(
             status=status,
             exit_code=exit_code,
             finished_at=utc_now_iso(),
+            duration_secs=duration_secs,
+            total_cost_usd=total_cost_usd,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
             error=error,
         )
         append_event(

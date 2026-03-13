@@ -479,7 +479,7 @@ def run_harness_process(
                             if primary_started > 0.0
                             else None
                         )
-                        spawn_store.finalize_spawn(
+                        spawn_store.finalize_spawn_if_active(
                             plan.state_root,
                             primary_spawn_id,
                             status=status,
