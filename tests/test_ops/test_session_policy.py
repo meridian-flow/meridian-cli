@@ -94,3 +94,61 @@ def test_ensure_session_work_item_returns_created_name(
     result = session_policy.ensure_session_work_item(state_root, "c3")
 
     assert result == "work-generated-42"
+
+
+def test_ensure_session_work_item_inherits_parent_work_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When inherited_work_id is valid, use it instead of creating auto."""
+    state_root = _state_root(tmp_path)
+    update_calls: list[tuple[Path, str, str | None]] = []
+
+    @dataclass(frozen=True)
+    class _FakeWorkItem:
+        name: str
+
+    monkeypatch.setattr(session_policy, "get_session_active_work_id", lambda *_: None)
+    monkeypatch.setattr(
+        session_policy.work_store,
+        "get_work_item",
+        lambda _root, wid: _FakeWorkItem(name=wid) if wid == "parent-work" else None,
+    )
+    monkeypatch.setattr(
+        session_policy.work_store,
+        "create_auto_work_item",
+        lambda _: (_ for _ in ()).throw(AssertionError("should not create auto")),
+    )
+    monkeypatch.setattr(
+        session_policy,
+        "update_session_work_id",
+        lambda root, cid, wid: update_calls.append((root, cid, wid)),
+    )
+
+    result = session_policy.ensure_session_work_item(
+        state_root, "c4", inherited_work_id="parent-work",
+    )
+
+    assert result == "parent-work"
+    assert update_calls == [(state_root, "c4", "parent-work")]
+
+
+def test_ensure_session_work_item_falls_back_to_auto_on_deleted_inherited(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When inherited work item no longer exists, fall back to auto-create."""
+    state_root = _state_root(tmp_path)
+
+    monkeypatch.setattr(session_policy, "get_session_active_work_id", lambda *_: None)
+    monkeypatch.setattr(session_policy.work_store, "get_work_item", lambda *_: None)
+    monkeypatch.setattr(
+        session_policy.work_store,
+        "create_auto_work_item",
+        lambda _: _AutoWorkItem(name="auto-fallback"),
+    )
+    monkeypatch.setattr(session_policy, "update_session_work_id", lambda *_: None)
+
+    result = session_policy.ensure_session_work_item(
+        state_root, "c5", inherited_work_id="deleted-work",
+    )
+
+    assert result == "auto-fallback"

@@ -18,7 +18,6 @@ from typing import Literal
 import structlog
 
 from meridian.lib.core.spawn_lifecycle import (
-    ACTIVE_SPAWN_STATUSES,
     has_durable_report_completion,
     is_active_spawn_status,
     resolve_reconciled_terminal_state,
@@ -397,18 +396,16 @@ def _reconcile_background_spawn(state_root: Path, inspection: _SpawnInspection) 
     if not inspection.wrapper_alive:
         # Wrapper is the coordinator — if it's dead, it won't finalize.
         if has_durable_report_completion(inspection.report_text):
-            # Report exists: finalize as succeeded regardless of harness state.
-            # An orphaned harness process is harmless once the report is in.
             return _finalize_completed_report(state_root, record)
         if not inspection.harness_alive:
             return _finalize_failed(state_root, record, "orphan_run")
-        # Wrapper dead, harness alive, no report yet — harness may still produce one.
-        # Fall through to stale check.
+        # Wrapper dead, harness alive, no report yet.
+        # If harness is stale (quiet >5min), it's stuck — fail.
+        if inspection.stale:
+            return _finalize_failed(state_root, record, "orphan_stale_harness")
+        return record  # Harness still active — may still produce a report.
 
-    if inspection.stale:
-        # Process(es) alive but quiet for >5min. Suspect, not terminal; preserve.
-        return record
-
+    # Wrapper alive — it will finalize. Just sync PID metadata.
     if (
         inspection.wrapper_pid == record.wrapper_pid
         and inspection.harness_pid == record.worker_pid
@@ -455,7 +452,7 @@ def _reconcile_foreground_spawn(state_root: Path, inspection: _SpawnInspection) 
     if has_durable_report_completion(inspection.report_text):
         if not inspection.harness_alive:
             return _finalize_completed_report(state_root, record)
-        # Harness alive with report: let the live runner finalize naturally.
+        # Harness alive with report — runner will finalize naturally.
         return record
 
     if not inspection.harness_alive and inspection.grace_elapsed:
@@ -463,11 +460,7 @@ def _reconcile_foreground_spawn(state_root: Path, inspection: _SpawnInspection) 
             return record
         return _finalize_failed(state_root, record, "orphan_run")
 
-    if inspection.stale:
-        # Harness is alive (orphan_run handled the dead case).
-        # Quiet but alive is suspect, not terminal; preserve the spawn.
-        return record
-
+    # Harness alive — runner will finalize. Just sync PID metadata.
     if inspection.harness_pid == record.worker_pid:
         return record
     return _mark_running(
@@ -508,6 +501,6 @@ def reconcile_active_spawn(state_root: Path, record: SpawnRecord) -> SpawnRecord
 def reconcile_spawns(state_root: Path, spawns: list[SpawnRecord]) -> list[SpawnRecord]:
     """Batch reconciliation. Only touches active spawns."""
     return [
-        reconcile_active_spawn(state_root, spawn) if spawn.status in ACTIVE_SPAWN_STATUSES else spawn
+        reconcile_active_spawn(state_root, spawn) if is_active_spawn_status(spawn.status) else spawn
         for spawn in spawns
     ]

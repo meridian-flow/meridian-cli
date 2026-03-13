@@ -431,6 +431,72 @@ def test_reconcile_background_dead_wrapper_live_harness_with_report_succeeds(
     assert reconciled.exit_code == 0
 
 
+def test_reconcile_background_dead_wrapper_stale_harness_no_report_fails(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    """Dead wrapper + live-but-stale harness + no report → orphan_stale_harness.
+
+    If the wrapper is dead and the harness hasn't produced output in >5min
+    and there's no report, the harness is stuck. Fail instead of stranding.
+    """
+    state_root, spawn_id = _start_background_spawn(tmp_path, started_at=_OLD_STARTED_AT, status="running")
+    spawn_dir = state_root / "spawns" / spawn_id
+    spawn_dir.mkdir(parents=True, exist_ok=True)
+    dead_wrapper = 2_000_000_000
+    live_harness = 2_000_000_001
+    (spawn_dir / "background.pid").write_text(f"{dead_wrapper}\n", encoding="utf-8")
+    (spawn_dir / "harness.pid").write_text(f"{live_harness}\n", encoding="utf-8")
+    (spawn_dir / "output.jsonl").write_text("", encoding="utf-8")
+    # Make everything stale
+    _set_file_age(spawn_dir / "background.pid", age_seconds=600)
+    _set_file_age(spawn_dir / "harness.pid", age_seconds=600)
+    _set_file_age(spawn_dir / "output.jsonl", age_seconds=600)
+
+    def _selective_alive(pid: int, _pid_file: Path) -> bool:
+        return pid == live_harness
+
+    monkeypatch.setattr(reaper, "_pid_is_alive", _selective_alive)
+
+    row = spawn_store.get_spawn(state_root, spawn_id)
+    assert row is not None
+
+    reconciled = reconcile_active_spawn(state_root, row)
+
+    assert reconciled.status == "failed"
+    assert reconciled.error == "orphan_stale_harness"
+
+
+def test_reconcile_background_dead_wrapper_active_harness_no_report_stays_running(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    """Dead wrapper + live active harness + no report → stay running.
+
+    Harness is still producing output — give it a chance to write report.
+    """
+    state_root, spawn_id = _start_background_spawn(tmp_path, started_at=_OLD_STARTED_AT, status="running")
+    spawn_dir = state_root / "spawns" / spawn_id
+    spawn_dir.mkdir(parents=True, exist_ok=True)
+    dead_wrapper = 2_000_000_000
+    live_harness = 2_000_000_001
+    (spawn_dir / "background.pid").write_text(f"{dead_wrapper}\n", encoding="utf-8")
+    (spawn_dir / "harness.pid").write_text(f"{live_harness}\n", encoding="utf-8")
+    # Recent output — not stale
+    (spawn_dir / "output.jsonl").write_text("{}\n", encoding="utf-8")
+
+    def _selective_alive(pid: int, _pid_file: Path) -> bool:
+        return pid == live_harness
+
+    monkeypatch.setattr(reaper, "_pid_is_alive", _selective_alive)
+
+    row = spawn_store.get_spawn(state_root, spawn_id)
+    assert row is not None
+
+    reconciled = reconcile_active_spawn(state_root, row)
+
+    assert reconciled.status == "running"
+    assert reconciled.error is None
+
+
 def test_heartbeat_in_recent_spawn_activity(tmp_path: Path) -> None:
     spawn_dir = tmp_path / "spawn"
     spawn_dir.mkdir(parents=True, exist_ok=True)
