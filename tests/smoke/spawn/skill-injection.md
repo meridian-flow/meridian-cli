@@ -1,0 +1,127 @@
+# Spawn Skill Injection
+
+Validate that skills are correctly injected into spawn prompts across harness types. Skill injection follows two paths depending on the harness:
+
+- **Inline** (Codex/OpenCode): Skill content is embedded directly in `composed_prompt`.
+- **Append** (Claude): Skill content is passed via `--append-system-prompt` in the CLI command.
+
+## Setup
+
+```bash
+export REPO_ROOT=/abs/path/to/meridian-channel
+export SMOKE_REPO="$(mktemp -d /tmp/meridian-skill-inject.XXXXXX)"
+git -C "$SMOKE_REPO" init --quiet
+for var in $(env | awk -F= '/^MERIDIAN_/ {print $1}'); do unset "$var"; done
+export MERIDIAN_REPO_ROOT="$SMOKE_REPO"
+export MERIDIAN_STATE_ROOT="$SMOKE_REPO/.meridian"
+cd "$REPO_ROOT"
+test -d "$SMOKE_REPO/.git" && echo "PASS: skill-injection repo ready" || echo "FAIL: skill-injection repo setup failed"
+```
+
+### SKILL-1. Inline injection puts skill content in composed prompt [CRITICAL]
+
+The default harness (Codex) inlines skill content directly into the prompt.
+
+```bash
+uv run meridian --json spawn -p "do the task" --skill meridian-orchestrate --dry-run > /tmp/meridian-skill-inline.json && \
+python3 - <<'PY'
+import json
+doc = json.load(open("/tmp/meridian-skill-inline.json"))
+assert doc["status"] == "dry-run"
+prompt = doc["composed_prompt"]
+assert "orchestrate" in prompt.lower() or "supervisor" in prompt.lower(), \
+    "Skill content not found in composed_prompt for inline injection"
+cli = doc.get("cli_command", [])
+has_append = any("append-system-prompt" in str(a) for a in cli)
+assert not has_append, "Inline harness should not use --append-system-prompt"
+print("PASS: inline skill injection embedded content in composed_prompt")
+PY
+```
+
+### SKILL-2. Append injection uses --append-system-prompt for Claude [CRITICAL]
+
+Claude harness uses `--append-system-prompt` to inject skills.
+
+```bash
+uv run meridian --json spawn -p "do the task" --skill meridian-orchestrate -m sonnet --dry-run > /tmp/meridian-skill-append.json && \
+python3 - <<'PY'
+import json
+doc = json.load(open("/tmp/meridian-skill-append.json"))
+assert doc["status"] == "dry-run"
+assert doc.get("harness_id") == "claude", f"Expected claude harness, got {doc.get('harness_id')}"
+cli = doc.get("cli_command", [])
+cli_str = " ".join(str(a) for a in cli)
+assert "--append-system-prompt" in cli_str, \
+    "Claude harness should use --append-system-prompt for skill injection"
+assert "orchestrate" in cli_str.lower() or "supervisor" in cli_str.lower(), \
+    "Skill content not found in --append-system-prompt value"
+prompt = doc.get("composed_prompt", "")
+assert "orchestrate" not in prompt.lower(), \
+    "Claude harness should NOT inline skill content into composed_prompt"
+print("PASS: append skill injection used --append-system-prompt")
+PY
+```
+
+### SKILL-3. Multiple skills are all injected [IMPORTANT]
+
+When multiple skills are specified, all should appear in the output.
+
+```bash
+uv run meridian --json spawn \
+  -p "do the task" \
+  --skill meridian-orchestrate \
+  --skill meridian-spawn-agent \
+  --dry-run > /tmp/meridian-skill-multi.json && \
+python3 - <<'PY'
+import json
+doc = json.load(open("/tmp/meridian-skill-multi.json"))
+assert doc["status"] == "dry-run"
+prompt = doc.get("composed_prompt", "")
+cli_str = " ".join(str(a) for a in doc.get("cli_command", []))
+combined = prompt + cli_str
+assert "orchestrate" in combined.lower(), "meridian-orchestrate skill not found"
+assert "spawn" in combined.lower(), "meridian-spawn-agent skill not found"
+print("PASS: multiple skills were all injected")
+PY
+```
+
+### SKILL-4. Unknown skill fails cleanly [IMPORTANT]
+
+```bash
+if uv run meridian --json spawn -p "test" --skill no-such-skill-exists --dry-run >/tmp/meridian-skill-unknown.out 2>&1; then
+  if grep -q "Traceback" /tmp/meridian-skill-unknown.out; then
+    echo "FAIL: unknown skill produced a traceback"
+  else
+    echo "PASS: unknown skill was handled cleanly (accepted or warned)"
+  fi
+else
+  if grep -q "Traceback" /tmp/meridian-skill-unknown.out; then
+    echo "FAIL: unknown skill produced a traceback"
+  else
+    echo "PASS: unknown skill failed cleanly"
+  fi
+fi
+```
+
+### SKILL-5. Dry-run output includes model and harness metadata [IMPORTANT]
+
+After the solid-consistency-refactor, dry-run JSON should include `model`, `harness_id`, and `reference_files` when present.
+
+```bash
+printf '# ref file\n' > /tmp/meridian-skill-ref.md
+uv run meridian --json spawn \
+  -p "check metadata fields" \
+  -m sonnet \
+  -f /tmp/meridian-skill-ref.md \
+  --dry-run > /tmp/meridian-skill-meta.json && \
+python3 - <<'PY'
+import json
+doc = json.load(open("/tmp/meridian-skill-meta.json"))
+assert doc["status"] == "dry-run"
+assert doc.get("model"), "model field missing from dry-run output"
+assert doc.get("harness_id"), "harness_id field missing from dry-run output"
+refs = doc.get("reference_files", [])
+assert refs, "reference_files missing from dry-run output"
+print("PASS: dry-run includes model, harness_id, and reference_files")
+PY
+```

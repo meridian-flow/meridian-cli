@@ -81,6 +81,16 @@ class SpawnActionOutput(BaseModel):
         if self.exit_code is not None:
             wire["exit_code"] = self.exit_code
         if self.status == "dry-run":
+            if self.model is not None:
+                wire["model"] = self.model
+            if self.harness_id is not None:
+                wire["harness_id"] = self.harness_id
+            if self.agent is not None:
+                wire["agent"] = self.agent
+            if self.reference_files:
+                wire["reference_files"] = list(self.reference_files)
+            if self.template_vars:
+                wire["template_vars"] = dict(self.template_vars)
             if self.composed_prompt is not None:
                 wire["composed_prompt"] = self.composed_prompt
             if self.cli_command:
