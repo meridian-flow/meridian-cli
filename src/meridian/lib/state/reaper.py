@@ -28,7 +28,7 @@ from meridian.lib.state.spawn_store import (
     FOREGROUND_LAUNCH_MODE,
     LaunchMode,
     SpawnRecord,
-    finalize_spawn_if_active,
+    finalize_spawn,
     mark_spawn_running,
 )
 from meridian.lib.core.types import SpawnId
@@ -287,7 +287,7 @@ def _finalize_and_log(
     reason: str,
 ) -> SpawnRecord:
     """Finalize an active spawn during reconciliation and return the updated record."""
-    finalized = finalize_spawn_if_active(
+    finalized = finalize_spawn(
         state_root,
         SpawnId(record.id),
         status=status,

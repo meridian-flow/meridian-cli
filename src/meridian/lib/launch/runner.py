@@ -855,7 +855,7 @@ async def execute_with_finalization(
                 terminated_after_completion=terminated_after_completion,
             )
             with signal_coordinator().mask_sigterm():
-                spawn_store.finalize_spawn_if_active(
+                spawn_store.finalize_spawn(
                     state_root,
                     run.spawn_id,
                     status=status,

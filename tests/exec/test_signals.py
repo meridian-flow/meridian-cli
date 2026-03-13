@@ -163,7 +163,7 @@ async def test_execute_with_finalization_ignores_sigterm_during_finalize_write(
     monkeypatch.setattr(spawn_module, "signal_coordinator", lambda: FakeCoordinator())
 
     finalize_called = False
-    original_finalize = spawn_module.spawn_store.finalize_spawn_if_active
+    original_finalize = spawn_module.spawn_store.finalize_spawn
 
     def wrapped_finalize(*args: object, **kwargs: object) -> bool:
         nonlocal finalize_called
@@ -171,7 +171,7 @@ async def test_execute_with_finalization_ignores_sigterm_during_finalize_write(
         assert sigterm_masked is True
         return bool(original_finalize(*args, **kwargs))
 
-    monkeypatch.setattr(spawn_module.spawn_store, "finalize_spawn_if_active", wrapped_finalize)
+    monkeypatch.setattr(spawn_module.spawn_store, "finalize_spawn", wrapped_finalize)
 
     exit_code = await execute_with_finalization(
         run,

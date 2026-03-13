@@ -384,7 +384,7 @@ def spawn_cancel_sync(
         except ProcessLookupError:
             pass
 
-    finalized = spawn_store.finalize_spawn_if_active(
+    finalized = spawn_store.finalize_spawn(
         state_root,
         spawn_id,
         status="cancelled",
