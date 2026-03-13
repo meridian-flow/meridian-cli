@@ -426,7 +426,13 @@ def test_kill_running_parent_process_still_finalizes_run(
             proc.kill()
             proc.wait(timeout=5)
 
-    row = spawn_store.get_spawn(resolve_state_paths(repo_root).root_dir, "r1")
+    state_root = resolve_state_paths(repo_root).root_dir
+    deadline = time.time() + 5.0
+    row = spawn_store.get_spawn(state_root, "r1")
+    while time.time() < deadline and (row is None or row.status == "running"):
+        time.sleep(0.05)
+        row = spawn_store.get_spawn(state_root, "r1")
+
     assert row is not None
     assert row.status == "failed"
     assert row.exit_code == 143

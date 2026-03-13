@@ -245,12 +245,18 @@ def test_primary_launch_lock_raises_value_error_on_contention(tmp_path: Path) ->
 def test_primary_launch_lock_contends_across_processes(tmp_path: Path) -> None:
     start_method = "fork" if "fork" in mp.get_all_start_methods() else "spawn"
     ctx = mp.get_context(start_method)
-    queue = ctx.Queue()
+    try:
+        queue = ctx.Queue()
+    except PermissionError as exc:
+        pytest.skip(f"multiprocessing semaphore unavailable in this environment: {exc}")
     lock_path = process.active_primary_lock_path(tmp_path)
 
     first = ctx.Process(target=_attempt_primary_launch_lock, args=(str(lock_path), 2.0, queue))
     second = ctx.Process(target=_attempt_primary_launch_lock, args=(str(lock_path), 0.0, queue))
-    first.start()
+    try:
+        first.start()
+    except PermissionError as exc:
+        pytest.skip(f"multiprocessing semaphore unavailable in this environment: {exc}")
     first_status, _ = queue.get(timeout=5)
     assert first_status == "acquired"
 

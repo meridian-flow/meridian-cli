@@ -5,7 +5,7 @@ import re
 from datetime import date, timedelta
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_serializer
 
 from meridian.lib.catalog.models import AliasEntry, load_merged_aliases, resolve_model
 from meridian.lib.catalog.models import DiscoveredModel, load_discovered_models, refresh_models_cache
@@ -56,6 +56,40 @@ class CatalogModel(BaseModel):
     release_date: str | None = None
     cost_tier: str | None = None
 
+    def to_wire(self) -> dict[str, object]:
+        """Compact JSON projection for model listings."""
+        wire: dict[str, object] = {
+            "model_id": str(self.model_id),
+            "harness": str(self.harness),
+        }
+
+        aliases = [alias.model_dump(exclude_none=True) for alias in self.aliases]
+        if aliases:
+            wire["aliases"] = aliases
+
+        if self.name and self.name.strip():
+            wire["name"] = self.name
+        if self.family and self.family.strip():
+            wire["family"] = self.family
+        if self.provider and self.provider.strip():
+            wire["provider"] = self.provider
+        if self.cost_input is not None:
+            wire["cost_input"] = self.cost_input
+        if self.cost_output is not None:
+            wire["cost_output"] = self.cost_output
+        if self.context_limit is not None:
+            wire["context_limit"] = self.context_limit
+        if self.output_limit is not None:
+            wire["output_limit"] = self.output_limit
+        if self.capabilities:
+            wire["capabilities"] = list(self.capabilities)
+        if self.release_date and self.release_date.strip():
+            wire["release_date"] = self.release_date
+        if self.cost_tier and self.cost_tier.strip():
+            wire["cost_tier"] = self.cost_tier
+
+        return wire
+
     def format_text(self, ctx: FormatContext | None = None) -> str:
         _ = ctx
         from meridian.cli.format_helpers import kv_block
@@ -87,6 +121,10 @@ class ModelsListOutput(BaseModel):
 
     models: tuple[CatalogModel, ...]
 
+    @model_serializer(mode="plain")
+    def _serialize(self) -> dict[str, object]:
+        return {"models": [model.to_wire() for model in self.models]}
+
     def format_text(self, ctx: FormatContext | None = None) -> str:
         """Columnar model table for text output mode."""
         if not self.models:
@@ -105,7 +143,15 @@ class ModelsListOutput(BaseModel):
             ]
             for model in self.models
         ]
-        return tabular([header] + rows)
+        required_indices = {0, 1}
+        keep_indices = [
+            index
+            for index in range(len(header))
+            if index in required_indices or any(row[index] for row in rows)
+        ]
+        filtered_header = [header[index] for index in keep_indices]
+        filtered_rows = [[row[index] for index in keep_indices] for row in rows]
+        return tabular([filtered_header] + filtered_rows)
 
 
 class ModelsRefreshOutput(BaseModel):
@@ -148,7 +194,9 @@ class SkillsQueryOutput(BaseModel):
             return "(no skills)"
         from meridian.cli.format_helpers import tabular
 
-        return tabular([[skill.name, skill.description] for skill in self.skills])
+        return tabular(
+            [[skill.name, _truncate(skill.description, max_len=60)] for skill in self.skills]
+        )
 
 
 def _repo_root(repo_root: str | None) -> Path | None:
@@ -180,6 +228,12 @@ def _format_alias_detail(alias: AliasEntry) -> str:
     if alias.strengths:
         details.append(f"strengths={alias.strengths}")
     return " ".join(details)
+
+
+def _truncate(text: str, *, max_len: int) -> str:
+    if len(text) <= max_len:
+        return text
+    return f"{text[: max_len - 3].rstrip()}..."
 
 
 def _build_catalog_model(

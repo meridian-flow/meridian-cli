@@ -64,7 +64,10 @@ def _spawn_create(
     ] = (),
     model: Annotated[
         str,
-        Parameter(name=["--model", "-m"], help="Model id or alias to use."),
+        Parameter(
+            name=["--model", "-m"],
+            help="Model id or alias. Overrides agent profile and config defaults.",
+        ),
     ] = "",
     references: Annotated[
         tuple[str, ...],

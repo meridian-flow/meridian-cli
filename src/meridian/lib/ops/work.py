@@ -124,7 +124,7 @@ class WorkDashboardOutput(BaseModel):
         _ = ctx
         lines = ["ACTIVE"]
         if not self.items and not self.ungrouped_spawns:
-            lines.append("  (none)")
+            lines.append("  (no work items)")
             return "\n".join(lines)
 
         has_spawns = False

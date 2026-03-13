@@ -1,7 +1,7 @@
 """Spawn operation input/output models and shared lightweight helpers."""
 
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_serializer
 
 from meridian.lib.core.domain import SpawnStatus
 from meridian.lib.core.util import FormatContext
@@ -174,6 +174,16 @@ class SpawnListOutput(BaseModel):
     spawns: tuple[SpawnListEntry, ...]
     total_count: int | None = None
     truncated: bool = False
+
+    @model_serializer(mode="plain")
+    def _serialize(self) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "spawns": [entry.model_dump() for entry in self.spawns],
+            "truncated": self.truncated,
+        }
+        if self.total_count is not None:
+            payload["total_count"] = self.total_count
+        return payload
 
     def format_text(self, ctx: FormatContext | None = None) -> str:
         """Columnar list of spawns for text output mode."""

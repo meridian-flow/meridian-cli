@@ -56,6 +56,10 @@ Commands:
   work    Work item dashboard and coordination
   models  Model catalog
   skills  Skills catalog
+
+Output:
+  Agent mode defaults to JSON. All commands emit structured JSON.
+  Use --format text to force human-readable output.
 """
 
 
@@ -388,9 +392,9 @@ spawn_app = App(
         "Spawns run in background by default."
     ),
     help_epilogue=(
-        "Examples:\n"
-        '  meridian spawn -m gpt-5.3-codex -p "Fix the bug in auth.py"\n'
-        '  meridian spawn -m claude-sonnet-4-6 -p "Review" -f src/main.py\n'
+        "Examples:\n\n"
+        '  meridian spawn -m gpt-5.3-codex -p "Fix the bug in auth.py"\n\n'
+        '  meridian spawn -m claude-sonnet-4-6 -p "Review" -f src/main.py\n\n'
         "  meridian spawn wait SPAWN_ID\n"
     ),
     help_formatter="plain",

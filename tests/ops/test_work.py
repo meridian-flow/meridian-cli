@@ -73,7 +73,7 @@ def test_work_dashboard_groups_active_spawns(tmp_path: Path) -> None:
 def test_work_dashboard_omits_hint_when_empty(tmp_path: Path) -> None:
     result = work_dashboard_sync(WorkDashboardInput(repo_root=tmp_path.as_posix()))
 
-    assert result.format_text() == "ACTIVE\n  (none)"
+    assert result.format_text() == "ACTIVE\n  (no work items)"
 
 
 def test_work_start_switch_clear_and_show_round_trip(tmp_path: Path) -> None:

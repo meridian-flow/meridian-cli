@@ -402,7 +402,8 @@ def _read_cache(cache_file: Path) -> tuple[float, list[DiscoveredModel]] | None:
     try:
         payload_obj = json.loads(cache_file.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        logger.warning("Failed to read models.dev cache at %s", cache_file, exc_info=True)
+        logger.warning("Failed to read models.dev cache at %s", cache_file, exc_info=False)
+        logger.debug("Failed to read models.dev cache at %s", cache_file, exc_info=True)
         return None
 
     try:
@@ -480,12 +481,21 @@ def refresh_models_cache(cache_dir: Path | str | None = None) -> list[Discovered
             logger.warning(
                 "Failed to refresh models.dev cache at %s; using cached models",
                 cache_file,
+                exc_info=False,
+            )
+            logger.debug(
+                "Failed to refresh models.dev cache at %s; using cached models",
+                cache_file,
                 exc_info=True,
             )
             return cached[1]
 
         logger.warning(
-            "Failed to refresh models.dev cache at %s; returning empty model list",
+            "Failed to refresh models.dev catalog; no cached data available",
+            exc_info=False,
+        )
+        logger.debug(
+            "Failed to refresh models.dev cache at %s; no cached data available",
             cache_file,
             exc_info=True,
         )
