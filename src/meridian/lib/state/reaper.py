@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import fcntl
 import os
-import signal as _signal
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -195,24 +194,6 @@ def _resolve_launch_mode(record: SpawnRecord, spawn_dir: Path) -> ResolvedLaunch
     return ""
 
 
-def _kill_pid_nonblocking(pid: int) -> None:
-    """Send SIGTERM to a process group. Non-blocking, best-effort.
-
-    Used on the read path so that stuck spawns are signalled to exit without
-    blocking the caller.  The spawn is finalized immediately after this call,
-    so even if the process lingers briefly it won't be "running" in state.
-    """
-    try:
-        pgid = os.getpgid(pid)
-    except ProcessLookupError:
-        return
-
-    try:
-        os.killpg(pgid, _signal.SIGTERM)
-    except (ProcessLookupError, PermissionError):
-        pass
-
-
 def _read_completion_report(spawn_dir: Path) -> str | None:
     report_path = spawn_dir / "report.md"
     if not report_path.is_file():
@@ -390,13 +371,6 @@ def _mark_running(
     )
 
 
-def _terminate_observed_processes(inspection: _SpawnInspection) -> None:
-    if inspection.harness_pid is not None and inspection.harness_alive:
-        _kill_pid_nonblocking(inspection.harness_pid)
-    if inspection.wrapper_pid is not None and inspection.wrapper_alive:
-        _kill_pid_nonblocking(inspection.wrapper_pid)
-
-
 def _reconcile_background_spawn(state_root: Path, inspection: _SpawnInspection) -> SpawnRecord:
     record = inspection.record
     if not inspection.spawn_dir_exists:
@@ -420,16 +394,19 @@ def _reconcile_background_spawn(state_root: Path, inspection: _SpawnInspection) 
             worker_pid=inspection.harness_pid,
         )
 
-    if has_durable_report_completion(inspection.report_text):
-        _terminate_observed_processes(inspection)
-        return _finalize_completed_report(state_root, record)
-
-    if not inspection.wrapper_alive and not inspection.harness_alive:
-        return _finalize_failed(state_root, record, "orphan_run")
+    if not inspection.wrapper_alive:
+        # Wrapper is the coordinator — if it's dead, it won't finalize.
+        if has_durable_report_completion(inspection.report_text):
+            # Report exists: finalize as succeeded regardless of harness state.
+            # An orphaned harness process is harmless once the report is in.
+            return _finalize_completed_report(state_root, record)
+        if not inspection.harness_alive:
+            return _finalize_failed(state_root, record, "orphan_run")
+        # Wrapper dead, harness alive, no report yet — harness may still produce one.
+        # Fall through to stale check.
 
     if inspection.stale:
-        # At least one process is alive (orphan_run check above handled the dead case).
-        # Quiet but alive is suspect, not terminal; preserve the spawn.
+        # Process(es) alive but quiet for >5min. Suspect, not terminal; preserve.
         return record
 
     if (
@@ -476,8 +453,10 @@ def _reconcile_foreground_spawn(state_root: Path, inspection: _SpawnInspection) 
         )
 
     if has_durable_report_completion(inspection.report_text):
-        _terminate_observed_processes(inspection)
-        return _finalize_completed_report(state_root, record)
+        if not inspection.harness_alive:
+            return _finalize_completed_report(state_root, record)
+        # Harness alive with report: let the live runner finalize naturally.
+        return record
 
     if not inspection.harness_alive and inspection.grace_elapsed:
         if primary_launch_lock_held:
@@ -507,8 +486,9 @@ def _reconcile_legacy_spawn(state_root: Path, inspection: _SpawnInspection) -> S
         if inspection.wrapper_pid is None and inspection.harness_pid is None and inspection.grace_elapsed:
             return _finalize_failed(state_root, record, "missing_worker_pid")
         if has_durable_report_completion(inspection.report_text):
-            _terminate_observed_processes(inspection)
-            return _finalize_completed_report(state_root, record)
+            if not inspection.wrapper_alive and not inspection.harness_alive:
+                return _finalize_completed_report(state_root, record)
+            return record
     return record
 
 

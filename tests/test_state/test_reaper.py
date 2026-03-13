@@ -135,6 +135,45 @@ def test_reconcile_background_spawn_with_report_and_dead_pid_succeeds(tmp_path: 
     assert latest.status == "succeeded"
 
 
+def test_reconcile_background_spawn_with_report_and_live_wrapper_stays_running(tmp_path: Path) -> None:
+    state_root = resolve_state_paths(tmp_path).root_dir
+    sleeper = subprocess.Popen(["sleep", "30"], start_new_session=True)
+    try:
+        spawn_id = spawn_store.start_spawn(
+            state_root,
+            chat_id="c1",
+            model="gpt-5.4",
+            agent="agent",
+            harness="codex",
+            kind="child",
+            prompt="hello",
+            launch_mode="background",
+            status="running",
+            started_at=_OLD_STARTED_AT,
+        )
+        spawn_dir = state_root / "spawns" / str(spawn_id)
+        spawn_dir.mkdir(parents=True, exist_ok=True)
+        (spawn_dir / "background.pid").write_text(f"{sleeper.pid}\n", encoding="utf-8")
+        (spawn_dir / "report.md").write_text("# Finished\n\nCompleted.\n", encoding="utf-8")
+
+        row = spawn_store.get_spawn(state_root, spawn_id)
+        assert row is not None
+
+        reconciled = reconcile_active_spawn(state_root, row)
+
+        assert reconciled.status == "running"
+        assert sleeper.poll() is None
+        latest = spawn_store.get_spawn(state_root, spawn_id)
+        assert latest is not None
+        assert latest.status == "running"
+        assert latest.exit_code is None
+        assert latest.error is None
+    finally:
+        if sleeper.poll() is None:
+            sleeper.terminate()
+            sleeper.wait(timeout=5)
+
+
 def test_reconcile_foreground_spawn_with_report_and_dead_pid_succeeds(tmp_path: Path) -> None:
     """A foreground spawn with a dead PID but a valid report should succeed, not fail as orphan."""
     dead_pid = 2_000_000_000
@@ -159,7 +198,9 @@ def test_reconcile_foreground_spawn_with_report_and_dead_pid_succeeds(tmp_path: 
     assert latest.status == "succeeded"
 
 
-def test_reconcile_active_spawn_marks_reported_foreground_spawn_succeeded(tmp_path: Path) -> None:
+def test_reconcile_active_spawn_with_report_and_live_foreground_harness_stays_running(
+    tmp_path: Path,
+) -> None:
     state_root = resolve_state_paths(tmp_path).root_dir
     sleeper = subprocess.Popen(["sleep", "30"], start_new_session=True)
     try:
@@ -186,13 +227,12 @@ def test_reconcile_active_spawn_marks_reported_foreground_spawn_succeeded(tmp_pa
 
         reconciled = reconcile_active_spawn(state_root, row)
 
-        assert reconciled.status == "succeeded"
-        assert reconciled.exit_code == 0
-        assert reconciled.error is None
+        assert reconciled.status == "running"
+        assert sleeper.poll() is None
         latest = spawn_store.get_spawn(state_root, spawn_id)
         assert latest is not None
-        assert latest.status == "succeeded"
-        assert latest.exit_code == 0
+        assert latest.status == "running"
+        assert latest.exit_code is None
         assert latest.error is None
     finally:
         if sleeper.poll() is None:
@@ -358,6 +398,37 @@ def test_heartbeat_prevents_stale_detection(tmp_path: Path) -> None:
     os.utime(heartbeat, None)
 
     assert _spawn_is_stale(spawn_dir, pid_file) is False
+
+
+def test_reconcile_background_dead_wrapper_live_harness_with_report_succeeds(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    """Dead wrapper + live harness + report.md → finalize as succeeded.
+
+    The wrapper is the coordinator; if it's dead, nobody will finalize.
+    The report proves the work completed, so the orphaned harness is harmless.
+    """
+    state_root, spawn_id = _start_background_spawn(tmp_path, started_at=_OLD_STARTED_AT, status="running")
+    spawn_dir = state_root / "spawns" / spawn_id
+    spawn_dir.mkdir(parents=True, exist_ok=True)
+    dead_wrapper = 2_000_000_000
+    live_harness = 2_000_000_001
+    (spawn_dir / "background.pid").write_text(f"{dead_wrapper}\n", encoding="utf-8")
+    (spawn_dir / "harness.pid").write_text(f"{live_harness}\n", encoding="utf-8")
+    (spawn_dir / "report.md").write_text("# Finished\n\nCompleted.\n", encoding="utf-8")
+
+    def _selective_alive(pid: int, _pid_file: Path) -> bool:
+        return pid == live_harness
+
+    monkeypatch.setattr(reaper, "_pid_is_alive", _selective_alive)
+
+    row = spawn_store.get_spawn(state_root, spawn_id)
+    assert row is not None
+
+    reconciled = reconcile_active_spawn(state_root, row)
+
+    assert reconciled.status == "succeeded"
+    assert reconciled.exit_code == 0
 
 
 def test_heartbeat_in_recent_spawn_activity(tmp_path: Path) -> None:

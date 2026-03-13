@@ -3,11 +3,27 @@ from __future__ import annotations
 import json
 import multiprocessing
 from pathlib import Path
-from typing import BinaryIO
+from typing import Any, BinaryIO
 
 import pytest
 
 from meridian.lib.state import session_store
+
+
+def _spawn_queue_or_skip() -> tuple[Any, multiprocessing.Queue[Any]]:
+    ctx = multiprocessing.get_context("spawn")
+    try:
+        queue: multiprocessing.Queue[Any] = ctx.Queue()
+    except PermissionError as exc:
+        pytest.skip(f"multiprocessing semaphore unavailable in this environment: {exc}")
+    return ctx, queue
+
+
+def _start_process_or_skip(proc: Any) -> None:
+    try:
+        proc.start()
+    except PermissionError as exc:
+        pytest.skip(f"multiprocessing semaphore unavailable in this environment: {exc}")
 
 
 def _state_root(tmp_path: Path) -> Path:
@@ -138,8 +154,7 @@ def test_reserve_chat_id_is_safe_under_concurrency(tmp_path: Path) -> None:
     state_root = _state_root(tmp_path)
 
     process_count = 8
-    ctx = multiprocessing.get_context("spawn")
-    queue: multiprocessing.Queue[str] = ctx.Queue()
+    ctx, queue = _spawn_queue_or_skip()
     procs = [
         ctx.Process(
             target=_reserve_chat_id_worker,
@@ -148,7 +163,7 @@ def test_reserve_chat_id_is_safe_under_concurrency(tmp_path: Path) -> None:
         for _ in range(process_count)
     ]
     for proc in procs:
-        proc.start()
+        _start_process_or_skip(proc)
     for proc in procs:
         proc.join(timeout=20)
         assert proc.exitcode == 0
@@ -254,14 +269,13 @@ def test_start_session_acquires_lifetime_lock_before_appending_start_event(
         if event is None and len(args) >= 3:
             event = args[2]
         if isinstance(event, session_store.SessionStartEvent):
-            ctx = multiprocessing.get_context("spawn")
-            queue: multiprocessing.Queue[bool] = ctx.Queue()
+            ctx, queue = _spawn_queue_or_skip()
             lock_path = state_root / "sessions" / f"{event.chat_id}.lock"
             proc = ctx.Process(
                 target=_can_acquire_lock_nonblocking_worker,
                 args=(lock_path.as_posix(), queue),
             )
-            proc.start()
+            _start_process_or_skip(proc)
             proc.join(timeout=20)
             assert proc.exitcode == 0
             assert queue.get(timeout=5) is False
@@ -305,14 +319,13 @@ def test_start_session_rolls_back_lock_and_event_on_append_failure(
     assert not (state_root / "sessions" / f"{chat_id}.lease.json").exists()
     assert session_store._session_lock_key(state_root, chat_id) not in session_store._SESSION_LOCK_HANDLES
 
-    ctx = multiprocessing.get_context("spawn")
-    queue: multiprocessing.Queue[bool] = ctx.Queue()
+    ctx, queue = _spawn_queue_or_skip()
     lock_path = state_root / "sessions" / f"{chat_id}.lock"
     proc = ctx.Process(
         target=_can_acquire_lock_nonblocking_worker,
         args=(lock_path.as_posix(), queue),
     )
-    proc.start()
+    _start_process_or_skip(proc)
     proc.join(timeout=20)
     assert proc.exitcode == 0
     assert queue.get(timeout=5) is True
@@ -679,8 +692,7 @@ def test_double_stop_appends_events_with_same_generation(tmp_path: Path) -> None
 def test_concurrent_start_session_allocates_unique_chat_ids(tmp_path: Path) -> None:
     state_root = _state_root(tmp_path)
     process_count = 8
-    ctx = multiprocessing.get_context("spawn")
-    queue: multiprocessing.Queue[str] = ctx.Queue()
+    ctx, queue = _spawn_queue_or_skip()
     procs = [
         ctx.Process(
             target=_start_and_stop_session_worker,
@@ -689,7 +701,7 @@ def test_concurrent_start_session_allocates_unique_chat_ids(tmp_path: Path) -> N
         for idx in range(process_count)
     ]
     for proc in procs:
-        proc.start()
+        _start_process_or_skip(proc)
     for proc in procs:
         proc.join(timeout=20)
         assert proc.exitcode == 0

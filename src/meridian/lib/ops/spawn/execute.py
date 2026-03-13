@@ -394,6 +394,7 @@ def _session_execution_context(
     repo_root: Path,
     run_agent_name: str | None,
     harness_registry: Any,
+    inherited_work_id: str | None = None,
 ) -> Iterator[_SessionExecutionContext]:
     entered_session_scope = False
     try:
@@ -408,7 +409,9 @@ def _session_execution_context(
             skill_paths=session_skill_paths,
         ) as managed:
             entered_session_scope = True
-            ensure_session_work_item(state_root, managed.chat_id)
+            ensure_session_work_item(
+                state_root, managed.chat_id, inherited_work_id=inherited_work_id,
+            )
             resolved_agent_name = run_agent_name
             materialized_agent_name = _materialize_session_agent_name(
                 repo_root=repo_root,
@@ -519,6 +522,7 @@ async def _execute_existing_spawn(
         repo_root=runtime.repo_root,
         run_agent_name=agent_name,
         harness_registry=runtime.harness_registry,
+        inherited_work_id=spawn_record.work_id,
     ) as session_context:
         resolved_plan = plan.model_copy(update={"agent_name": session_context.resolved_agent_name})
         return await execute_with_finalization(
@@ -774,6 +778,7 @@ def execute_spawn_blocking(
         repo_root=runtime.repo_root,
         run_agent_name=prepared.agent_name,
         harness_registry=runtime.harness_registry,
+        inherited_work_id=context.work_id,
     ) as session_context:
         resolved_plan = prepared.model_copy(update={"agent_name": session_context.resolved_agent_name})
         exit_code = asyncio.run(
