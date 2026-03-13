@@ -207,6 +207,33 @@ def test_succeeded_finalize_clears_stale_error(tmp_path: Path) -> None:
     assert row.error is None, f"Expected error=None after succeeded finalize, got {row.error!r}"
 
 
+def test_finalize_spawn_returns_ownership_and_always_writes(tmp_path: Path) -> None:
+    """finalize_spawn always appends the event but returns True only for the first terminal write."""
+    state_root = _state_root(tmp_path)
+    spawn_id = start_spawn(
+        state_root,
+        chat_id="c1",
+        model="gpt-5.4",
+        agent="coder",
+        harness="codex",
+        prompt="hello",
+    )
+
+    assert finalize_spawn(
+        state_root, spawn_id, status="failed", exit_code=1, error="orphan_run"
+    ) is True
+    assert finalize_spawn(
+        state_root, spawn_id, status="succeeded", exit_code=0, duration_secs=100.0
+    ) is False
+
+    row = get_spawn(state_root, spawn_id)
+    assert row is not None
+    assert row.status == "succeeded"
+    assert row.exit_code == 0
+    assert row.error is None
+    assert row.duration_secs == 100.0
+
+
 def test_succeeded_cannot_be_overwritten_by_later_failed(tmp_path: Path) -> None:
     """Once a spawn is succeeded, a racing failed finalize cannot downgrade it.
 

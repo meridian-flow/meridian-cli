@@ -5,7 +5,7 @@ Also includes file-backed ID generation for spawns and sessions.
 
 
 from pathlib import Path
-from typing import Any, Literal, Mapping, cast
+from typing import Any, Literal, Mapping
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
@@ -14,7 +14,6 @@ from meridian.lib.core.spawn_lifecycle import (
     ACTIVE_SPAWN_STATUSES as _ACTIVE_SPAWN_STATUSES,
     TERMINAL_SPAWN_STATUSES as _TERMINAL_SPAWN_STATUSES,
     is_active_spawn_status as _is_active_spawn_status,
-    validate_transition,
 )
 from meridian.lib.core.types import SpawnId
 from meridian.lib.state.event_store import append_event, lock_file, read_events, utc_now_iso
@@ -259,95 +258,26 @@ def finalize_spawn(
     output_tokens: int | None = None,
     finished_at: str | None = None,
     error: str | None = None,
-) -> None:
-    """Append a spawn finalize event under ``spawns.lock``.
+) -> bool:
+    """Append a finalize event and return whether this writer set the terminal status.
 
-    Unguarded: does not read current state, so no transition validation.
-    Callers that need state-consistent transitions should use
-    ``finalize_spawn_if_running`` or ``finalize_spawn_if_active`` instead.
+    Always writes the event so metadata is never lost -- the projection
+    merges duration, cost, and token counts from every finalize event.
+    Returns True when the spawn was active (queued or running) before
+    this call, meaning this writer is the one that moved it to a
+    terminal state. Returns False when the spawn was already terminal
+    or does not exist.
     """
-
-    paths = StateRootPaths.from_root_dir(state_root)
-    event = SpawnFinalizeEvent(
-        id=str(spawn_id),
-        status=status,
-        exit_code=exit_code,
-        finished_at=finished_at or utc_now_iso(),
-        duration_secs=duration_secs,
-        total_cost_usd=total_cost_usd,
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
-        error=error,
-    )
-
-    append_event(
-        paths.spawns_jsonl,
-        paths.spawns_lock,
-        event,
-        store_name="spawn",
-        exclude_none=True,
-    )
-
-
-def finalize_spawn_if_running(
-    state_root: Path,
-    spawn_id: SpawnId | str,
-    status: SpawnStatus,
-    exit_code: int,
-    *,
-    error: str | None = None,
-) -> bool:
-    """Append finalize event only if spawn is still running. Returns True if finalized."""
     paths = StateRootPaths.from_root_dir(state_root)
     with lock_file(paths.spawns_lock):
         records = _record_from_events(read_events(paths.spawns_jsonl, _parse_event))
         record = records.get(str(spawn_id))
-        if record is None or record.status != "running":
-            return False
-        validate_transition(cast("SpawnStatus", record.status), status)
+        was_active = record is not None and is_active_spawn_status(record.status)
         event = SpawnFinalizeEvent(
             id=str(spawn_id),
             status=status,
             exit_code=exit_code,
-            finished_at=utc_now_iso(),
-            error=error,
-        )
-        append_event(
-            paths.spawns_jsonl,
-            paths.spawns_lock,
-            event,
-            store_name="spawn",
-            exclude_none=True,
-        )
-        return True
-
-
-def finalize_spawn_if_active(
-    state_root: Path,
-    spawn_id: SpawnId | str,
-    status: SpawnStatus,
-    exit_code: int,
-    *,
-    duration_secs: float | None = None,
-    total_cost_usd: float | None = None,
-    input_tokens: int | None = None,
-    output_tokens: int | None = None,
-    error: str | None = None,
-) -> bool:
-    """Append finalize event only if spawn is queued or running."""
-
-    paths = StateRootPaths.from_root_dir(state_root)
-    with lock_file(paths.spawns_lock):
-        records = _record_from_events(read_events(paths.spawns_jsonl, _parse_event))
-        record = records.get(str(spawn_id))
-        if record is None or not is_active_spawn_status(record.status):
-            return False
-        validate_transition(cast("SpawnStatus", record.status), status)
-        event = SpawnFinalizeEvent(
-            id=str(spawn_id),
-            status=status,
-            exit_code=exit_code,
-            finished_at=utc_now_iso(),
+            finished_at=finished_at or utc_now_iso(),
             duration_secs=duration_secs,
             total_cost_usd=total_cost_usd,
             input_tokens=input_tokens,
@@ -361,7 +291,7 @@ def finalize_spawn_if_active(
             store_name="spawn",
             exclude_none=True,
         )
-        return True
+        return was_active
 
 
 def mark_spawn_running(
