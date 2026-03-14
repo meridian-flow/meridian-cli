@@ -152,6 +152,10 @@ def _spawn_create(
     ] = False,
 ) -> None:
     if continue_from is not None:
+        if harness_args:
+            raise ValueError("Cannot use --harness-arg with --continue")
+        if yolo:
+            raise ValueError("Cannot use --yolo with --continue")
         result = spawn_continue_sync(
             SpawnContinueInput(
                 spawn_id=continue_from,

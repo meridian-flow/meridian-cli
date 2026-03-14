@@ -37,7 +37,7 @@ The focused smoke doc (`tests/smoke/sync/install-cycle.md`) contains the concret
 
 ## Permission Tiers and Sandbox Nesting
 
-Meridian maps `--permission` flags to harness-specific sandbox options. The three tiers are:
+Meridian maps agent-profile `sandbox:` values to harness-specific sandbox options. The three tiers are:
 
 | Tier             | Codex flag                               | Network | File writes        |
 |------------------|------------------------------------------|---------|--------------------|
@@ -55,21 +55,20 @@ Codex's `workspace-write` sandbox uses Linux Landlock to restrict network access
 
 ### Testing Permission Tiers
 
-When smoke-testing spawn lifecycle, test permissions explicitly:
+When smoke-testing spawn lifecycle, test profile sandbox values explicitly:
 
 ```bash
-# Dry-run to verify permission flag construction
-uv run meridian --json spawn create --dry-run -p "test" --permission read-only
-uv run meridian --json spawn create --dry-run -p "test" --permission workspace-write
-uv run meridian --json spawn create --dry-run -p "test" --permission full-access
+# Dry-run to verify sandbox mapping from an agent profile
+uv run meridian --json spawn --dry-run -p "test" --agent reviewer
+# reviewer profile should set sandbox: read-only/workspace-write/full-access as needed
 
 # Verify the generated command includes the expected sandbox flags
 ```
 
-For actual spawn execution tests that need network (most real spawns do), use `--permission full-access` to avoid Landlock restrictions:
+For actual spawn execution tests that need network (most real spawns do), use an agent with `sandbox: full-access` and optionally `--yolo` to bypass interactive approvals:
 
 ```bash
-uv run meridian spawn -p "echo hello" --permission full-access --foreground
+uv run meridian spawn -p "echo hello" --agent coder --yolo --foreground
 ```
 
 ### When to Use Each Tier

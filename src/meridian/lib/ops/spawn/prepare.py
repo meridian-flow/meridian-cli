@@ -265,7 +265,6 @@ def build_create_payload(
     resolver = build_permission_resolver(
         allowed_tools=profile.allowed_tools if profile is not None else (),
         permission_config=permission_config,
-        cli_permission_override=False,
     )
 
     appended_system_prompt = None
@@ -312,6 +311,7 @@ def build_create_payload(
         session_agent_path=session_agent_path,
         skill_paths=session_skill_paths,
         cli_command=preview_command,
+        passthrough_args=payload.passthrough_args,
         appended_system_prompt=appended_system_prompt,
         session=SessionContinuation(
             harness_session_id=resolved_continue_harness_session_id,

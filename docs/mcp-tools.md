@@ -43,8 +43,7 @@ Not MCP-exposed (CLI-only): config_*, skills_search, sync_*.
   "model": "gpt-5.3-codex",
   "files": ["docs/spec.md"],
   "template_vars": ["TARGET=auth"],
-  "agent": "coder",
-  "permission_tier": "workspace-write"
+  "agent": "coder"
 }
 ```
 

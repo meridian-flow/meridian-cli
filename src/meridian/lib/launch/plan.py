@@ -241,7 +241,6 @@ def resolve_primary_launch_plan(
     resolver = build_permission_resolver(
         allowed_tools=profile.allowed_tools if profile is not None else (),
         permission_config=permission_config,
-        cli_permission_override=False,
     )
 
     materialized = materialize_for_harness(

@@ -524,7 +524,7 @@ async def execute_with_finalization(
         model=run.model,
         skills=plan.skills,
         agent=plan.agent_name,
-        extra_args=(),
+        extra_args=plan.passthrough_args,
         repo_root=execution_cwd.as_posix(),
         mcp_tools=plan.mcp_tools,
         continue_harness_session_id=plan.session.harness_session_id,

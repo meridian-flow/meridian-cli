@@ -31,22 +31,17 @@ class PermissionConfig(BaseModel):
 
 def parse_permission_tier(
     raw: str | PermissionTier | None,
-    *,
-    default_tier: str | PermissionTier | None = None,
 ) -> PermissionTier | None:
     """Parse one permission tier string."""
 
-    resolved_default = (
-        _parse_permission_tier_value(default_tier) if default_tier is not None else None
-    )
     if raw is None:
-        return resolved_default
+        return None
     if isinstance(raw, PermissionTier):
         return raw
 
     normalized = raw.strip().lower()
     if not normalized:
-        return resolved_default
+        return None
     return _parse_permission_tier_value(normalized)
 
 
@@ -92,26 +87,13 @@ def build_permission_config(
     tier: str | PermissionTier | None,
     *,
     approval: str = "confirm",
-    default_tier: str | PermissionTier | None = None,
 ) -> PermissionConfig:
     """Build and validate a permission configuration."""
 
     return PermissionConfig(
-        tier=parse_permission_tier(tier, default_tier=default_tier),
+        tier=parse_permission_tier(tier),
         approval=_parse_approval_value(approval),
     )
-
-
-def validate_permission_config_for_harness(
-    *,
-    harness_id: HarnessId,
-    config: PermissionConfig,
-) -> str | None:
-    """Validate one permission config against harness-specific capability limits."""
-
-    _ = harness_id
-    _ = config
-    return None
 
 
 def _claude_allowed_tools(tier: PermissionTier) -> tuple[str, ...]:
@@ -249,11 +231,10 @@ def build_permission_resolver(
     *,
     allowed_tools: tuple[str, ...],
     permission_config: PermissionConfig,
-    cli_permission_override: bool,
 ) -> TieredPermissionResolver | ExplicitToolsResolver:
     """Pick the right resolver: explicit tools if specified, else tier-based.
     """
-    if allowed_tools and not cli_permission_override:
+    if allowed_tools:
         return ExplicitToolsResolver(
             allowed_tools=allowed_tools,
             fallback_config=permission_config,

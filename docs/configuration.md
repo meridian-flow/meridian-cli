@@ -51,7 +51,6 @@ Canonical keys accepted by `meridian config set/get/reset`:
 | `timeouts.kill_grace_minutes` | float | Grace before force-kill (minutes) |
 | `timeouts.guardrail_minutes` | float | Guardrail timeout (minutes) |
 | `timeouts.wait_minutes` | float | Default `spawn wait` timeout (minutes) |
-| `permissions.default_tier` | str | Default non-primary permission tier |
 | `harness.claude` | str | Default model for Claude harness |
 | `harness.codex` | str | Default model for Codex harness |
 | `harness.opencode` | str | Default model for OpenCode harness |
@@ -60,7 +59,7 @@ Canonical keys accepted by `meridian config set/get/reset`:
 
 Scaffolded but not exposed via `config set` shorthand keys:
 
-- `[primary] autocompact_pct`, `permission_tier`
+- `[primary] autocompact_pct`
 - `[search_paths] agents`, `skills`, `global_agents`, `global_skills`
 
 ## Example
@@ -70,9 +69,6 @@ Scaffolded but not exposed via `config set` shorthand keys:
 max_depth = 4
 agent = "coder"
 model = "gpt-5.3-codex"
-
-[permissions]
-default_tier = "workspace-write"
 
 [harness]
 claude = "claude-opus-4-6"
@@ -85,7 +81,6 @@ verbosity = "verbose"
 
 [primary]
 autocompact_pct = 70
-permission_tier = "full-access"
 
 [search_paths]
 agents = [".agents/agents", ".claude/agents", ".codex/agents", ".opencode/agents"]
@@ -132,7 +127,6 @@ cost_tier = "$$"
 - `MERIDIAN_KILL_GRACE_MINUTES`
 - `MERIDIAN_GUARDRAIL_TIMEOUT_MINUTES`
 - `MERIDIAN_WAIT_TIMEOUT_MINUTES`
-- `MERIDIAN_DEFAULT_PERMISSION_TIER`
 - `MERIDIAN_DEFAULT_PRIMARY_AGENT`
 - `MERIDIAN_DEFAULT_AGENT`
 - `MERIDIAN_DEFAULT_MODEL`

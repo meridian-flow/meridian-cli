@@ -49,17 +49,8 @@ Model -> harness routing:
 Meridian owns a small cross-harness permission model and translates it to
 harness-specific controls at launch time.
 
-### Permission Tiers
-
-`meridian spawn` supports:
-
-```bash
-meridian spawn -p "Read code" --permission read-only
-meridian spawn -p "Edit files" --permission workspace-write
-meridian spawn -p "Spawn broadly" --permission full-access
-```
-
-Root primary launch (`meridian ...`) also supports `--approval` and `--yolo`.
+`meridian spawn` does not expose a `--permission` flag. The spawn tier comes
+from the selected agent profile `sandbox:` value.
 
 ### Tier Mapping
 
@@ -77,18 +68,15 @@ Agent profile `sandbox` values map into those tiers:
 - `danger-full-access` -> `full-access`
 - `unrestricted` -> `full-access`
 
-CLI `--permission` overrides the profile-derived tier.
+Use `--harness-arg` when you need harness-specific flags in addition to the
+profile-derived tier.
 
 ### Approval Semantics
 
-`meridian spawn` has no approval mode. Child spawns are unattended and always use
-approval mode `confirm` internally.
+`meridian spawn` supports:
 
-Root primary launch supports:
-
-- `--approval confirm`
-- `--approval auto`
-- `--yolo` as shorthand for `--permission full-access --approval auto`
+- default approval mode `confirm`
+- `--yolo` as shorthand for `approval=auto`
 
 Important caveat: approval behavior is harness-defined after Meridian translates
 it. For Claude and Codex, `--approval auto` maps to the harness bypass flags
@@ -103,8 +91,7 @@ practice.
 ### Explicit Tool Allowlists
 
 If an agent profile defines `allowed_tools`, Meridian may use that explicit
-allowlist instead of the tier-derived mapping. CLI `--permission` still wins and
-forces tier-based behavior.
+allowlist instead of the tier-derived mapping.
 
 ## Runtime Controls
 

@@ -27,7 +27,7 @@ def _write_agent(path: Path, *, sandbox: str) -> None:
     )
 
 
-def test_spawn_continue_ignores_runtime_context_permission_tier(tmp_path: Path) -> None:
+def test_spawn_continue_uses_source_spawn_harness_session(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
     _write_agent(repo_root / ".agents" / "agents" / "coder.md", sandbox="workspace-write")

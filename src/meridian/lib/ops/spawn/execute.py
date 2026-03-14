@@ -27,8 +27,8 @@ from meridian.lib.launch.session_scope import session_scope
 from meridian.lib.harness.materialize import cleanup_materialized, materialize_for_harness
 from meridian.lib.safety.permissions import (
     PermissionConfig,
+    build_permission_config,
     build_permission_resolver,
-    parse_permission_tier,
 )
 from meridian.lib.core.sink import OutputSink
 from meridian.lib.state import spawn_store
@@ -443,7 +443,7 @@ async def _execute_existing_spawn(
     mcp_tools: tuple[str, ...],
     permission_config: PermissionConfig,
     allowed_tools: tuple[str, ...] = (),
-    cli_permission_override: bool = False,
+    passthrough_args: tuple[str, ...] = (),
     continue_harness_session_id: str | None = None,
     continue_fork: bool = False,
     session_agent: str = "",
@@ -473,7 +473,6 @@ async def _execute_existing_spawn(
     resolver = build_permission_resolver(
         allowed_tools=allowed_tools,
         permission_config=permission_config,
-        cli_permission_override=cli_permission_override,
     )
     plan = PreparedSpawnPlan(
         model=spawn_record.model,
@@ -502,6 +501,7 @@ async def _execute_existing_spawn(
             allowed_tools=allowed_tools,
         ),
         cli_command=(),
+        passthrough_args=passthrough_args,
     )
 
     with _session_execution_context(
@@ -547,7 +547,7 @@ def _build_background_worker_command(
     mcp_tools: tuple[str, ...],
     permission_config: PermissionConfig,
     allowed_tools: tuple[str, ...],
-    cli_permission_override: bool,
+    passthrough_args: tuple[str, ...],
     continue_harness_session_id: str | None,
     continue_fork: bool,
     session_agent: str,
@@ -566,6 +566,7 @@ def _build_background_worker_command(
     ]
     if permission_config.tier is not None:
         command.extend(["--permission-tier", permission_config.tier.value])
+    command.extend(["--approval", permission_config.approval])
     if timeout is not None:
         command.extend(["--timeout", str(timeout)])
     if agent_name is not None:
@@ -576,8 +577,8 @@ def _build_background_worker_command(
         command.extend(["--mcp-tool", tool])
     for tool in allowed_tools:
         command.extend(["--allowed-tool", tool])
-    if cli_permission_override:
-        command.append("--cli-permission-override")
+    for passthrough_arg in passthrough_args:
+        command.extend(["--harness-arg", passthrough_arg])
     if continue_harness_session_id is not None and continue_harness_session_id.strip():
         command.extend(["--continue-harness-session-id", continue_harness_session_id.strip()])
     if continue_fork:
@@ -634,7 +635,7 @@ def execute_spawn_background(
         mcp_tools=prepared.mcp_tools,
         permission_config=prepared.execution.permission_config,
         allowed_tools=prepared.execution.allowed_tools,
-        cli_permission_override=False,
+        passthrough_args=prepared.passthrough_args,
         continue_harness_session_id=prepared.session.harness_session_id,
         continue_fork=prepared.session.continue_fork,
         session_agent=prepared.session_agent,
@@ -656,6 +657,7 @@ def execute_spawn_background(
             ctx=resolved_context,
         )
     )
+    launch_env.pop("MERIDIAN_PERMISSION_TIER", None)
     try:
         with (
             stdout_path.open("ab") as stdout_handle,
@@ -850,7 +852,8 @@ def _build_background_worker_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mcp-tool", action="append", default=[])
     parser.add_argument("--allowed-tool", action="append", default=[])
     parser.add_argument("--permission-tier", required=False, default=None)
-    parser.add_argument("--cli-permission-override", action="store_true")
+    parser.add_argument("--approval", default="confirm")
+    parser.add_argument("--harness-arg", action="append", default=[])
     parser.add_argument("--continue-harness-session-id", default=None)
     parser.add_argument("--continue-fork", action="store_true")
     parser.add_argument("--session-agent", default="")
@@ -869,9 +872,9 @@ def _background_worker_main(
     parser = _build_background_worker_parser()
     parsed = parser.parse_args(list(argv) if argv is not None else None)
 
-    permission_config = PermissionConfig(
-        tier=parse_permission_tier(parsed.permission_tier),
-        approval="confirm",
+    permission_config = build_permission_config(
+        parsed.permission_tier,
+        approval=str(parsed.approval),
     )
     allowed_tools = tuple(str(item) for item in parsed.allowed_tool)
     return asyncio.run(
@@ -884,7 +887,7 @@ def _background_worker_main(
             mcp_tools=tuple(str(item) for item in parsed.mcp_tool),
             permission_config=permission_config,
             allowed_tools=allowed_tools,
-            cli_permission_override=bool(parsed.cli_permission_override),
+            passthrough_args=tuple(str(item) for item in parsed.harness_arg),
             continue_harness_session_id=cast("str | None", parsed.continue_harness_session_id),
             continue_fork=bool(parsed.continue_fork),
             session_agent=str(parsed.session_agent),

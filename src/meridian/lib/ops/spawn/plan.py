@@ -50,6 +50,7 @@ class PreparedSpawnPlan(BaseModel):
     appended_system_prompt: str | None = None
     cli_command: tuple[str, ...]
     warning: str | None = None
+    passthrough_args: tuple[str, ...] = ()
 
 
 __all__ = ["ExecutionPolicy", "PreparedSpawnPlan", "SessionContinuation"]
