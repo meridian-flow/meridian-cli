@@ -2,7 +2,7 @@
 max_depth = 7
 max_retries = 4
 retry_backoff_seconds = 0.5
-default_primary_agent = "lead-primary"
+primary_agent = "lead-primary"
 agent = "worker-agent"
 model = "gpt-5.2-high"
 

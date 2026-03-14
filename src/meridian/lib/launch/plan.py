@@ -121,7 +121,7 @@ def resolve_primary_launch_plan(
         repo_root=resolved_root,
         search_paths=resolved_config.search_paths,
         requested_agent=request.agent,
-        configured_default=resolved_config.default_primary_agent,
+        configured_default=resolved_config.primary_agent,
     )
 
     default_model = resolved_config.harness.claude

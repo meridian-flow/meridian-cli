@@ -45,8 +45,8 @@ Canonical keys accepted by `meridian config set/get/reset`:
 | `defaults.max_depth` | int | Max nested agent depth |
 | `defaults.max_retries` | int | Retry attempts per run |
 | `defaults.retry_backoff_seconds` | float | Retry backoff multiplier |
-| `defaults.default_primary_agent` | str | Primary profile name |
-| `defaults.agent` | str | Default non-primary profile |
+| `defaults.primary_agent` | str | Default primary/orchestrator profile |
+| `defaults.agent` | str | Default spawned subagent profile |
 | `defaults.model` | str | Default model for spawn when unset |
 | `timeouts.kill_grace_minutes` | float | Grace before force-kill (minutes) |
 | `timeouts.guardrail_minutes` | float | Guardrail timeout (minutes) |
@@ -67,7 +67,8 @@ Scaffolded but not exposed via `config set` shorthand keys:
 ```toml
 [defaults]
 max_depth = 4
-agent = "coder"
+primary_agent = "__meridian-orchestrator"
+agent = "__meridian-subagent"
 model = "gpt-5.3-codex"
 
 [harness]
@@ -127,7 +128,7 @@ cost_tier = "$$"
 - `MERIDIAN_KILL_GRACE_MINUTES`
 - `MERIDIAN_GUARDRAIL_TIMEOUT_MINUTES`
 - `MERIDIAN_WAIT_TIMEOUT_MINUTES`
-- `MERIDIAN_DEFAULT_PRIMARY_AGENT`
+- `MERIDIAN_PRIMARY_AGENT`
 - `MERIDIAN_DEFAULT_AGENT`
 - `MERIDIAN_DEFAULT_MODEL`
 - `MERIDIAN_HARNESS_MODEL_CLAUDE`

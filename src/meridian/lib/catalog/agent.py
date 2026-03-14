@@ -114,8 +114,8 @@ def parse_agent_profile(path: Path) -> AgentProfile:
 def builtin_profiles() -> dict[str, AgentProfile]:
     """Hard-coded fallback profiles used when no file exists on disk."""
     return {
-        "meridian-agent": AgentProfile(
-            name="meridian-agent",
+        "__meridian-subagent": AgentProfile(
+            name="__meridian-subagent",
             description="Default agent",
             model="gpt-5.3-codex",
             variant=None,
@@ -128,8 +128,8 @@ def builtin_profiles() -> dict[str, AgentProfile]:
             path=_BUILTIN_PATH,
             raw_content="",
         ),
-        "meridian-primary": AgentProfile(
-            name="meridian-primary",
+        "__meridian-orchestrator": AgentProfile(
+            name="__meridian-orchestrator",
             description="Primary agent",
             model="claude-opus-4-6",
             variant=None,

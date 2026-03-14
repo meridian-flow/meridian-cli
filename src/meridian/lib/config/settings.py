@@ -383,11 +383,9 @@ def _normalize_toml_payload(
             "max_depth": "max_depth",
             "max_retries": "max_retries",
             "retry_backoff_seconds": "retry_backoff_seconds",
-            "default_primary_agent": "default_primary_agent",
+            "primary_agent": "primary_agent",
             "agent": "default_agent",
-            "default_agent": "default_agent",
             "model": "default_model",
-            "default_model": "default_model",
         },
         "timeouts": {
             "kill_grace_minutes": "kill_grace_minutes",
@@ -404,9 +402,9 @@ def _normalize_toml_payload(
         "kill_grace_minutes": "kill_grace_minutes",
         "guardrail_timeout_minutes": "guardrail_timeout_minutes",
         "wait_timeout_minutes": "wait_timeout_minutes",
-        "default_primary_agent": "default_primary_agent",
-        "default_agent": "default_agent",
-        "default_model": "default_model",
+        "primary_agent": "primary_agent",
+        "agent": "default_agent",
+        "model": "default_model",
     }
 
     normalized: dict[str, object] = {}
@@ -492,7 +490,7 @@ def _env_alias_overrides(repo_root: Path) -> dict[str, object]:
             "float",
         ),
         ("MERIDIAN_WAIT_TIMEOUT_MINUTES", ("wait_timeout_minutes",), "float"),
-        ("MERIDIAN_DEFAULT_PRIMARY_AGENT", ("default_primary_agent",), "str"),
+        ("MERIDIAN_PRIMARY_AGENT", ("primary_agent",), "str"),
         ("MERIDIAN_DEFAULT_AGENT", ("default_agent",), "str"),
         ("MERIDIAN_DEFAULT_MODEL", ("default_model",), "str"),
         ("MERIDIAN_HARNESS_MODEL_CLAUDE", ("harness", "claude"), "str"),
@@ -687,8 +685,8 @@ class MeridianConfig(BaseSettings):
     kill_grace_minutes: float = 2.0 / 60.0
     guardrail_timeout_minutes: float = 0.5
     wait_timeout_minutes: float = 30.0
-    default_primary_agent: str = "meridian-primary"
-    default_agent: str = "meridian-agent"
+    primary_agent: str = "__meridian-orchestrator"
+    default_agent: str = "__meridian-subagent"
     default_model: str = "gpt-5.3-codex"
 
     harness: HarnessConfig = Field(default_factory=HarnessConfig)
@@ -696,7 +694,7 @@ class MeridianConfig(BaseSettings):
     output: OutputConfig = Field(default_factory=OutputConfig)
     search_paths: SearchPathConfig = Field(default_factory=SearchPathConfig)
 
-    @field_validator("default_primary_agent", "default_agent")
+    @field_validator("primary_agent", "default_agent")
     @classmethod
     def _validate_default_agents(cls, value: str) -> str:
         return _normalize_required_string(value, source="defaults")

@@ -161,7 +161,7 @@ def resolve_primary_session_metadata(
         repo_root=repo_root,
         search_paths=config.search_paths,
         requested_agent=request.agent,
-        configured_default=config.default_primary_agent,
+        configured_default=config.primary_agent,
     )
 
     default_model = config.harness.claude

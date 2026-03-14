@@ -69,13 +69,13 @@ _CONFIG_KEY_SPECS: tuple[_ConfigKeySpec, ...] = (
         aliases=("retry_backoff_seconds",),
     ),
     _ConfigKeySpec(
-        canonical_key="defaults.default_primary_agent",
+        canonical_key="defaults.primary_agent",
         section="defaults",
-        file_key="default_primary_agent",
-        field_path=("default_primary_agent",),
+        file_key="primary_agent",
+        field_path=("primary_agent",),
         value_kind="str",
-        env_var="MERIDIAN_DEFAULT_PRIMARY_AGENT",
-        aliases=("default_primary_agent",),
+        env_var="MERIDIAN_PRIMARY_AGENT",
+        aliases=("primary_agent",),
     ),
     _ConfigKeySpec(
         canonical_key="defaults.agent",
@@ -84,7 +84,7 @@ _CONFIG_KEY_SPECS: tuple[_ConfigKeySpec, ...] = (
         field_path=("default_agent",),
         value_kind="str",
         env_var="MERIDIAN_DEFAULT_AGENT",
-        aliases=("defaults.default_agent", "default_agent", "agent"),
+        aliases=("default_agent", "agent"),
     ),
     _ConfigKeySpec(
         canonical_key="defaults.model",
@@ -607,8 +607,8 @@ def _scaffold_template() -> str:
         f"# retry_backoff_seconds = {defaults['defaults.retry_backoff_seconds']}",
         "# Profile name for the primary agent (str).",
         (
-            "# default_primary_agent = "
-            f"{_toml_literal(cast('str', defaults['defaults.default_primary_agent']))}"
+            "# primary_agent = "
+            f"{_toml_literal(cast('str', defaults['defaults.primary_agent']))}"
         ),
         "# Profile name for the default non-primary agent (str).",
         f"# agent = {_toml_literal(cast('str', defaults['defaults.agent']))}",
