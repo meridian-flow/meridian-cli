@@ -18,6 +18,10 @@ _GITIGNORE_CONTENT = (
     "# Track .gitignore itself\n"
     "!.gitignore\n"
     "\n"
+    "# Track shared install manifest and lock\n"
+    "!agents.toml\n"
+    "!agents.lock\n"
+    "\n"
     "# Track shared repo state\n"
     "!fs/\n"
     "!fs/**\n"
@@ -85,6 +89,7 @@ class StatePaths(BaseModel):
     active_primary_lock: Path
     cache_dir: Path
     agents_manifest_path: Path
+    agents_local_manifest_path: Path
     agents_lock_path: Path
     agents_cache_dir: Path
     config_path: Path
@@ -115,6 +120,7 @@ def resolve_state_paths(repo_root: Path) -> StatePaths:
         active_primary_lock=root_dir / "active-primary.lock",
         cache_dir=root_dir / "cache",
         agents_manifest_path=root_dir / "agents.toml",
+        agents_local_manifest_path=root_dir / "agents.local.toml",
         agents_lock_path=root_dir / "agents.lock",
         agents_cache_dir=root_dir / "cache" / "agents",
         config_path=root_dir / "config.toml",

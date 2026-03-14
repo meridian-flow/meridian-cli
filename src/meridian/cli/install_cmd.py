@@ -13,8 +13,9 @@ from cyclopts import Parameter
 
 from meridian.lib.config.settings import resolve_repo_root
 from meridian.lib.state.paths import resolve_state_paths
-from meridian.lib.install.config import SourceConfig, SourcesConfig
-from meridian.lib.install.config import load_sources_config, write_sources_config
+from meridian.lib.install.config import SourceConfig
+from meridian.lib.install.config import load_source_manifest, write_source_manifest
+from meridian.lib.install.config import route_source_to_file
 from meridian.lib.install.engine import InstallItemAction, InstallResult, install_status
 from meridian.lib.install.engine import reconcile_sources, remove_source
 from meridian.lib.install.hash import compute_item_hash
@@ -52,6 +53,10 @@ def _install(
             negative_iterable=(),
         ),
     ] = (),
+    local: Annotated[
+        bool,
+        Parameter(name="--local", help="Write source to agents.local.toml (gitignored)."),
+    ] = False,
     force: Annotated[
         bool,
         Parameter(name="--force", help="Overwrite local modifications and unmanaged files."),
@@ -78,10 +83,11 @@ def _install(
         rename=rename,
     )
 
-    existing = load_sources_config(state_paths.agents_manifest_path)
-    existing_source = next(
-        (s for s in existing.sources if s.name == source_config.name), None
+    manifest = load_source_manifest(
+        state_paths.agents_manifest_path,
+        state_paths.agents_local_manifest_path,
     )
+    existing_source = manifest.find_source(source_config.name)
 
     if existing_source is not None:
         # Validate same locator
@@ -99,22 +105,23 @@ def _install(
         ):
             raise ValueError(
                 f"Managed source '{source_config.name}' already exists with ref "
-                f"'{existing_source.ref}'. Cannot install with different ref "
-                f"'{source_config.ref}'. Use 'meridian update --ref <ref>' to change it."
+                f"'{existing_source.ref}'. Use 'meridian update --ref <ref>' to change it."
             )
         # Merge agents/skills (union)
-        merged = _merge_source_config(existing_source, source_config)
-        updated_config = SourcesConfig(sources=tuple(
-            merged if s.name == source_config.name else s for s in existing.sources
-        ))
+        merged_source = _merge_source_config(existing_source, source_config)
+        target = manifest.file_for_source(source_config.name) or route_source_to_file(
+            source_config, force_local=local
+        )
+        updated_manifest = manifest.with_source(merged_source, target=target)
     else:
-        updated_config = SourcesConfig(sources=(*existing.sources, source_config))
+        target = route_source_to_file(source_config, force_local=local)
+        updated_manifest = manifest.with_source(source_config, target=target)
 
     with state_lock(state_paths.agents_lock_path):
         lock = read_lock(state_paths.agents_lock_path)
         result = reconcile_sources(
             repo_root=repo_root,
-            sources=updated_config.sources,
+            sources=updated_manifest.all_sources,
             lock=lock,
             agents_cache_dir=state_paths.agents_cache_dir,
             force=force,
@@ -123,7 +130,11 @@ def _install(
         )
         _raise_on_install_errors(result)
         if not dry_run:
-            write_sources_config(state_paths.agents_manifest_path, updated_config)
+            write_source_manifest(
+                state_paths.agents_manifest_path,
+                state_paths.agents_local_manifest_path,
+                updated_manifest,
+            )
             write_lock(state_paths.agents_lock_path, lock)
 
     emit(_install_result_payload(result))
@@ -143,8 +154,11 @@ def _remove(
 ) -> None:
     repo_root = resolve_repo_root()
     state_paths = resolve_state_paths(repo_root)
-    config = load_sources_config(state_paths.agents_manifest_path)
-    source = next((candidate for candidate in config.sources if candidate.name == name), None)
+    manifest = load_source_manifest(
+        state_paths.agents_manifest_path,
+        state_paths.agents_local_manifest_path,
+    )
+    source = manifest.find_source(name)
     if source is None:
         raise ValueError(f"Managed source '{name}' not found.")
 
@@ -161,12 +175,11 @@ def _remove(
         else:
             result = InstallResult(actions=(), errors=())
         if not dry_run:
-            updated_sources = tuple(
-                candidate for candidate in config.sources if candidate.name != source.name
-            )
-            write_sources_config(
+            updated_manifest = manifest.without_source(source.name)
+            write_source_manifest(
                 state_paths.agents_manifest_path,
-                SourcesConfig(sources=updated_sources),
+                state_paths.agents_local_manifest_path,
+                updated_manifest,
             )
             write_lock(state_paths.agents_lock_path, lock)
 
@@ -220,7 +233,10 @@ def _uninstall(
 
     repo_root = resolve_repo_root()
     state_paths = resolve_state_paths(repo_root)
-    config = load_sources_config(state_paths.agents_manifest_path)
+    manifest = load_source_manifest(
+        state_paths.agents_manifest_path,
+        state_paths.agents_local_manifest_path,
+    )
 
     with state_lock(state_paths.agents_lock_path):
         lock = read_lock(state_paths.agents_lock_path)
@@ -231,9 +247,9 @@ def _uninstall(
             # Try both agent: and skill: prefixes
             matched_key: str | None = None
             for prefix in ("agent:", "skill:"):
-                candidate = f"{prefix}{item_name}"
-                if candidate in lock.items:
-                    matched_key = candidate
+                candidate_key = f"{prefix}{item_name}"
+                if candidate_key in lock.items:
+                    matched_key = candidate_key
                     break
 
             if matched_key is None:
@@ -269,14 +285,13 @@ def _uninstall(
                 del lock.items[matched_key]
                 sources_to_update.setdefault(entry.source_name, set()).add(item_name)
 
-        # Update config: remove items from source's agents/skills lists
+        # Update manifest: remove items from source's agents/skills lists
         if not dry_run and sources_to_update:
-            updated_sources: list[SourceConfig] = []
-            for src in config.sources:
-                if src.name not in sources_to_update:
-                    updated_sources.append(src)
+            updated_manifest = manifest
+            for src_name, removed_names in sources_to_update.items():
+                src = updated_manifest.find_source(src_name)
+                if src is None:
                     continue
-                removed_names = sources_to_update[src.name]
                 new_agents = (
                     tuple(a for a in src.agents if a not in removed_names)
                     if src.agents is not None else None
@@ -285,24 +300,25 @@ def _uninstall(
                     tuple(s for s in src.skills if s not in removed_names)
                     if src.skills is not None else None
                 )
-                # Empty agents/skills but not None → set to empty tuple
-                # If both empty → auto-remove source
                 has_remaining = (
                     (new_agents is None or len(new_agents) > 0)
                     or (new_skills is None or len(new_skills) > 0)
                 )
                 if not has_remaining:
-                    # Auto-remove source with no remaining items
-                    if src.name in lock.sources:
-                        del lock.sources[src.name]
-                    continue
-                updated_sources.append(src.model_copy(update={
-                    "agents": new_agents if new_agents else None,
-                    "skills": new_skills if new_skills else None,
-                }))
-            write_sources_config(
+                    if src_name in lock.sources:
+                        del lock.sources[src_name]
+                    updated_manifest = updated_manifest.without_source(src_name)
+                else:
+                    target = updated_manifest.file_for_source(src_name) or "shared"
+                    updated_src = src.model_copy(update={
+                        "agents": new_agents if new_agents else None,
+                        "skills": new_skills if new_skills else None,
+                    })
+                    updated_manifest = updated_manifest.with_source(updated_src, target=target)
+            write_source_manifest(
                 state_paths.agents_manifest_path,
-                SourcesConfig(sources=tuple(updated_sources)),
+                state_paths.agents_local_manifest_path,
+                updated_manifest,
             )
             write_lock(state_paths.agents_lock_path, lock)
 
@@ -312,28 +328,32 @@ def _uninstall(
 def _list_cmd(emit: Emitter) -> None:
     repo_root = resolve_repo_root()
     state_paths = resolve_state_paths(repo_root)
-    config = load_sources_config(state_paths.agents_manifest_path)
+    manifest = load_source_manifest(
+        state_paths.agents_manifest_path,
+        state_paths.agents_local_manifest_path,
+    )
     lock = read_lock(state_paths.agents_lock_path)
 
     sources_payload: list[dict[str, object]] = []
-    for source in config.sources:
+    for source in manifest.all_sources:
         locked_source = lock.sources.get(source.name)
-        agents: list[str] = []
-        skills: list[str] = []
+        source_agents: list[str] = []
+        source_skills: list[str] = []
         if locked_source is not None:
             for item_key in sorted(locked_source.realized_closure):
                 if item_key.startswith("agent:"):
-                    agents.append(item_key[6:])
+                    source_agents.append(item_key[6:])
                 elif item_key.startswith("skill:"):
-                    skills.append(item_key[6:])
+                    source_skills.append(item_key[6:])
         sources_payload.append({
             "name": source.name,
             "kind": source.kind,
             "url": source.url,
             "path": source.path,
             "ref": source.ref,
-            "agents": agents,
-            "skills": skills,
+            "local": manifest.file_for_source(source.name) == "local",
+            "agents": source_agents,
+            "skills": source_skills,
         })
     emit({"sources": sources_payload})
 
@@ -367,13 +387,16 @@ def _run_install_reconcile(
 ) -> None:
     repo_root = resolve_repo_root()
     state_paths = resolve_state_paths(repo_root)
-    config = load_sources_config(state_paths.agents_manifest_path)
+    manifest = load_source_manifest(
+        state_paths.agents_manifest_path,
+        state_paths.agents_local_manifest_path,
+    )
 
     with state_lock(state_paths.agents_lock_path):
         lock = read_lock(state_paths.agents_lock_path)
         result = reconcile_sources(
             repo_root=repo_root,
-            sources=config.sources,
+            sources=manifest.all_sources,
             lock=lock,
             agents_cache_dir=state_paths.agents_cache_dir,
             upgrade=upgrade,

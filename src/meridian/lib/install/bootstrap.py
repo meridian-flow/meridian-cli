@@ -7,8 +7,8 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.state.paths import resolve_state_paths
-from meridian.lib.install.config import SourceConfig, SourcesConfig
-from meridian.lib.install.config import load_sources_config, write_sources_config
+from meridian.lib.install.config import SourceConfig, SourceManifest
+from meridian.lib.install.config import load_source_manifest, write_source_manifest
 from meridian.lib.install.engine import reconcile_sources
 from meridian.lib.install.lock import (
     InstallLock,
@@ -83,11 +83,14 @@ def ensure_bootstrap_assets(
 
     state_paths = resolve_state_paths(repo_root)
     with state_lock(state_paths.agents_lock_path):
-        config = load_sources_config(state_paths.agents_manifest_path)
+        manifest = load_source_manifest(
+            state_paths.agents_manifest_path,
+            state_paths.agents_local_manifest_path,
+        )
         lock = read_lock(state_paths.agents_lock_path)
-        selected_sources, updated_config = _select_runtime_sources(
+        selected_sources, updated_manifest = _select_runtime_sources(
             missing_items=plan.missing_items,
-            config=config,
+            manifest=manifest,
             lock=lock,
         )
 
@@ -95,7 +98,7 @@ def ensure_bootstrap_assets(
         for source_name in selected_sources:
             result = reconcile_sources(
                 repo_root=repo_root,
-                sources=updated_config.sources,
+                sources=updated_manifest.all_sources,
                 lock=lock,
                 agents_cache_dir=state_paths.agents_cache_dir,
                 source_filter=source_name,
@@ -104,8 +107,12 @@ def ensure_bootstrap_assets(
 
         if errors:
             raise RuntimeError("; ".join(errors))
-        if updated_config != config:
-            write_sources_config(state_paths.agents_manifest_path, updated_config)
+        if updated_manifest != manifest:
+            write_source_manifest(
+                state_paths.agents_manifest_path,
+                state_paths.agents_local_manifest_path,
+                updated_manifest,
+            )
         write_lock(state_paths.agents_lock_path, lock)
 
     remaining = tuple(
@@ -119,9 +126,9 @@ def ensure_bootstrap_assets(
 def _select_runtime_sources(
     *,
     missing_items: tuple[str, ...],
-    config: SourcesConfig,
+    manifest: SourceManifest,
     lock: InstallLock,
-) -> tuple[tuple[str, ...], SourcesConfig]:
+) -> tuple[tuple[str, ...], SourceManifest]:
     selected_sources: list[str] = []
     unresolved_bootstrap_items: list[str] = []
 
@@ -139,7 +146,7 @@ def _select_runtime_sources(
         unresolved_bootstrap_items.append(item_id)
 
     if not unresolved_bootstrap_items:
-        return tuple(dict.fromkeys(selected_sources)), config
+        return tuple(dict.fromkeys(selected_sources)), manifest
 
     unsupported = [
         item_id for item_id in unresolved_bootstrap_items if not _is_bootstrap_item(item_id)
@@ -151,12 +158,12 @@ def _select_runtime_sources(
             f"{joined}. Install their source first or set a different configured default."
         )
 
-    updated_config = _ensure_bootstrap_source(
-        config=config,
+    updated_manifest = _ensure_bootstrap_source(
+        manifest=manifest,
         item_ids=tuple(unresolved_bootstrap_items),
     )
     selected_sources.append(_BOOTSTRAP_SOURCE_NAME)
-    return tuple(dict.fromkeys(selected_sources)), updated_config
+    return tuple(dict.fromkeys(selected_sources)), updated_manifest
 
 
 def _locked_source_owning_item(item_id: str, lock: InstallLock) -> str | None:
@@ -173,10 +180,10 @@ def _is_bootstrap_item(item_id: str) -> bool:
 
 def _ensure_bootstrap_source(
     *,
-    config: SourcesConfig,
+    manifest: SourceManifest,
     item_ids: tuple[str, ...],
-) -> SourcesConfig:
-    existing = next((source for source in config.sources if source.name == _BOOTSTRAP_SOURCE_NAME), None)
+) -> SourceManifest:
+    existing = manifest.find_source(_BOOTSTRAP_SOURCE_NAME)
     # Extract agent names from item_ids (all bootstrap items are agents)
     required_agent_names = tuple(parse_item_id(item_id)[1] for item_id in item_ids)
 
@@ -189,11 +196,12 @@ def _ensure_bootstrap_source(
             agents=required_agent_names,
             skills=tuple(sorted(_BOOTSTRAP_SKILL_NAMES)),
         )
-        return SourcesConfig(sources=(*config.sources, bootstrap_source))
+        # Bootstrap sources are always shared (git)
+        return manifest.with_source(bootstrap_source, target="shared")
 
     if existing.agents is None and existing.skills is None:
         # No filter -- all items included, nothing to add
-        return config
+        return manifest
 
     existing_agent_names = set(existing.agents or ())
     merged_agents = list(existing.agents or ())
@@ -211,7 +219,7 @@ def _ensure_bootstrap_source(
     agents_changed = len(merged_agents) != len(existing.agents or ())
     skills_changed = len(merged_skills) != len(existing.skills or ())
     if not agents_changed and not skills_changed:
-        return config
+        return manifest
 
     updates: dict[str, object] = {}
     if agents_changed:
@@ -219,12 +227,8 @@ def _ensure_bootstrap_source(
     if skills_changed:
         updates["skills"] = tuple(merged_skills)
     updated_source = existing.model_copy(update=updates)
-    return SourcesConfig(
-        sources=tuple(
-            updated_source if source.name == _BOOTSTRAP_SOURCE_NAME else source
-            for source in config.sources
-        )
-    )
+    target = manifest.file_for_source(_BOOTSTRAP_SOURCE_NAME) or "shared"
+    return manifest.with_source(updated_source, target=target)
 
 
 def _agent_profile_path(repo_root: Path, item_id: str) -> Path:

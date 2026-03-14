@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from meridian.lib.state.paths import resolve_state_paths
-from meridian.lib.install.config import SourceConfig, SourcesConfig
+from meridian.lib.install.config import SourceConfig, SourcesConfig, SourceManifest
 from meridian.lib.install.config import load_sources_config, write_sources_config
 from meridian.lib.install.engine import reconcile_sources
 from meridian.lib.install.lock import read_lock, write_lock
@@ -73,26 +73,14 @@ def test_ensure_bootstrap_assets_bootstraps_missing_default(
     source_root = tmp_path / "bootstrap-source"
     _write_source_tree(source_root, agent_name="__meridian-subagent")
 
-    # Override the bootstrap URL to point to our local test source
-    monkeypatch.setattr(
-        "meridian.lib.install.bootstrap._BOOTSTRAP_URL",
-        source_root.as_posix(),
-    )
-    # Override to use path kind since we're pointing to a local directory
-    original_ensure = __import__(
-        "meridian.lib.install.bootstrap", fromlist=["_ensure_bootstrap_source"]
-    )._ensure_bootstrap_source
-
     def fake_ensure_bootstrap_source(
         *,
-        config: SourcesConfig,
+        manifest: SourceManifest,
         item_ids: tuple[str, ...],
-    ) -> SourcesConfig:
+    ) -> SourceManifest:
         from meridian.lib.install.types import parse_item_id
 
-        existing = next(
-            (s for s in config.sources if s.name == "meridian-agents"), None
-        )
+        existing = manifest.find_source("meridian-agents")
         required_agent_names = tuple(
             parse_item_id(item_id)[1] for item_id in item_ids
         )
@@ -103,8 +91,9 @@ def test_ensure_bootstrap_assets_bootstraps_missing_default(
                 path=source_root.as_posix(),
                 agents=required_agent_names,
             )
-            return SourcesConfig(sources=(*config.sources, bootstrap_source))
-        return original_ensure(config=config, item_ids=item_ids)
+            # Use "shared" target for the bootstrap source (it's always shared)
+            return manifest.with_source(bootstrap_source, target="shared")
+        return manifest
 
     monkeypatch.setattr(
         "meridian.lib.install.bootstrap._ensure_bootstrap_source",

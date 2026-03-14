@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import tomllib
 from pathlib import Path
-from typing import cast
+from typing import Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
@@ -269,3 +269,116 @@ def _render_item_ref_list(items: tuple[ItemRef, ...]) -> str:
 def _toml_string(value: str) -> str:
     escaped = value.replace("\\", "\\\\").replace('"', '\\"')
     return f'"{escaped}"'
+
+
+# ---------------------------------------------------------------------------
+# Two-file manifest (agents.toml + agents.local.toml)
+# ---------------------------------------------------------------------------
+
+ManifestFile = Literal["shared", "local"]
+
+
+class SourceManifest(BaseModel):
+    """Combined view of agents.toml (shared) and agents.local.toml (local)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    shared: SourcesConfig = SourcesConfig()
+    local: SourcesConfig = SourcesConfig()
+
+    @model_validator(mode="after")
+    def _validate_no_cross_file_duplicates(self) -> "SourceManifest":
+        shared_names = {s.name for s in self.shared.sources}
+        for source in self.local.sources:
+            if source.name in shared_names:
+                raise ValueError(
+                    f"Duplicate managed source name '{source.name}' across "
+                    f"agents.toml and agents.local.toml."
+                )
+        return self
+
+    @property
+    def all_sources(self) -> tuple[SourceConfig, ...]:
+        """All sources from both files."""
+        return (*self.shared.sources, *self.local.sources)
+
+    def find_source(self, source_name: str) -> SourceConfig | None:
+        """Find a source by name across both files."""
+        for s in self.shared.sources:
+            if s.name == source_name:
+                return s
+        for s in self.local.sources:
+            if s.name == source_name:
+                return s
+        return None
+
+    def file_for_source(self, source_name: str) -> ManifestFile | None:
+        """Return which file a source lives in, or None if not found."""
+        if any(s.name == source_name for s in self.local.sources):
+            return "local"
+        if any(s.name == source_name for s in self.shared.sources):
+            return "shared"
+        return None
+
+    def with_source(
+        self,
+        source: SourceConfig,
+        *,
+        target: ManifestFile,
+    ) -> "SourceManifest":
+        """Return a new manifest with the source added or replaced in the target file."""
+        if target == "local":
+            existing = [s for s in self.local.sources if s.name != source.name]
+            existing.append(source)
+            return self.model_copy(
+                update={"local": SourcesConfig(sources=tuple(existing))}
+            )
+        existing = [s for s in self.shared.sources if s.name != source.name]
+        existing.append(source)
+        return self.model_copy(
+            update={"shared": SourcesConfig(sources=tuple(existing))}
+        )
+
+    def without_source(self, source_name: str) -> "SourceManifest":
+        """Return a new manifest with the named source removed from whichever file."""
+        return SourceManifest(
+            shared=SourcesConfig(
+                sources=tuple(s for s in self.shared.sources if s.name != source_name)
+            ),
+            local=SourcesConfig(
+                sources=tuple(s for s in self.local.sources if s.name != source_name)
+            ),
+        )
+
+
+def load_source_manifest(shared_path: Path, local_path: Path) -> SourceManifest:
+    """Load both agents.toml and agents.local.toml."""
+    shared = load_sources_config(shared_path)
+    local = load_sources_config(local_path)
+    return SourceManifest(shared=shared, local=local)
+
+
+def write_source_manifest(
+    shared_path: Path,
+    local_path: Path,
+    manifest: SourceManifest,
+) -> None:
+    """Write both manifest files atomically."""
+    write_sources_config(shared_path, manifest.shared)
+    if manifest.local.sources:
+        write_sources_config(local_path, manifest.local)
+    elif local_path.is_file():
+        local_path.unlink()
+
+
+def route_source_to_file(
+    source: SourceConfig,
+    *,
+    force_local: bool = False,
+) -> ManifestFile:
+    """Determine which manifest file a new source should be written to."""
+    if force_local:
+        return "local"
+    if source.kind == "path":
+        return "local"
+    return "shared"
