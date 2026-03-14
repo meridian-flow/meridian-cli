@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import shutil
 from collections import Counter
 from collections.abc import Callable
 from functools import partial
@@ -13,18 +12,24 @@ from cyclopts import Parameter
 
 from meridian.lib.config.settings import resolve_repo_root
 from meridian.lib.state.paths import resolve_state_paths
-from meridian.lib.sync.config import (
-    SyncSourceConfig,
-    add_sync_source,
-    load_sync_config,
-    remove_sync_source,
-)
-from meridian.lib.sync.engine import SyncItemAction, SyncResult, sync_items
-from meridian.lib.sync.hash import compute_item_hash
-from meridian.lib.sync.lock import lock_file_guard, read_lock_file, write_lock_file
+from meridian.lib.sync.install_config import ManagedSourceConfig, ManagedSourcesConfig
+from meridian.lib.sync.install_config import load_install_config, write_install_config
+from meridian.lib.sync.install_engine import InstallItemAction, InstallResult, install_status
+from meridian.lib.sync.install_engine import reconcile_managed_sources, remove_managed_source
+from meridian.lib.sync.install_lock import read_install_lock
+from meridian.lib.sync.install_types import ItemRef
+from meridian.lib.sync.lock import lock_file_guard
 
 Emitter = Callable[[Any], None]
-ItemKind = Literal["skill", "agent"]
+SourceSelector = Literal["git", "path", "alias"]
+
+_WELL_KNOWN_SOURCES: dict[str, dict[str, str]] = {
+    "meridian-agents": {
+        "kind": "git",
+        "url": "https://github.com/haowjy/meridian-agents.git",
+        "ref": "main",
+    }
+}
 
 
 def _sync_install(
@@ -36,7 +41,7 @@ def _sync_install(
     ] = None,
     ref: Annotated[
         str | None,
-        Parameter(name="--ref", help="Branch or tag for repo sources."),
+        Parameter(name="--ref", help="Branch, tag, or commit for git sources."),
     ] = None,
     skills: Annotated[
         str | None,
@@ -60,117 +65,84 @@ def _sync_install(
     ] = False,
     dry_run: Annotated[
         bool,
-        Parameter(name="--dry-run", help="Preview sync changes without writing."),
+        Parameter(name="--dry-run", help="Preview install changes without writing."),
     ] = False,
 ) -> None:
     repo_root = resolve_repo_root()
     state_paths = resolve_state_paths(repo_root)
-    selector = _classify_source(source, repo_root=repo_root)
-    source_name = name.strip() if name is not None else _derive_source_name(source, selector)
-    source_config = SyncSourceConfig(
-        name=source_name,
-        repo=source if selector == "repo" else None,
-        path=source if selector == "path" else None,
+    source_config = _build_managed_source_config(
+        source=source,
+        repo_root=repo_root,
+        name=name,
         ref=ref,
-        skills=_parse_csv_list(skills, field_name="skills"),
-        agents=_parse_csv_list(agents, field_name="agents"),
-        rename=_parse_rename_args(rename),
+        skills=skills,
+        agents=agents,
+        rename=rename,
     )
 
-    existing = load_sync_config(state_paths.config_path)
+    existing = load_install_config(state_paths.agents_manifest_path)
     if any(configured.name == source_config.name for configured in existing.sources):
-        raise ValueError(f"Sync source '{source_config.name}' already exists.")
+        raise ValueError(f"Managed source '{source_config.name}' already exists.")
 
+    updated_config = ManagedSourcesConfig(sources=(*existing.sources, source_config))
     if not dry_run:
-        add_sync_source(state_paths.config_path, source_config)
+        write_install_config(state_paths.agents_manifest_path, updated_config)
 
-    with lock_file_guard(state_paths.sync_lock_path):
-        result = sync_items(
+    with lock_file_guard(state_paths.agents_lock_path):
+        lock = read_install_lock(state_paths.agents_lock_path)
+        result = reconcile_managed_sources(
             repo_root=repo_root,
-            sources=(source_config,),
-            sync_cache_dir=state_paths.sync_cache_dir,
-            sync_lock_path=state_paths.sync_lock_path,
+            agents_lock_path=state_paths.agents_lock_path,
+            sources=updated_config.sources,
+            lock=lock,
+            agents_cache_dir=state_paths.agents_cache_dir,
             force=force,
             dry_run=dry_run,
+            source_filter=source_config.name,
         )
 
     emit(_sync_result_payload(result))
 
 
-def _sync_remove(emit: Emitter, name: str) -> None:
+def _sync_remove(
+    emit: Emitter,
+    name: str,
+    force: Annotated[
+        bool,
+        Parameter(name="--force", help="Overwrite local modifications when removing."),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        Parameter(name="--dry-run", help="Preview removals without writing."),
+    ] = False,
+) -> None:
     repo_root = resolve_repo_root()
     state_paths = resolve_state_paths(repo_root)
-    config = load_sync_config(state_paths.config_path)
+    config = load_install_config(state_paths.agents_manifest_path)
     source = next((candidate for candidate in config.sources if candidate.name == name), None)
     if source is None:
-        raise ValueError(f"Sync source '{name}' not found.")
+        raise ValueError(f"Managed source '{name}' not found.")
 
-    with lock_file_guard(state_paths.sync_lock_path):
-        lock = read_lock_file(state_paths.sync_lock_path)
-        source_entries = sorted(
-            (
-                (item_key, entry)
-                for item_key, entry in lock.items.items()
-                if entry.source_name == source.name
-            ),
-            key=lambda pair: pair[0],
+    with lock_file_guard(state_paths.agents_lock_path):
+        lock = read_install_lock(state_paths.agents_lock_path)
+        result = remove_managed_source(
+            repo_root=repo_root,
+            agents_lock_path=state_paths.agents_lock_path,
+            lock=lock,
+            source_name=source.name,
+            force=force,
+            dry_run=dry_run,
         )
-
-        emitted_items: list[dict[str, object]] = []
-        removed_count = 0
-        warned_count = 0
-
-        for item_key, entry in source_entries:
-            dest_path = repo_root / entry.dest_path
-            local_name = _local_name_for_entry(entry.item_kind, dest_path)
-            claude_path = _claude_path_for_item(repo_root, entry.item_kind, local_name)
-
-            local_hash = (
-                compute_item_hash(dest_path, entry.item_kind) if _path_exists(dest_path) else None
+        if not dry_run:
+            updated_sources = tuple(
+                candidate for candidate in config.sources if candidate.name != source.name
             )
-            matches_lock = local_hash == entry.tree_hash if local_hash is not None else True
-
-            action = "removed"
-            reason = "Removed managed item."
-            if matches_lock:
-                if _path_exists(dest_path):
-                    _remove_path(dest_path)
-                if claude_path.is_symlink():
-                    claude_path.unlink()
-                elif _path_exists(claude_path):
-                    reason = (
-                        "Removed managed item; left an unmanaged Claude path in place."
-                    )
-                    warned_count += 1
-                removed_count += 1
-            else:
-                action = "kept"
-                reason = "Kept locally modified item."
-                warned_count += 1
-                if claude_path.is_symlink():
-                    claude_path.unlink()
-
-            emitted_items.append(
-                {
-                    "key": item_key,
-                    "action": action,
-                    "reason": reason,
-                    "dest_path": entry.dest_path,
-                }
+            write_install_config(
+                state_paths.agents_manifest_path,
+                ManagedSourcesConfig(sources=updated_sources),
             )
-            del lock.items[item_key]
 
-        remove_sync_source(state_paths.config_path, source.name)
-        write_lock_file(state_paths.sync_lock_path, lock)
-
-    emit(
-        {
-            "removed": removed_count,
-            "warned": warned_count,
-            "errors": [],
-            "items": emitted_items,
-        }
-    )
+    emit(_sync_result_payload(result))
 
 
 def _sync_update(
@@ -187,12 +159,8 @@ def _sync_update(
         bool,
         Parameter(name="--dry-run", help="Preview sync changes without writing."),
     ] = False,
-    prune: Annotated[
-        bool,
-        Parameter(name="--prune", help="Remove orphaned managed content."),
-    ] = False,
 ) -> None:
-    _run_sync(emit, source=source, force=force, dry_run=dry_run, prune=prune, upgrade=False)
+    _run_sync(emit, source=source, force=force, dry_run=dry_run, upgrade=False)
 
 
 def _sync_upgrade(
@@ -209,81 +177,25 @@ def _sync_upgrade(
         bool,
         Parameter(name="--dry-run", help="Preview sync changes without writing."),
     ] = False,
-    prune: Annotated[
-        bool,
-        Parameter(name="--prune", help="Remove orphaned managed content."),
-    ] = False,
 ) -> None:
-    _run_sync(emit, source=source, force=force, dry_run=dry_run, prune=prune, upgrade=True)
+    _run_sync(emit, source=source, force=force, dry_run=dry_run, upgrade=True)
 
 
 def _sync_status(emit: Emitter) -> None:
     repo_root = resolve_repo_root()
     state_paths = resolve_state_paths(repo_root)
-    config = load_sync_config(state_paths.config_path)
-    configured_sources = {source.name for source in config.sources}
-    lock = read_lock_file(state_paths.sync_lock_path)
-
-    payload: list[dict[str, object]] = []
-    for item_key, entry in sorted(lock.items.items()):
-        dest_path = repo_root / entry.dest_path
-        if entry.source_name not in configured_sources:
-            status = "orphaned"
-            reason = "Source is no longer configured."
-        elif not _path_exists(dest_path):
-            status = "missing"
-            reason = "Managed item is missing locally."
-        else:
-            local_hash = compute_item_hash(dest_path, entry.item_kind)
-            if local_hash == entry.tree_hash:
-                status = "in-sync"
-                reason = "Local content matches the lock file."
-            else:
-                status = "locally-modified"
-                reason = "Local content differs from the lock file."
-
-        payload.append(
-            {
-                "key": item_key,
-                "status": status,
-                "reason": reason,
-                "source_name": entry.source_name,
-                "item_kind": entry.item_kind,
-                "dest_path": entry.dest_path,
-            }
-        )
-
-    emit(payload)
+    lock = read_install_lock(state_paths.agents_lock_path)
+    emit(install_status(repo_root, lock))
 
 
 def register_sync_commands(app: Any, emit: Emitter) -> None:
     """Register sync subcommands onto the given app."""
 
-    app.command(
-        partial(_sync_install, emit),
-        name="install",
-        help="Add a source and install its items.",
-    )
-    app.command(
-        partial(_sync_remove, emit),
-        name="remove",
-        help="Remove a source and its managed items.",
-    )
-    app.command(
-        partial(_sync_update, emit),
-        name="update",
-        help="Sync from lock file (reproducible).",
-    )
-    app.command(
-        partial(_sync_upgrade, emit),
-        name="upgrade",
-        help="Re-resolve refs to latest upstream.",
-    )
-    app.command(
-        partial(_sync_status, emit),
-        name="status",
-        help="Compare lock vs local files.",
-    )
+    app.command(partial(_sync_install, emit), name="install", help="Add a source and install its items.")
+    app.command(partial(_sync_remove, emit), name="remove", help="Remove a source and its managed items.")
+    app.command(partial(_sync_update, emit), name="update", help="Install from the locked source state.")
+    app.command(partial(_sync_upgrade, emit), name="upgrade", help="Re-resolve floating refs and install.")
+    app.command(partial(_sync_status, emit), name="status", help="Compare lock vs local files.")
 
 
 def _run_sync(
@@ -292,36 +204,30 @@ def _run_sync(
     source: str | None,
     force: bool,
     dry_run: bool,
-    prune: bool,
     upgrade: bool,
 ) -> None:
     repo_root = resolve_repo_root()
     state_paths = resolve_state_paths(repo_root)
-    config = load_sync_config(state_paths.config_path)
+    config = load_install_config(state_paths.agents_manifest_path)
 
-    with lock_file_guard(state_paths.sync_lock_path):
-        lock = read_lock_file(state_paths.sync_lock_path)
-        locked_commits = {
-            entry.source_name: entry.locked_commit
-            for entry in lock.items.values()
-        }
-        result = sync_items(
+    with lock_file_guard(state_paths.agents_lock_path):
+        lock = read_install_lock(state_paths.agents_lock_path)
+        result = reconcile_managed_sources(
             repo_root=repo_root,
+            agents_lock_path=state_paths.agents_lock_path,
             sources=config.sources,
-            sync_cache_dir=state_paths.sync_cache_dir,
-            sync_lock_path=state_paths.sync_lock_path,
-            locked_commits=locked_commits,
+            lock=lock,
+            agents_cache_dir=state_paths.agents_cache_dir,
             upgrade=upgrade,
             force=force,
             dry_run=dry_run,
-            prune=prune,
             source_filter=source,
         )
 
     emit(_sync_result_payload(result))
 
 
-def _sync_result_payload(result: SyncResult) -> dict[str, object]:
+def _sync_result_payload(result: InstallResult) -> dict[str, object]:
     counts = Counter(action.action for action in result.actions)
     return {
         "installed": counts["installed"],
@@ -330,13 +236,13 @@ def _sync_result_payload(result: SyncResult) -> dict[str, object]:
         "skipped": counts["skipped"],
         "conflicts": counts["conflict"],
         "removed": counts["removed"],
-        "orphaned": counts["orphan_warned"],
+        "kept": counts["kept"],
         "errors": list(result.errors),
         "items": [_action_payload(action) for action in result.actions],
     }
 
 
-def _action_payload(action: SyncItemAction) -> dict[str, object]:
+def _action_payload(action: InstallItemAction) -> dict[str, object]:
     return {
         "key": action.item_key,
         "item_kind": action.item_kind,
@@ -347,22 +253,28 @@ def _action_payload(action: SyncItemAction) -> dict[str, object]:
     }
 
 
-def _classify_source(source: str, *, repo_root: Path) -> Literal["repo", "path"]:
+def _classify_source(source: str, *, repo_root: Path) -> SourceSelector:
     trimmed = source.strip()
+    if trimmed in _WELL_KNOWN_SOURCES:
+        return "alias"
     candidate = Path(trimmed).expanduser()
     if candidate.is_absolute() or trimmed.startswith((".", "~")):
         return "path"
     if candidate.exists() or (repo_root / candidate).exists():
         return "path"
-    if trimmed.count("/") == 1:
-        return "repo"
-    return "path"
+    return "git"
 
 
-def _derive_source_name(source: str, selector: Literal["repo", "path"]) -> str:
-    if selector == "repo":
-        owner, _, repo = source.strip().partition("/")
-        return f"{owner}-{repo}"
+def _derive_source_name(source: str, selector: SourceSelector) -> str:
+    if selector == "alias":
+        return source.strip()
+    if selector == "git":
+        trimmed = source.strip().rstrip("/")
+        if trimmed.endswith(".git"):
+            trimmed = trimmed[:-4]
+        repo_name = trimmed.rsplit("/", 1)[-1]
+        derived = repo_name or "managed-source"
+        return derived.replace(".", "-")
 
     normalized = Path(source.strip()).expanduser()
     derived = normalized.name or normalized.resolve().name or source.strip().rstrip("/").split("/")[-1]
@@ -395,24 +307,71 @@ def _parse_rename_args(rename_args: tuple[str, ...]) -> dict[str, str]:
     return rename_map
 
 
-def _local_name_for_entry(item_kind: ItemKind, dest_path: Path) -> str:
-    if item_kind == "skill":
-        return dest_path.name
-    return dest_path.stem
+def _build_managed_source_config(
+    *,
+    source: str,
+    repo_root: Path,
+    name: str | None,
+    ref: str | None,
+    skills: str | None,
+    agents: str | None,
+    rename: tuple[str, ...],
+) -> ManagedSourceConfig:
+    selector = _classify_source(source, repo_root=repo_root)
+    source_name = name.strip() if name is not None else _derive_source_name(source, selector)
+    rename_map = _normalize_rename_map(_parse_rename_args(rename))
+    items = _build_item_refs(agents=agents, skills=skills)
+
+    if selector == "alias":
+        alias = _WELL_KNOWN_SOURCES[source.strip()]
+        return ManagedSourceConfig(
+            name=source_name,
+            kind="git",
+            url=alias["url"],
+            ref=ref if ref is not None else alias.get("ref"),
+            items=items,
+            rename=rename_map,
+        )
+    if selector == "path":
+        return ManagedSourceConfig(
+            name=source_name,
+            kind="path",
+            path=source,
+            items=items,
+            rename=rename_map,
+        )
+
+    url = (
+        source
+        if "://" in source or source.strip().endswith(".git")
+        else f"https://github.com/{source.strip()}.git"
+    )
+    return ManagedSourceConfig(
+        name=source_name,
+        kind="git",
+        url=url,
+        ref=ref,
+        items=items,
+        rename=rename_map,
+    )
 
 
-def _claude_path_for_item(repo_root: Path, item_kind: ItemKind, local_name: str) -> Path:
-    if item_kind == "skill":
-        return repo_root / ".claude" / "skills" / local_name
-    return repo_root / ".claude" / "agents" / f"{local_name}.md"
+def _build_item_refs(*, agents: str | None, skills: str | None) -> tuple[ItemRef, ...] | None:
+    refs: list[ItemRef] = []
+    for item_name in _parse_csv_list(agents, field_name="agents") or ():
+        refs.append(ItemRef(kind="agent", name=item_name))
+    for item_name in _parse_csv_list(skills, field_name="skills") or ():
+        refs.append(ItemRef(kind="skill", name=item_name))
+    if not refs:
+        return None
+    return tuple(refs)
 
 
-def _path_exists(path: Path) -> bool:
-    return path.exists() or path.is_symlink()
-
-
-def _remove_path(path: Path) -> None:
-    if path.is_dir() and not path.is_symlink():
-        shutil.rmtree(path)
-        return
-    path.unlink(missing_ok=True)
+def _normalize_rename_map(rename_map: dict[str, str]) -> dict[str, str]:
+    normalized: dict[str, str] = {}
+    for key, value in rename_map.items():
+        if ":" in key:
+            normalized[key] = value
+            continue
+        normalized[f"agent:{key}"] = value
+    return normalized
