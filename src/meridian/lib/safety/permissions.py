@@ -1,12 +1,15 @@
 """Permission tiers and harness-flag translation."""
 
 
+import logging
 import json
 from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.core.types import HarnessId
+
+logger = logging.getLogger(__name__)
 
 
 class PermissionTier(StrEnum):
@@ -45,7 +48,11 @@ def parse_permission_tier(
     return _parse_permission_tier_value(normalized)
 
 
-def permission_tier_from_profile(agent_sandbox: str | None) -> str | None:
+def permission_tier_from_profile(
+    agent_sandbox: str | None,
+    *,
+    warning_logger: logging.Logger | None = None,
+) -> str | None:
     if agent_sandbox is None:
         return None
     normalized = agent_sandbox.strip().lower()
@@ -58,7 +65,16 @@ def permission_tier_from_profile(agent_sandbox: str | None) -> str | None:
         "danger-full-access": "full-access",
         "unrestricted": "full-access",
     }
-    return mapping.get(normalized)
+    resolved = mapping.get(normalized)
+    if resolved is not None:
+        return resolved
+
+    sink = warning_logger or logger
+    sink.warning(
+        "Agent profile has unsupported sandbox '%s'; harness defaults will apply.",
+        agent_sandbox.strip(),
+    )
+    return None
 
 
 def _parse_permission_tier_value(raw: str | PermissionTier) -> PermissionTier:

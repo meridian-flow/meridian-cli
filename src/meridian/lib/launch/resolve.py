@@ -13,7 +13,6 @@ from meridian.lib.catalog.skill import SkillRegistry
 from meridian.lib.core.domain import SkillContent
 from meridian.lib.harness.registry import HarnessRegistry
 from .prompt import load_skill_contents, resolve_run_defaults
-from meridian.lib.safety.permissions import permission_tier_from_profile
 from meridian.lib.core.types import HarnessId, ModelId
 
 from .types import LaunchRequest, PrimarySessionMetadata
@@ -103,28 +102,6 @@ def resolve_skills_from_profile(
         skill_sources=skill_sources,
         missing_skills=missing_skills,
     )
-
-
-def resolve_permission_tier_from_profile(
-    *,
-    profile: AgentProfile | None,
-    warning_logger: logging.Logger | None = None,
-) -> str | None:
-    """Infer permission tier from agent profile sandbox field."""
-
-    sandbox_value = profile.sandbox if profile is not None else None
-    inferred_tier = permission_tier_from_profile(sandbox_value)
-    if inferred_tier is not None:
-        return inferred_tier
-
-    if profile is not None and sandbox_value is not None and sandbox_value.strip():
-        sink = warning_logger or logger
-        sink.warning(
-            "Agent profile '%s' has unsupported sandbox '%s'; harness defaults will apply.",
-            profile.name,
-            sandbox_value.strip(),
-        )
-    return None
 
 
 def resolve_harness(
@@ -244,7 +221,6 @@ __all__ = [
     "ResolvedSkills",
     "load_agent_profile_with_fallback",
     "resolve_harness",
-    "resolve_permission_tier_from_profile",
     "resolve_primary_session_metadata",
     "resolve_skills_from_profile",
 ]

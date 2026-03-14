@@ -23,7 +23,6 @@ from .resolve import (
     ResolvedSkills,
     load_agent_profile_with_fallback,
     resolve_harness,
-    resolve_permission_tier_from_profile,
     resolve_primary_session_metadata,
     resolve_skills_from_profile,
 )
@@ -80,7 +79,6 @@ __all__ = [
     "normalize_system_prompt_passthrough_args",
     "resolve_harness",
     "resolve_primary_launch_plan",
-    "resolve_permission_tier_from_profile",
     "resolve_primary_session_metadata",
     "resolve_skills_from_profile",
     "run_harness_process",

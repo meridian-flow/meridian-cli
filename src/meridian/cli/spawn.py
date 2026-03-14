@@ -55,8 +55,7 @@ def _spawn_create(
         str,
         Parameter(
             allow_leading_hyphen=True,
-            help="Harness passthrough arguments (after --).",
-            show=False,
+            help="Extra arguments passed directly to the harness (place after --).",
         ),
     ],
     template_vars: Annotated[
