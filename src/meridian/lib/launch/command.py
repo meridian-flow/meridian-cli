@@ -40,6 +40,7 @@ def build_launch_env(
     request: LaunchRequest,
     *,
     chat_id: str | None = None,
+    work_id: str | None = None,
     default_autocompact_pct: int | None = None,
     spawn_id: str | None = None,
     adapter: SubprocessHarness | None = None,
@@ -50,12 +51,13 @@ def build_launch_env(
     resolved_chat_id = (
         chat_id.strip() if chat_id is not None and chat_id.strip() else current_context.chat_id
     )
+    resolved_work_id = work_id.strip() if work_id is not None and work_id.strip() else current_context.work_id
     runtime_context = RuntimeContext(
         depth=current_context.depth,
         repo_root=repo_root.resolve(),
         state_root=resolve_state_paths(repo_root).root_dir.resolve(),
         chat_id=resolved_chat_id,
-        work_id=current_context.work_id,
+        work_id=resolved_work_id,
     )
     env_overrides = runtime_context.to_env_overrides()
     if spawn_id is not None and spawn_id.strip():
@@ -77,8 +79,6 @@ def build_launch_env(
         )
 
     if adapter is not None and run_params is not None and permission_config is not None:
-        if permission_config.tier is not None:
-            env_overrides["MERIDIAN_PERMISSION_TIER"] = permission_config.tier.value
         return build_harness_child_env(
             base_env=os.environ,
             adapter=adapter,

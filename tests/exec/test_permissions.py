@@ -159,12 +159,13 @@ def test_build_harness_child_env_uses_claude_specific_blocklist() -> None:
     assert "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE" not in child_env
 
 
-def test_build_launch_env_seeds_effective_permission_tier(
+def test_build_launch_env_never_exports_permission_tier(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
     monkeypatch.delenv("MERIDIAN_PERMISSION_TIER", raising=False)
 
+    # Even with an explicit tier, the env var should not be exported.
     env = build_launch_env(
         tmp_path,
         LaunchRequest(model="gpt-5.3-codex"),
@@ -173,21 +174,33 @@ def test_build_launch_env_seeds_effective_permission_tier(
         permission_config=PermissionConfig(tier=PermissionTier.WORKSPACE_WRITE),
     )
 
-    assert env["MERIDIAN_PERMISSION_TIER"] == "workspace-write"
+    assert "MERIDIAN_PERMISSION_TIER" not in env
 
 
-def test_build_launch_env_omits_permission_tier_when_unset(
+def test_build_launch_env_sets_lazy_work_dir_without_creating_it(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
-    monkeypatch.delenv("MERIDIAN_PERMISSION_TIER", raising=False)
+    monkeypatch.delenv("MERIDIAN_WORK_ID", raising=False)
+    monkeypatch.delenv("MERIDIAN_WORK_DIR", raising=False)
 
     env = build_launch_env(
         tmp_path,
         LaunchRequest(model="gpt-5.3-codex"),
-        adapter=ClaudeAdapter(),
-        run_params=SpawnParams(prompt="test", model=ModelId("claude-sonnet-4-6")),
-        permission_config=PermissionConfig(),
+        work_id="lazy-work-9",
     )
 
-    assert "MERIDIAN_PERMISSION_TIER" not in env
+    assert env["MERIDIAN_WORK_ID"] == "lazy-work-9"
+    assert env["MERIDIAN_WORK_DIR"] == (tmp_path / ".meridian" / "work" / "lazy-work-9").as_posix()
+    assert not (tmp_path / ".meridian" / "work" / "lazy-work-9").exists()
+
+
+def test_build_launch_env_uses_explicit_work_id(tmp_path) -> None:
+    env = build_launch_env(
+        tmp_path,
+        LaunchRequest(model="gpt-5.3-codex"),
+        work_id="lazy-work",
+    )
+
+    assert env["MERIDIAN_WORK_ID"] == "lazy-work"
+    assert env["MERIDIAN_WORK_DIR"].endswith("/.meridian/work/lazy-work")

@@ -140,7 +140,7 @@ def _spawn_create(
         bool,
         Parameter(
             name="--yolo",
-            help="Shortcut for approval=auto.",
+            help="Skip all harness safety prompts and sandboxing.",
         ),
     ] = False,
     continue_from: Annotated[
