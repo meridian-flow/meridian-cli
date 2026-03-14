@@ -334,6 +334,7 @@ def build_create_payload(
         session_agent=profile.name if profile is not None else "",
         session_agent_path=session_agent_path,
         skill_paths=session_skill_paths,
+        adhoc_agent_json=adhoc_agent_json,
         cli_command=preview_command,
         passthrough_args=payload.passthrough_args,
         appended_system_prompt=appended_system_prompt,

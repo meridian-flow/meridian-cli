@@ -19,13 +19,14 @@ from meridian.lib.core.context import RuntimeContext
 from meridian.lib.core.domain import Spawn, SpawnStatus
 from meridian.lib.launch.runner import execute_with_finalization
 from meridian.lib.launch.session_scope import session_scope
+from meridian.lib.ops.work_attachment import ensure_explicit_work_item
 from meridian.lib.harness.adapter import PermissionResolver
 from meridian.lib.safety.permissions import (
     PermissionConfig,
     resolve_permission_pipeline,
 )
 from meridian.lib.core.sink import OutputSink
-from meridian.lib.state import spawn_store, work_store
+from meridian.lib.state import spawn_store
 from meridian.lib.state.spawn_store import (
     BACKGROUND_LAUNCH_MODE,
     FOREGROUND_LAUNCH_MODE,
@@ -191,7 +192,7 @@ def _init_spawn(
     )
     if (payload.work or "").strip():
         resolved_work_id = cast("str", resolved_work_id)
-        work_store.materialize_work_item(state_root, resolved_work_id)
+        resolved_work_id = ensure_explicit_work_item(state_root, resolved_work_id)
     resolved_desc = (desc if desc is not None else payload.desc).strip() or None
     spawn_id = spawn_store.start_spawn(
         state_root,
@@ -247,6 +248,7 @@ def _write_params_json(
         "model": prepared.model,
         "harness": prepared.harness_id,
         "agent": prepared.agent_name,
+        "adhoc_agent_json": prepared.adhoc_agent_json,
         "desc": desc,
         "work_id": work_id,
         "prompt_length": len(prepared.prompt),
@@ -314,6 +316,7 @@ async def _execute_existing_spawn(
     session_agent: str = "",
     session_agent_path: str = "",
     session_skill_paths: tuple[str, ...] = (),
+    adhoc_agent_json: str = "",
     appended_system_prompt: str | None = None,
     sink: OutputSink | None = None,
     ctx: RuntimeContext | None = None,
@@ -347,6 +350,7 @@ async def _execute_existing_spawn(
         mcp_tools=mcp_tools,
         session_agent=session_agent,
         session_agent_path=session_agent_path,
+        adhoc_agent_json=adhoc_agent_json,
         appended_system_prompt=appended_system_prompt,
         session=SessionContinuation(
             harness_session_id=continue_harness_session_id,
@@ -412,6 +416,7 @@ def _build_background_worker_command(
     session_agent: str,
     session_agent_path: str,
     session_skill_paths: tuple[str, ...],
+    adhoc_agent_json: str = "",
     appended_system_prompt: str | None = None,
 ) -> tuple[str, ...]:
     command: list[str] = [
@@ -438,6 +443,8 @@ def _build_background_worker_command(
         command.extend(["--allowed-tool", tool])
     for passthrough_arg in passthrough_args:
         command.extend(["--harness-arg", passthrough_arg])
+    if adhoc_agent_json.strip():
+        command.extend(["--adhoc-agent-json", adhoc_agent_json])
     if continue_harness_session_id is not None and continue_harness_session_id.strip():
         command.extend(["--continue-harness-session-id", continue_harness_session_id.strip()])
     if continue_fork:
@@ -500,6 +507,7 @@ def execute_spawn_background(
         session_agent=prepared.session_agent,
         session_agent_path=prepared.session_agent_path,
         session_skill_paths=prepared.skill_paths,
+        adhoc_agent_json=prepared.adhoc_agent_json,
         appended_system_prompt=prepared.appended_system_prompt,
     )
     log_dir = resolve_spawn_log_dir(runtime.repo_root, context.spawn.spawn_id)
@@ -715,6 +723,7 @@ def _build_background_worker_parser() -> argparse.ArgumentParser:
     parser.add_argument("--session-agent", default="")
     parser.add_argument("--session-agent-path", default="")
     parser.add_argument("--session-skill-path", action="append", default=[])
+    parser.add_argument("--adhoc-agent-json", default="")
     parser.add_argument("--appended-system-prompt", default=None)
     return parser
 
@@ -751,6 +760,7 @@ def _background_worker_main(
             session_agent=str(parsed.session_agent),
             session_agent_path=str(parsed.session_agent_path),
             session_skill_paths=tuple(str(item) for item in parsed.session_skill_path),
+            adhoc_agent_json=str(parsed.adhoc_agent_json),
             appended_system_prompt=cast("str | None", parsed.appended_system_prompt),
             ctx=resolved_context,
         )
