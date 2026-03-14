@@ -19,18 +19,10 @@ from meridian.lib.sync.install_engine import reconcile_managed_sources, remove_m
 from meridian.lib.sync.install_lock import read_install_lock
 from meridian.lib.sync.install_types import ItemRef
 from meridian.lib.sync.lock import lock_file_guard
+from meridian.lib.sync.source_catalog import is_well_known_source, well_known_source_config
 
 Emitter = Callable[[Any], None]
 SourceSelector = Literal["git", "path", "alias"]
-
-_WELL_KNOWN_SOURCES: dict[str, dict[str, str]] = {
-    "meridian-agents": {
-        "kind": "git",
-        "url": "https://github.com/haowjy/meridian-agents.git",
-        "ref": "main",
-    }
-}
-
 
 def _sync_install(
     emit: Emitter,
@@ -255,7 +247,7 @@ def _action_payload(action: InstallItemAction) -> dict[str, object]:
 
 def _classify_source(source: str, *, repo_root: Path) -> SourceSelector:
     trimmed = source.strip()
-    if trimmed in _WELL_KNOWN_SOURCES:
+    if is_well_known_source(trimmed):
         return "alias"
     candidate = Path(trimmed).expanduser()
     if candidate.is_absolute() or trimmed.startswith((".", "~")):
@@ -323,15 +315,10 @@ def _build_managed_source_config(
     items = _build_item_refs(agents=agents, skills=skills)
 
     if selector == "alias":
-        alias = _WELL_KNOWN_SOURCES[source.strip()]
-        return ManagedSourceConfig(
-            name=source_name,
-            kind="git",
-            url=alias["url"],
-            ref=ref if ref is not None else alias.get("ref"),
-            items=items,
-            rename=rename_map,
-        )
+        configured = well_known_source_config(source.strip(), items=items)
+        if ref is not None:
+            configured = configured.model_copy(update={"ref": ref})
+        return configured.model_copy(update={"name": source_name, "rename": rename_map})
     if selector == "path":
         return ManagedSourceConfig(
             name=source_name,

@@ -13,8 +13,6 @@ from meridian.lib.catalog.skill import split_markdown_frontmatter
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
 
-# Sentinel path used for built-in profiles that don't exist on disk.
-_BUILTIN_PATH = Path("<builtin>")
 _KNOWN_SANDBOX_VALUES = frozenset(
     {
         "read-only",
@@ -110,47 +108,6 @@ def parse_agent_profile(path: Path) -> AgentProfile:
     )
 
 
-def builtin_profiles() -> dict[str, AgentProfile]:
-    """Hard-coded fallback profiles used when no file exists on disk."""
-    return {
-        "__meridian-subagent": AgentProfile(
-            name="__meridian-subagent",
-            description="Default agent",
-            model="gpt-5.3-codex",
-            variant=None,
-            skills=(),
-            allowed_tools=(),
-            mcp_tools=("spawn_list", "spawn_show", "skills_list"),
-            sandbox="workspace-write",
-            variant_models=(),
-            body="",
-            path=_BUILTIN_PATH,
-            raw_content="",
-        ),
-        "__meridian-orchestrator": AgentProfile(
-            name="__meridian-orchestrator",
-            description="Primary agent",
-            model="claude-opus-4-6",
-            variant=None,
-            skills=(),
-            allowed_tools=(),
-            mcp_tools=(
-                "spawn_create",
-                "spawn_list",
-                "spawn_show",
-                "spawn_wait",
-                "skills_list",
-                "models_list",
-            ),
-            sandbox="unrestricted",
-            variant_models=(),
-            body="",
-            path=_BUILTIN_PATH,
-            raw_content="",
-        ),
-    }
-
-
 def _agent_search_dirs(repo_root: Path) -> list[Path]:
     return [repo_root / ".agents" / "agents"]
 
@@ -220,14 +177,5 @@ def load_agent_profile(
     for profile in scan_agent_profiles(repo_root=root, search_paths=search_paths):
         if profile.path.stem == normalized or profile.name == normalized:
             return profile
-
-    # Fall back to hard-coded built-in profiles.
-    builtin = builtin_profiles().get(normalized)
-    if builtin is not None:
-        logger.info(
-            "Using built-in profile '%s' (no user or bundled profile found).",
-            normalized,
-        )
-        return builtin
 
     raise FileNotFoundError(f"Agent profile '{name}' not found in repo-local .agents.")

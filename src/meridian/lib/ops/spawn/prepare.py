@@ -25,6 +25,7 @@ from meridian.lib.safety.permissions import (
     resolve_permission_pipeline,
 )
 from meridian.lib.core.types import ModelId
+from meridian.lib.sync.runtime_ensure import ensure_runtime_assets, plan_required_runtime_assets
 
 from meridian.lib.utils.time import minutes_to_seconds
 
@@ -171,6 +172,14 @@ def build_create_payload(
             repo_root=runtime_bundle.repo_root,
             config=runtime_bundle.config,
             harness_registry=runtime_bundle.harness_registry,
+        )
+    if not (payload.agent or "").strip():
+        ensure_runtime_assets(
+            repo_root=runtime_view.repo_root,
+            plan=plan_required_runtime_assets(
+                repo_root=runtime_view.repo_root,
+                agent_names=(runtime_view.config.default_agent,),
+            ),
         )
 
     profile = load_agent_profile_with_fallback(

@@ -10,13 +10,13 @@ from pydantic import BaseModel, ConfigDict
 from meridian.lib.config.settings import MeridianConfig, load_config, resolve_repo_root
 from meridian.lib.core.types import ModelId
 from meridian.lib.harness.adapter import SpawnParams, SubprocessHarness
-from meridian.lib.harness.materialize import materialize_for_harness
 from meridian.lib.harness.registry import HarnessRegistry
 from meridian.lib.safety.permissions import (
     PermissionConfig,
     resolve_permission_pipeline,
 )
 from meridian.lib.state.paths import resolve_state_paths
+from meridian.lib.sync.runtime_ensure import ensure_runtime_assets, plan_required_runtime_assets
 
 from .prompt import compose_skill_injections, resolve_run_defaults
 from .resolve import (
@@ -116,6 +116,14 @@ def resolve_primary_launch_plan(
     state_root = paths.root_dir
     lock_path = paths.active_primary_lock
     resolved_prompt = prompt if prompt is not None else build_primary_prompt(request)
+    if not (request.agent or "").strip():
+        ensure_runtime_assets(
+            repo_root=resolved_root,
+            plan=plan_required_runtime_assets(
+                repo_root=resolved_root,
+                agent_names=(resolved_config.primary_agent,),
+            ),
+        )
 
     profile = load_agent_profile_with_fallback(
         repo_root=resolved_root,
@@ -232,15 +240,6 @@ def resolve_primary_launch_plan(
         approval=request.approval,
     )
 
-    materialized = materialize_for_harness(
-        profile,
-        resolved_skills.skill_sources,
-        str(harness),
-        resolved_root,
-        dry_run=request.dry_run,
-        registry=harness_registry,
-    )
-
     # Let the adapter decide what prompt/skill content to include.
     # Resume launches typically suppress prompt and skill injection.
     is_resume = bool(explicit_harness_session_id)
@@ -269,7 +268,7 @@ def resolve_primary_launch_plan(
         prompt=appended_prompt,
         model=model,
         skills=resolved_skills.skill_names,
-        agent=materialized.agent_name or None,
+        agent=profile_name or None,
         extra_args=passthrough_args,
         repo_root=resolved_root.as_posix(),
         mcp_tools=profile.mcp_tools if profile is not None else (),

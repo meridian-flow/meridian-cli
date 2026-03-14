@@ -43,13 +43,10 @@ def load_agent_profile_with_fallback(
 
     configured_profile = configured_default.strip()
     if configured_profile:
-        try:
-            return load_agent_profile(
-                configured_profile,
-                repo_root=repo_root,
-            )
-        except FileNotFoundError:
-            pass
+        return load_agent_profile(
+            configured_profile,
+            repo_root=repo_root,
+        )
 
     return None
 
