@@ -27,7 +27,6 @@ from meridian.cli.output import emit as emit_output
 from meridian.cli.report_cmd import register_report_commands
 from meridian.cli.skills_cmd import register_skills_commands
 from meridian.lib.core.sink import OutputSink
-from meridian.lib.harness.materialize import cleanup_materialized
 from meridian.lib.harness.registry import get_default_harness_registry
 from meridian.lib.harness.session_detection import infer_harness_from_untracked_session_ref
 from meridian.lib.launch import LaunchRequest, cleanup_orphaned_locks, launch_primary
@@ -762,9 +761,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             repo_root = Path.cwd().resolve()
             cleanup_orphaned_locks(repo_root)
             state_root = resolve_state_paths(repo_root).root_dir
-            cleanup = cleanup_stale_sessions(state_root)
-            for harness_id in cleanup.materialized_scopes:
-                cleanup_materialized(harness_id, repo_root)
+            cleanup_stale_sessions(state_root)
         except Exception:
             logger.debug("orphaned lock cleanup failed", exc_info=True)
 

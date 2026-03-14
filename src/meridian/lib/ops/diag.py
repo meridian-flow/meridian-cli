@@ -9,7 +9,6 @@ from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.core.spawn_lifecycle import is_active_spawn_status
 from meridian.lib.core.util import FormatContext
-from meridian.lib.harness.materialize import cleanup_materialized
 from meridian.lib.ops.runtime import build_runtime, resolve_state_root
 from meridian.lib.state import spawn_store
 from meridian.lib.state.session_store import cleanup_stale_sessions
@@ -57,8 +56,6 @@ def _count_runs(repo_root: Path) -> int:
 
 def _repair_stale_session_locks(repo_root: Path) -> int:
     cleanup = cleanup_stale_sessions(resolve_state_root(repo_root))
-    for harness_id in cleanup.materialized_scopes:
-        cleanup_materialized(harness_id, repo_root)
     return len(cleanup.cleaned_ids)
 
 

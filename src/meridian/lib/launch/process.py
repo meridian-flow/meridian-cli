@@ -26,8 +26,6 @@ from meridian.lib.core.spawn_lifecycle import (
     resolve_execution_terminal_state,
 )
 from meridian.lib.core.types import SpawnId
-from meridian.lib.harness.adapter import SubprocessHarness
-from meridian.lib.harness.materialize import cleanup_materialized
 from meridian.lib.harness.registry import HarnessRegistry
 from meridian.lib.ops.session_policy import ensure_session_work_item
 from meridian.lib.state import spawn_store
@@ -40,7 +38,7 @@ from meridian.lib.state.spawn_store import FOREGROUND_LAUNCH_MODE
 from .command import build_launch_env
 from .heartbeat import threaded_heartbeat_scope
 from .plan import ResolvedPrimaryLaunchPlan
-from .session_scope import ManagedSession, session_scope
+from .session_scope import session_scope
 from .session_ids import extract_latest_session_id
 
 logger = logging.getLogger(__name__)
@@ -125,56 +123,6 @@ def cleanup_orphaned_locks(repo_root: Path) -> bool:
         logger.debug("Failed to inspect lock file %s", lock_path, exc_info=True)
         return False
     return True
-
-
-def _cleanup_launch_materialized(
-    *,
-    repo_root: Path,
-    harness_id: str,
-    harness_registry: HarnessRegistry,
-) -> None:
-    if not harness_id.strip():
-        return
-    try:
-        cleanup_materialized(harness_id, repo_root, registry=harness_registry)
-    except Exception:
-        logger.warning(
-            "Failed to cleanup primary-session materialized harness resources (harness=%s).",
-            harness_id,
-            exc_info=True,
-        )
-
-
-def _sweep_orphaned_materializations(
-    repo_root: Path,
-    harness_id: str,
-    *,
-    harness_registry: HarnessRegistry,
-) -> None:
-    """Best-effort sweep of materialized files not owned by active sessions."""
-
-    from meridian.lib.harness.materialize import cleanup_orphaned_materializations
-    from meridian.lib.state.session_store import collect_active_chat_ids
-
-    _ = harness_id
-    try:
-        active_ids = collect_active_chat_ids(repo_root)
-        if active_ids is None:
-            return
-        for known_harness_id in harness_registry.ids():
-            adapter = harness_registry.get(known_harness_id)
-            if not isinstance(adapter, SubprocessHarness):
-                continue
-            if adapter.native_layout() is None:
-                continue
-            cleanup_orphaned_materializations(
-                str(known_harness_id),
-                repo_root,
-                has_active_sessions=bool(active_ids),
-                registry=harness_registry,
-            )
-    except Exception:
-        logger.debug("Orphan materialization sweep failed", exc_info=True)
 
 
 def _copy_primary_pty_output(
@@ -362,7 +310,6 @@ def run_harness_process(
     primary_started_epoch = 0.0
     primary_started_local_iso: str | None = None
     resolved_harness_session_id = plan.seed_harness_session_id
-    managed_session: ManagedSession | None = None
     artifacts = LocalStore(root_dir=resolve_state_paths(plan.repo_root).artifacts_dir)
 
     exit_code = 2
@@ -371,11 +318,6 @@ def run_harness_process(
         _primary_launch_lock_payload(command=command, child_pid=None),
     ) as lock_handle:
         try:
-            _sweep_orphaned_materializations(
-                plan.repo_root,
-                plan.session_metadata.harness,
-                harness_registry=harness_registry,
-            )
             with session_scope(
                 state_root=plan.state_root,
                 harness=plan.session_metadata.harness,
@@ -390,7 +332,6 @@ def run_harness_process(
                 _stop_session=stop_session,
                 _update_session_harness_id=update_session_harness_id,
             ) as managed:
-                managed_session = managed
                 chat_id = managed.chat_id
                 ensure_session_work_item(plan.state_root, chat_id)
                 try:
@@ -507,13 +448,6 @@ def run_harness_process(
         except FileNotFoundError:
             logger.debug("Harness command not found", exc_info=True)
             exit_code = 2
-        finally:
-            if managed_session is not None:
-                _cleanup_launch_materialized(
-                    repo_root=plan.repo_root,
-                    harness_id=plan.session_metadata.harness,
-                    harness_registry=harness_registry,
-                )
 
     return ProcessOutcome(
         command=command,

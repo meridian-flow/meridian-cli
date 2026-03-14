@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict
 from meridian.lib.catalog.models import load_merged_aliases, resolve_model
 from meridian.lib.catalog.models import load_discovered_models
 from meridian.lib.config.settings import MeridianConfig
+from meridian.lib.harness.claude import build_claude_adhoc_agent_json
 from meridian.lib.harness.registry import HarnessRegistry, get_default_harness_registry
 from meridian.lib.core.context import RuntimeContext
 from meridian.lib.launch.prompt import (
@@ -215,7 +216,15 @@ def build_create_payload(
         include_content=not use_reference_paths,
     )
     parsed_template_vars = parse_template_assignments(payload.template_vars)
-    adhoc_agent_json = ""
+    adhoc_agent_json = (
+        build_claude_adhoc_agent_json(
+            name=profile.name,
+            description=profile.description,
+            prompt=profile.body,
+        )
+        if profile is not None and str(harness.id) == "claude"
+        else ""
+    )
     agent_for_params = defaults.agent_name
 
     composed_prompt = compose_run_prompt_text(

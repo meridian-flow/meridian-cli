@@ -40,6 +40,27 @@ from meridian.lib.safety.permissions import PermissionConfig
 logger = logging.getLogger(__name__)
 
 
+def build_claude_adhoc_agent_json(
+    *,
+    name: str,
+    description: str,
+    prompt: str,
+) -> str:
+    """Build a Claude `--agents` payload for one installed Meridian agent."""
+
+    normalized_name = name.strip()
+    if not normalized_name:
+        return ""
+
+    payload = {
+        normalized_name: {
+            "description": description.strip() or normalized_name,
+            "prompt": prompt,
+        }
+    }
+    return json.dumps(payload, separators=(",", ":"), sort_keys=True)
+
+
 def _project_slug(repo_root: Path) -> str:
     return str(repo_root.resolve()).replace("/", "-")
 

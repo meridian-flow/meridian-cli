@@ -142,9 +142,6 @@ def test_run_harness_process_reuses_tracked_chat_id_on_resume(
 
     captured: dict[str, str | None] = {}
 
-    def fake_sweep_orphaned_materializations(*args: object, **kwargs: object) -> None:
-        _ = (args, kwargs)
-
     def fake_build_launch_env(*args: object, **kwargs: object) -> dict[str, str]:
         _ = (args, kwargs)
         return {}
@@ -165,11 +162,6 @@ def test_run_harness_process_reuses_tracked_chat_id_on_resume(
     def fake_update_session_harness_id(*args: object, **kwargs: object) -> None:
         _ = (args, kwargs)
 
-    monkeypatch.setattr(
-        process,
-        "_sweep_orphaned_materializations",
-        fake_sweep_orphaned_materializations,
-    )
     monkeypatch.setattr(process, "build_launch_env", fake_build_launch_env)
     monkeypatch.setattr(
         process,

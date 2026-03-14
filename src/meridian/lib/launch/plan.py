@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict
 from meridian.lib.config.settings import MeridianConfig, load_config, resolve_repo_root
 from meridian.lib.core.types import ModelId
 from meridian.lib.harness.adapter import SpawnParams, SubprocessHarness
+from meridian.lib.harness.claude import build_claude_adhoc_agent_json
 from meridian.lib.harness.registry import HarnessRegistry
 from meridian.lib.safety.permissions import (
     PermissionConfig,
@@ -153,6 +154,15 @@ def resolve_primary_launch_plan(
         repo_root=resolved_root,
     )
     adapter = harness_registry.get_subprocess_harness(harness)
+    adhoc_agent_json = (
+        build_claude_adhoc_agent_json(
+            name=profile.name,
+            description=profile.description,
+            prompt=profile.body,
+        )
+        if profile is not None and str(harness) == "claude"
+        else ""
+    )
 
     resolved_skills = resolve_skills_from_profile(
         profile_skills=defaults.skills,
@@ -209,6 +219,7 @@ def resolve_primary_launch_plan(
             model=model,
             skills=resolved_skills.skill_names,
             agent=profile_name or None,
+            adhoc_agent_json=adhoc_agent_json,
             extra_args=command_request.passthrough_args,
             repo_root=resolved_root.as_posix(),
             mcp_tools=profile.mcp_tools if profile is not None else (),
@@ -269,6 +280,7 @@ def resolve_primary_launch_plan(
         model=model,
         skills=resolved_skills.skill_names,
         agent=profile_name or None,
+        adhoc_agent_json=adhoc_agent_json,
         extra_args=passthrough_args,
         repo_root=resolved_root.as_posix(),
         mcp_tools=profile.mcp_tools if profile is not None else (),

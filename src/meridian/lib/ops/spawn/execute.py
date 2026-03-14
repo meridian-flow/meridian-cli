@@ -15,17 +15,11 @@ from typing import Any, Callable, Iterator, cast
 
 import structlog
 from pydantic import BaseModel, ConfigDict
-from meridian.lib.catalog.agent import (
-    AgentProfile,
-    load_agent_profile,
-    parse_agent_profile,
-)
 from meridian.lib.core.context import RuntimeContext
 from meridian.lib.core.domain import Spawn, SpawnStatus
 from meridian.lib.launch.runner import execute_with_finalization
 from meridian.lib.launch.session_scope import session_scope
 from meridian.lib.harness.adapter import PermissionResolver
-from meridian.lib.harness.materialize import cleanup_materialized, materialize_for_harness
 from meridian.lib.safety.permissions import (
     PermissionConfig,
     resolve_permission_pipeline,
@@ -164,110 +158,6 @@ def _spawn_child_env(
     return child_env
 
 
-def _skill_sources_from_session(
-    *,
-    skills: tuple[str, ...],
-    session_skill_paths: tuple[str, ...],
-) -> dict[str, Path]:
-    skill_sources: dict[str, Path] = {}
-    for skill_name, skill_path in zip(skills, session_skill_paths):
-        normalized_path = skill_path.strip()
-        if not normalized_path:
-            continue
-        skill_sources[skill_name] = Path(normalized_path).expanduser().resolve().parent
-    return skill_sources
-
-
-def _load_session_agent_profile(
-    *,
-    repo_root: Path,
-    session_agent: str,
-    session_agent_path: str,
-    run_agent_name: str | None,
-) -> AgentProfile | None:
-    normalized_agent = session_agent.strip() or (run_agent_name or "").strip()
-    if not normalized_agent:
-        return None
-
-    normalized_path = session_agent_path.strip()
-    if normalized_path:
-        candidate = Path(normalized_path).expanduser().resolve()
-        if candidate.is_file():
-            try:
-                return parse_agent_profile(candidate)
-            except OSError:
-                logger.warning(
-                    "Failed to parse session agent profile from path; trying registry lookup.",
-                    agent=normalized_agent,
-                    agent_path=normalized_path,
-                    exc_info=True,
-                )
-    try:
-        return load_agent_profile(normalized_agent, repo_root=repo_root)
-    except FileNotFoundError:
-        logger.warning(
-            "Session agent profile not found for harness materialization.",
-            agent=normalized_agent,
-            agent_path=normalized_path,
-        )
-        return None
-
-
-def _materialize_session_agent_name(
-    *,
-    repo_root: Path,
-    harness_id: str,
-    harness_registry: Any,
-    session_agent: str,
-    session_agent_path: str,
-    run_agent_name: str | None,
-    skills: tuple[str, ...],
-    session_skill_paths: tuple[str, ...],
-) -> str | None:
-    normalized_harness = harness_id.strip()
-    if not normalized_harness:
-        return None
-
-    skill_sources = _skill_sources_from_session(
-        skills=skills,
-        session_skill_paths=session_skill_paths,
-    )
-    profile = _load_session_agent_profile(
-        repo_root=repo_root,
-        session_agent=session_agent,
-        session_agent_path=session_agent_path,
-        run_agent_name=run_agent_name,
-    )
-    materialized = materialize_for_harness(
-        profile,
-        skill_sources,
-        normalized_harness,
-        repo_root,
-        registry=harness_registry,
-    )
-    resolved_agent = materialized.agent_name.strip()
-    return resolved_agent or None
-
-
-def _cleanup_session_materialized(
-    *,
-    harness_id: str,
-    repo_root: Path,
-    harness_registry: Any,
-) -> None:
-    normalized_harness = harness_id.strip()
-    if not normalized_harness:
-        return
-    try:
-        cleanup_materialized(normalized_harness, repo_root, registry=harness_registry)
-    except Exception:
-        logger.warning(
-            "Failed to cleanup materialized harness resources.",
-            harness_id=normalized_harness,
-            exc_info=True,
-        )
-
-
 def _resolve_work_id(
     *,
     payload: SpawnCreateInput,
@@ -381,55 +271,30 @@ def _session_execution_context(
     session_agent_path: str,
     skills: tuple[str, ...],
     session_skill_paths: tuple[str, ...],
-    repo_root: Path,
     run_agent_name: str | None,
-    harness_registry: Any,
     inherited_work_id: str | None = None,
 ) -> Iterator[_SessionExecutionContext]:
-    entered_session_scope = False
-    try:
-        with session_scope(
-            state_root=state_root,
-            harness=harness_id,
-            harness_session_id=harness_session_id,
-            model=model,
-            agent=session_agent,
-            agent_path=session_agent_path,
-            skills=skills,
-            skill_paths=session_skill_paths,
-        ) as managed:
-            entered_session_scope = True
-            attached_work_id = get_session_active_work_id(state_root, managed.chat_id)
-            if attached_work_id is None:
-                attached_work_id = (inherited_work_id or "").strip() or None
-                if attached_work_id is not None:
-                    update_session_work_id(state_root, managed.chat_id, attached_work_id)
-            resolved_agent_name = run_agent_name
-            materialized_agent_name = _materialize_session_agent_name(
-                repo_root=repo_root,
-                harness_id=harness_id,
-                harness_registry=harness_registry,
-                session_agent=session_agent,
-                session_agent_path=session_agent_path,
-                run_agent_name=run_agent_name,
-                skills=skills,
-                session_skill_paths=session_skill_paths,
-            )
-            if materialized_agent_name is not None and materialized_agent_name != resolved_agent_name:
-                resolved_agent_name = materialized_agent_name
-            yield _SessionExecutionContext(
-                chat_id=managed.chat_id,
-                work_id=attached_work_id,
-                resolved_agent_name=resolved_agent_name,
-                harness_session_id_observer=managed.record_harness_session_id,
-            )
-    finally:
-        if entered_session_scope:
-            _cleanup_session_materialized(
-                harness_id=harness_id,
-                repo_root=repo_root,
-                harness_registry=harness_registry,
-            )
+    with session_scope(
+        state_root=state_root,
+        harness=harness_id,
+        harness_session_id=harness_session_id,
+        model=model,
+        agent=session_agent,
+        agent_path=session_agent_path,
+        skills=skills,
+        skill_paths=session_skill_paths,
+    ) as managed:
+        attached_work_id = get_session_active_work_id(state_root, managed.chat_id)
+        if attached_work_id is None:
+            attached_work_id = (inherited_work_id or "").strip() or None
+            if attached_work_id is not None:
+                update_session_work_id(state_root, managed.chat_id, attached_work_id)
+        yield _SessionExecutionContext(
+            chat_id=managed.chat_id,
+            work_id=attached_work_id,
+            resolved_agent_name=run_agent_name,
+            harness_session_id_observer=managed.record_harness_session_id,
+        )
 
 
 async def _execute_existing_spawn(
@@ -509,9 +374,7 @@ async def _execute_existing_spawn(
         session_agent_path=session_agent_path,
         skills=skills,
         session_skill_paths=session_skill_paths,
-        repo_root=runtime.repo_root,
         run_agent_name=agent_name,
-        harness_registry=runtime.harness_registry,
         inherited_work_id=spawn_record.work_id,
     ) as session_context:
         resolved_plan = plan.model_copy(update={"agent_name": session_context.resolved_agent_name})
@@ -764,9 +627,7 @@ def execute_spawn_blocking(
         session_agent_path=prepared.session_agent_path,
         skills=prepared.skills,
         session_skill_paths=prepared.skill_paths,
-        repo_root=runtime.repo_root,
         run_agent_name=prepared.agent_name,
-        harness_registry=runtime.harness_registry,
         inherited_work_id=context.work_id,
     ) as session_context:
         resolved_plan = prepared.model_copy(update={"agent_name": session_context.resolved_agent_name})
