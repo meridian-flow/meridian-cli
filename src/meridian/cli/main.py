@@ -276,7 +276,6 @@ def root(
     *passthrough: Annotated[
         str,
         Parameter(
-            allow_leading_hyphen=True,
             help="Harness passthrough arguments (after --).",
             show=False,
         ),
