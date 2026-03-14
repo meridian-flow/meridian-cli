@@ -257,14 +257,20 @@ def build_create_payload(
     warning = merge_warnings(preflight_warning, warning)
     from meridian.lib.harness.adapter import SpawnParams
 
+    # Children inherit the parent's permission tier by default; only fall back
+    # to the config default when there is no parent (i.e. primary session).
+    effective_default_tier = (
+        runtime_context.permission_tier
+        or runtime_view.config.default_permission_tier
+    )
     inferred_tier = resolve_permission_tier_from_profile(
         profile=profile,
-        default_tier=runtime_view.config.default_permission_tier,
+        default_tier=effective_default_tier,
     )
     permission_config = build_permission_config(
         payload.permission_tier or inferred_tier,
-        approval="confirm",
-        default_tier=runtime_view.config.default_permission_tier,
+        approval=payload.approval or "confirm",
+        default_tier=effective_default_tier,
     )
     permission_error = validate_child_permission_tier(
         requested_tier=permission_config.tier.value,

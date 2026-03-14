@@ -134,6 +134,20 @@ def _spawn_create(
             help="Tool access tier: read-only, workspace-write, or full-access.",
         ),
     ] = None,
+    approval: Annotated[
+        str | None,
+        Parameter(
+            name="--approval",
+            help="Approval mode: confirm (ask before acting) or auto (auto-approve all).",
+        ),
+    ] = None,
+    yolo: Annotated[
+        bool,
+        Parameter(
+            name="--yolo",
+            help="Shortcut for --permission full-access --approval auto.",
+        ),
+    ] = False,
     continue_from: Annotated[
         str | None,
         Parameter(name="--continue", help="Continue from a previous spawn ID."),
@@ -158,6 +172,11 @@ def _spawn_create(
             sink=current_output_sink(),
         )
     else:
+        resolved_permission_tier = permission_tier
+        resolved_approval = approval
+        if yolo:
+            resolved_permission_tier = "full-access"
+            resolved_approval = "auto"
         result = spawn_create_sync(
             SpawnCreateInput(
                 prompt=prompt,
@@ -174,7 +193,8 @@ def _spawn_create(
                 stream=stream,
                 background=not foreground,
                 timeout=timeout,
-                permission_tier=permission_tier,
+                permission_tier=resolved_permission_tier,
+                approval=resolved_approval,
             ),
             sink=current_output_sink(),
         )
