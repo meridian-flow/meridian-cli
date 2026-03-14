@@ -68,8 +68,10 @@ Agent profile `sandbox` values map into those tiers:
 - `danger-full-access` -> `full-access`
 - `unrestricted` -> `full-access`
 
-Use `--harness-arg` when you need harness-specific flags in addition to the
-profile-derived tier.
+Use `--` passthrough when you need harness-specific flags in addition to the
+profile-derived tier, for example:
+
+- `meridian spawn -m claude-opus-4-6 -p "test" -- --sandbox workspace-write`
 
 ### Approval Semantics
 

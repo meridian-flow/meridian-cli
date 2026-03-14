@@ -51,6 +51,14 @@ def _spawn_create(
         str,
         Parameter(name=["--prompt", "-p"], help="Prompt text for the spawn."),
     ] = "",
+    *passthrough: Annotated[
+        str,
+        Parameter(
+            allow_leading_hyphen=True,
+            help="Harness passthrough arguments (after --).",
+            show=False,
+        ),
+    ],
     template_vars: Annotated[
         tuple[str, ...],
         Parameter(
@@ -134,14 +142,6 @@ def _spawn_create(
             help="Shortcut for approval=auto.",
         ),
     ] = False,
-    harness_args: Annotated[
-        tuple[str, ...],
-        Parameter(
-            name="--harness-arg",
-            help="Additional harness arguments (repeatable).",
-            negative_iterable=(),
-        ),
-    ] = (),
     continue_from: Annotated[
         str | None,
         Parameter(name="--continue", help="Continue from a previous spawn ID."),
@@ -152,8 +152,8 @@ def _spawn_create(
     ] = False,
 ) -> None:
     if continue_from is not None:
-        if harness_args:
-            raise ValueError("Cannot use --harness-arg with --continue")
+        if passthrough:
+            raise ValueError("Cannot use passthrough arguments (--) with --continue")
         if yolo:
             raise ValueError("Cannot use --yolo with --continue")
         result = spawn_continue_sync(
@@ -187,7 +187,7 @@ def _spawn_create(
                 background=not foreground,
                 timeout=timeout,
                 approval="auto" if yolo else None,
-                passthrough_args=harness_args,
+                passthrough_args=passthrough,
             ),
             sink=current_output_sink(),
         )

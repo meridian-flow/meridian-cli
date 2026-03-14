@@ -273,6 +273,14 @@ _COMMAND_TREE_APP = app
 
 @app.default
 def root(
+    *passthrough: Annotated[
+        str,
+        Parameter(
+            allow_leading_hyphen=True,
+            help="Harness passthrough arguments (after --).",
+            show=False,
+        ),
+    ],
     json_mode: Annotated[
         bool,
         Parameter(name="--json", help="Emit command output as JSON.", show=False),
@@ -335,14 +343,6 @@ def root(
         bool,
         Parameter(name="--dry-run", help="Preview launch command without starting harness."),
     ] = False,
-    harness_args: Annotated[
-        tuple[str, ...],
-        Parameter(
-            name="--harness-arg",
-            help="Additional harness arguments (repeatable).",
-            negative_iterable=(),
-        ),
-    ] = (),
 ) -> None:
     """Launch or resume the primary harness."""
 
@@ -366,7 +366,7 @@ def root(
         yolo=yolo,
         autocompact=autocompact,
         dry_run=dry_run,
-        harness_args=harness_args,
+        passthrough=passthrough,
     )
 
 
@@ -477,7 +477,7 @@ def _run_primary_launch(
     yolo: bool,
     autocompact: int | None,
     dry_run: bool,
-    harness_args: tuple[str, ...],
+    passthrough: tuple[str, ...],
 ) -> None:
     """Shared primary launch flow for root command entry."""
 
@@ -520,7 +520,7 @@ def _run_primary_launch(
             harness=continue_harness if resume_target is not None else harness,
             agent=agent,
             autocompact=autocompact,
-            passthrough_args=harness_args,
+            passthrough_args=passthrough,
             fresh=fresh,
             pinned_context="",
             dry_run=dry_run,
@@ -682,7 +682,6 @@ _TOP_LEVEL_VALUE_FLAGS = frozenset(
         "-a",
         "--approval",
         "--autocompact",
-        "--harness-arg",
     }
 )
 _TOP_LEVEL_BOOL_FLAGS = frozenset(
