@@ -69,10 +69,37 @@ def _install(
     )
 
     existing = load_sources_config(state_paths.agents_manifest_path)
-    if any(configured.name == source_config.name for configured in existing.sources):
-        raise ValueError(f"Managed source '{source_config.name}' already exists.")
+    existing_source = next(
+        (s for s in existing.sources if s.name == source_config.name), None
+    )
 
-    updated_config = SourcesConfig(sources=(*existing.sources, source_config))
+    if existing_source is not None:
+        # Validate same locator
+        if existing_source.url != source_config.url or existing_source.path != source_config.path:
+            raise ValueError(
+                f"Managed source '{source_config.name}' already exists with a different locator. "
+                f"Use 'meridian update --ref <ref>' to change the ref, or "
+                f"'meridian uninstall --source {source_config.name}' to remove it first."
+            )
+        # Validate compatible ref
+        if (
+            source_config.ref is not None
+            and existing_source.ref is not None
+            and source_config.ref != existing_source.ref
+        ):
+            raise ValueError(
+                f"Managed source '{source_config.name}' already exists with ref "
+                f"'{existing_source.ref}'. Cannot install with different ref "
+                f"'{source_config.ref}'. Use 'meridian update --ref <ref>' to change it."
+            )
+        # Merge agents/skills (union)
+        merged = _merge_source_config(existing_source, source_config)
+        updated_config = SourcesConfig(sources=tuple(
+            merged if s.name == source_config.name else s for s in existing.sources
+        ))
+    else:
+        updated_config = SourcesConfig(sources=(*existing.sources, source_config))
+
     with state_lock(state_paths.agents_lock_path):
         lock = read_lock(state_paths.agents_lock_path)
         result = reconcile_sources(
@@ -250,6 +277,37 @@ def _action_payload(action: InstallItemAction) -> dict[str, object]:
         "reason": action.reason,
         "dest_path": action.dest_path,
     }
+
+
+def _merge_source_config(existing: SourceConfig, incoming: SourceConfig) -> SourceConfig:
+    """Merge incoming agents/skills into an existing source config (union)."""
+
+    # None means "all" — union with anything stays None
+    if existing.agents is None and existing.skills is None:
+        merged_agents = None
+        merged_skills = None
+    elif incoming.agents is None and incoming.skills is None:
+        merged_agents = None
+        merged_skills = None
+    else:
+        existing_agents = set(existing.agents or ())
+        incoming_agents = set(incoming.agents or ())
+        merged_agents_set = existing_agents | incoming_agents
+        merged_agents = tuple(sorted(merged_agents_set)) if merged_agents_set else None
+
+        existing_skills = set(existing.skills or ())
+        incoming_skills = set(incoming.skills or ())
+        merged_skills_set = existing_skills | incoming_skills
+        merged_skills = tuple(sorted(merged_skills_set)) if merged_skills_set else None
+
+    # Merge rename maps (incoming overrides)
+    merged_rename = {**existing.rename, **incoming.rename}
+
+    return existing.model_copy(update={
+        "agents": merged_agents,
+        "skills": merged_skills,
+        "rename": merged_rename,
+    })
 
 
 def _classify_source(source: str, *, repo_root: Path) -> SourceSelector:
