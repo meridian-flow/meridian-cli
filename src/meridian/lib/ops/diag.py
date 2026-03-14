@@ -7,7 +7,6 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
-from meridian.lib.config.settings import resolve_path_list
 from meridian.lib.core.spawn_lifecycle import is_active_spawn_status
 from meridian.lib.core.util import FormatContext
 from meridian.lib.harness.materialize import cleanup_materialized
@@ -87,17 +86,10 @@ def doctor_sync(payload: DoctorInput) -> DoctorOutput:
         if orphan_runs > 0:
             repaired.append("orphan_runs")
 
-    search_paths = runtime.config.search_paths
-    agents_dirs = resolve_path_list(
-        search_paths.agents,
-        search_paths.global_agents,
-        runtime.repo_root,
-    )
-    skills_dirs = resolve_path_list(
-        search_paths.skills,
-        search_paths.global_skills,
-        runtime.repo_root,
-    )
+    agents_dir = runtime.repo_root / ".agents" / "agents"
+    skills_dir = runtime.repo_root / ".agents" / "skills"
+    agents_dirs = [agents_dir] if agents_dir.is_dir() else []
+    skills_dirs = [skills_dir] if skills_dir.is_dir() else []
 
     warnings: list[str] = []
     if not skills_dirs:
@@ -112,9 +104,6 @@ def doctor_sync(payload: DoctorInput) -> DoctorOutput:
     ]
     if running:
         warnings.append("Active spawns still present: " + ", ".join(running))
-
-    agents_dir = agents_dirs[0] if agents_dirs else runtime.repo_root
-    skills_dir = skills_dirs[0] if skills_dirs else runtime.repo_root
 
     return DoctorOutput(
         ok=not warnings,

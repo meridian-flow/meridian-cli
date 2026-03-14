@@ -14,7 +14,6 @@ from meridian.lib.config.settings import resolve_repo_root
 from meridian.lib.config.settings import (
     MeridianConfig,
     PrimaryConfig,
-    SearchPathConfig,
     USER_CONFIG_ENV_VAR,
     load_config,
 )
@@ -590,7 +589,6 @@ def _scaffold_template() -> str:
     output_show = defaults["output.show"]
     output_verbosity = defaults["output.verbosity"]
     primary_defaults = PrimaryConfig()
-    search_path_defaults = SearchPathConfig()
 
     lines = [
         "# Meridian configuration.",
@@ -650,17 +648,6 @@ def _scaffold_template() -> str:
             if isinstance(output_verbosity, str)
             else "# verbosity = \"normal\"  # example override; default is unset"
         ),
-        "",
-        "# -- Profile and skill discovery paths -------------------------------------",
-        "[search_paths]",
-        "# Agent profile search directories (array[str]; first match wins).",
-        f"# agents = {_toml_literal(search_path_defaults.agents)}",
-        "# Skill definition search directories (array[str]).",
-        f"# skills = {_toml_literal(search_path_defaults.skills)}",
-        "# Global/user-level agent profile directories (array[str]).",
-        f"# global_agents = {_toml_literal(search_path_defaults.global_agents)}",
-        "# Global/user-level skill directories (array[str]).",
-        f"# global_skills = {_toml_literal(search_path_defaults.global_skills)}",
         "",
     ]
     return "\n".join(lines)

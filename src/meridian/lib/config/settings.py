@@ -114,16 +114,6 @@ def _parse_env_string(raw_value: str, *, env_name: str) -> str:
     return normalized
 
 
-def _parse_env_path_list(raw_value: str, *, env_name: str) -> tuple[str, ...]:
-    parsed = [entry.strip() for entry in raw_value.split(":")]
-    normalized = [entry for entry in parsed if entry]
-    if not normalized:
-        raise ValueError(
-            f"Invalid environment override '{env_name}': expected colon-separated paths."
-        )
-    return tuple(normalized)
-
-
 def _parse_file_scalar(*, field_name: str, raw_value: object, source: str) -> object:
     int_fields = {"max_depth", "max_retries"}
     float_fields = {
@@ -279,20 +269,6 @@ def _normalize_output_table(raw_value: object, *, source: str) -> dict[str, obje
     return values
 
 
-def _normalize_search_paths_table(raw_value: object, *, source: str) -> dict[str, object]:
-    if not isinstance(raw_value, dict):
-        raise ValueError(f"Invalid value for '{source}': expected table.")
-
-    allowed = frozenset({"agents", "skills", "global_agents", "global_skills"})
-    values: dict[str, object] = {}
-    for key, value in cast("dict[str, object]", raw_value).items():
-        if key not in allowed:
-            logger.warning("Ignoring unknown Meridian config key '%s.%s'.", source, key)
-            continue
-        values[key] = _parse_toml_list(raw_value=value, source=f"{source}.{key}")
-    return values
-
-
 def _normalize_primary_table(raw_value: object, *, source: str) -> dict[str, object]:
     if not isinstance(raw_value, dict):
         raise ValueError(f"Invalid value for '{source}': expected table.")
@@ -415,12 +391,6 @@ def _normalize_toml_payload(
                 _normalize_output_table(raw_value, source="output"),
             )
             continue
-        if key == "search_paths":
-            normalized["search_paths"] = _merge_nested_dicts(
-                cast("dict[str, object]", normalized.get("search_paths", {})),
-                _normalize_search_paths_table(raw_value, source="search_paths"),
-            )
-            continue
         if key == "primary":
             normalized["primary"] = _merge_nested_dicts(
                 cast("dict[str, object]", normalized.get("primary", {})),
@@ -479,7 +449,7 @@ def _normalize_toml_payload(
 
 def _env_alias_overrides(repo_root: Path) -> dict[str, object]:
     values: dict[str, object] = {}
-    env_specs: tuple[tuple[str, tuple[str, ...], Literal["int", "float", "str", "paths"]], ...] = (
+    env_specs: tuple[tuple[str, tuple[str, ...], Literal["int", "float", "str"]], ...] = (
         ("MERIDIAN_MAX_DEPTH", ("max_depth",), "int"),
         ("MERIDIAN_MAX_RETRIES", ("max_retries",), "int"),
         ("MERIDIAN_RETRY_BACKOFF_SECONDS", ("retry_backoff_seconds",), "float"),
@@ -512,8 +482,6 @@ def _env_alias_overrides(repo_root: Path) -> dict[str, object]:
         ("MERIDIAN_BUDGET", ("primary", "budget"), "float"),
         ("MERIDIAN_AGENT", ("primary", "agent"), "str"),
         ("MERIDIAN_FORMAT", ("output", "format"), "str"),
-        ("MERIDIAN_AGENT_SEARCH_PATHS", ("search_paths", "agents"), "paths"),
-        ("MERIDIAN_SKILL_SEARCH_PATHS", ("search_paths", "skills"), "paths"),
     )
 
     for env_name, field_path, value_kind in env_specs:
@@ -526,8 +494,6 @@ def _env_alias_overrides(repo_root: Path) -> dict[str, object]:
             parsed = _parse_env_int(raw_value, env_name=env_name)
         elif value_kind == "float":
             parsed = _parse_env_float(raw_value, env_name=env_name)
-        elif value_kind == "paths":
-            parsed = _parse_env_path_list(raw_value, env_name=env_name)
         else:
             parsed = _parse_env_string(raw_value, env_name=env_name)
 
@@ -576,42 +542,6 @@ class OutputConfig(BaseModel):
     @classmethod
     def _validate_format(cls, value: str) -> str:
         return _normalize_required_string(value, source="output.format")
-
-
-class SearchPathConfig(BaseModel):
-    """Configurable discovery paths for agent profiles and skills."""
-
-    model_config = ConfigDict(frozen=True, extra="ignore")
-
-    agents: tuple[str, ...] = (
-        ".agents/agents",
-        ".claude/agents",
-        ".codex/agents",
-        ".opencode/agents",
-        ".cursor/agents",
-    )
-    skills: tuple[str, ...] = (
-        ".agents/skills",
-        ".claude/skills",
-        ".codex/skills",
-        ".opencode/skills",
-        ".cursor/skills",
-    )
-    global_agents: tuple[str, ...] = (
-        "~/.claude/agents",
-        "~/.codex/agents",
-        "~/.opencode/agents",
-    )
-    global_skills: tuple[str, ...] = (
-        "~/.claude/skills",
-        "~/.codex/skills",
-        "~/.opencode/skills",
-    )
-
-    @field_validator("agents", "skills", "global_agents", "global_skills")
-    @classmethod
-    def _validate_paths(cls, value: tuple[str, ...]) -> tuple[str, ...]:
-        return _normalize_string_tuple(value, source="search_paths")
 
 
 class PrimaryConfig(BaseModel):
@@ -692,7 +622,6 @@ class MeridianConfig(BaseSettings):
     harness: HarnessConfig = Field(default_factory=HarnessConfig)
     primary: PrimaryConfig = Field(default_factory=PrimaryConfig)
     output: OutputConfig = Field(default_factory=OutputConfig)
-    search_paths: SearchPathConfig = Field(default_factory=SearchPathConfig)
 
     @field_validator("primary_agent", "default_agent")
     @classmethod
@@ -839,12 +768,6 @@ def resolve_repo_root(explicit: Path | None = None) -> Path:
         candidate = parent
 
     return cwd
-
-
-def resolve_search_paths(config: SearchPathConfig, repo_root: Path) -> list[Path]:
-    """Resolve configured search paths, returning existing local then global directories."""
-
-    return resolve_path_list(config.agents, config.global_agents, repo_root)
 
 
 def resolve_path_list(
