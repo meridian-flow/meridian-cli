@@ -73,17 +73,42 @@ def test_ensure_bootstrap_assets_bootstraps_missing_default(
     source_root = tmp_path / "bootstrap-source"
     _write_source_tree(source_root, agent_name="__meridian-subagent")
 
-    def fake_bootstrap_source(name: str) -> SourceConfig:
-        assert name == "meridian-agents"
-        return SourceConfig(
-            name="meridian-agents",
-            kind="path",
-            path=source_root.as_posix(),
+    # Override the bootstrap URL to point to our local test source
+    monkeypatch.setattr(
+        "meridian.lib.install.bootstrap._BOOTSTRAP_URL",
+        source_root.as_posix(),
+    )
+    # Override to use path kind since we're pointing to a local directory
+    original_ensure = __import__(
+        "meridian.lib.install.bootstrap", fromlist=["_ensure_bootstrap_source"]
+    )._ensure_bootstrap_source
+
+    def fake_ensure_bootstrap_source(
+        *,
+        config: SourcesConfig,
+        item_ids: tuple[str, ...],
+    ) -> SourcesConfig:
+        from meridian.lib.install.types import parse_item_id
+
+        existing = next(
+            (s for s in config.sources if s.name == "meridian-agents"), None
         )
+        required_agent_names = tuple(
+            parse_item_id(item_id)[1] for item_id in item_ids
+        )
+        if existing is None:
+            bootstrap_source = SourceConfig(
+                name="meridian-agents",
+                kind="path",
+                path=source_root.as_posix(),
+                agents=required_agent_names,
+            )
+            return SourcesConfig(sources=(*config.sources, bootstrap_source))
+        return original_ensure(config=config, item_ids=item_ids)
 
     monkeypatch.setattr(
-        "meridian.lib.install.bootstrap.well_known_source",
-        fake_bootstrap_source,
+        "meridian.lib.install.bootstrap._ensure_bootstrap_source",
+        fake_ensure_bootstrap_source,
     )
 
     plan = plan_bootstrap_assets(

@@ -15,10 +15,11 @@ from meridian.lib.install.lock import (
     read_lock,
     write_lock,
 )
+from meridian.lib.install.config import SourceConfig
 from meridian.lib.install.types import format_item_id, parse_item_id
-from meridian.lib.install.aliases import well_known_source
 
 _BOOTSTRAP_SOURCE_NAME = "meridian-agents"
+_BOOTSTRAP_URL = "https://github.com/haowjy/meridian-agents.git"
 _BOOTSTRAP_AGENT_NAMES = frozenset({"__meridian-orchestrator", "__meridian-subagent"})
 
 
@@ -178,8 +179,13 @@ def _ensure_bootstrap_source(
     required_agent_names = tuple(parse_item_id(item_id)[1] for item_id in item_ids)
 
     if existing is None:
-        bootstrap_source = well_known_source(_BOOTSTRAP_SOURCE_NAME)
-        bootstrap_source = bootstrap_source.model_copy(update={"agents": required_agent_names})
+        bootstrap_source = SourceConfig(
+            name=_BOOTSTRAP_SOURCE_NAME,
+            kind="git",
+            url=_BOOTSTRAP_URL,
+            ref="main",
+            agents=required_agent_names,
+        )
         return SourcesConfig(sources=(*config.sources, bootstrap_source))
 
     if existing.agents is None and existing.skills is None:

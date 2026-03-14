@@ -17,10 +17,8 @@ from meridian.lib.install.config import load_sources_config, write_sources_confi
 from meridian.lib.install.engine import InstallItemAction, InstallResult, install_status
 from meridian.lib.install.engine import reconcile_sources, remove_source
 from meridian.lib.install.lock import state_lock, read_lock, write_lock
-from meridian.lib.install.aliases import is_well_known_alias, well_known_source
-
 Emitter = Callable[[Any], None]
-SourceSelector = Literal["git", "path", "alias"]
+SourceSelector = Literal["git", "path"]
 
 def _install(
     emit: Emitter,
@@ -256,8 +254,8 @@ def _action_payload(action: InstallItemAction) -> dict[str, object]:
 
 def _classify_source(source: str, *, repo_root: Path) -> SourceSelector:
     trimmed = source.strip()
-    if is_well_known_alias(trimmed):
-        return "alias"
+    if trimmed.startswith("@"):
+        return "git"
     candidate = Path(trimmed).expanduser()
     if candidate.is_absolute() or trimmed.startswith((".", "~")):
         return "path"
@@ -267,10 +265,12 @@ def _classify_source(source: str, *, repo_root: Path) -> SourceSelector:
 
 
 def _derive_source_name(source: str, selector: SourceSelector) -> str:
-    if selector == "alias":
-        return source.strip()
     if selector == "git":
-        trimmed = source.strip().rstrip("/")
+        trimmed = source.strip()
+        if trimmed.startswith("@"):
+            # @owner/repo → repo
+            trimmed = trimmed.lstrip("@")
+        trimmed = trimmed.rstrip("/")
         if trimmed.endswith(".git"):
             trimmed = trimmed[:-4]
         repo_name = trimmed.rsplit("/", 1)[-1]
@@ -324,16 +324,6 @@ def _build_source_config(
     agent_names = _parse_csv_list(agents, field_name="agents")
     skill_names = _parse_csv_list(skills, field_name="skills")
 
-    if selector == "alias":
-        configured = well_known_source(source.strip())
-        updates: dict[str, object] = {"name": source_name, "rename": rename_map}
-        if agent_names is not None:
-            updates["agents"] = agent_names
-        if skill_names is not None:
-            updates["skills"] = skill_names
-        if ref is not None:
-            updates["ref"] = ref
-        return configured.model_copy(update=updates)
     if selector == "path":
         return SourceConfig(
             name=source_name,
@@ -344,11 +334,14 @@ def _build_source_config(
             rename=rename_map,
         )
 
-    url = (
-        source
-        if "://" in source or source.strip().endswith(".git")
-        else f"https://github.com/{source.strip()}.git"
-    )
+    trimmed = source.strip()
+    if trimmed.startswith("@"):
+        # @owner/repo → https://github.com/owner/repo.git
+        url = f"https://github.com/{trimmed.lstrip('@')}.git"
+    elif "://" in trimmed or trimmed.endswith(".git"):
+        url = trimmed
+    else:
+        url = f"https://github.com/{trimmed}.git"
     return SourceConfig(
         name=source_name,
         kind="git",
