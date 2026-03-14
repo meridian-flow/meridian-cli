@@ -7,18 +7,26 @@ These checks target predictable failure modes for spawn-related commands. The go
 ```bash
 export REPO_ROOT=/abs/path/to/meridian-channel
 export SMOKE_REPO="$(mktemp -d /tmp/meridian-spawn-errors.XXXXXX)"
+export SMOKE_SOURCE="$(mktemp -d /tmp/meridian-spawn-errors-source.XXXXXX)"
 git -C "$SMOKE_REPO" init --quiet
 for var in $(env | awk -F= '/^MERIDIAN_/ {print $1}'); do unset "$var"; done
 export MERIDIAN_REPO_ROOT="$SMOKE_REPO"
 export MERIDIAN_STATE_ROOT="$SMOKE_REPO/.meridian"
+mkdir -p "$SMOKE_SOURCE/agents"
+cat > "$SMOKE_SOURCE/agents/reviewer.md" <<'EOF'
+# Reviewer
+
+Error-path smoke reviewer.
+EOF
 cd "$REPO_ROOT"
+uv run meridian install "$SMOKE_SOURCE" --name error-smoke >/tmp/meridian-spawn-errors-install.txt 2>&1 && \
 test -d "$SMOKE_REPO/.git" && echo "PASS: spawn error-path repo ready" || echo "FAIL: spawn error-path repo setup failed"
 ```
 
 ### ERR-1. Unknown model is rejected [IMPORTANT]
 
 ```bash
-if uv run meridian --json spawn -p "bad model" -m definitely-not-a-model --dry-run >/tmp/meridian-spawn-bad-model.out 2>&1; then
+if uv run meridian --json spawn -a reviewer -p "bad model" -m definitely-not-a-model --dry-run >/tmp/meridian-spawn-bad-model.out 2>&1; then
   echo "FAIL: bad model unexpectedly succeeded"
 elif grep -q "Traceback" /tmp/meridian-spawn-bad-model.out; then
   echo "FAIL: bad model produced a traceback"
@@ -42,7 +50,7 @@ fi
 ### ERR-3. Empty prompt on a real spawn is graceful [IMPORTANT]
 
 ```bash
-if uv run meridian --json spawn -p "" >/tmp/meridian-spawn-empty-real.out 2>&1; then
+if uv run meridian --json spawn -a reviewer -p "" >/tmp/meridian-spawn-empty-real.out 2>&1; then
   if grep -q "Traceback" /tmp/meridian-spawn-empty-real.out; then
     echo "FAIL: empty real spawn crashed"
   else
@@ -65,7 +73,7 @@ for cmd in \
   'uv run meridian nonexistent' \
   'uv run meridian config get does.not.exist' \
   'uv run meridian --json spawn show no-such-spawn' \
-  'uv run meridian --json spawn -p test -m definitely-not-a-model --dry-run'
+  'uv run meridian --json spawn -a reviewer -p test -m definitely-not-a-model --dry-run'
 do
   if eval "$cmd" 2>&1 | grep -q 'Traceback'; then
     FAILURES=$((FAILURES + 1))

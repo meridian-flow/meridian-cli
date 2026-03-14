@@ -7,20 +7,28 @@ These checks validate prompt assembly and argument handling without invoking a r
 ```bash
 export REPO_ROOT=/abs/path/to/meridian-channel
 export SMOKE_REPO="$(mktemp -d /tmp/meridian-dryrun.XXXXXX)"
+export SMOKE_SOURCE="$(mktemp -d /tmp/meridian-dryrun-source.XXXXXX)"
 git -C "$SMOKE_REPO" init --quiet
 for var in $(env | awk -F= '/^MERIDIAN_/ {print $1}'); do unset "$var"; done
 export MERIDIAN_REPO_ROOT="$SMOKE_REPO"
 export MERIDIAN_STATE_ROOT="$SMOKE_REPO/.meridian"
+mkdir -p "$SMOKE_SOURCE/agents"
+cat > "$SMOKE_SOURCE/agents/reviewer.md" <<'EOF'
+# Reviewer
+
+Dry-run smoke reviewer.
+EOF
 cd "$REPO_ROOT"
 printf '# smoke ref\n' > /tmp/meridian-dryrun-ref.md
+uv run meridian install "$SMOKE_SOURCE" --name dryrun-smoke >/tmp/meridian-dryrun-install.txt 2>&1 && \
 test -f /tmp/meridian-dryrun-ref.md && echo "PASS: dry-run setup complete" || echo "FAIL: dry-run setup failed"
 ```
 
 ### DRY-1. Basic dry-run [CRITICAL]
 
 ```bash
-uv run meridian --json spawn -p "Write hello world" --dry-run > /tmp/meridian-dryrun-basic.json && \
-python3 - <<'PY'
+uv run meridian --json spawn -a reviewer -p "Write hello world" --dry-run > /tmp/meridian-dryrun-basic.json && \
+uv run python - <<'PY'
 import json
 doc = json.load(open("/tmp/meridian-dryrun-basic.json"))
 assert doc["status"] == "dry-run"
@@ -33,8 +41,8 @@ PY
 ### DRY-2. Model override [IMPORTANT]
 
 ```bash
-uv run meridian --json spawn -p "test model override" -m opus --dry-run > /tmp/meridian-dryrun-model.json && \
-python3 - <<'PY'
+uv run meridian --json spawn -a reviewer -p "test model override" -m opus --dry-run > /tmp/meridian-dryrun-model.json && \
+uv run python - <<'PY'
 import json
 doc = json.load(open("/tmp/meridian-dryrun-model.json"))
 assert doc["status"] == "dry-run"
@@ -47,11 +55,12 @@ PY
 
 ```bash
 uv run meridian --json spawn \
+  -a reviewer \
   -p "Review {{FILE_PATH}} for {{CONCERN}}" \
   --prompt-var FILE_PATH=src/main.py \
   --prompt-var CONCERN=security \
   --dry-run > /tmp/meridian-dryrun-vars.json && \
-python3 - <<'PY'
+uv run python - <<'PY'
 import json
 doc = json.load(open("/tmp/meridian-dryrun-vars.json"))
 prompt = doc["composed_prompt"]
@@ -65,10 +74,11 @@ PY
 
 ```bash
 uv run meridian --json spawn \
+  -a reviewer \
   -p "Review this file" \
   -f /tmp/meridian-dryrun-ref.md \
   --dry-run > /tmp/meridian-dryrun-ref.json && \
-python3 - <<'PY'
+uv run python - <<'PY'
 import json
 doc = json.load(open("/tmp/meridian-dryrun-ref.json"))
 refs = doc.get("reference_files", [])
@@ -80,7 +90,7 @@ PY
 ### DRY-5. Empty prompt is graceful [IMPORTANT]
 
 ```bash
-if uv run meridian --json spawn -p "" --dry-run >/tmp/meridian-dryrun-empty.out 2>&1; then
+if uv run meridian --json spawn -a reviewer -p "" --dry-run >/tmp/meridian-dryrun-empty.out 2>&1; then
   if grep -q "Traceback" /tmp/meridian-dryrun-empty.out; then
     echo "FAIL: empty prompt produced a traceback"
   else

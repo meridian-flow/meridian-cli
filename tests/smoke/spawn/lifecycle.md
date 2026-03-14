@@ -7,19 +7,27 @@ Validate the normal background flow: create, wait, show, attach a report, and in
 ```bash
 export REPO_ROOT=/abs/path/to/meridian-channel
 export SMOKE_REPO="$(mktemp -d /tmp/meridian-lifecycle.XXXXXX)"
+export SMOKE_SOURCE="$(mktemp -d /tmp/meridian-lifecycle-source.XXXXXX)"
 git -C "$SMOKE_REPO" init --quiet
 for var in $(env | awk -F= '/^MERIDIAN_/ {print $1}'); do unset "$var"; done
 export MERIDIAN_REPO_ROOT="$SMOKE_REPO"
 export MERIDIAN_STATE_ROOT="$SMOKE_REPO/.meridian"
+mkdir -p "$SMOKE_SOURCE/agents"
+cat > "$SMOKE_SOURCE/agents/reviewer.md" <<'EOF'
+# Reviewer
+
+You are a tiny smoke-test reviewer. Reply with one short sentence.
+EOF
 cd "$REPO_ROOT"
+uv run meridian install "$SMOKE_SOURCE" --name lifecycle-smoke >/tmp/meridian-lifecycle-install.txt 2>&1 && \
 uv run meridian spawn -h >/dev/null 2>&1 && echo "PASS: lifecycle setup complete" || echo "FAIL: lifecycle setup failed"
 ```
 
 ### LIFE-1. Background spawn returns an id [CRITICAL]
 
 ```bash
-uv run meridian --json spawn -p "Say hello from smoke test" > /tmp/meridian-lifecycle-create.json && \
-python3 - <<'PY'
+uv run meridian --json spawn -a reviewer -p "Say hello from smoke test" > /tmp/meridian-lifecycle-create.json && \
+uv run python - <<'PY'
 import json
 doc = json.load(open("/tmp/meridian-lifecycle-create.json"))
 spawn_id = doc.get("spawn_id") or doc.get("id")
@@ -31,7 +39,7 @@ PY
 ### LIFE-2. Wait returns a terminal status [CRITICAL]
 
 ```bash
-SPAWN_ID="$(python3 - <<'PY'
+SPAWN_ID="$(uv run python - <<'PY'
 import json
 doc = json.load(open("/tmp/meridian-lifecycle-create.json"))
 print(doc.get("spawn_id") or doc.get("id"))
@@ -44,7 +52,7 @@ grep -Eq 'succeeded|failed|cancelled' /tmp/meridian-lifecycle-wait.txt && echo "
 ### LIFE-3. Show can include report metadata [IMPORTANT]
 
 ```bash
-SPAWN_ID="$(python3 - <<'PY'
+SPAWN_ID="$(uv run python - <<'PY'
 import json
 doc = json.load(open("/tmp/meridian-lifecycle-create.json"))
 print(doc.get("spawn_id") or doc.get("id"))
@@ -59,7 +67,7 @@ echo "PASS: spawn show returned lifecycle data" || echo "FAIL: spawn show output
 ### LIFE-4. Report create and show work for a finished spawn [IMPORTANT]
 
 ```bash
-SPAWN_ID="$(python3 - <<'PY'
+SPAWN_ID="$(uv run python - <<'PY'
 import json
 doc = json.load(open("/tmp/meridian-lifecycle-create.json"))
 print(doc.get("spawn_id") or doc.get("id"))

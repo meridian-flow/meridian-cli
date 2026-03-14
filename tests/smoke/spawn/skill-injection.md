@@ -10,11 +10,29 @@ Validate that skills are correctly injected into spawn prompts across harness ty
 ```bash
 export REPO_ROOT=/abs/path/to/meridian-channel
 export SMOKE_REPO="$(mktemp -d /tmp/meridian-skill-inject.XXXXXX)"
+export SMOKE_SOURCE="$(mktemp -d /tmp/meridian-skill-source.XXXXXX)"
 git -C "$SMOKE_REPO" init --quiet
 for var in $(env | awk -F= '/^MERIDIAN_/ {print $1}'); do unset "$var"; done
 export MERIDIAN_REPO_ROOT="$SMOKE_REPO"
 export MERIDIAN_STATE_ROOT="$SMOKE_REPO/.meridian"
+mkdir -p "$SMOKE_SOURCE/agents" "$SMOKE_SOURCE/skills/meridian-orchestrate" "$SMOKE_SOURCE/skills/meridian-spawn-agent"
+cat > "$SMOKE_SOURCE/agents/reviewer.md" <<'EOF'
+# Reviewer
+
+Skill smoke reviewer.
+EOF
+cat > "$SMOKE_SOURCE/skills/meridian-orchestrate/SKILL.md" <<'EOF'
+# Meridian Orchestrate
+
+Orchestrate the work as a supervisor.
+EOF
+cat > "$SMOKE_SOURCE/skills/meridian-spawn-agent/SKILL.md" <<'EOF'
+# Meridian Spawn Agent
+
+Spawn another agent when useful.
+EOF
 cd "$REPO_ROOT"
+uv run meridian install "$SMOKE_SOURCE" --name skill-smoke >/tmp/meridian-skill-install.txt 2>&1 && \
 test -d "$SMOKE_REPO/.git" && echo "PASS: skill-injection repo ready" || echo "FAIL: skill-injection repo setup failed"
 ```
 
@@ -23,8 +41,8 @@ test -d "$SMOKE_REPO/.git" && echo "PASS: skill-injection repo ready" || echo "F
 The default harness (Codex) inlines skill content directly into the prompt.
 
 ```bash
-uv run meridian --json spawn -p "do the task" --skill meridian-orchestrate --dry-run > /tmp/meridian-skill-inline.json && \
-python3 - <<'PY'
+uv run meridian --json spawn -a reviewer -p "do the task" --skill meridian-orchestrate --dry-run > /tmp/meridian-skill-inline.json && \
+uv run python - <<'PY'
 import json
 doc = json.load(open("/tmp/meridian-skill-inline.json"))
 assert doc["status"] == "dry-run"
@@ -43,8 +61,8 @@ PY
 Claude harness uses `--append-system-prompt` to inject skills.
 
 ```bash
-uv run meridian --json spawn -p "do the task" --skill meridian-orchestrate -m sonnet --dry-run > /tmp/meridian-skill-append.json && \
-python3 - <<'PY'
+uv run meridian --json spawn -a reviewer -p "do the task" --skill meridian-orchestrate -m sonnet --dry-run > /tmp/meridian-skill-append.json && \
+uv run python - <<'PY'
 import json
 doc = json.load(open("/tmp/meridian-skill-append.json"))
 assert doc["status"] == "dry-run"
@@ -68,11 +86,12 @@ When multiple skills are specified, all should appear in the output.
 
 ```bash
 uv run meridian --json spawn \
+  -a reviewer \
   -p "do the task" \
   --skill meridian-orchestrate \
   --skill meridian-spawn-agent \
   --dry-run > /tmp/meridian-skill-multi.json && \
-python3 - <<'PY'
+uv run python - <<'PY'
 import json
 doc = json.load(open("/tmp/meridian-skill-multi.json"))
 assert doc["status"] == "dry-run"
@@ -88,7 +107,7 @@ PY
 ### SKILL-4. Unknown skill fails cleanly [IMPORTANT]
 
 ```bash
-if uv run meridian --json spawn -p "test" --skill no-such-skill-exists --dry-run >/tmp/meridian-skill-unknown.out 2>&1; then
+if uv run meridian --json spawn -a reviewer -p "test" --skill no-such-skill-exists --dry-run >/tmp/meridian-skill-unknown.out 2>&1; then
   if grep -q "Traceback" /tmp/meridian-skill-unknown.out; then
     echo "FAIL: unknown skill produced a traceback"
   else
@@ -110,11 +129,12 @@ After the solid-consistency-refactor, dry-run JSON should include `model`, `harn
 ```bash
 printf '# ref file\n' > /tmp/meridian-skill-ref.md
 uv run meridian --json spawn \
+  -a reviewer \
   -p "check metadata fields" \
   -m sonnet \
   -f /tmp/meridian-skill-ref.md \
   --dry-run > /tmp/meridian-skill-meta.json && \
-python3 - <<'PY'
+uv run python - <<'PY'
 import json
 doc = json.load(open("/tmp/meridian-skill-meta.json"))
 assert doc["status"] == "dry-run"
