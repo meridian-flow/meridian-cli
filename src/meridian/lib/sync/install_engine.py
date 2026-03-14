@@ -336,6 +336,19 @@ def _apply_planned_item(
     source_path = _source_path(tree_path, planned.item)
     source_hash = compute_install_item_hash(source_path, planned.item.kind)
     existing = lock.items.get(planned.item_key)
+    destination_path = planned.destination_path.relative_to(repo_root).as_posix()
+    if existing is not None and existing.destination_path != destination_path:
+        return _apply_renamed_item(
+            repo_root=repo_root,
+            planned=planned,
+            source_path=source_path,
+            source_hash=source_hash,
+            existing=existing,
+            lock=lock,
+            force=force,
+            dry_run=dry_run,
+        )
+
     dest_exists = _path_exists(planned.destination_path)
     local_hash = (
         compute_install_item_hash(planned.destination_path, planned.item.kind)
@@ -370,7 +383,95 @@ def _apply_planned_item(
     lock.items[planned.item_key] = LockedInstalledItem(
         source_name=planned.source_name,
         source_item_id=planned.item_key,
-        destination_path=planned.destination_path.relative_to(repo_root).as_posix(),
+        destination_path=destination_path,
+        content_hash=source_hash,
+    )
+    return action, source_hash
+
+
+def _apply_renamed_item(
+    *,
+    repo_root: Path,
+    planned: PlannedSourceItem,
+    source_path: Path,
+    source_hash: str,
+    existing: LockedInstalledItem,
+    lock: ManagedInstallLock,
+    force: bool,
+    dry_run: bool,
+) -> tuple[InstallItemAction, str]:
+    previous_path = repo_root / existing.destination_path
+    next_path = planned.destination_path
+    next_rel_path = next_path.relative_to(repo_root).as_posix()
+
+    if _path_exists(previous_path):
+        previous_hash = compute_install_item_hash(previous_path, planned.item.kind)
+        if previous_hash != existing.content_hash and not force:
+            return (
+                InstallItemAction(
+                    item_key=planned.item_key,
+                    item_kind=planned.item.kind,
+                    source_name=planned.source_name,
+                    action="kept",
+                    reason="Kept locally modified item at previous destination.",
+                    dest_path=existing.destination_path,
+                ),
+                source_hash,
+            )
+
+    next_exists = _path_exists(next_path)
+    next_hash = compute_install_item_hash(next_path, planned.item.kind) if next_exists else None
+    if next_exists and next_hash != source_hash and not force:
+        return (
+            InstallItemAction(
+                item_key=planned.item_key,
+                item_kind=planned.item.kind,
+                source_name=planned.source_name,
+                action="conflict",
+                reason="Renamed destination already exists with different content.",
+                dest_path=next_rel_path,
+            ),
+            source_hash,
+        )
+
+    action_name: InstallAction
+    reason: str
+    if next_exists and next_hash == source_hash:
+        action_name = "updated"
+        reason = "Moved managed item to renamed destination."
+    elif next_exists and force:
+        action_name = "reinstalled"
+        reason = "Replaced renamed destination due to --force."
+    else:
+        action_name = "updated"
+        reason = "Moved managed item to renamed destination."
+
+    action = InstallItemAction(
+        item_key=planned.item_key,
+        item_kind=planned.item.kind,
+        source_name=planned.source_name,
+        action=action_name,
+        reason=reason,
+        dest_path=next_rel_path,
+    )
+    if dry_run:
+        return action, source_hash
+
+    if not next_exists or next_hash != source_hash:
+        staged_path = _stage_source(
+            source_path=source_path,
+            item_kind=planned.item.kind,
+            dest_path=next_path,
+        )
+        _atomic_swap(staged_path=staged_path, dest_path=next_path)
+
+    if previous_path != next_path and _path_exists(previous_path):
+        _remove_destination(previous_path)
+
+    lock.items[planned.item_key] = LockedInstalledItem(
+        source_name=planned.source_name,
+        source_item_id=planned.item_key,
+        destination_path=next_rel_path,
         content_hash=source_hash,
     )
     return action, source_hash
