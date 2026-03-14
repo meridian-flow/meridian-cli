@@ -15,7 +15,7 @@ from meridian.lib.sync.install_hash import compute_install_item_hash
 from meridian.lib.sync.install_lock import LockedInstalledItem, LockedSourceItem, LockedSourceRecord
 from meridian.lib.sync.install_lock import ManagedInstallLock, write_install_lock
 from meridian.lib.sync.source_adapter import default_source_adapters
-from meridian.lib.sync.source_manifest import ExportedSourceItem
+from meridian.lib.sync.source_tree import ExportedSourceItem
 
 ItemKind = Literal["agent", "skill"]
 InstallAction = Literal[
@@ -114,11 +114,11 @@ def reconcile_managed_sources(
                 upgrade=upgrade,
             )
             tree_path = adapter.fetch(resolved)
-            manifest = adapter.describe(tree_path)
+            discovered_items = adapter.describe(tree_path)
             planned_items = plan_source_items(
                 repo_root=repo_root,
                 source=source,
-                manifest_items=manifest.items,
+                discovered_items=discovered_items,
             )
             _check_destination_collisions(
                 source=source,
@@ -133,10 +133,6 @@ def reconcile_managed_sources(
                 items={
                     item.item_key: LockedSourceItem(
                         path=item.item.path,
-                        managed=item.item.managed,
-                        system=item.item.system,
-                        depends_on=tuple(dep.item_id for dep in item.item.depends_on),
-                        bundle_requires=tuple(dep.item_id for dep in item.item.bundle_requires),
                     )
                     for item in planned_items
                 },
@@ -192,11 +188,11 @@ def plan_source_items(
     *,
     repo_root: Path,
     source: ManagedSourceConfig,
-    manifest_items: tuple[ExportedSourceItem, ...],
+    discovered_items: tuple[ExportedSourceItem, ...],
 ) -> list[PlannedSourceItem]:
-    """Resolve selected items plus dependency closure for one source."""
+    """Resolve selected items for one source."""
 
-    items_by_id = {item.item_id: item for item in manifest_items}
+    items_by_id = {item.item_id: item for item in discovered_items}
     if source.items is None:
         root_ids = {item_id for item_id in items_by_id}
     else:
@@ -205,13 +201,9 @@ def plan_source_items(
 
     missing = sorted(item_id for item_id in root_ids | excluded_ids if item_id not in items_by_id)
     if missing:
-        raise ValueError(f"Unknown manifest items requested: {', '.join(missing)}")
+        raise ValueError(f"Unknown discovered items requested: {', '.join(missing)}")
 
-    selected_ids = _expand_closure(
-        root_ids=root_ids,
-        excluded_ids=excluded_ids,
-        items_by_id=items_by_id,
-    )
+    selected_ids = root_ids.difference(excluded_ids)
 
     planned: list[PlannedSourceItem] = []
     seen_destinations: set[tuple[str, str]] = set()
@@ -318,28 +310,6 @@ def install_status(repo_root: Path, lock: ManagedInstallLock) -> list[dict[str, 
             }
         )
     return payload
-
-
-def _expand_closure(
-    *,
-    root_ids: set[str],
-    excluded_ids: set[str],
-    items_by_id: dict[str, ExportedSourceItem],
-) -> set[str]:
-    selected: set[str] = set()
-    pending = list(sorted(root_ids))
-    while pending:
-        item_id = pending.pop()
-        if item_id in selected:
-            continue
-        if item_id in excluded_ids:
-            raise ValueError(f"Excluded item '{item_id}' is required by the selected closure.")
-        selected.add(item_id)
-        item = items_by_id[item_id]
-        pending.extend(dep.item_id for dep in item.depends_on)
-        pending.extend(dep.item_id for dep in item.bundle_requires)
-    return selected
-
 
 def _check_destination_collisions(
     *,

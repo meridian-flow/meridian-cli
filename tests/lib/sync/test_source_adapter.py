@@ -25,3 +25,15 @@ def test_path_source_adapter_resolves_repo_relative_tree(tmp_path: Path) -> None
     assert resolved.locator == "./tools/agents"
     assert resolved.tree_path == tree.resolve()
     assert resolved.resolved_identity == {"path": "./tools/agents"}
+
+
+def test_path_source_adapter_discovers_items_from_layout(tmp_path: Path) -> None:
+    tree = tmp_path / "source"
+    (tree / "agents").mkdir(parents=True)
+    (tree / "skills" / "demo").mkdir(parents=True)
+    (tree / "agents" / "helper.md").write_text("---\nname: helper\n---\n", encoding="utf-8")
+    (tree / "skills" / "demo" / "SKILL.md").write_text("---\nname: demo\n---\n", encoding="utf-8")
+
+    items = PathSourceAdapter().describe(tree)
+
+    assert [item.item_id for item in items] == ["agent:helper", "skill:demo"]

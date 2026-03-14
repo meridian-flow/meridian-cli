@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from meridian.lib.sync.install_config import ManagedSourceConfig
 from meridian.lib.sync.install_types import SourceKind
-from meridian.lib.sync.source_manifest import ExportedSourceManifest, load_source_manifest
+from meridian.lib.sync.source_tree import ExportedSourceItem, discover_source_items
 
 
 class ResolvedSource(BaseModel):
@@ -44,7 +44,7 @@ class SourceAdapter(Protocol):
 
     def fetch(self, resolved: ResolvedSource) -> Path: ...
 
-    def describe(self, tree_path: Path) -> ExportedSourceManifest: ...
+    def describe(self, tree_path: Path) -> tuple[ExportedSourceItem, ...]: ...
 
 
 class GitSourceAdapter:
@@ -96,8 +96,8 @@ class GitSourceAdapter:
     def fetch(self, resolved: ResolvedSource) -> Path:
         return resolved.tree_path
 
-    def describe(self, tree_path: Path) -> ExportedSourceManifest:
-        return load_source_manifest(tree_path)
+    def describe(self, tree_path: Path) -> tuple[ExportedSourceItem, ...]:
+        return discover_source_items(tree_path)
 
 
 class PathSourceAdapter:
@@ -133,8 +133,8 @@ class PathSourceAdapter:
     def fetch(self, resolved: ResolvedSource) -> Path:
         return resolved.tree_path
 
-    def describe(self, tree_path: Path) -> ExportedSourceManifest:
-        return load_source_manifest(tree_path)
+    def describe(self, tree_path: Path) -> tuple[ExportedSourceItem, ...]:
+        return discover_source_items(tree_path)
 
 
 def default_source_adapters() -> dict[SourceKind, SourceAdapter]:

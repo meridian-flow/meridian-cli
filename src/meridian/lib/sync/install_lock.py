@@ -22,22 +22,11 @@ class LockedSourceItem(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     path: str
-    managed: bool = False
-    system: bool = False
-    depends_on: tuple[str, ...] = ()
-    bundle_requires: tuple[str, ...] = ()
 
     @field_validator("path")
     @classmethod
     def _validate_path(cls, value: str) -> str:
         return normalize_required_string(value, source="path")
-
-    @field_validator("depends_on", "bundle_requires")
-    @classmethod
-    def _validate_item_ids(cls, value: tuple[str, ...]) -> tuple[str, ...]:
-        for item_id in value:
-            parse_item_id(item_id)
-        return value
 
 
 class LockedSourceRecord(BaseModel):

@@ -13,23 +13,8 @@ from meridian.lib.sync.runtime_ensure import ensure_runtime_assets, plan_require
 
 def _write_source_tree(source_root: Path, *, agent_name: str) -> None:
     (source_root / "agents").mkdir(parents=True, exist_ok=True)
-    (source_root / "skills").mkdir(parents=True, exist_ok=True)
     (source_root / "agents" / f"{agent_name}.md").write_text(
         f"---\nname: {agent_name}\ndescription: Test agent\nmodel: gpt-5.3-codex\n---\nBody\n",
-        encoding="utf-8",
-    )
-    (source_root / "meridian-source.toml").write_text(
-        "\n".join(
-            [
-                "[[items]]",
-                'kind = "agent"',
-                f'name = "{agent_name}"',
-                f'path = "agents/{agent_name}.md"',
-                "managed = true",
-                "system = true",
-                "",
-            ]
-        ),
         encoding="utf-8",
     )
 
