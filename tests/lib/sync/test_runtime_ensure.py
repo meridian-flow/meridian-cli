@@ -6,7 +6,7 @@ from meridian.lib.state.paths import resolve_state_paths
 from meridian.lib.sync.install_config import ManagedSourceConfig, ManagedSourcesConfig
 from meridian.lib.sync.install_config import load_install_config, write_install_config
 from meridian.lib.sync.install_engine import reconcile_managed_sources
-from meridian.lib.sync.install_lock import read_install_lock
+from meridian.lib.sync.install_lock import read_install_lock, write_install_lock
 from meridian.lib.sync.install_types import ItemRef
 from meridian.lib.sync.runtime_ensure import (
     ensure_runtime_assets,
@@ -44,11 +44,11 @@ def test_ensure_runtime_assets_reinstalls_from_locked_source(tmp_path: Path) -> 
     lock = read_install_lock(paths.agents_lock_path)
     reconcile_managed_sources(
         repo_root=repo_root,
-        agents_lock_path=paths.agents_lock_path,
         sources=config.sources,
         lock=lock,
         agents_cache_dir=paths.agents_cache_dir,
     )
+    write_install_lock(paths.agents_lock_path, lock)
 
     installed_path = repo_root / ".agents" / "agents" / "__meridian-subagent.md"
     installed_path.unlink()

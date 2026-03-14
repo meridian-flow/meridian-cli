@@ -16,7 +16,7 @@ from meridian.lib.sync.install_config import ManagedSourceConfig, ManagedSources
 from meridian.lib.sync.install_config import load_install_config, write_install_config
 from meridian.lib.sync.install_engine import InstallItemAction, InstallResult, install_status
 from meridian.lib.sync.install_engine import reconcile_managed_sources, remove_managed_source
-from meridian.lib.sync.install_lock import lock_file_guard, read_install_lock
+from meridian.lib.sync.install_lock import lock_file_guard, read_install_lock, write_install_lock
 from meridian.lib.sync.install_types import ItemRef
 from meridian.lib.sync.source_catalog import is_well_known_source, well_known_source_config
 
@@ -76,14 +76,10 @@ def _install(
         raise ValueError(f"Managed source '{source_config.name}' already exists.")
 
     updated_config = ManagedSourcesConfig(sources=(*existing.sources, source_config))
-    if not dry_run:
-        write_install_config(state_paths.agents_manifest_path, updated_config)
-
     with lock_file_guard(state_paths.agents_lock_path):
         lock = read_install_lock(state_paths.agents_lock_path)
         result = reconcile_managed_sources(
             repo_root=repo_root,
-            agents_lock_path=state_paths.agents_lock_path,
             sources=updated_config.sources,
             lock=lock,
             agents_cache_dir=state_paths.agents_cache_dir,
@@ -91,6 +87,10 @@ def _install(
             dry_run=dry_run,
             source_filter=source_config.name,
         )
+        _raise_on_install_errors(result)
+        if not dry_run:
+            write_install_config(state_paths.agents_manifest_path, updated_config)
+            write_install_lock(state_paths.agents_lock_path, lock)
 
     emit(_install_result_payload(result))
 
@@ -116,14 +116,16 @@ def _remove(
 
     with lock_file_guard(state_paths.agents_lock_path):
         lock = read_install_lock(state_paths.agents_lock_path)
-        result = remove_managed_source(
-            repo_root=repo_root,
-            agents_lock_path=state_paths.agents_lock_path,
-            lock=lock,
-            source_name=source.name,
-            force=force,
-            dry_run=dry_run,
-        )
+        if source.name in lock.sources:
+            result = remove_managed_source(
+                repo_root=repo_root,
+                lock=lock,
+                source_name=source.name,
+                force=force,
+                dry_run=dry_run,
+            )
+        else:
+            result = InstallResult(actions=(), errors=())
         if not dry_run:
             updated_sources = tuple(
                 candidate for candidate in config.sources if candidate.name != source.name
@@ -132,6 +134,7 @@ def _remove(
                 state_paths.agents_manifest_path,
                 ManagedSourcesConfig(sources=updated_sources),
             )
+            write_install_lock(state_paths.agents_lock_path, lock)
 
     emit(_install_result_payload(result))
 
@@ -205,7 +208,6 @@ def _run_install_reconcile(
         lock = read_install_lock(state_paths.agents_lock_path)
         result = reconcile_managed_sources(
             repo_root=repo_root,
-            agents_lock_path=state_paths.agents_lock_path,
             sources=config.sources,
             lock=lock,
             agents_cache_dir=state_paths.agents_cache_dir,
@@ -214,8 +216,17 @@ def _run_install_reconcile(
             dry_run=dry_run,
             source_filter=source,
         )
+        _raise_on_install_errors(result)
+        if not dry_run:
+            write_install_lock(state_paths.agents_lock_path, lock)
 
     emit(_install_result_payload(result))
+
+
+def _raise_on_install_errors(result: InstallResult) -> None:
+    if not result.errors:
+        return
+    raise ValueError("; ".join(result.errors))
 
 
 def _install_result_payload(result: InstallResult) -> dict[str, object]:

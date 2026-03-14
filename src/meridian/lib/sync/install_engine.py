@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict
 from meridian.lib.sync.install_config import ManagedSourceConfig
 from meridian.lib.sync.install_hash import compute_install_item_hash
 from meridian.lib.sync.install_lock import LockedInstalledItem, LockedSourceItem, LockedSourceRecord
-from meridian.lib.sync.install_lock import ManagedInstallLock, write_install_lock
+from meridian.lib.sync.install_lock import ManagedInstallLock
 from meridian.lib.sync.source_adapter import default_source_adapters
 from meridian.lib.sync.source_tree import ExportedSourceItem
 
@@ -73,7 +73,6 @@ class PlannedSourceItem(BaseModel):
 def reconcile_managed_sources(
     *,
     repo_root: Path,
-    agents_lock_path: Path,
     sources: tuple[ManagedSourceConfig, ...] | list[ManagedSourceConfig],
     lock: ManagedInstallLock,
     agents_cache_dir: Path,
@@ -142,6 +141,9 @@ def reconcile_managed_sources(
         except Exception as exc:
             errors.append(f"Source '{source.name}' could not be prepared: {exc}")
 
+    if errors:
+        return InstallResult(actions=tuple(actions), errors=tuple(errors))
+
     for source_name, (planned_items, tree_path, source_record) in planned_by_source.items():
         content_hashes: list[str] = []
         for planned in planned_items:
@@ -177,9 +179,6 @@ def reconcile_managed_sources(
             lock.sources[source_name] = source_record.model_copy(
                 update={"installed_tree_hash": _source_tree_hash(content_hashes)}
             )
-
-    if not dry_run:
-        write_install_lock(agents_lock_path, lock)
 
     return InstallResult(actions=tuple(actions), errors=tuple(errors))
 
@@ -230,7 +229,6 @@ def plan_source_items(
 def remove_managed_source(
     *,
     repo_root: Path,
-    agents_lock_path: Path,
     lock: ManagedInstallLock,
     source_name: str,
     force: bool = False,
@@ -270,10 +268,8 @@ def remove_managed_source(
         )
         if not dry_run and action_name == "removed":
             del lock.items[item_key]
-
     if not dry_run:
         del lock.sources[source_name]
-        write_install_lock(agents_lock_path, lock)
 
     return InstallResult(actions=tuple(actions), errors=())
 

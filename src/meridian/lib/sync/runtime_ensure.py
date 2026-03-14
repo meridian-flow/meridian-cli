@@ -9,7 +9,12 @@ from pydantic import BaseModel, ConfigDict
 from meridian.lib.state.paths import resolve_state_paths
 from meridian.lib.sync.install_config import ManagedSourcesConfig, load_install_config, write_install_config
 from meridian.lib.sync.install_engine import reconcile_managed_sources
-from meridian.lib.sync.install_lock import ManagedInstallLock, lock_file_guard, read_install_lock
+from meridian.lib.sync.install_lock import (
+    ManagedInstallLock,
+    lock_file_guard,
+    read_install_lock,
+    write_install_lock,
+)
 from meridian.lib.sync.install_types import ItemRef, format_item_id, parse_item_id
 from meridian.lib.sync.source_catalog import well_known_source_config
 
@@ -83,14 +88,10 @@ def ensure_runtime_assets(
             lock=lock,
         )
 
-        if updated_config != config:
-            write_install_config(state_paths.agents_manifest_path, updated_config)
-
         errors: list[str] = []
         for source_name in selected_sources:
             result = reconcile_managed_sources(
                 repo_root=repo_root,
-                agents_lock_path=state_paths.agents_lock_path,
                 sources=updated_config.sources,
                 lock=lock,
                 agents_cache_dir=state_paths.agents_cache_dir,
@@ -100,6 +101,9 @@ def ensure_runtime_assets(
 
         if errors:
             raise RuntimeError("; ".join(errors))
+        if updated_config != config:
+            write_install_config(state_paths.agents_manifest_path, updated_config)
+        write_install_lock(state_paths.agents_lock_path, lock)
 
     remaining = tuple(
         item_id for item_id in plan.missing_items if not _agent_profile_path(repo_root, item_id).is_file()
