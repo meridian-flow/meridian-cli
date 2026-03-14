@@ -183,7 +183,7 @@ def permission_flags_for_harness(
         if harness_id == HarnessId("claude"):
             return ["--dangerously-skip-permissions"]
         if harness_id == HarnessId("codex"):
-            return ["--full-auto"]
+            return ["--dangerously-bypass-approvals-and-sandbox"]
         # OpenCode currently has no equivalent global bypass flag.
     if tier is None:
         return []

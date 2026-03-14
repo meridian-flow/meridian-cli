@@ -63,7 +63,7 @@ def test_spawn_dry_run_yolo_uses_bypass_flags(tmp_path: Path) -> None:
     )
 
     assert result.status == "dry-run"
-    assert "--full-auto" in result.cli_command
+    assert "--dangerously-bypass-approvals-and-sandbox" in result.cli_command
 
 
 def test_spawn_dry_run_allows_nested_context_without_permission_inheritance(
