@@ -119,7 +119,6 @@ def resolve_primary_launch_plan(
 
     profile = load_agent_profile_with_fallback(
         repo_root=resolved_root,
-        search_paths=resolved_config.search_paths,
         requested_agent=request.agent,
         configured_default=resolved_config.primary_agent,
     )
@@ -150,7 +149,6 @@ def resolve_primary_launch_plan(
     resolved_skills = resolve_skills_from_profile(
         profile_skills=defaults.skills,
         repo_root=resolved_root,
-        search_paths=resolved_config.search_paths,
         readonly=True,
     )
     if resolved_skills.missing_skills:

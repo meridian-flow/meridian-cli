@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.catalog.agent import AgentProfile, load_agent_profile
 from meridian.lib.catalog.models import route_model
-from meridian.lib.config.settings import MeridianConfig, SearchPathConfig
+from meridian.lib.config.settings import MeridianConfig
 from meridian.lib.catalog.skill import SkillRegistry
 from meridian.lib.core.domain import SkillContent
 from meridian.lib.harness.registry import HarnessRegistry
@@ -23,7 +23,6 @@ logger = logging.getLogger(__name__)
 def load_agent_profile_with_fallback(
     *,
     repo_root: Path,
-    search_paths: SearchPathConfig | None = None,
     requested_agent: str | None = None,
     configured_default: str = "",
 ) -> AgentProfile | None:
@@ -40,7 +39,6 @@ def load_agent_profile_with_fallback(
         return load_agent_profile(
             requested_profile,
             repo_root=repo_root,
-            search_paths=search_paths,
         )
 
     configured_profile = configured_default.strip()
@@ -49,7 +47,6 @@ def load_agent_profile_with_fallback(
             return load_agent_profile(
                 configured_profile,
                 repo_root=repo_root,
-                search_paths=search_paths,
             )
         except FileNotFoundError:
             pass
@@ -70,14 +67,12 @@ def resolve_skills_from_profile(
     *,
     profile_skills: tuple[str, ...],
     repo_root: Path,
-    search_paths: SearchPathConfig | None = None,
     readonly: bool = False,
 ) -> ResolvedSkills:
     """Load and resolve skills declared in an agent profile."""
 
     registry = SkillRegistry(
         repo_root=repo_root,
-        search_paths=search_paths,
         readonly=readonly,
     )
     manifests = registry.list_skills()
@@ -159,7 +154,6 @@ def resolve_primary_session_metadata(
 ) -> PrimarySessionMetadata:
     profile = load_agent_profile_with_fallback(
         repo_root=repo_root,
-        search_paths=config.search_paths,
         requested_agent=request.agent,
         configured_default=config.primary_agent,
     )
@@ -189,7 +183,6 @@ def resolve_primary_session_metadata(
     resolved_skills = resolve_skills_from_profile(
         profile_skills=defaults.skills,
         repo_root=repo_root,
-        search_paths=config.search_paths,
         readonly=True,
     )
     if resolved_skills.missing_skills:

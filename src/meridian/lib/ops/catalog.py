@@ -10,8 +10,7 @@ from pydantic import BaseModel, ConfigDict, model_serializer
 from meridian.lib.catalog.models import AliasEntry, load_merged_aliases, resolve_model
 from meridian.lib.catalog.models import DiscoveredModel, load_discovered_models, refresh_models_cache
 from meridian.lib.catalog.models import route_model
-from meridian.lib.catalog.agent import builtin_profiles, scan_agent_profiles
-from meridian.lib.config.settings import bundled_agents_root
+from meridian.lib.catalog.agent import scan_agent_profiles
 from meridian.lib.catalog.skill import SkillRegistry
 from meridian.lib.core.domain import SkillContent, SkillManifest
 from meridian.lib.core.util import FormatContext
@@ -497,24 +496,6 @@ class AgentsListOutput(BaseModel):
 def agents_list_sync(payload: AgentsListInput) -> AgentsListOutput:
     root = _repo_root(payload.repo_root)
     profiles = scan_agent_profiles(repo_root=root)
-
-    # Include bundled agent profiles that aren't already found via search paths.
-    seen_names = {p.name for p in profiles}
-    bundled_root = bundled_agents_root()
-    if bundled_root is not None:
-        bundled_agents_dir = bundled_root / "agents"
-        if bundled_agents_dir.is_dir():
-            for bundled in scan_agent_profiles(repo_root=root, search_dirs=[bundled_agents_dir]):
-                if bundled.name not in seen_names:
-                    profiles.append(bundled)
-                    seen_names.add(bundled.name)
-
-    # Fall back to hard-coded builtin profiles when bundled resources are
-    # unavailable (e.g. minimal install).  Mirrors load_agent_profile() logic.
-    for builtin in builtin_profiles().values():
-        if builtin.name not in seen_names:
-            profiles.append(builtin)
-            seen_names.add(builtin.name)
 
     entries = tuple(
         AgentListEntry(

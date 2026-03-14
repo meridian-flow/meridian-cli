@@ -7,8 +7,7 @@ from typing import cast
 
 from pydantic import BaseModel, ConfigDict
 
-from meridian.lib.config.settings import bundled_agents_root, resolve_path_list, resolve_repo_root
-from meridian.lib.config.settings import SearchPathConfig, load_config
+from meridian.lib.config.settings import resolve_repo_root
 from meridian.lib.catalog.skill import split_markdown_frontmatter
 
 logger = logging.getLogger(__name__)
@@ -152,16 +151,8 @@ def builtin_profiles() -> dict[str, AgentProfile]:
     }
 
 
-def _agent_search_dirs(
-    repo_root: Path,
-    search_paths: SearchPathConfig | None = None,
-) -> list[Path]:
-    config_paths = search_paths or load_config(repo_root).search_paths
-    return resolve_path_list(
-        config_paths.agents,
-        config_paths.global_agents,
-        repo_root,
-    )
+def _agent_search_dirs(repo_root: Path) -> list[Path]:
+    return [repo_root / ".agents" / "agents"]
 
 
 def _files_have_equal_text(first: Path, second: Path) -> bool:
@@ -175,15 +166,16 @@ def scan_agent_profiles(
     repo_root: Path | None = None,
     search_dirs: list[Path] | None = None,
     *,
-    search_paths: SearchPathConfig | None = None,
+    search_paths: object | None = None,
 ) -> list[AgentProfile]:
     """Parse all agent profiles from configured search directories."""
 
     root = resolve_repo_root(repo_root)
+    _ = search_paths
     directories = (
         search_dirs
         if search_dirs is not None
-        else _agent_search_dirs(root, search_paths=search_paths)
+        else _agent_search_dirs(root)
     )
     profiles: list[AgentProfile] = []
     selected_by_name: dict[str, AgentProfile] = {}
@@ -215,7 +207,7 @@ def load_agent_profile(
     name: str,
     repo_root: Path | None = None,
     *,
-    search_paths: SearchPathConfig | None = None,
+    search_paths: object | None = None,
 ) -> AgentProfile:
     """Load one agent profile by filename stem or frontmatter name."""
 
@@ -229,26 +221,6 @@ def load_agent_profile(
         if profile.path.stem == normalized or profile.name == normalized:
             return profile
 
-    bundled_root = bundled_agents_root()
-    if bundled_root is not None:
-        bundled_agents_dir = bundled_root / "agents"
-        if bundled_agents_dir.is_dir():
-            try:
-                for profile in scan_agent_profiles(
-                    repo_root=root,
-                    search_dirs=[bundled_agents_dir],
-                ):
-                    if profile.path.stem == normalized or profile.name == normalized:
-                        return profile
-            except Exception as exc:
-                # Bundled profile parsing must be best-effort so hard-coded fallbacks
-                # still keep the CLI operational if package resources are unavailable.
-                logger.warning(
-                    "Unable to read bundled agent profiles from '%s': %s",
-                    bundled_agents_dir,
-                    exc,
-                )
-
     # Fall back to hard-coded built-in profiles.
     builtin = builtin_profiles().get(normalized)
     if builtin is not None:
@@ -258,4 +230,4 @@ def load_agent_profile(
         )
         return builtin
 
-    raise FileNotFoundError(f"Agent profile '{name}' not found in configured search paths.")
+    raise FileNotFoundError(f"Agent profile '{name}' not found in repo-local .agents.")

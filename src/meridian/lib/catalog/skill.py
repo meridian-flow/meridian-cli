@@ -7,8 +7,7 @@ from typing import cast
 
 from pydantic import BaseModel, ConfigDict
 
-from meridian.lib.config.settings import bundled_agents_root, resolve_path_list, resolve_repo_root
-from meridian.lib.config.settings import SearchPathConfig, load_config
+from meridian.lib.config.settings import resolve_repo_root
 from meridian.lib.core.domain import IndexReport, SkillContent, SkillManifest
 
 logger = logging.getLogger(__name__)
@@ -107,12 +106,7 @@ def discover_skill_files(skills_dir: Path) -> list[Path]:
 
 
 def _skill_search_dirs(repo_root: Path) -> list[Path]:
-    config = load_config(repo_root).search_paths
-    return resolve_path_list(
-        config.skills,
-        config.global_skills,
-        repo_root,
-    )
+    return [repo_root / ".agents" / "skills"]
 
 
 def _files_have_equal_text(first: Path, second: Path) -> bool:
@@ -168,25 +162,14 @@ class SkillRegistry:
         repo_root: Path | None = None,
         *,
         busy_timeout_ms: int = 0,
-        search_paths: SearchPathConfig | None = None,
+        search_paths: object | None = None,
         readonly: bool = False,
     ) -> None:
         _ = db_path
         _ = busy_timeout_ms
+        _ = search_paths
         self._repo_root = resolve_repo_root(repo_root)
-        resolved_search_paths = search_paths or load_config(self._repo_root).search_paths
-        resolved_skills_dirs = resolve_path_list(
-            resolved_search_paths.skills,
-            resolved_search_paths.global_skills,
-            self._repo_root,
-        )
-        bundled_root = bundled_agents_root()
-        if bundled_root is not None:
-            bundled_skills_dir = bundled_root / "skills"
-            if bundled_skills_dir.is_dir() and bundled_skills_dir not in resolved_skills_dirs:
-                resolved_skills_dirs.append(bundled_skills_dir)
-
-        self._skills_dirs = tuple(resolved_skills_dirs)
+        self._skills_dirs = tuple(_skill_search_dirs(self._repo_root))
         self._readonly = readonly
         self._filesystem_documents: tuple[SkillDocument, ...] | None = None
 
@@ -223,7 +206,7 @@ class SkillRegistry:
                 expected = ", ".join(path.as_posix() for path in self._skills_dirs)
                 expected_text = expected if expected else "<none>"
                 raise ValueError(
-                    "Skill discovery is restricted to configured search paths; "
+                    "Skill discovery is restricted to repo-local installed skill paths; "
                     f"expected one of '{expected_text}', got '{skills_dir}'."
                 )
             scan_dirs = [requested]

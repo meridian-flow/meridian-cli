@@ -175,7 +175,6 @@ def build_create_payload(
 
     profile = load_agent_profile_with_fallback(
         repo_root=runtime_view.repo_root,
-        search_paths=runtime_view.config.search_paths,
         requested_agent=payload.agent,
         configured_default=runtime_view.config.default_agent,
     )
@@ -192,7 +191,6 @@ def build_create_payload(
     resolved_skills = resolve_skills_from_profile(
         profile_skills=merged_skill_names,
         repo_root=runtime_view.repo_root,
-        search_paths=runtime_view.config.search_paths,
         readonly=payload.dry_run,
     )
     harness, route_warning = runtime_view.harness_registry.route(
