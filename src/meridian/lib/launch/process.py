@@ -304,6 +304,7 @@ def run_harness_process(
                     harness=plan.session_metadata.harness,
                     kind="primary",
                     prompt=plan.prompt,
+                    harness_session_id=resolved_harness_session_id,
                     launch_mode=FOREGROUND_LAUNCH_MODE,
                     work_id=attached_work_id,
                     status="queued",
@@ -400,6 +401,12 @@ def run_harness_process(
                 ):
                     resolved_harness_session_id = observed_harness_session_id.strip()
                     managed.record_harness_session_id(resolved_harness_session_id)
+                    if primary_spawn_id is not None:
+                        spawn_store.update_spawn(
+                            plan.state_root,
+                            primary_spawn_id,
+                            harness_session_id=resolved_harness_session_id,
+                        )
     except FileNotFoundError:
         logger.debug("Harness command not found", exc_info=True)
         exit_code = 2

@@ -135,6 +135,7 @@ class SpawnUpdateEvent(BaseModel):
     launch_mode: LaunchMode | None = None
     wrapper_pid: int | None = None
     worker_pid: int | None = None
+    harness_session_id: str | None = None
     error: str | None = None
     desc: str | None = None
     work_id: str | None = None
@@ -248,6 +249,7 @@ def update_spawn(
     launch_mode: LaunchMode | None = None,
     wrapper_pid: int | None = None,
     worker_pid: int | None = None,
+    harness_session_id: str | None = None,
     error: str | None = None,
     desc: str | None = None,
     work_id: str | None = None,
@@ -261,6 +263,7 @@ def update_spawn(
         launch_mode=launch_mode,
         wrapper_pid=wrapper_pid,
         worker_pid=worker_pid,
+        harness_session_id=harness_session_id,
         error=error,
         desc=desc,
         work_id=work_id,
@@ -455,6 +458,11 @@ def _record_from_events(events: list[SpawnEvent]) -> dict[str, SpawnRecord]:
                     ),
                     "worker_pid": (
                         event.worker_pid if event.worker_pid is not None else current.worker_pid
+                    ),
+                    "harness_session_id": (
+                        event.harness_session_id
+                        if event.harness_session_id is not None
+                        else current.harness_session_id
                     ),
                     "error": event.error if event.error is not None else current.error,
                     "desc": event.desc if event.desc is not None else current.desc,

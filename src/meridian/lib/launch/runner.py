@@ -693,10 +693,15 @@ async def execute_with_finalization(
                 if (
                     extracted_harness_session_id
                     and extracted_harness_session_id != observed_harness_session_id
-                    and harness_session_id_observer is not None
                 ):
                     try:
-                        harness_session_id_observer(extracted_harness_session_id)
+                        spawn_store.update_spawn(
+                            state_root,
+                            run.spawn_id,
+                            harness_session_id=extracted_harness_session_id,
+                        )
+                        if harness_session_id_observer is not None:
+                            harness_session_id_observer(extracted_harness_session_id)
                         observed_harness_session_id = extracted_harness_session_id
                     except Exception:
                         logger.warning(

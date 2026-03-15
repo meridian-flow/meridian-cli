@@ -186,6 +186,11 @@ class SpawnIndex:
                     "worker_pid": (
                         event.worker_pid if event.worker_pid is not None else current.worker_pid
                     ),
+                    "harness_session_id": (
+                        event.harness_session_id
+                        if event.harness_session_id is not None
+                        else current.harness_session_id
+                    ),
                     "error": event.error if event.error is not None else current.error,
                     "desc": event.desc if event.desc is not None else current.desc,
                     "work_id": (
