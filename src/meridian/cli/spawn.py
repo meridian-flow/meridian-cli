@@ -29,6 +29,7 @@ from meridian.lib.ops.spawn.api import (
     spawn_stats_sync,
     spawn_wait_sync,
 )
+from meridian.lib.ops.spawn.log import SpawnLogInput, spawn_log_sync
 
 # In agent mode (MERIDIAN_DEPTH > 0), hide human-only flags from --help.
 # Flags still work when passed — show only affects help text.
@@ -407,11 +408,41 @@ def _spawn_files(
         emit(result)
 
 
+def _spawn_log(
+    emit: Any,
+    spawn_id: Annotated[
+        str,
+        Parameter(help="Spawn id or reference (e.g. @latest, @last-failed)."),
+    ],
+    last_n: Annotated[
+        int,
+        Parameter(name=["--last", "-n"], help="Number of assistant messages to show."),
+    ] = 3,
+    offset: Annotated[
+        int,
+        Parameter(
+            name="--offset",
+            help="Skip this many assistant messages from the end.",
+        ),
+    ] = 0,
+) -> None:
+    emit(
+        spawn_log_sync(
+            SpawnLogInput(
+                spawn_id=spawn_id,
+                last_n=last_n,
+                offset=offset,
+            )
+        )
+    )
+
+
 def register_spawn_commands(app: App, emit: Emitter) -> tuple[set[str], dict[str, str]]:
     """Register spawn CLI commands using registry metadata as source of truth."""
 
     handlers: dict[str, Callable[[], Callable[..., None]]] = {
         "spawn.files": lambda: partial(_spawn_files, emit),
+        "spawn.log": lambda: partial(_spawn_log, emit),
         "spawn.list": lambda: partial(_spawn_list, emit),
         "spawn.stats": lambda: partial(_spawn_stats, emit),
         "spawn.show": lambda: partial(_spawn_show, emit),

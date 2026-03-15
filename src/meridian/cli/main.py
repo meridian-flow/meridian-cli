@@ -25,6 +25,7 @@ from meridian.cli.output import (
 )
 from meridian.cli.output import emit as emit_output
 from meridian.cli.report_cmd import register_report_commands
+from meridian.cli.session_cmd import register_session_commands
 from meridian.lib.core.sink import OutputSink
 from meridian.lib.harness.registry import get_default_harness_registry
 from meridian.lib.harness.session_detection import infer_harness_from_untracked_session_ref
@@ -376,6 +377,7 @@ spawn_app = App(
     help_formatter="plain",
 )
 report_app = App(name="report", help="Report management commands", help_formatter="plain")
+session_app = App(name="session", help="Session inspection commands", help_formatter="plain")
 work_app = App(
     name="work",
     help="Active activity grouped by work, plus work item coordination commands. Unassigned spawns appear under '(no work)'.",
@@ -389,6 +391,7 @@ completion_app = App(name="completion", help="Shell completion helpers", help_fo
 
 app.command(spawn_app, name="spawn")
 spawn_app.command(report_app, name="report")
+app.command(session_app, name="session")
 app.command(work_app, name="work")
 app.command(sources_app, name="sources")
 app.command(models_app, name="models")
@@ -684,6 +687,7 @@ def _register_group_commands() -> None:
 
     register_spawn_commands(spawn_app, emit)
     register_report_commands(report_app, emit)
+    register_session_commands(session_app, emit)
     register_work_commands(work_app, emit)
     register_models_commands(models_app, emit)
     register_config_commands(config_app, emit)

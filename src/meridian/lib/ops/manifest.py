@@ -53,6 +53,12 @@ from meridian.lib.ops.report import (
     report_show,
     report_show_sync,
 )
+from meridian.lib.ops.session_log import (
+    SessionLogInput,
+    SessionLogOutput,
+    session_log,
+    session_log_sync,
+)
 from meridian.lib.ops.work_dashboard import (
     WorkListInput,
     WorkListOutput,
@@ -91,6 +97,12 @@ from meridian.lib.ops.work_lifecycle import (
     work_switch_sync,
     work_update,
     work_update_sync,
+)
+from meridian.lib.ops.spawn.log import (
+    SpawnLogInput,
+    SpawnLogOutput,
+    spawn_log,
+    spawn_log_sync,
 )
 from meridian.lib.ops.spawn.api import (
     SpawnActionOutput,
@@ -328,6 +340,18 @@ _OPERATIONS: tuple[OperationSpec[Any, Any], ...] = (
         mcp_name="report_show",
     ),
     _spec(
+        name="session.log",
+        description="Show readable messages from a harness session JSONL, with compaction segment selection.",
+        handler=session_log,
+        sync_handler=session_log_sync,
+        input_type=SessionLogInput,
+        output_type=SessionLogOutput,
+        cli_group="session",
+        cli_name="log",
+        mcp_name="session_log",
+        surfaces=frozenset({"cli"}),
+    ),
+    _spec(
         name="spawn.cancel",
         description="Cancel a running spawn.",
         handler=spawn_cancel,
@@ -348,6 +372,18 @@ _OPERATIONS: tuple[OperationSpec[Any, Any], ...] = (
         cli_group="spawn",
         cli_name="files",
         mcp_name="spawn_files",
+        surfaces=frozenset({"cli"}),
+    ),
+    _spec(
+        name="spawn.log",
+        description="Show recent assistant messages extracted from a spawn's output.jsonl.",
+        handler=spawn_log,
+        sync_handler=spawn_log_sync,
+        input_type=SpawnLogInput,
+        output_type=SpawnLogOutput,
+        cli_group="spawn",
+        cli_name="log",
+        mcp_name="spawn_log",
         surfaces=frozenset({"cli"}),
     ),
     _spec(
