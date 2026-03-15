@@ -6,13 +6,17 @@ from meridian.lib.launch.env import build_harness_child_env, inherit_child_env, 
 from meridian.lib.launch.command import build_launch_env
 from meridian.lib.harness.adapter import SpawnParams
 from meridian.lib.harness.claude import ClaudeAdapter
+from meridian.lib.harness.opencode import OpenCodeAdapter
 from meridian.lib.launch.types import LaunchRequest
 from meridian.lib.safety.permissions import (
+    ExplicitToolsResolver,
     PermissionConfig,
     PermissionTier,
     build_permission_config,
     opencode_permission_json,
+    opencode_permission_json_for_allowed_tools,
     permission_flags_for_harness,
+    resolve_permission_pipeline,
 )
 from meridian.lib.core.types import HarnessId, ModelId
 
@@ -79,6 +83,50 @@ def test_opencode_permission_json_matches_expected_mappings(
     expected: dict[str, str],
 ) -> None:
     assert json.loads(opencode_permission_json(tier)) == expected
+
+
+def test_opencode_permission_json_for_allowed_tools_maps_claude_style_names() -> None:
+    allowed_tools = ("Read", "Glob", "Grep", "Bash(git status)", "WebSearch")
+    expected = {
+        "*": "deny",
+        "read": "allow",
+        "glob": "allow",
+        "grep": "allow",
+        "bash": "allow",
+        "websearch": "allow",
+    }
+    assert json.loads(opencode_permission_json_for_allowed_tools(allowed_tools)) == expected
+
+
+def test_resolve_permission_pipeline_sets_opencode_override_for_explicit_tools() -> None:
+    config, resolver = resolve_permission_pipeline(
+        sandbox="workspace-write",
+        allowed_tools=("Read", "Write"),
+        approval="confirm",
+    )
+
+    assert isinstance(resolver, ExplicitToolsResolver)
+    assert resolver.resolve_flags(HarnessId.OPENCODE) == []
+    assert config.tier is PermissionTier.WORKSPACE_WRITE
+    assert config.opencode_permission_override is not None
+    assert json.loads(config.opencode_permission_override) == {
+        "*": "deny",
+        "read": "allow",
+        "write": "allow",
+    }
+
+
+def test_opencode_env_overrides_prefers_explicit_permission_override() -> None:
+    adapter = OpenCodeAdapter()
+    override = '{"*":"deny","read":"allow"}'
+    env = adapter.env_overrides(
+        PermissionConfig(
+            tier=PermissionTier.FULL_ACCESS,
+            opencode_permission_override=override,
+        )
+    )
+
+    assert env == {"OPENCODE_PERMISSION": override}
 
 
 def test_sanitize_child_env_filters_parent_secrets_and_keeps_explicit_overrides() -> None:

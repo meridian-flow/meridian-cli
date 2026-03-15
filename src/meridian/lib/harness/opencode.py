@@ -199,6 +199,8 @@ class OpenCodeAdapter(BaseSubprocessHarness):
         return None
 
     def env_overrides(self, config: PermissionConfig) -> dict[str, str]:
+        if config.opencode_permission_override:
+            return {"OPENCODE_PERMISSION": config.opencode_permission_override}
         if config.tier is None:
             return {}
         return {"OPENCODE_PERMISSION": opencode_permission_json(config.tier)}

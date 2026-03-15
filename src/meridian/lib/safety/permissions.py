@@ -30,6 +30,9 @@ class PermissionConfig(BaseModel):
 
     tier: PermissionTier | None = None
     approval: str = "confirm"
+    # Optional OpenCode permission map JSON derived from explicit allowed_tools.
+    # When set, this takes precedence over tier-derived OpenCode permissions.
+    opencode_permission_override: str | None = None
 
 
 def parse_permission_tier(
@@ -141,6 +144,37 @@ def opencode_permission_json(tier: PermissionTier) -> str:
     return json.dumps(permissions, sort_keys=True, separators=(",", ":"))
 
 
+_OPENCODE_TOOL_NAME_MAP = {
+    "read": "read",
+    "grep": "grep",
+    "glob": "glob",
+    "list": "list",
+    "edit": "edit",
+    "write": "write",
+    "bash": "bash",
+    "webfetch": "webfetch",
+    "websearch": "websearch",
+}
+
+
+def _normalize_explicit_tool_name(raw: str) -> str:
+    # Claude-style tools may include qualifiers, e.g. `Bash(git status)`.
+    return raw.split("(", 1)[0].strip().lower()
+
+
+def opencode_permission_json_for_allowed_tools(allowed_tools: tuple[str, ...]) -> str:
+    """Build OpenCode permission JSON from an explicit allowed-tools tuple."""
+
+    permissions: dict[str, str] = {"*": "deny"}
+    for raw_tool in allowed_tools:
+        normalized = _normalize_explicit_tool_name(raw_tool)
+        if not normalized:
+            continue
+        opencode_tool = _OPENCODE_TOOL_NAME_MAP.get(normalized, normalized)
+        permissions[opencode_tool] = "allow"
+    return json.dumps(permissions, sort_keys=True, separators=(",", ":"))
+
+
 def permission_flags_for_harness(
     harness_id: HarnessId,
     config: PermissionConfig,
@@ -194,6 +228,9 @@ class ExplicitToolsResolver(BaseModel):
     allowed_tools: tuple[str, ...]
     fallback_config: PermissionConfig
 
+    def opencode_permission_json(self) -> str:
+        return opencode_permission_json_for_allowed_tools(self.allowed_tools)
+
     def resolve_flags(self, harness_id: HarnessId) -> list[str]:
         # Codex only supports --sandbox, not per-tool allowlists.
         if harness_id == HarnessId.CODEX:
@@ -203,9 +240,12 @@ class ExplicitToolsResolver(BaseModel):
         if harness_id == HarnessId.CLAUDE:
             return ["--allowedTools", ",".join(self.allowed_tools)]
 
-        # OpenCode / others: no fine-grained tool allowlist support yet.
-        # The tier-based path also returns [] for OpenCode (permissions are
-        # applied via env vars, not CLI flags), so no fallback is needed here.
+        # OpenCode allows per-tool permissions through OPENCODE_PERMISSION env,
+        # not run CLI flags. resolve_permission_pipeline wires that env payload.
+        if harness_id == HarnessId.OPENCODE:
+            return []
+
+        # Other harnesses: no fine-grained tool allowlist support.
         return []
 
 
@@ -236,4 +276,8 @@ def resolve_permission_pipeline(
         allowed_tools=allowed_tools,
         permission_config=config,
     )
+    if isinstance(resolver, ExplicitToolsResolver):
+        config = config.model_copy(
+            update={"opencode_permission_override": resolver.opencode_permission_json()}
+        )
     return config, resolver
