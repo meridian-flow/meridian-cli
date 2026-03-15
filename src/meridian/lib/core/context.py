@@ -1,6 +1,6 @@
 """Runtime context derived from MERIDIAN_* environment variables."""
 
-
+from contextlib import suppress
 from pathlib import Path
 from typing import Self
 
@@ -36,10 +36,8 @@ class RuntimeContext(BaseModel):
         work_id_raw = os.getenv("MERIDIAN_WORK_ID", "").strip()
 
         depth = 0
-        try:
+        with suppress(ValueError, TypeError):
             depth = max(0, int(depth_raw))
-        except (ValueError, TypeError):
-            pass
 
         return cls(
             spawn_id=SpawnId(spawn_id_raw) if spawn_id_raw else None,

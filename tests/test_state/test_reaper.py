@@ -3,12 +3,14 @@ import subprocess
 import time
 from pathlib import Path
 
-from meridian.lib.state import reaper
-from meridian.lib.state import spawn_store
-from meridian.lib.state.paths import resolve_state_paths
-from meridian.lib.state.reaper import _recent_spawn_activity, _spawn_is_stale, reconcile_active_spawn
 from meridian.lib.core.domain import SpawnStatus
-
+from meridian.lib.state import reaper, spawn_store
+from meridian.lib.state.paths import resolve_state_paths
+from meridian.lib.state.reaper import (
+    _recent_spawn_activity,
+    _spawn_is_stale,
+    reconcile_active_spawn,
+)
 
 _OLD_STARTED_AT = "2000-01-01T00:00:00Z"
 
@@ -69,7 +71,9 @@ def test_reconcile_active_spawn_marks_missing_pid_files_failed_after_grace(tmp_p
     assert reconciled.error == "missing_wrapper_pid"
 
 
-def test_reconcile_active_spawn_promotes_queued_background_to_running_with_wrapper_pid(tmp_path: Path) -> None:
+def test_reconcile_active_spawn_promotes_queued_background_to_running_with_wrapper_pid(
+    tmp_path: Path,
+) -> None:
     state_root, spawn_id = _start_background_spawn(tmp_path, started_at=_OLD_STARTED_AT)
     spawn_dir = state_root / "spawns" / spawn_id
     spawn_dir.mkdir(parents=True, exist_ok=True)
@@ -114,7 +118,9 @@ def _start_foreground_spawn(
 
 def test_reconcile_background_spawn_with_report_and_dead_pid_succeeds(tmp_path: Path) -> None:
     """A background spawn with a dead PID but a valid report should succeed, not fail as orphan."""
-    state_root, spawn_id = _start_background_spawn(tmp_path, started_at=_OLD_STARTED_AT, status="running")
+    state_root, spawn_id = _start_background_spawn(
+        tmp_path, started_at=_OLD_STARTED_AT, status="running"
+    )
     spawn_dir = state_root / "spawns" / spawn_id
     spawn_dir.mkdir(parents=True, exist_ok=True)
     dead_pid = 2_000_000_000
@@ -134,7 +140,9 @@ def test_reconcile_background_spawn_with_report_and_dead_pid_succeeds(tmp_path: 
     assert latest.status == "succeeded"
 
 
-def test_reconcile_background_spawn_with_report_and_live_wrapper_stays_running(tmp_path: Path) -> None:
+def test_reconcile_background_spawn_with_report_and_live_wrapper_stays_running(
+    tmp_path: Path,
+) -> None:
     state_root = resolve_state_paths(tmp_path).root_dir
     sleeper = subprocess.Popen(["sleep", "30"], start_new_session=True)
     try:
@@ -177,7 +185,9 @@ def test_reconcile_foreground_spawn_with_report_and_dead_pid_succeeds(tmp_path: 
     """A foreground spawn with a dead PID but a valid report should succeed, not fail as orphan."""
     dead_pid = 2_000_000_000
     state_root, spawn_id = _start_foreground_spawn(
-        tmp_path, started_at=_OLD_STARTED_AT, worker_pid=dead_pid,
+        tmp_path,
+        started_at=_OLD_STARTED_AT,
+        worker_pid=dead_pid,
     )
     spawn_dir = state_root / "spawns" / spawn_id
     spawn_dir.mkdir(parents=True, exist_ok=True)
@@ -239,9 +249,10 @@ def test_reconcile_active_spawn_with_report_and_live_foreground_harness_stays_ru
             sleeper.wait(timeout=5)
 
 
-
 def test_stale_background_spawn_with_live_wrapper_is_preserved(tmp_path: Path, monkeypatch) -> None:
-    state_root, spawn_id = _start_background_spawn(tmp_path, started_at=_OLD_STARTED_AT, status="running")
+    state_root, spawn_id = _start_background_spawn(
+        tmp_path, started_at=_OLD_STARTED_AT, status="running"
+    )
     spawn_dir = state_root / "spawns" / spawn_id
     spawn_dir.mkdir(parents=True, exist_ok=True)
     wrapper_pid = 12345
@@ -267,7 +278,9 @@ def test_stale_background_spawn_with_live_wrapper_is_preserved(tmp_path: Path, m
 
 
 def test_stale_foreground_spawn_with_live_harness_is_preserved(tmp_path: Path, monkeypatch) -> None:
-    state_root, spawn_id = _start_foreground_spawn(tmp_path, started_at=_OLD_STARTED_AT, status="running")
+    state_root, spawn_id = _start_foreground_spawn(
+        tmp_path, started_at=_OLD_STARTED_AT, status="running"
+    )
     spawn_dir = state_root / "spawns" / spawn_id
     spawn_dir.mkdir(parents=True, exist_ok=True)
     harness_pid = 23456
@@ -293,7 +306,9 @@ def test_stale_foreground_spawn_with_live_harness_is_preserved(tmp_path: Path, m
 
 
 def test_stale_dead_background_spawn_is_finalized(tmp_path: Path, monkeypatch) -> None:
-    state_root, spawn_id = _start_background_spawn(tmp_path, started_at=_OLD_STARTED_AT, status="running")
+    state_root, spawn_id = _start_background_spawn(
+        tmp_path, started_at=_OLD_STARTED_AT, status="running"
+    )
     spawn_dir = state_root / "spawns" / spawn_id
     spawn_dir.mkdir(parents=True, exist_ok=True)
     (spawn_dir / "background.pid").write_text("12345\n", encoding="utf-8")
@@ -320,7 +335,9 @@ def test_stale_dead_background_spawn_is_finalized(tmp_path: Path, monkeypatch) -
 
 
 def test_stale_dead_foreground_spawn_is_finalized(tmp_path: Path, monkeypatch) -> None:
-    state_root, spawn_id = _start_foreground_spawn(tmp_path, started_at=_OLD_STARTED_AT, status="running")
+    state_root, spawn_id = _start_foreground_spawn(
+        tmp_path, started_at=_OLD_STARTED_AT, status="running"
+    )
     spawn_dir = state_root / "spawns" / spawn_id
     spawn_dir.mkdir(parents=True, exist_ok=True)
     (spawn_dir / "harness.pid").write_text("34567\n", encoding="utf-8")
@@ -362,14 +379,17 @@ def test_heartbeat_prevents_stale_detection(tmp_path: Path) -> None:
 
 
 def test_reconcile_background_dead_wrapper_live_harness_with_report_succeeds(
-    tmp_path: Path, monkeypatch,
+    tmp_path: Path,
+    monkeypatch,
 ) -> None:
     """Dead wrapper + live harness + report.md → finalize as succeeded.
 
     The wrapper is the coordinator; if it's dead, nobody will finalize.
     The report proves the work completed, so the orphaned harness is harmless.
     """
-    state_root, spawn_id = _start_background_spawn(tmp_path, started_at=_OLD_STARTED_AT, status="running")
+    state_root, spawn_id = _start_background_spawn(
+        tmp_path, started_at=_OLD_STARTED_AT, status="running"
+    )
     spawn_dir = state_root / "spawns" / spawn_id
     spawn_dir.mkdir(parents=True, exist_ok=True)
     dead_wrapper = 2_000_000_000
@@ -393,14 +413,17 @@ def test_reconcile_background_dead_wrapper_live_harness_with_report_succeeds(
 
 
 def test_reconcile_background_dead_wrapper_stale_harness_no_report_fails(
-    tmp_path: Path, monkeypatch,
+    tmp_path: Path,
+    monkeypatch,
 ) -> None:
     """Dead wrapper + live-but-stale harness + no report → orphan_stale_harness.
 
     If the wrapper is dead and the harness hasn't produced output in >5min
     and there's no report, the harness is stuck. Fail instead of stranding.
     """
-    state_root, spawn_id = _start_background_spawn(tmp_path, started_at=_OLD_STARTED_AT, status="running")
+    state_root, spawn_id = _start_background_spawn(
+        tmp_path, started_at=_OLD_STARTED_AT, status="running"
+    )
     spawn_dir = state_root / "spawns" / spawn_id
     spawn_dir.mkdir(parents=True, exist_ok=True)
     dead_wrapper = 2_000_000_000
@@ -428,13 +451,16 @@ def test_reconcile_background_dead_wrapper_stale_harness_no_report_fails(
 
 
 def test_reconcile_background_dead_wrapper_active_harness_no_report_stays_running(
-    tmp_path: Path, monkeypatch,
+    tmp_path: Path,
+    monkeypatch,
 ) -> None:
     """Dead wrapper + live active harness + no report → stay running.
 
     Harness is still producing output — give it a chance to write report.
     """
-    state_root, spawn_id = _start_background_spawn(tmp_path, started_at=_OLD_STARTED_AT, status="running")
+    state_root, spawn_id = _start_background_spawn(
+        tmp_path, started_at=_OLD_STARTED_AT, status="running"
+    )
     spawn_dir = state_root / "spawns" / spawn_id
     spawn_dir.mkdir(parents=True, exist_ok=True)
     dead_wrapper = 2_000_000_000

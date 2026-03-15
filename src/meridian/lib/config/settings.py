@@ -1,6 +1,5 @@
 """Repository-level operational config loader."""
 
-
 import logging
 import os
 import tomllib
@@ -108,9 +107,7 @@ def _parse_env_float(raw_value: str, *, env_name: str) -> float:
 def _parse_env_string(raw_value: str, *, env_name: str) -> str:
     normalized = raw_value.strip()
     if not normalized:
-        raise ValueError(
-            f"Invalid environment override '{env_name}': expected non-empty string."
-        )
+        raise ValueError(f"Invalid environment override '{env_name}': expected non-empty string.")
     return normalized
 
 
@@ -165,9 +162,7 @@ def _parse_toml_list(*, raw_value: object, source: str) -> tuple[str, ...]:
             )
         normalized = item.strip()
         if not normalized:
-            raise ValueError(
-                f"Invalid value for '{source}': expected non-empty path entries."
-            )
+            raise ValueError(f"Invalid value for '{source}': expected non-empty path entries.")
         parsed.append(normalized)
     return tuple(parsed)
 
@@ -224,9 +219,7 @@ def _resolve_user_config_path(user_config: Path | None) -> Path | None:
         return None
 
     if not resolved.is_file():
-        raise FileNotFoundError(
-            f"User Meridian config file not found: '{resolved.as_posix()}'."
-        )
+        raise FileNotFoundError(f"User Meridian config file not found: '{resolved.as_posix()}'.")
     return resolved
 
 

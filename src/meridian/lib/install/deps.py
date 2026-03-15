@@ -66,7 +66,10 @@ def _extract_skill_refs(agent_path: Path) -> list[str]:
         return []
     if isinstance(skills_value, list):
         from typing import cast
-        return [str(item).strip() for item in cast("list[object]", skills_value) if str(item).strip()]
+
+        return [
+            str(item).strip() for item in cast("list[object]", skills_value) if str(item).strip()
+        ]
     if isinstance(skills_value, str):
         stripped = skills_value.strip()
         return [stripped] if stripped else []

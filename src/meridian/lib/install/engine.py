@@ -10,13 +10,17 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from meridian.lib.install.config import SourceConfig
-from meridian.lib.install.hash import compute_item_hash
-from meridian.lib.install.lock import LockedInstalledItem, LockedSourceItem, LockedSourceRecord
-from meridian.lib.install.lock import InstallLock
 from meridian.lib.install.adapters import default_adapters
+from meridian.lib.install.config import SourceConfig
 from meridian.lib.install.deps import resolve_skill_deps
 from meridian.lib.install.discovery import DiscoveredItem
+from meridian.lib.install.hash import compute_item_hash
+from meridian.lib.install.lock import (
+    InstallLock,
+    LockedInstalledItem,
+    LockedSourceItem,
+    LockedSourceRecord,
+)
 
 ItemKind = Literal["agent", "skill"]
 InstallAction = Literal[
@@ -108,9 +112,9 @@ def reconcile_sources(
                 source,
                 cache_dir=agents_cache_dir,
                 repo_root=repo_root,
-                locked_identity=None if upgrade else (
-                    locked_source.resolved_identity if locked_source is not None else None
-                ),
+                locked_identity=None
+                if upgrade
+                else (locked_source.resolved_identity if locked_source is not None else None),
                 upgrade=upgrade,
             )
             tree_path = adapter.fetch(resolved)
@@ -168,7 +172,8 @@ def reconcile_sources(
                     content_hashes.append(content_hash)
             except Exception as exc:
                 errors.append(
-                    f"Item '{planned.item_key}' from source '{source_name}' could not be installed: {exc}"
+                    f"Item '{planned.item_key}' from source "
+                    f"'{source_name}' could not be installed: {exc}"
                 )
 
         actions.extend(
@@ -328,6 +333,7 @@ def install_status(repo_root: Path, lock: InstallLock) -> list[dict[str, object]
         )
     return payload
 
+
 def _check_destination_collisions(
     *,
     source: SourceConfig,
@@ -372,9 +378,7 @@ def _apply_planned_item(
 
     dest_exists = _path_exists(planned.destination_path)
     local_hash = (
-        compute_item_hash(planned.destination_path, planned.item.kind)
-        if dest_exists
-        else None
+        compute_item_hash(planned.destination_path, planned.item.kind) if dest_exists else None
     )
 
     action_name, reason = _decide_action(

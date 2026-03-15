@@ -1,6 +1,5 @@
 """Harness error classification for retry decisions."""
 
-
 from enum import StrEnum
 
 

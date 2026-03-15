@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from meridian.lib.install.config import SourceConfig
 from meridian.lib.install.adapters import GitSourceAdapter, PathSourceAdapter, default_adapters
+from meridian.lib.install.config import SourceConfig
 
 
 def test_default_adapters_expose_git_and_path() -> None:
@@ -61,6 +61,7 @@ def test_git_source_adapter_falls_back_to_github_archive_without_git(
     installed_tree = cache_dir / "archive" / "github-source"
 
     monkeypatch.setattr("meridian.lib.install.adapters._git_cli_available", lambda: False)
+
     def fake_resolve_commit(owner: str, repo: str, ref: str | None) -> str:
         assert (owner, repo, ref) == ("haowjy", "orchestrate", "main")
         return "abc123"
@@ -73,7 +74,9 @@ def test_git_source_adapter_falls_back_to_github_archive_without_git(
     def fake_populate(owner: str, repo: str, commit: str, cache_path: Path) -> None:
         assert (owner, repo, commit) == ("haowjy", "orchestrate", "abc123")
         (cache_path / "agents").mkdir(parents=True, exist_ok=True)
-        (cache_path / "agents" / "helper.md").write_text("---\nname: helper\n---\n", encoding="utf-8")
+        (cache_path / "agents" / "helper.md").write_text(
+            "---\nname: helper\n---\n", encoding="utf-8"
+        )
 
     monkeypatch.setattr(
         "meridian.lib.install.adapters._populate_github_archive_cache",
@@ -157,6 +160,7 @@ def test_git_source_adapter_reclones_when_cached_remote_changes(
         raise AssertionError(f"unexpected git call: {args}")
 
     monkeypatch.setattr("meridian.lib.install.adapters._run_git", fake_run_git)
+
     def fake_checkout(cache_path: Path, ref: str | None) -> None:
         _ = (cache_path, ref)
 

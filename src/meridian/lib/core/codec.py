@@ -1,6 +1,5 @@
 """Input/schema helpers shared by MCP and DirectAdapter surfaces."""
 
-
 import inspect
 import types
 from collections.abc import Mapping
@@ -68,9 +67,7 @@ def coerce_input_payload(payload_type: type[PayloadT], raw_input: object) -> Pay
     if raw_input is None:
         data: dict[str, object] = {}
     elif isinstance(raw_input, Mapping):
-        data = {
-            str(key): item for key, item in cast("Mapping[object, object]", raw_input).items()
-        }
+        data = {str(key): item for key, item in cast("Mapping[object, object]", raw_input).items()}
     else:
         raise TypeError(f"Tool input must be an object, got {type(raw_input).__name__}")
 

@@ -1,23 +1,22 @@
 from __future__ import annotations
-# pyright: reportPrivateUsage=false
 
-import os
+# pyright: reportPrivateUsage=false
 import signal
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import pytest
-
-from meridian.lib.launch import process
-from meridian.lib.launch.plan import ResolvedPrimaryLaunchPlan
-from meridian.lib.launch.types import LaunchRequest, PrimarySessionMetadata
 from meridian.lib.config.settings import load_config
 from meridian.lib.core.types import HarnessId, ModelId
 from meridian.lib.harness.adapter import SpawnParams
 from meridian.lib.harness.registry import get_default_harness_registry
+from meridian.lib.launch import process
+from meridian.lib.launch.plan import ResolvedPrimaryLaunchPlan
+from meridian.lib.launch.types import LaunchRequest, PrimarySessionMetadata
 from meridian.lib.safety.permissions import PermissionConfig
 from meridian.lib.state import spawn_store, work_store
 
+if TYPE_CHECKING:
+    import pytest
 
 
 def test_sync_pty_winsize_copies_source_size(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -238,7 +237,9 @@ def test_run_harness_process_attaches_explicit_work_id(
     monkeypatch.setattr(process, "stop_session", lambda *args, **kwargs: None)
     monkeypatch.setattr(process, "update_session_harness_id", lambda *args, **kwargs: None)
     monkeypatch.setattr(process, "build_launch_env", fake_build_launch_env)
-    monkeypatch.setattr(process, "_run_primary_process_with_capture", fake_run_primary_process_with_capture)
+    monkeypatch.setattr(
+        process, "_run_primary_process_with_capture", fake_run_primary_process_with_capture
+    )
     monkeypatch.setattr(process, "start_session", fake_start_session)
 
     outcome = process.run_harness_process(plan, harness_registry)
@@ -248,5 +249,3 @@ def test_run_harness_process_attaches_explicit_work_id(
     assert row.work_id == "named-work"
     assert captured["work_id_arg"] == "named-work"
     assert work_store.get_work_item(plan.state_root, "named-work") is not None
-
-

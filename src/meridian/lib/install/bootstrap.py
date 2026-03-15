@@ -6,17 +6,21 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
-from meridian.lib.state.paths import resolve_state_paths
-from meridian.lib.install.config import SourceConfig, SourceManifest
-from meridian.lib.install.config import load_source_manifest, write_source_manifest
+from meridian.lib.install.config import (
+    SourceConfig,
+    SourceManifest,
+    load_source_manifest,
+    write_source_manifest,
+)
 from meridian.lib.install.engine import reconcile_sources
 from meridian.lib.install.lock import (
     InstallLock,
-    state_lock,
     read_lock,
+    state_lock,
     write_lock,
 )
 from meridian.lib.install.types import format_item_id, parse_item_id
+from meridian.lib.state.paths import resolve_state_paths
 
 _BOOTSTRAP_SOURCE_NAME = "meridian-base"
 _BOOTSTRAP_URL = "https://github.com/haowjy/meridian-base.git"
@@ -60,13 +64,13 @@ def plan_bootstrap_assets(
     required_items = tuple(
         item_id
         for item_id in dict.fromkeys(
-            format_item_id("agent", name.strip())
-            for name in agent_names
-            if name.strip()
+            format_item_id("agent", name.strip()) for name in agent_names if name.strip()
         )
     )
     missing_items = tuple(
-        item_id for item_id in required_items if not _agent_profile_path(repo_root, item_id).is_file()
+        item_id
+        for item_id in required_items
+        if not _agent_profile_path(repo_root, item_id).is_file()
     )
     return BootstrapPlan(required_items=required_items, missing_items=missing_items)
 
@@ -116,7 +120,9 @@ def ensure_bootstrap_assets(
         write_lock(state_paths.agents_lock_path, lock)
 
     remaining = tuple(
-        item_id for item_id in plan.missing_items if not _agent_profile_path(repo_root, item_id).is_file()
+        item_id
+        for item_id in plan.missing_items
+        if not _agent_profile_path(repo_root, item_id).is_file()
     )
     if remaining:
         joined = ", ".join(sorted(remaining))

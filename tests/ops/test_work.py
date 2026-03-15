@@ -16,8 +16,8 @@ from meridian.lib.ops.work_lifecycle import (
     WorkUpdateInput,
     work_clear_sync,
     work_done_sync,
-    work_reopen_sync,
     work_rename_sync,
+    work_reopen_sync,
     work_start_sync,
     work_update_sync,
 )
@@ -308,8 +308,12 @@ def test_work_done_archives_scratch_dir_and_work_reopen_restores_it(tmp_path: Pa
     assert (archived_dir / "notes.md").read_text(encoding="utf-8") == "hello"
     assert show_done.work_dir == ".meridian/work-archive/feature-a"
 
-    reopened = work_reopen_sync(WorkReopenInput(work_id=started.name, repo_root=tmp_path.as_posix()))
-    show_reopened = work_show_sync(WorkShowInput(work_id=started.name, repo_root=tmp_path.as_posix()))
+    reopened = work_reopen_sync(
+        WorkReopenInput(work_id=started.name, repo_root=tmp_path.as_posix())
+    )
+    show_reopened = work_show_sync(
+        WorkShowInput(work_id=started.name, repo_root=tmp_path.as_posix())
+    )
 
     assert reopened.status == "open"
     assert not archived_dir.exists()
@@ -319,7 +323,9 @@ def test_work_done_archives_scratch_dir_and_work_reopen_restores_it(tmp_path: Pa
     session_store.stop_session(state_root, chat_id)
 
 
-def test_work_update_status_done_archives_and_done_warning_mentions_active_references(tmp_path: Path) -> None:
+def test_work_update_status_done_archives_and_done_warning_mentions_active_references(
+    tmp_path: Path,
+) -> None:
     state_root = resolve_state_paths(tmp_path).root_dir
     chat_id = session_store.start_session(
         state_root,

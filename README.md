@@ -393,6 +393,7 @@ Writes use lock files plus atomic tmp+rename semantics in the state layer.
 
 ```bash
 uv sync --extra dev
+uv run ruff check .
 uv run pytest-llm
 uv run pyright
 ```

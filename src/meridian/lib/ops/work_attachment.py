@@ -25,6 +25,8 @@ def set_session_work_attachment(
         return False
     session_store.update_session_work_id(state_root, normalized, work_id)
     return True
+
+
 def ensure_explicit_work_item(state_root: Path, work_id: str) -> str:
     """Create-or-attach an explicitly named work item and return its slug."""
 

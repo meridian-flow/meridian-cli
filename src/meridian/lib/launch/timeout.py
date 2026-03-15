@@ -1,6 +1,5 @@
 """Timeout helpers for subprocess execution."""
 
-
 import asyncio
 import signal
 
@@ -36,7 +35,9 @@ async def wait_for_process_returncode(
     if timeout_seconds is not None and timeout_seconds <= 0:
         raise ValueError("timeout_seconds must be > 0 when provided.")
 
-    deadline = None if timeout_seconds is None else asyncio.get_running_loop().time() + timeout_seconds
+    deadline = (
+        None if timeout_seconds is None else asyncio.get_running_loop().time() + timeout_seconds
+    )
     while process.returncode is None:
         if deadline is not None and asyncio.get_running_loop().time() >= deadline:
             assert timeout_seconds is not None

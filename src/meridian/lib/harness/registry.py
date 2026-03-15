@@ -1,19 +1,17 @@
 """Harness registry for built-in and custom adapters."""
 
-
 from pathlib import Path
 from typing import Literal, Self, cast, overload
 
 from pydantic import BaseModel, ConfigDict, PrivateAttr
 
 from meridian.lib.catalog.models import route_model
+from meridian.lib.core.types import HarnessId
 from meridian.lib.harness.adapter import (
     ConversationExtractingHarness,
     InProcessHarness,
     SubprocessHarness,
 )
-from meridian.lib.core.types import HarnessId
-
 
 type HarnessEntry = SubprocessHarness | InProcessHarness
 

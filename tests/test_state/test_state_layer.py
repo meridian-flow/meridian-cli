@@ -1,15 +1,13 @@
 """State-layer tests for file-authoritative stores."""
 
-
 import json
 import multiprocessing
 from pathlib import Path
 
-import pytest
-
-from meridian.lib.state.spawn_store import finalize_spawn, list_spawns, start_spawn
-from meridian.lib.state.paths import resolve_state_paths
 from meridian.lib.core.types import SpawnId
+from meridian.lib.state.paths import resolve_state_paths
+from meridian.lib.state.spawn_store import finalize_spawn, list_spawns, start_spawn
+
 
 def _write_start_and_finalize(repo_root: str, idx: int) -> None:
     root = Path(repo_root)
@@ -33,6 +31,7 @@ def _write_start_and_finalize(repo_root: str, idx: int) -> None:
         duration_secs=0.1,
         finished_at="2026-02-25T00:00:01Z",
     )
+
 
 def test_locking_contention_writes_clean_jsonl(tmp_path: Path) -> None:
     state_root = tmp_path / ".meridian"

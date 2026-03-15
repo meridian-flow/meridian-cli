@@ -7,7 +7,9 @@ def test_discover_items_uses_conventional_layout(tmp_path: Path) -> None:
     tree = tmp_path / "source"
     (tree / "agents").mkdir(parents=True)
     (tree / "skills" / "dev-workflow").mkdir(parents=True)
-    (tree / "agents" / "__meridian-orchestrator.md").write_text("# orchestrator\n", encoding="utf-8")
+    (tree / "agents" / "__meridian-orchestrator.md").write_text(
+        "# orchestrator\n", encoding="utf-8"
+    )
     (tree / "skills" / "dev-workflow" / "SKILL.md").write_text("# workflow\n", encoding="utf-8")
 
     items = discover_items(tree)

@@ -1,17 +1,17 @@
 """Core frozen domain models."""
 
-
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
-from meridian.lib.core.util import FormatContext
+
 from meridian.lib.core.types import (
     ArtifactKey,
     ModelId,
     SpawnId,
 )
+from meridian.lib.core.util import FormatContext
 
 SpawnStatus = Literal["queued", "running", "succeeded", "failed", "cancelled"]
 

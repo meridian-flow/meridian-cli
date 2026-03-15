@@ -2,14 +2,16 @@
 
 from difflib import get_close_matches
 from pathlib import Path
+
 import structlog
 from pydantic import BaseModel, ConfigDict
 
-from meridian.lib.catalog.models import load_merged_aliases, resolve_model
-from meridian.lib.catalog.models import load_discovered_models
+from meridian.lib.catalog.models import load_discovered_models, load_merged_aliases, resolve_model
 from meridian.lib.config.settings import MeridianConfig
-from meridian.lib.harness.registry import HarnessRegistry, get_default_harness_registry
 from meridian.lib.core.context import RuntimeContext
+from meridian.lib.core.types import ModelId
+from meridian.lib.harness.registry import HarnessRegistry, get_default_harness_registry
+from meridian.lib.install.provenance import resolve_runtime_asset_provenance
 from meridian.lib.launch.prompt import (
     compose_run_prompt_text,
     compose_skill_injections,
@@ -18,17 +20,14 @@ from meridian.lib.launch.prompt import (
 from meridian.lib.launch.reference import load_reference_files, parse_template_assignments
 from meridian.lib.launch.resolve import (
     ensure_bootstrap_ready,
-    resolve_profile_path,
     resolve_policies,
+    resolve_profile_path,
     resolve_skill_paths,
     resolve_skills_from_profile,
 )
 from meridian.lib.safety.permissions import (
     resolve_permission_pipeline,
 )
-from meridian.lib.core.types import ModelId
-from meridian.lib.install.provenance import resolve_runtime_asset_provenance
-
 from meridian.lib.utils.time import minutes_to_seconds
 
 from ..runtime import OperationRuntime, build_runtime, resolve_runtime_root_and_config
@@ -123,7 +122,10 @@ def _validate_requested_model(
         resolved = resolve_model(normalized, repo_root=explicit_root)
     except ValueError:
         validation_context = _model_validation_context(normalized, repo_root=explicit_root)
-        message = f"Unknown model '{normalized}'. Spawn `meridian models list` to inspect supported models."
+        message = (
+            f"Unknown model '{normalized}'. Spawn `meridian models list` "
+            "to inspect supported models."
+        )
         if validation_context:
             message = f"{message}\n{validation_context}"
         raise ValueError(message) from None
@@ -196,7 +198,9 @@ def build_create_payload(
     profile = policies.profile
 
     # Merge profile skills with ad-hoc CLI --skills entries, deduplicating.
-    merged_skill_names = dedupe_skill_names((*policies.resolved_skills.skill_names, *payload.skills))
+    merged_skill_names = dedupe_skill_names(
+        (*policies.resolved_skills.skill_names, *payload.skills)
+    )
     if payload.skills:
         resolved_skills = resolve_skills_from_profile(
             profile_skills=merged_skill_names,

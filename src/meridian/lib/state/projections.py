@@ -12,15 +12,19 @@ from meridian.lib.state.event_store import read_events
 from meridian.lib.state.paths import StateRootPaths
 from meridian.lib.state.session_store import (
     SessionRecord,
-    _parse_event as _parse_session_event,
     _records_by_session,
+)
+from meridian.lib.state.session_store import (
+    _parse_event as _parse_session_event,
 )
 from meridian.lib.state.spawn_store import (
     SpawnEvent,
     SpawnRecord,
-    _parse_event as _parse_spawn_event,
     _record_from_events,
     _spawn_sort_key,
+)
+from meridian.lib.state.spawn_store import (
+    _parse_event as _parse_spawn_event,
 )
 from meridian.lib.state.work_store import WorkItem, list_work_items
 
@@ -170,7 +174,9 @@ class SpawnIndex:
                     ),
                     "status": event.status,
                     "prompt": event.prompt if event.prompt is not None else current.prompt,
-                    "started_at": event.started_at if event.started_at is not None else current.started_at,
+                    "started_at": event.started_at
+                    if event.started_at is not None
+                    else current.started_at,
                 }
             )
         elif event.event == "update":
@@ -204,24 +210,38 @@ class SpawnIndex:
             updated = current.model_copy(
                 update={
                     "status": event.status if event.status is not None else current.status,
-                    "finished_at": event.finished_at if event.finished_at is not None else current.finished_at,
-                    "exit_code": event.exit_code if event.exit_code is not None else current.exit_code,
+                    "finished_at": event.finished_at
+                    if event.finished_at is not None
+                    else current.finished_at,
+                    "exit_code": event.exit_code
+                    if event.exit_code is not None
+                    else current.exit_code,
                     "duration_secs": (
-                        event.duration_secs if event.duration_secs is not None else current.duration_secs
+                        event.duration_secs
+                        if event.duration_secs is not None
+                        else current.duration_secs
                     ),
                     "total_cost_usd": (
-                        event.total_cost_usd if event.total_cost_usd is not None else current.total_cost_usd
+                        event.total_cost_usd
+                        if event.total_cost_usd is not None
+                        else current.total_cost_usd
                     ),
                     "input_tokens": (
-                        event.input_tokens if event.input_tokens is not None else current.input_tokens
+                        event.input_tokens
+                        if event.input_tokens is not None
+                        else current.input_tokens
                     ),
                     "output_tokens": (
-                        event.output_tokens if event.output_tokens is not None else current.output_tokens
+                        event.output_tokens
+                        if event.output_tokens is not None
+                        else current.output_tokens
                     ),
                     "error": (
                         None
                         if event.status == "succeeded"
-                        else event.error if event.error is not None else current.error
+                        else event.error
+                        if event.error is not None
+                        else current.error
                     ),
                 }
             )
@@ -303,8 +323,11 @@ class SessionIndex:
         if event.event == "stop":
             self._by_chat_id[event.chat_id] = existing.model_copy(
                 update={
-                    "stopped_at": event.stopped_at if event.stopped_at is not None else existing.stopped_at,
-                    "session_instance_id": event.session_instance_id or existing.session_instance_id,
+                    "stopped_at": event.stopped_at
+                    if event.stopped_at is not None
+                    else existing.stopped_at,
+                    "session_instance_id": event.session_instance_id
+                    or existing.session_instance_id,
                 }
             )
             return

@@ -6,7 +6,7 @@ import asyncio
 import threading
 import time
 from collections.abc import AsyncIterator, Iterator
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import asynccontextmanager, contextmanager, suppress
 from pathlib import Path
 
 from meridian.lib.state.atomic import atomic_write_text
@@ -34,10 +34,8 @@ async def heartbeat_scope(path: Path, *, interval_secs: int = 30) -> AsyncIterat
         yield
     finally:
         task.cancel()
-        try:
+        with suppress(BaseException):
             await task
-        except BaseException:
-            pass
 
 
 @contextmanager

@@ -16,12 +16,13 @@ from typing import Literal
 
 import structlog
 
+from meridian.lib.core.domain import SpawnStatus
 from meridian.lib.core.spawn_lifecycle import (
     has_durable_report_completion,
     is_active_spawn_status,
     resolve_reconciled_terminal_state,
 )
-from meridian.lib.core.domain import SpawnStatus
+from meridian.lib.core.types import SpawnId
 from meridian.lib.state.spawn_store import (
     BACKGROUND_LAUNCH_MODE,
     FOREGROUND_LAUNCH_MODE,
@@ -30,7 +31,6 @@ from meridian.lib.state.spawn_store import (
     finalize_spawn,
     mark_spawn_running,
 )
-from meridian.lib.core.types import SpawnId
 
 logger = structlog.get_logger(__name__)
 
@@ -56,7 +56,7 @@ def _read_pid_file(spawn_dir: Path, filename: str) -> int | None:
 def _get_boot_time() -> float:
     """Read system boot time from /proc/stat (Linux only)."""
     try:
-        with open("/proc/stat", "r") as f:
+        with open("/proc/stat") as f:
             for line in f:
                 if line.startswith("btime "):
                     return float(line.split()[1])
@@ -132,7 +132,14 @@ def _started_at_epoch(started_at: str | None) -> float | None:
 
 
 def _recent_spawn_activity(spawn_dir: Path, *, now: float) -> bool:
-    for name in ("output.jsonl", "stderr.log", "report.md", "prompt.md", "params.json", "heartbeat"):
+    for name in (
+        "output.jsonl",
+        "stderr.log",
+        "report.md",
+        "prompt.md",
+        "params.json",
+        "heartbeat",
+    ):
         path = spawn_dir / name
         try:
             if now - path.stat().st_mtime < _STARTUP_GRACE_SECS:
@@ -140,8 +147,6 @@ def _recent_spawn_activity(spawn_dir: Path, *, now: float) -> bool:
         except OSError:
             continue
     return False
-
-
 
 
 def _startup_grace_elapsed(record: SpawnRecord, spawn_dir: Path, *, now: float) -> bool:
@@ -209,7 +214,9 @@ class _SpawnInspection:
     stale: bool = False
 
 
-def _inspect_spawn_runtime(state_root: Path, record: SpawnRecord, *, now: float) -> _SpawnInspection:
+def _inspect_spawn_runtime(
+    state_root: Path, record: SpawnRecord, *, now: float
+) -> _SpawnInspection:
     spawn_dir = state_root / "spawns" / record.id
     launch_mode = _resolve_launch_mode(record, spawn_dir)
     spawn_dir_exists = spawn_dir.exists()
@@ -224,7 +231,9 @@ def _inspect_spawn_runtime(state_root: Path, record: SpawnRecord, *, now: float)
 
     if spawn_dir_exists:
         if launch_mode == BACKGROUND_LAUNCH_MODE:
-            wrapper_pid = record.wrapper_pid if record.wrapper_pid and record.wrapper_pid > 0 else None
+            wrapper_pid = (
+                record.wrapper_pid if record.wrapper_pid and record.wrapper_pid > 0 else None
+            )
             if wrapper_pid is None:
                 wrapper_pid = _read_pid_file(spawn_dir, "background.pid")
             if wrapper_pid is not None:
@@ -244,7 +253,9 @@ def _inspect_spawn_runtime(state_root: Path, record: SpawnRecord, *, now: float)
             else "harness.pid"
         )
         pid_anchor = spawn_dir / pid_anchor_name
-        if pid_anchor.exists() or any((spawn_dir / name).exists() for name in ("output.jsonl", "stderr.log")):
+        if pid_anchor.exists() or any(
+            (spawn_dir / name).exists() for name in ("output.jsonl", "stderr.log")
+        ):
             stale = _spawn_is_stale(spawn_dir, pid_anchor)
 
     return _SpawnInspection(
@@ -391,10 +402,7 @@ def _reconcile_background_spawn(state_root: Path, inspection: _SpawnInspection) 
         return record  # Harness still active — may still produce a report.
 
     # Wrapper alive — it will finalize. Just sync PID metadata.
-    if (
-        inspection.wrapper_pid == record.wrapper_pid
-        and inspection.harness_pid == record.worker_pid
-    ):
+    if inspection.wrapper_pid == record.wrapper_pid and inspection.harness_pid == record.worker_pid:
         return record
     return _mark_running(
         state_root,
@@ -450,7 +458,11 @@ def _reconcile_legacy_spawn(state_root: Path, inspection: _SpawnInspection) -> S
     if not inspection.spawn_dir_exists and inspection.grace_elapsed:
         return _finalize_failed(state_root, record, "missing_spawn_dir")
     if inspection.spawn_dir_exists:
-        if inspection.wrapper_pid is None and inspection.harness_pid is None and inspection.grace_elapsed:
+        if (
+            inspection.wrapper_pid is None
+            and inspection.harness_pid is None
+            and inspection.grace_elapsed
+        ):
             return _finalize_failed(state_root, record, "missing_worker_pid")
         if has_durable_report_completion(inspection.report_text):
             if not inspection.wrapper_alive and not inspection.harness_alive:

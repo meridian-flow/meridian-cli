@@ -1,6 +1,5 @@
 """Config file management operations."""
 
-
 import json
 import os
 import tempfile
@@ -10,18 +9,16 @@ from typing import Literal, cast
 
 from pydantic import BaseModel, ConfigDict
 
-from meridian.lib.config.settings import resolve_repo_root
 from meridian.lib.config.settings import (
+    USER_CONFIG_ENV_VAR,
     MeridianConfig,
     PrimaryConfig,
-    USER_CONFIG_ENV_VAR,
     load_config,
+    resolve_repo_root,
 )
-from meridian.lib.core.util import FormatContext
-from meridian.lib.core.util import to_jsonable
+from meridian.lib.core.util import FormatContext, to_jsonable
 from meridian.lib.ops.runtime import async_from_sync
 from meridian.lib.state.paths import ensure_gitignore, resolve_state_paths
-
 
 _SECTION_ORDER: tuple[str, ...] = ("defaults", "timeouts", "harness", "output")
 _OUTPUT_VERBOSITY_PRESETS = frozenset({"quiet", "normal", "verbose", "debug"})
@@ -447,18 +444,14 @@ def _parse_cli_value(spec: _ConfigKeySpec, raw_value: str) -> object:
                     f"Invalid TOML array for '{spec.canonical_key}': {raw_value!r}."
                 ) from error
             if not isinstance(parsed_obj, list):
-                raise ValueError(
-                    f"Invalid value for '{spec.canonical_key}': expected array[str]."
-                )
+                raise ValueError(f"Invalid value for '{spec.canonical_key}': expected array[str].")
             items = [str(item).strip() for item in cast("list[object]", parsed_obj)]
         else:
             items = [part.strip() for part in normalized.split(",")]
 
         filtered = [item for item in items if item]
         if not filtered:
-            raise ValueError(
-                f"Invalid value for '{spec.canonical_key}': expected non-empty items."
-            )
+            raise ValueError(f"Invalid value for '{spec.canonical_key}': expected non-empty items.")
         return tuple(filtered)
 
     if not normalized:
@@ -613,10 +606,7 @@ def _scaffold_template() -> str:
         "# Delay multiplier between retries in seconds (float).",
         f"# retry_backoff_seconds = {defaults['defaults.retry_backoff_seconds']}",
         "# Profile name for the primary agent (str).",
-        (
-            "# primary_agent = "
-            f"{_toml_literal(cast('str', defaults['defaults.primary_agent']))}"
-        ),
+        (f"# primary_agent = {_toml_literal(cast('str', defaults['defaults.primary_agent']))}"),
         "# Profile name for the default non-primary agent (str).",
         f"# agent = {_toml_literal(cast('str', defaults['defaults.agent']))}",
         "# Default model for spawns when --model and profile model are both unset",
@@ -666,10 +656,9 @@ def _scaffold_template() -> str:
         f"# show = {_toml_literal(cast('tuple[str, ...]', output_show))}",
         "# Output verbosity preset (str; valid: quiet, normal, verbose, debug).",
         (
-            "# verbosity = "
-            f"{_toml_literal(output_verbosity)}"
+            f"# verbosity = {_toml_literal(output_verbosity)}"
             if isinstance(output_verbosity, str)
-            else "# verbosity = \"normal\"  # example override; default is unset"
+            else '# verbosity = "normal"  # example override; default is unset'
         ),
         "",
     ]
@@ -700,9 +689,7 @@ def config_show_sync(payload: ConfigShowInput) -> ConfigShowOutput:
     project_overrides = _extract_file_overrides(_read_file_payload(path))
     user_path = _user_config_path_from_env()
     user_overrides = (
-        _extract_file_overrides(_read_file_payload(user_path))
-        if user_path is not None
-        else {}
+        _extract_file_overrides(_read_file_payload(user_path)) if user_path is not None else {}
     )
 
     resolved_config = load_config(repo_root)
@@ -758,9 +745,7 @@ def config_get_sync(payload: ConfigGetInput) -> ConfigGetOutput:
     project_overrides = _extract_file_overrides(_read_file_payload(path))
     user_path = _user_config_path_from_env()
     user_overrides = (
-        _extract_file_overrides(_read_file_payload(user_path))
-        if user_path is not None
-        else {}
+        _extract_file_overrides(_read_file_payload(user_path)) if user_path is not None else {}
     )
     source, env_var = _source_for_key(
         spec,

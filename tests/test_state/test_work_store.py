@@ -6,8 +6,8 @@ from meridian.lib.state.work_store import (
     archive_work_item,
     create_work_item,
     get_work_item,
-    reopen_work_item,
     rename_work_item,
+    reopen_work_item,
     slugify,
 )
 

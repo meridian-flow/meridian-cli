@@ -3,12 +3,13 @@ import os
 import signal
 import sys
 import textwrap
+from contextlib import suppress
 from pathlib import Path
 
 import pytest
 
 from meridian.lib.core.domain import Spawn, TokenUsage
-from meridian.lib.launch.runner import execute_with_finalization
+from meridian.lib.core.types import HarnessId, ModelId, SpawnId
 from meridian.lib.harness.adapter import ArtifactStore as HarnessArtifactStore
 from meridian.lib.harness.adapter import (
     BaseSubprocessHarness,
@@ -22,12 +23,12 @@ from meridian.lib.harness.common import (
     extract_usage_from_artifacts,
 )
 from meridian.lib.harness.registry import HarnessRegistry
+from meridian.lib.launch.runner import execute_with_finalization
 from meridian.lib.ops.spawn.plan import ExecutionPolicy, PreparedSpawnPlan, SessionContinuation
 from meridian.lib.safety.permissions import PermissionConfig, TieredPermissionResolver
 from meridian.lib.state import spawn_store
 from meridian.lib.state.artifact_store import LocalStore
 from meridian.lib.state.paths import resolve_state_paths
-from meridian.lib.core.types import HarnessId, ModelId, SpawnId
 
 
 class ReportScriptHarnessAdapter(BaseSubprocessHarness):
@@ -137,7 +138,15 @@ async def test_execute_finalizes_when_descendant_keeps_stdio_open(tmp_path: Path
         )
         sleeper_pid_path.write_text(str(sleeper.pid), encoding="utf-8")
         report_path.write_text("# Complete\\n", encoding="utf-8")
-        print(json.dumps({{"type": "response.completed", "tokens": {{"input_tokens": 3, "output_tokens": 5}}}}), flush=True)
+        print(
+            json.dumps(
+                {{
+                    "type": "response.completed",
+                    "tokens": {{"input_tokens": 3, "output_tokens": 5}},
+                }}
+            ),
+            flush=True,
+        )
         os._exit(0)
         """,
     )
@@ -169,10 +178,8 @@ async def test_execute_finalizes_when_descendant_keeps_stdio_open(tmp_path: Path
     finally:
         if sleeper_pid_path.exists():
             sleeper_pid = int(sleeper_pid_path.read_text(encoding="utf-8").strip())
-            try:
+            with suppress(ProcessLookupError):
                 os.kill(sleeper_pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
 
     assert exit_code == 0
     row = spawn_store.get_spawn(state_root, run.spawn_id)

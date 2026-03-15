@@ -3,8 +3,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import pytest
-
 from pydantic import BaseModel
 
 from meridian.lib.state.event_store import (
@@ -112,7 +110,9 @@ def test_read_events_returns_empty_when_file_missing(tmp_path: Path) -> None:
 
 def test_read_events_handles_many_lines(tmp_path: Path) -> None:
     data_path = tmp_path / "many.jsonl"
-    lines = [json.dumps({"id": i, "kind": "tick"}, separators=(",", ":")) + "\n" for i in range(150)]
+    lines = [
+        json.dumps({"id": i, "kind": "tick"}, separators=(",", ":")) + "\n" for i in range(150)
+    ]
     _write_lines(data_path, lines)
 
     rows = read_events(data_path, _parse_read_event)

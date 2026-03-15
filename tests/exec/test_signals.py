@@ -1,25 +1,18 @@
-
 import asyncio
-from contextlib import contextmanager
 import os
 import signal
 import subprocess
 import sys
 import textwrap
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from typing import cast
 
 import pytest
 
 from meridian.lib.core.domain import Spawn, TokenUsage
-from meridian.lib.launch.signals import (
-    SignalCoordinator,
-    SignalForwarder,
-    map_process_exit_code,
-    signal_to_exit_code,
-)
-from meridian.lib.launch.runner import execute_with_finalization
+from meridian.lib.core.types import HarnessId, ModelId, SpawnId
 from meridian.lib.harness.adapter import ArtifactStore as HarnessArtifactStore
 from meridian.lib.harness.adapter import (
     HarnessCapabilities,
@@ -27,12 +20,18 @@ from meridian.lib.harness.adapter import (
     SpawnParams,
 )
 from meridian.lib.harness.registry import HarnessRegistry
+from meridian.lib.launch.runner import execute_with_finalization
+from meridian.lib.launch.signals import (
+    SignalCoordinator,
+    SignalForwarder,
+    map_process_exit_code,
+    signal_to_exit_code,
+)
 from meridian.lib.ops.spawn.plan import ExecutionPolicy, PreparedSpawnPlan, SessionContinuation
 from meridian.lib.safety.permissions import PermissionConfig, TieredPermissionResolver
 from meridian.lib.state import spawn_store
 from meridian.lib.state.artifact_store import LocalStore
 from meridian.lib.state.paths import resolve_state_paths
-from meridian.lib.core.types import HarnessId, ModelId, SpawnId
 
 
 class MockHarnessAdapter:
@@ -330,8 +329,19 @@ def test_kill_running_parent_process_still_finalizes_run(
                     _ = (artifacts, spawn_id)
                     return TokenUsage()
 
-                def extract_session_id(self, artifacts: ArtifactStore, spawn_id: SpawnId) -> str | None:
+                def extract_session_id(
+                    self, artifacts: ArtifactStore, spawn_id: SpawnId
+                ) -> str | None:
                     _ = (artifacts, spawn_id)
+                    return None
+
+                def detect_primary_session_id(
+                    self,
+                    repo_root: Path,
+                    started_at_epoch: float,
+                    started_at_local_iso: str | None = None,
+                ) -> str | None:
+                    _ = (repo_root, started_at_epoch, started_at_local_iso)
                     return None
 
             class NoopResolver:
@@ -347,7 +357,9 @@ def test_kill_running_parent_process_still_finalizes_run(
                     model=ModelId("gpt-5.3-codex"),
                     status="queued",
                 )
-                artifacts = LocalStore(root_dir=Path("{(tmp_path / '.artifacts-worker').as_posix()}"))
+                artifacts = LocalStore(
+                    root_dir=Path("{(tmp_path / ".artifacts-worker").as_posix()}")
+                )
                 registry = HarnessRegistry()
                 registry.register(WorkerAdapter())
                 plan = PreparedSpawnPlan(

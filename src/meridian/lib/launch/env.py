@@ -1,9 +1,8 @@
 """Child-process environment helpers shared by launch and spawn paths."""
 
-
-from collections.abc import Collection, Mapping
+from collections.abc import Callable, Collection, Mapping
 from pathlib import Path
-from typing import Callable, cast
+from typing import cast
 
 from meridian.lib.harness.adapter import SpawnParams, SubprocessHarness, resolve_mcp_config
 from meridian.lib.safety.permissions import PermissionConfig
@@ -91,9 +90,7 @@ def inherit_child_env(
     """Return an inherited child environment with targeted non-propagation."""
 
     blocked_keys = {name.upper() for name in blocked}
-    inherited = {
-        key: value for key, value in base_env.items() if key.upper() not in blocked_keys
-    }
+    inherited = {key: value for key, value in base_env.items() if key.upper() not in blocked_keys}
     if env_overrides is not None:
         inherited.update(env_overrides)
     _normalize_meridian_env(inherited)
@@ -136,9 +133,9 @@ def build_harness_child_env(
     blocked_child_env_vars = getattr(adapter, "blocked_child_env_vars", None)
     adapter_blocked: frozenset[str]
     if callable(blocked_child_env_vars):
-        adapter_blocked = cast(Callable[[], frozenset[str]], blocked_child_env_vars)()
+        adapter_blocked = cast("Callable[[], frozenset[str]]", blocked_child_env_vars)()
     else:
-        adapter_blocked = cast(frozenset[str], frozenset())
+        adapter_blocked = cast("frozenset[str]", frozenset())
     return inherit_child_env(
         base_env=base_env,
         env_overrides=merged_env,

@@ -11,7 +11,7 @@ from meridian.lib.install.engine import PlannedSourceItem
 class ConflictResolution:
     """Result of resolving a destination collision."""
 
-    __slots__ = ("skip", "rename_to")
+    __slots__ = ("rename_to", "skip")
 
     def __init__(self, *, skip: bool = False, rename_to: str | None = None) -> None:
         self.skip = skip
@@ -52,12 +52,14 @@ def resolve_destination_conflicts(
             new_renames[planned.item_key] = override_name
             repo_root = planned.destination_path.parents[2]  # .agents/agents/name.md → repo_root
             new_dest = _destination_path(repo_root, planned.item_kind, override_name)
-            resolved_items.append(PlannedSourceItem(
-                source_name=planned.source_name,
-                item=planned.item,
-                destination_name=override_name,
-                destination_path=new_dest,
-            ))
+            resolved_items.append(
+                PlannedSourceItem(
+                    source_name=planned.source_name,
+                    item=planned.item,
+                    destination_name=override_name,
+                    destination_path=new_dest,
+                )
+            )
             other_destinations[new_dest.as_posix()] = planned.item_key
             continue
 
@@ -73,12 +75,14 @@ def resolve_destination_conflicts(
                 new_renames[planned.item_key] = resolution.rename_to
                 repo_root = planned.destination_path.parents[2]
                 new_dest = _destination_path(repo_root, planned.item_kind, resolution.rename_to)
-                resolved_items.append(PlannedSourceItem(
-                    source_name=planned.source_name,
-                    item=planned.item,
-                    destination_name=resolution.rename_to,
-                    destination_path=new_dest,
-                ))
+                resolved_items.append(
+                    PlannedSourceItem(
+                        source_name=planned.source_name,
+                        item=planned.item,
+                        destination_name=resolution.rename_to,
+                        destination_path=new_dest,
+                    )
+                )
                 other_destinations[new_dest.as_posix()] = planned.item_key
                 continue
 

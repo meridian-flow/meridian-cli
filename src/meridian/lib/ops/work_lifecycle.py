@@ -9,7 +9,12 @@ from pydantic import BaseModel, ConfigDict
 from meridian.lib.core.context import RuntimeContext
 from meridian.lib.core.spawn_lifecycle import is_active_spawn_status
 from meridian.lib.core.util import FormatContext
-from meridian.lib.ops.runtime import async_from_sync, resolve_chat_id, resolve_roots, runtime_context
+from meridian.lib.ops.runtime import (
+    async_from_sync,
+    resolve_chat_id,
+    resolve_roots,
+    runtime_context,
+)
 from meridian.lib.ops.work_attachment import set_session_work_attachment
 from meridian.lib.ops.work_dashboard import work_dir_display
 from meridian.lib.state import session_store, spawn_store, work_store
@@ -208,7 +213,8 @@ def work_start_sync(
     if existing is not None:
         if existing.status == "done":
             raise ValueError(
-                f"Work item '{existing.name}' is done. Use `meridian work reopen {existing.name}` first."
+                f"Work item '{existing.name}' is done. "
+                f"Use `meridian work reopen {existing.name}` first."
             )
         item = existing
     else:
@@ -251,7 +257,8 @@ def work_update_sync(
         )
     if current.status == "done" and payload.status is not None:
         raise ValueError(
-            f"Work item '{payload.work_id}' is done. Use `meridian work reopen {payload.work_id}` first."
+            f"Work item '{payload.work_id}' is done. "
+            f"Use `meridian work reopen {payload.work_id}` first."
         )
     item = work_store.update_work_item(
         state_root,
@@ -360,10 +367,10 @@ __all__ = [
     "WorkClearInput",
     "WorkClearOutput",
     "WorkDoneInput",
-    "WorkReopenInput",
-    "WorkReopenOutput",
     "WorkRenameInput",
     "WorkRenameOutput",
+    "WorkReopenInput",
+    "WorkReopenOutput",
     "WorkStartInput",
     "WorkStartOutput",
     "WorkSwitchInput",

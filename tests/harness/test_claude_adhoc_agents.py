@@ -50,7 +50,9 @@ def test_claude_command_includes_adhoc_agents_payload() -> None:
     assert "reviewer" in command
     assert "--agents" in command
     agents_index = command.index("--agents")
-    assert json.loads(command[agents_index + 1])["reviewer"]["prompt"] == "You review code carefully."
+    assert (
+        json.loads(command[agents_index + 1])["reviewer"]["prompt"] == "You review code carefully."
+    )
 
 
 def test_non_claude_adapter_returns_empty_adhoc_agent_payload() -> None:

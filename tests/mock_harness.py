@@ -1,6 +1,5 @@
 """Configurable mock harness process used by integration tests."""
 
-
 import argparse
 import json
 import os

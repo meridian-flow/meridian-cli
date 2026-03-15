@@ -1,16 +1,16 @@
 """Spawn report extraction from assistant output with report.md preference."""
 
-
 import json
 import logging
 from typing import Literal, cast
 
 from pydantic import BaseModel, ConfigDict
 
-from .artifact_io import read_artifact_text
+from meridian.lib.core.types import SpawnId
 from meridian.lib.harness.adapter import SubprocessHarness
 from meridian.lib.state.artifact_store import ArtifactStore
-from meridian.lib.core.types import SpawnId
+
+from .artifact_io import read_artifact_text
 
 ReportSource = Literal["report_md", "assistant_message"]
 _LOGGER = logging.getLogger(__name__)

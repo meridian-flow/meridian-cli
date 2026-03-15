@@ -9,13 +9,13 @@ from .command import (
     build_launch_env,
     normalize_system_prompt_passthrough_args,
 )
-from .process import (
-    ProcessOutcome,
-    run_harness_process,
-)
 from .plan import (
     ResolvedPrimaryLaunchPlan,
     resolve_primary_launch_plan,
+)
+from .process import (
+    ProcessOutcome,
+    run_harness_process,
 )
 from .resolve import (
     ResolvedPolicies,
@@ -62,10 +62,10 @@ def launch_primary(
 __all__ = [
     "LaunchRequest",
     "LaunchResult",
-    "ResolvedPrimaryLaunchPlan",
     "PrimarySessionMetadata",
     "ProcessOutcome",
     "ResolvedPolicies",
+    "ResolvedPrimaryLaunchPlan",
     "ResolvedSkills",
     "build_harness_command",
     "build_launch_env",

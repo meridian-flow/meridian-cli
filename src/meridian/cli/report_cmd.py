@@ -1,6 +1,5 @@
 """CLI command handlers for report.* operations."""
 
-
 import sys
 from collections.abc import Callable
 from functools import partial

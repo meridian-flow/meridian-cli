@@ -1,16 +1,15 @@
 """Spawn operations used by CLI, MCP, and DirectAdapter surfaces."""
 
-
 import asyncio
 import os
 import signal
 import time
+from contextlib import suppress
 from pathlib import Path
 
 from meridian.lib.core.context import RuntimeContext
-from meridian.lib.core.spawn_lifecycle import ACTIVE_SPAWN_STATUSES, is_active_spawn_status
 from meridian.lib.core.sink import NullSink, OutputSink
-from meridian.lib.utils.time import minutes_to_seconds
+from meridian.lib.core.spawn_lifecycle import ACTIVE_SPAWN_STATUSES, is_active_spawn_status
 from meridian.lib.ops.runtime import (
     build_runtime_from_root_and_config,
     resolve_runtime_root_and_config,
@@ -18,6 +17,7 @@ from meridian.lib.ops.runtime import (
     runtime_context,
 )
 from meridian.lib.state import spawn_store
+from meridian.lib.utils.time import minutes_to_seconds
 
 from .execute import (
     depth_exceeded_output,
@@ -134,6 +134,7 @@ def spawn_list_sync(
     _ = (ctx, sink)
     repo_root, _ = resolve_runtime_root_and_config(payload.repo_root)
     from meridian.lib.state.reaper import reconcile_spawns
+
     state_root = resolve_state_root(repo_root)
     spawns = list(reversed(reconcile_spawns(state_root, spawn_store.list_spawns(state_root))))
 
@@ -204,6 +205,7 @@ def spawn_stats_sync(
     _ = (ctx, sink)
     repo_root, _ = resolve_runtime_root_and_config(payload.repo_root)
     from meridian.lib.state.reaper import reconcile_spawns
+
     state_root = resolve_state_root(repo_root)
     spawns = reconcile_spawns(state_root, spawn_store.list_spawns(state_root))
     if payload.session is not None and payload.session.strip():
@@ -386,10 +388,8 @@ def spawn_cancel_sync(
         )
     pid = _resolve_cancel_pid(state_root, row)
     if pid is not None:
-        try:
+        with suppress(ProcessLookupError):
             os.kill(pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
 
     finalized = spawn_store.finalize_spawn(
         state_root,
@@ -478,7 +478,9 @@ def _build_wait_multi_output(results: tuple[SpawnDetailOutput, ...]) -> SpawnWai
     )
 
 
-def _resolve_wait_heartbeat_mode(*, verbose: bool, quiet: bool, config_verbosity: str | None) -> str:
+def _resolve_wait_heartbeat_mode(
+    *, verbose: bool, quiet: bool, config_verbosity: str | None
+) -> str:
     if quiet:
         return "quiet"
     if verbose:
@@ -515,11 +517,17 @@ def spawn_wait_sync(
     active_sink = sink or NullSink()
     repo_root, config = resolve_runtime_root_and_config(payload.repo_root)
     spawn_ids = resolve_spawn_references(repo_root, _normalize_wait_spawn_ids(payload))
-    timeout_minutes = payload.timeout if payload.timeout is not None else config.wait_timeout_minutes
+    timeout_minutes = (
+        payload.timeout if payload.timeout is not None else config.wait_timeout_minutes
+    )
     timeout_seconds = minutes_to_seconds(timeout_minutes) or 0.0
     started = time.monotonic()
     deadline = started + max(timeout_seconds, 0.0)
-    poll = payload.poll_interval_secs if payload.poll_interval_secs is not None else config.retry_backoff_seconds
+    poll = (
+        payload.poll_interval_secs
+        if payload.poll_interval_secs is not None
+        else config.retry_backoff_seconds
+    )
     if poll <= 0:
         poll = config.retry_backoff_seconds
 

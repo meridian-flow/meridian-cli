@@ -1,6 +1,5 @@
 """Shared launch-time resolution helpers for launch orchestration."""
 
-
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -8,9 +7,10 @@ from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.catalog.agent import AgentProfile, load_agent_profile
 from meridian.lib.catalog.models import route_model
-from meridian.lib.config.settings import MeridianConfig
 from meridian.lib.catalog.skill import SkillRegistry
+from meridian.lib.config.settings import MeridianConfig
 from meridian.lib.core.domain import SkillContent
+from meridian.lib.core.types import HarnessId, ModelId
 from meridian.lib.harness.adapter import SubprocessHarness
 from meridian.lib.harness.registry import HarnessRegistry
 from meridian.lib.install.bootstrap import (
@@ -19,8 +19,8 @@ from meridian.lib.install.bootstrap import (
     plan_bootstrap_assets,
     planned_bootstrap_agent_names,
 )
+
 from .prompt import dedupe_skill_names, load_skill_contents
-from meridian.lib.core.types import HarnessId, ModelId
 
 
 def load_agent_profile_with_fallback(
@@ -177,8 +177,7 @@ def resolve_harness(
     if override_harness not in supported_primary_set:
         supported_text = ", ".join(str(harness_id) for harness_id in supported_primary_harnesses)
         raise ValueError(
-            f"Unsupported harness '{normalized_override}'. "
-            f"Expected one of: {supported_text}."
+            f"Unsupported harness '{normalized_override}'. Expected one of: {supported_text}."
         )
     if override_harness != routed_harness_id:
         message = (
@@ -240,8 +239,7 @@ def resolve_policies(
     except (KeyError, TypeError) as exc:
         supported = ", ".join(str(harness) for harness in harness_registry.ids())
         raise ValueError(
-            f"Unknown or unsupported harness '{harness_id}'. "
-            f"Available harnesses: {supported}"
+            f"Unknown or unsupported harness '{harness_id}'. Available harnesses: {supported}"
         ) from exc
 
     if not resolved_model:
@@ -293,8 +291,8 @@ __all__ = [
     "ensure_bootstrap_ready",
     "load_agent_profile_with_fallback",
     "resolve_harness",
-    "resolve_profile_path",
     "resolve_policies",
+    "resolve_profile_path",
     "resolve_skill_paths",
     "resolve_skills_from_profile",
 ]

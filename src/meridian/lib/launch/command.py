@@ -51,7 +51,9 @@ def build_launch_env(
     resolved_chat_id = (
         chat_id.strip() if chat_id is not None and chat_id.strip() else current_context.chat_id
     )
-    resolved_work_id = work_id.strip() if work_id is not None and work_id.strip() else current_context.work_id
+    resolved_work_id = (
+        work_id.strip() if work_id is not None and work_id.strip() else current_context.work_id
+    )
     runtime_context = RuntimeContext(
         depth=current_context.depth,
         repo_root=repo_root.resolve(),
@@ -63,9 +65,7 @@ def build_launch_env(
     if spawn_id is not None and spawn_id.strip():
         env_overrides["MERIDIAN_SPAWN_ID"] = spawn_id.strip()
     autocompact_pct = (
-        request.autocompact
-        if request.autocompact is not None
-        else default_autocompact_pct
+        request.autocompact if request.autocompact is not None else default_autocompact_pct
     )
     if autocompact_pct is not None:
         env_overrides["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"] = str(autocompact_pct)

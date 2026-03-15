@@ -1,11 +1,11 @@
 """CLI command handler for standalone doctor operation."""
 
-
 from collections.abc import Callable
 from functools import partial
 from typing import Any
 
 from cyclopts import App
+
 from meridian.cli.registration import register_manifest_cli_group
 from meridian.lib.ops.diag import DoctorInput, doctor_sync
 

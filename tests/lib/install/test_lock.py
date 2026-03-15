@@ -1,7 +1,13 @@
 from pathlib import Path
 
-from meridian.lib.install.lock import LockedInstalledItem, LockedSourceItem, LockedSourceRecord
-from meridian.lib.install.lock import InstallLock, read_lock, write_lock
+from meridian.lib.install.lock import (
+    InstallLock,
+    LockedInstalledItem,
+    LockedSourceItem,
+    LockedSourceRecord,
+    read_lock,
+    write_lock,
+)
 
 
 def test_write_lock_roundtrip(tmp_path: Path) -> None:

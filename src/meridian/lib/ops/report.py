@@ -1,13 +1,16 @@
 """Report operations for spawn-scoped report files."""
 
-
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.core.context import RuntimeContext
 from meridian.lib.core.util import FormatContext
-from meridian.lib.ops.runtime import async_from_sync, resolve_runtime_root_and_config, runtime_context
+from meridian.lib.ops.runtime import (
+    async_from_sync,
+    resolve_runtime_root_and_config,
+    runtime_context,
+)
 from meridian.lib.ops.spawn.query import resolve_spawn_reference
 from meridian.lib.state import spawn_store
 from meridian.lib.state.atomic import atomic_write_text
@@ -194,7 +197,8 @@ def report_search_sync(
         spawn_ids = (resolve_spawn_reference(repo_root, str(resolved_ctx.spawn_id)),)
     else:
         spawn_ids = tuple(
-            row.id for row in reversed(spawn_store.list_spawns(resolve_state_paths(repo_root).root_dir))
+            row.id
+            for row in reversed(spawn_store.list_spawns(resolve_state_paths(repo_root).root_dir))
         )
 
     matches: list[ReportSearchResult] = []

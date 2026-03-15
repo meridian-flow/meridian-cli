@@ -11,9 +11,13 @@ from typing import cast
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from meridian.lib.install.types import (
+    SourceKind,
+    normalize_required_string,
+    parse_item_id,
+    validate_source_name,
+)
 from meridian.lib.state.atomic import atomic_write_text
-from meridian.lib.install.types import SourceKind, normalize_required_string, parse_item_id
-from meridian.lib.install.types import validate_source_name
 
 
 class LockedSourceItem(BaseModel):
@@ -63,7 +67,7 @@ class LockedSourceRecord(BaseModel):
         return value
 
     @model_validator(mode="after")
-    def _validate_item_keys(self) -> "LockedSourceRecord":
+    def _validate_item_keys(self) -> LockedSourceRecord:
         for item_id in self.items:
             parse_item_id(item_id)
         return self
@@ -106,7 +110,7 @@ class InstallLock(BaseModel):
     items: dict[str, LockedInstalledItem] = Field(default_factory=dict)
 
     @model_validator(mode="after")
-    def _validate_keys(self) -> "InstallLock":
+    def _validate_keys(self) -> InstallLock:
         for source_name in self.sources:
             validate_source_name(source_name)
         for item_id in self.items:

@@ -1,6 +1,5 @@
 """SKILL.md parsing, scanning, and filesystem-backed skill catalog."""
 
-
 import logging
 from pathlib import Path
 

@@ -1,14 +1,13 @@
 """Agent profile parser for `.agents/agents/*.md`."""
 
-
 import logging
 from pathlib import Path
 from typing import cast
 
 from pydantic import BaseModel, ConfigDict
 
-from meridian.lib.config.settings import resolve_repo_root
 from meridian.lib.catalog.skill import split_markdown_frontmatter
+from meridian.lib.config.settings import resolve_repo_root
 
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
@@ -51,11 +50,7 @@ def _normalize_string_list(value: object) -> tuple[str, ...]:
         normalized = value.strip()
         return (normalized,) if normalized else ()
     if isinstance(value, list):
-        values = [
-            str(item).strip()
-            for item in cast("list[object]", value)
-            if str(item).strip()
-        ]
+        values = [str(item).strip() for item in cast("list[object]", value) if str(item).strip()]
         return tuple(values)
     return ()
 
@@ -138,11 +133,7 @@ def scan_agent_profiles(
 
     root = resolve_repo_root(repo_root)
     _ = search_paths
-    directories = (
-        search_dirs
-        if search_dirs is not None
-        else _agent_search_dirs(root)
-    )
+    directories = search_dirs if search_dirs is not None else _agent_search_dirs(root)
     profiles: list[AgentProfile] = []
     selected_by_name: dict[str, AgentProfile] = {}
 

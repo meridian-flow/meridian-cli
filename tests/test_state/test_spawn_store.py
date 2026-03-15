@@ -1,4 +1,3 @@
-
 import json
 from pathlib import Path
 
@@ -165,7 +164,10 @@ def test_succeeded_finalize_clears_stale_error(tmp_path: Path) -> None:
 
 
 def test_finalize_spawn_returns_ownership_and_always_writes(tmp_path: Path) -> None:
-    """finalize_spawn always appends the event but returns True only for the first terminal write."""
+    """finalize_spawn always appends the event.
+
+    It returns True only for the first terminal write.
+    """
     state_root = _state_root(tmp_path)
     spawn_id = start_spawn(
         state_root,
@@ -176,12 +178,14 @@ def test_finalize_spawn_returns_ownership_and_always_writes(tmp_path: Path) -> N
         prompt="hello",
     )
 
-    assert finalize_spawn(
-        state_root, spawn_id, status="failed", exit_code=1, error="orphan_run"
-    ) is True
-    assert finalize_spawn(
-        state_root, spawn_id, status="succeeded", exit_code=0, duration_secs=100.0
-    ) is False
+    assert (
+        finalize_spawn(state_root, spawn_id, status="failed", exit_code=1, error="orphan_run")
+        is True
+    )
+    assert (
+        finalize_spawn(state_root, spawn_id, status="succeeded", exit_code=0, duration_secs=100.0)
+        is False
+    )
 
     row = get_spawn(state_root, spawn_id)
     assert row is not None
@@ -218,8 +222,12 @@ def test_succeeded_cannot_be_overwritten_by_later_failed(tmp_path: Path) -> None
 
     # Second finalize: runner races in with failed/143 (has duration)
     finalize_spawn(
-        state_root, spawn_id, status="failed", exit_code=143,
-        duration_secs=312.5, error="signal",
+        state_root,
+        spawn_id,
+        status="failed",
+        exit_code=143,
+        duration_secs=312.5,
+        error="signal",
     )
     row = get_spawn(state_root, spawn_id)
     assert row is not None
@@ -252,4 +260,3 @@ def test_failed_cannot_be_overwritten_by_another_failed(tmp_path: Path) -> None:
     assert row.status == "failed"
     assert row.exit_code == 1  # first failure's exit code
     assert row.error == "timeout"  # first failure's error reason is locked
-

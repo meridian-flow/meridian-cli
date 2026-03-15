@@ -1,6 +1,5 @@
 """ArtifactStore protocol and local/in-memory implementations."""
 
-
 from collections.abc import MutableMapping
 from pathlib import Path
 from typing import Protocol, cast

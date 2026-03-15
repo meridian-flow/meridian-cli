@@ -11,19 +11,19 @@ from meridian.lib.config.settings import MeridianConfig, load_config, resolve_re
 from meridian.lib.core.types import ModelId
 from meridian.lib.harness.adapter import SpawnParams, SubprocessHarness
 from meridian.lib.harness.registry import HarnessRegistry
+from meridian.lib.install.provenance import resolve_runtime_asset_provenance
 from meridian.lib.safety.permissions import (
     PermissionConfig,
     resolve_permission_pipeline,
 )
 from meridian.lib.state.paths import resolve_state_paths
-from meridian.lib.install.provenance import resolve_runtime_asset_provenance
 
 from .prompt import compose_skill_injections
 from .resolve import (
     ResolvedPolicies,
     ensure_bootstrap_ready,
-    resolve_profile_path,
     resolve_policies,
+    resolve_profile_path,
     resolve_skill_paths,
 )
 from .types import LaunchRequest, PrimarySessionMetadata, build_primary_prompt

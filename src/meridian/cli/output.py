@@ -1,15 +1,13 @@
 """CLI output formatting utilities."""
 
-
 import json
 import sys
 from typing import Any, Literal, Protocol, TextIO, cast
 
 from pydantic import BaseModel, ConfigDict
 
-from meridian.lib.core.util import FormatContext, TextFormattable
 from meridian.lib.core.sink import NullSink, OutputSink
-from meridian.lib.core.util import to_jsonable
+from meridian.lib.core.util import FormatContext, TextFormattable, to_jsonable
 
 OutputFormat = Literal["text", "json"]
 type JSONScalar = str | int | float | bool | None
@@ -96,7 +94,11 @@ class TextSink:
         print(message, file=self._stderr, flush=True)
 
     def event(self, payload: dict[str, Any]) -> None:
-        print(json.dumps(_to_json_value(payload), separators=(",", ":")), file=self._stdout, flush=True)
+        print(
+            json.dumps(_to_json_value(payload), separators=(",", ":")),
+            file=self._stdout,
+            flush=True,
+        )
 
     def flush(self) -> None:
         self._stdout.flush()
@@ -128,7 +130,11 @@ class JsonSink:
         print(message, file=self._stderr, flush=True)
 
     def event(self, payload: dict[str, Any]) -> None:
-        print(json.dumps(_to_json_value(payload), separators=(",", ":")), file=self._stderr, flush=True)
+        print(
+            json.dumps(_to_json_value(payload), separators=(",", ":")),
+            file=self._stderr,
+            flush=True,
+        )
 
     def flush(self) -> None:
         if self._has_result:
@@ -148,10 +154,12 @@ class AgentSink:
             rendered = payload.format_text(_DEFAULT_FORMAT_CTX)
             if rendered == "":
                 return
-            self._messages.append({
-                "type": message_type,
-                "text": rendered,
-            })
+            self._messages.append(
+                {
+                    "type": message_type,
+                    "text": rendered,
+                }
+            )
             return
 
         json_payload = _to_json_value(payload)

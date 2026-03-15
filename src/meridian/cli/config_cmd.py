@@ -1,11 +1,11 @@
 """CLI command handlers for config.* operations."""
 
-
 from collections.abc import Callable
 from functools import partial
 from typing import Any
 
 from cyclopts import App
+
 from meridian.cli.registration import register_manifest_cli_group
 from meridian.lib.ops.config import (
     ConfigGetInput,

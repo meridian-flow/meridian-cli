@@ -3,22 +3,25 @@
 Also includes file-backed ID generation for spawns and sessions.
 """
 
-
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Literal, Mapping
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from meridian.lib.core.domain import SpawnStatus
 from meridian.lib.core.spawn_lifecycle import (
     ACTIVE_SPAWN_STATUSES as _ACTIVE_SPAWN_STATUSES,
+)
+from meridian.lib.core.spawn_lifecycle import (
     TERMINAL_SPAWN_STATUSES as _TERMINAL_SPAWN_STATUSES,
+)
+from meridian.lib.core.spawn_lifecycle import (
     is_active_spawn_status as _is_active_spawn_status,
 )
 from meridian.lib.core.types import SpawnId
 from meridian.lib.state.event_store import append_event, lock_file, read_events, utc_now_iso
 from meridian.lib.state.paths import StateRootPaths
-
 
 # ---------------------------------------------------------------------------
 # ID generation (absorbed from state/id_gen.py)
@@ -64,6 +67,7 @@ is_active_spawn_status = _is_active_spawn_status
 
 class SpawnRecord(BaseModel):
     """Derived spawn state assembled from spawn JSONL events."""
+
     model_config = ConfigDict(frozen=True)
 
     id: str
@@ -403,7 +407,9 @@ def _record_from_events(events: list[SpawnEvent]) -> dict[str, SpawnRecord]:
                         event.agent_path if event.agent_path is not None else current.agent_path
                     ),
                     "agent_source": (
-                        event.agent_source if event.agent_source is not None else current.agent_source
+                        event.agent_source
+                        if event.agent_source is not None
+                        else current.agent_source
                     ),
                     "skills": event.skills if event.skills else current.skills,
                     "skill_paths": event.skill_paths if event.skill_paths else current.skill_paths,
@@ -441,7 +447,9 @@ def _record_from_events(events: list[SpawnEvent]) -> dict[str, SpawnRecord]:
                     ),
                     "status": event.status,
                     "prompt": event.prompt if event.prompt is not None else current.prompt,
-                    "started_at": event.started_at if event.started_at is not None else current.started_at,
+                    "started_at": event.started_at
+                    if event.started_at is not None
+                    else current.started_at,
                 }
             )
             continue
@@ -492,9 +500,7 @@ def _record_from_events(events: list[SpawnEvent]) -> dict[str, SpawnRecord]:
         elif already_terminal and event_status == "succeeded":
             # Upgrade to succeeded — success always wins.
             resolved_status = "succeeded"
-            resolved_exit_code = (
-                event.exit_code if event.exit_code is not None else 0
-            )
+            resolved_exit_code = event.exit_code if event.exit_code is not None else 0
             resolved_error = None
         else:
             # First terminal event.
@@ -503,26 +509,36 @@ def _record_from_events(events: list[SpawnEvent]) -> dict[str, SpawnRecord]:
                 event.exit_code if event.exit_code is not None else current.exit_code
             )
             resolved_error = (
-                None if event_status == "succeeded"
-                else event.error if event.error is not None
+                None
+                if event_status == "succeeded"
+                else event.error
+                if event.error is not None
                 else current.error
             )
         records[spawn_id] = current.model_copy(
             update={
                 "status": resolved_status,
-                "finished_at": event.finished_at if event.finished_at is not None else current.finished_at,
+                "finished_at": event.finished_at
+                if event.finished_at is not None
+                else current.finished_at,
                 "exit_code": resolved_exit_code,
                 "duration_secs": (
-                    event.duration_secs if event.duration_secs is not None else current.duration_secs
+                    event.duration_secs
+                    if event.duration_secs is not None
+                    else current.duration_secs
                 ),
                 "total_cost_usd": (
-                    event.total_cost_usd if event.total_cost_usd is not None else current.total_cost_usd
+                    event.total_cost_usd
+                    if event.total_cost_usd is not None
+                    else current.total_cost_usd
                 ),
                 "input_tokens": (
                     event.input_tokens if event.input_tokens is not None else current.input_tokens
                 ),
                 "output_tokens": (
-                    event.output_tokens if event.output_tokens is not None else current.output_tokens
+                    event.output_tokens
+                    if event.output_tokens is not None
+                    else current.output_tokens
                 ),
                 "error": resolved_error,
             }

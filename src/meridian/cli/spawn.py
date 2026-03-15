@@ -1,6 +1,5 @@
 """CLI command handlers for spawn.* operations."""
 
-
 from collections.abc import Callable
 from functools import partial
 from typing import Annotated, Any, cast
@@ -20,9 +19,9 @@ from meridian.lib.ops.spawn.api import (
     SpawnStatsInput,
     SpawnWaitInput,
     SpawnWrittenFilesInput,
+    spawn_cancel_sync,
     spawn_continue_sync,
     spawn_create_sync,
-    spawn_cancel_sync,
     spawn_files_sync,
     spawn_list_sync,
     spawn_show_sync,
@@ -72,7 +71,8 @@ def _spawn_create(
         Parameter(
             help=(
                 "Extra arguments passed directly to the harness (place after --). "
-                "Known limitation: meridian still consumes --json/--format/--config/--yes/--no-input/--human even after --."
+                "Known limitation: meridian still consumes "
+                "--json/--format/--config/--yes/--no-input/--human even after --."
             ),
         ),
     ],
@@ -135,7 +135,9 @@ def _spawn_create(
     ] = False,
     stream: Annotated[
         bool,
-        Parameter(name="--stream", help="Stream raw harness output to terminal (debug only).", show=False),
+        Parameter(
+            name="--stream", help="Stream raw harness output to terminal (debug only).", show=False
+        ),
     ] = False,
     background: Annotated[
         bool,
@@ -239,7 +241,9 @@ def _spawn_list(
         str | None,
         Parameter(name="--model", help="Filter by model id."),
     ] = None,
-    limit: Annotated[int, Parameter(name="--limit", help="Maximum number of spawns to return.")] = 20,
+    limit: Annotated[
+        int, Parameter(name="--limit", help="Maximum number of spawns to return.")
+    ] = 20,
     failed: Annotated[
         bool,
         Parameter(name="--failed", help="Shortcut for status=failed."),
@@ -296,7 +300,10 @@ def _spawn_show(
         bool,
         Parameter(
             name="--report",
-            help="Include full spawn report body in output. By default only the report path is shown.",
+            help=(
+                "Include full spawn report body in output. "
+                "By default only the report path is shown."
+            ),
         ),
     ] = False,
 ) -> None:
@@ -368,7 +375,10 @@ def _spawn_wait(
         bool,
         Parameter(
             name="--report",
-            help="Include full spawn report body in output (default: enabled). Use --no-report to omit.",
+            help=(
+                "Include full spawn report body in output "
+                "(default: enabled). Use --no-report to omit."
+            ),
         ),
     ] = True,
 ) -> None:

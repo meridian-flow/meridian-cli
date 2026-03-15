@@ -1,23 +1,13 @@
 """OpenCode CLI harness adapter."""
 
-import re
 import logging
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import ClassVar
 
-from meridian.lib.harness.common import (
-    extract_opencode_report,
-    extract_session_id_from_artifacts_with_patterns,
-    extract_usage_from_artifacts,
-)
-from meridian.lib.harness.common import (
-    FlagEffect,
-    FlagStrategy,
-    PromptMode,
-    StrategyMap,
-    build_harness_command,
-)
+from meridian.lib.core.domain import TokenUsage
+from meridian.lib.core.types import HarnessId, SpawnId
 from meridian.lib.harness.adapter import (
     ArtifactStore,
     BaseSubprocessHarness,
@@ -27,10 +17,18 @@ from meridian.lib.harness.adapter import (
     RunPromptPolicy,
     SpawnParams,
 )
+from meridian.lib.harness.common import (
+    FlagEffect,
+    FlagStrategy,
+    PromptMode,
+    StrategyMap,
+    build_harness_command,
+    extract_opencode_report,
+    extract_session_id_from_artifacts_with_patterns,
+    extract_usage_from_artifacts,
+)
 from meridian.lib.harness.launch_types import PromptPolicy
 from meridian.lib.safety.permissions import PermissionConfig
-from meridian.lib.core.domain import TokenUsage
-from meridian.lib.core.types import HarnessId, SpawnId
 
 logger = logging.getLogger(__name__)
 

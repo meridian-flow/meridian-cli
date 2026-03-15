@@ -1,14 +1,13 @@
 """Harness extraction invariants for report, usage, and session metadata."""
 
-
-from meridian.lib.launch.report import extract_or_fallback_report
-from meridian.lib.launch.written_files import extract_written_files
+from meridian.lib.core.types import SpawnId
 from meridian.lib.harness.adapter import ArtifactStore
 from meridian.lib.harness.claude import ClaudeAdapter
 from meridian.lib.harness.codex import CodexAdapter
 from meridian.lib.harness.opencode import OpenCodeAdapter
+from meridian.lib.launch.report import extract_or_fallback_report
+from meridian.lib.launch.written_files import extract_written_files
 from meridian.lib.state.artifact_store import InMemoryStore, make_artifact_key
-from meridian.lib.core.types import SpawnId
 
 
 class _StubCodexAdapter(CodexAdapter):
@@ -75,14 +74,18 @@ def test_extract_session_ids_from_resume_text_and_json_aliases() -> None:
         make_artifact_key(opencode_json_spawn, "output.jsonl"),
         b'{"type":"session.updated","sessionID":"oc_session_abc123"}\n',
     )
-    assert OpenCodeAdapter().extract_session_id(artifacts, opencode_json_spawn) == "oc_session_abc123"
+    assert (
+        OpenCodeAdapter().extract_session_id(artifacts, opencode_json_spawn) == "oc_session_abc123"
+    )
 
     opencode_text_spawn = SpawnId("r-opencode-sessionid-text")
     artifacts.put(
         make_artifact_key(opencode_text_spawn, "output.jsonl"),
         b"Continue with: opencode --session oc_session_xyz789\n",
     )
-    assert OpenCodeAdapter().extract_session_id(artifacts, opencode_text_spawn) == "oc_session_xyz789"
+    assert (
+        OpenCodeAdapter().extract_session_id(artifacts, opencode_text_spawn) == "oc_session_xyz789"
+    )
 
 
 def test_harness_extract_report_uses_last_useful_assistant_output() -> None:

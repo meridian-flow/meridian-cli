@@ -42,7 +42,7 @@ class ItemRef(BaseModel):
         return format_item_id(self.kind, self.name)
 
     @classmethod
-    def from_item_id(cls, item_id: str) -> "ItemRef":
+    def from_item_id(cls, item_id: str) -> ItemRef:
         """Parse one canonical item id."""
 
         kind, name = parse_item_id(item_id)
@@ -55,8 +55,7 @@ def validate_source_name(name: str) -> str:
     normalized = normalize_required_string(name, source="name")
     if _SOURCE_NAME_PATTERN.fullmatch(normalized) is None:
         raise ValueError(
-            "Invalid value for 'name': expected alphanumeric characters, hyphens, "
-            "or underscores."
+            "Invalid value for 'name': expected alphanumeric characters, hyphens, or underscores."
         )
     return normalized
 

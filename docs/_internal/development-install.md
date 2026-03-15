@@ -28,13 +28,13 @@ Use one of these modes depending on what you are validating.
 Editable local install (best default for active coding):
 
 ```bash
-uv tool install --force --editable . --no-cache
+uv tool install --force --editable . --no-cache --reinstall
 ```
 
 Local snapshot install (non-editable, deployed-like behavior from current checkout):
 
 ```bash
-uv tool install --force . --no-cache
+uv tool install --force . --no-cache --reinstall
 ```
 
 Wheel install (closest to published artifact behavior):

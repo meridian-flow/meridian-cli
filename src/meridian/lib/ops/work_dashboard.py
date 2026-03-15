@@ -94,7 +94,11 @@ def _associated_with_work_item(
 ) -> bool:
     if spawn.kind == "primary":
         chat_id = (spawn.chat_id or "").strip()
-        return bool(chat_id) and is_active_spawn_status(spawn.status) and active_session_work_ids.get(chat_id) == work_id
+        return (
+            bool(chat_id)
+            and is_active_spawn_status(spawn.status)
+            and active_session_work_ids.get(chat_id) == work_id
+        )
     return (spawn.work_id or "").strip() == work_id
 
 
@@ -261,7 +265,9 @@ def work_dashboard_sync(
             WorkDashboardItem(
                 name=work_id,
                 status=item.status if item is not None else "missing",
-                spawns=tuple(sorted(grouped[work_id], key=lambda spawn: _spawn_id_sort_key(spawn.id))),
+                spawns=tuple(
+                    sorted(grouped[work_id], key=lambda spawn: _spawn_id_sort_key(spawn.id))
+                ),
             )
         )
 

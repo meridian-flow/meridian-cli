@@ -8,9 +8,14 @@ from typing import Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
+from meridian.lib.install.types import (
+    ItemRef,
+    SourceKind,
+    normalize_required_string,
+    parse_item_id,
+    validate_source_name,
+)
 from meridian.lib.state.atomic import atomic_write_text
-from meridian.lib.install.types import ItemRef, SourceKind, normalize_required_string, parse_item_id
-from meridian.lib.install.types import validate_source_name
 
 
 class SourceConfig(BaseModel):
@@ -93,9 +98,7 @@ class SourceConfig(BaseModel):
                     )
                 result.append(normalized)
             return tuple(result)
-        raise ValueError(
-            f"Invalid value for '{info.field_name}': expected array of strings."
-        )
+        raise ValueError(f"Invalid value for '{info.field_name}': expected array of strings.")
 
     @field_validator("rename", mode="before")
     @classmethod
@@ -108,16 +111,14 @@ class SourceConfig(BaseModel):
         normalized: dict[str, str] = {}
         for raw_key, raw_value in cast("dict[object, object]", value).items():
             if not isinstance(raw_key, str) or not isinstance(raw_value, str):
-                raise ValueError(
-                    "Invalid value for 'rename': expected string-to-string mappings."
-                )
+                raise ValueError("Invalid value for 'rename': expected string-to-string mappings.")
             key = normalize_required_string(raw_key, source="rename")
             parse_item_id(key)
             normalized[key] = normalize_required_string(raw_value, source="rename")
         return normalized
 
     @model_validator(mode="after")
-    def _validate_kind_fields(self) -> "SourceConfig":
+    def _validate_kind_fields(self) -> SourceConfig:
         if self.kind == "git":
             if self.url is None or self.path is not None:
                 raise ValueError("Git sources require 'url' and must not set 'path'.")
@@ -130,7 +131,7 @@ class SourceConfig(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def _migrate_items_to_agents_skills(self) -> "SourceConfig":
+    def _migrate_items_to_agents_skills(self) -> SourceConfig:
         has_new = self.agents is not None or self.skills is not None
         has_old = self.items is not None
 
@@ -179,7 +180,7 @@ class SourcesConfig(BaseModel):
     sources: tuple[SourceConfig, ...] = ()
 
     @model_validator(mode="after")
-    def _validate_unique_names(self) -> "SourcesConfig":
+    def _validate_unique_names(self) -> SourcesConfig:
         seen: set[str] = set()
         for source in self.sources:
             if source.name in seen:
@@ -230,14 +231,14 @@ def write_sources_config(config_path: Path, config: SourcesConfig) -> None:
 
 def _render_source_block(source: SourceConfig) -> list[str]:
     lines = ["[[sources]]"]
-    lines.append(f'name = {_toml_string(source.name)}')
-    lines.append(f'kind = {_toml_string(source.kind)}')
+    lines.append(f"name = {_toml_string(source.name)}")
+    lines.append(f"kind = {_toml_string(source.kind)}")
     if source.url is not None:
-        lines.append(f'url = {_toml_string(source.url)}')
+        lines.append(f"url = {_toml_string(source.url)}")
     if source.path is not None:
-        lines.append(f'path = {_toml_string(source.path)}')
+        lines.append(f"path = {_toml_string(source.path)}")
     if source.ref is not None:
-        lines.append(f'ref = {_toml_string(source.ref)}')
+        lines.append(f"ref = {_toml_string(source.ref)}")
     if source.agents is not None:
         lines.append(f"agents = {_render_string_list(source.agents)}")
     if source.skills is not None:
@@ -335,7 +336,7 @@ class SourceManifest(BaseModel):
         source: SourceConfig,
         *,
         target: ManifestFile,
-    ) -> "SourceManifest":
+    ) -> SourceManifest:
         """Return a new manifest with the source added or replaced in the target file.
 
         When writing to local, the shared entry (if any) is left intact — the
@@ -344,16 +345,12 @@ class SourceManifest(BaseModel):
         if target == "local":
             existing = [s for s in self.local.sources if s.name != source.name]
             existing.append(source)
-            return self.model_copy(
-                update={"local": SourcesConfig(sources=tuple(existing))}
-            )
+            return self.model_copy(update={"local": SourcesConfig(sources=tuple(existing))})
         existing = [s for s in self.shared.sources if s.name != source.name]
         existing.append(source)
-        return self.model_copy(
-            update={"shared": SourcesConfig(sources=tuple(existing))}
-        )
+        return self.model_copy(update={"shared": SourcesConfig(sources=tuple(existing))})
 
-    def without_source(self, source_name: str) -> "SourceManifest":
+    def without_source(self, source_name: str) -> SourceManifest:
         """Return a new manifest with the named source removed.
 
         Removes from whichever file(s) contain it.  If only the local

@@ -1,6 +1,5 @@
 """Spawn execution helpers shared by sync and async spawn handlers."""
 
-
 import argparse
 import asyncio
 import json
@@ -8,36 +7,36 @@ import os
 import subprocess
 import sys
 import time
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
-from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Callable, Iterator, cast
+from typing import Any, cast
 
 import structlog
 from pydantic import BaseModel, ConfigDict
+
 from meridian.lib.core.context import RuntimeContext
 from meridian.lib.core.domain import Spawn, SpawnStatus
+from meridian.lib.core.sink import OutputSink
+from meridian.lib.core.types import ModelId, SpawnId
+from meridian.lib.harness.adapter import PermissionResolver
 from meridian.lib.launch.runner import execute_with_finalization
 from meridian.lib.launch.session_scope import session_scope
 from meridian.lib.ops.work_attachment import ensure_explicit_work_item
-from meridian.lib.harness.adapter import PermissionResolver
 from meridian.lib.safety.permissions import (
     PermissionConfig,
     resolve_permission_pipeline,
 )
-from meridian.lib.core.sink import OutputSink
 from meridian.lib.state import spawn_store
+from meridian.lib.state.atomic import atomic_write_text
+from meridian.lib.state.paths import resolve_spawn_log_dir, resolve_state_paths
+from meridian.lib.state.session_store import get_session_active_work_id, update_session_work_id
 from meridian.lib.state.spawn_store import (
     BACKGROUND_LAUNCH_MODE,
     FOREGROUND_LAUNCH_MODE,
     LaunchMode,
     mark_spawn_running,
 )
-from meridian.lib.state.atomic import atomic_write_text
-from meridian.lib.state.paths import resolve_spawn_log_dir, resolve_state_paths
-from meridian.lib.state.session_store import get_session_active_work_id, update_session_work_id
-from meridian.lib.core.types import ModelId, SpawnId
-
 from meridian.lib.utils.time import minutes_to_seconds
 
 from ..runtime import OperationRuntime, build_runtime, resolve_chat_id, runtime_context
@@ -142,7 +141,9 @@ def _spawn_child_env(
     else:
         child_context = RuntimeContext(
             spawn_id=resolved_spawn_id,
-            parent_spawn_id=resolved_context.spawn_id if resolved_context.spawn_id is not None else None,
+            parent_spawn_id=resolved_context.spawn_id
+            if resolved_context.spawn_id is not None
+            else None,
             depth=resolved_context.depth + 1,
             repo_root=resolved_context.repo_root,
             state_root=state_root or resolved_context.state_root,
@@ -683,7 +684,9 @@ def execute_spawn_blocking(
         run_agent_name=prepared.agent_name,
         inherited_work_id=context.work_id,
     ) as session_context:
-        resolved_plan = prepared.model_copy(update={"agent_name": session_context.resolved_agent_name})
+        resolved_plan = prepared.model_copy(
+            update={"agent_name": session_context.resolved_agent_name}
+        )
         exit_code = asyncio.run(
             execute_with_finalization(
                 spawn,

@@ -14,8 +14,8 @@ from urllib import parse, request
 from pydantic import BaseModel, ConfigDict, Field
 
 from meridian.lib.install.config import SourceConfig
-from meridian.lib.install.types import SourceKind
 from meridian.lib.install.discovery import DiscoveredItem, discover_items
+from meridian.lib.install.types import SourceKind
 
 
 class ResolvedSource(BaseModel):
@@ -256,7 +256,8 @@ def _resolve_git_source_without_cli(
     owner_repo = _parse_github_repo(source.url)
     if owner_repo is None:
         raise RuntimeError(
-            "Managed git sources require the 'git' binary unless the source is a public GitHub repo."
+            "Managed git sources require the 'git' binary unless "
+            "the source is a public GitHub repo."
         )
 
     owner, repo = owner_repo
@@ -302,7 +303,9 @@ def _parse_github_repo(url: str) -> tuple[str, str] | None:
 
 def _resolve_github_commit(owner: str, repo: str, ref: str | None) -> str:
     selected_ref = ref or _github_default_branch(owner, repo)
-    payload = _read_github_json(f"https://api.github.com/repos/{owner}/{repo}/commits/{selected_ref}")
+    payload = _read_github_json(
+        f"https://api.github.com/repos/{owner}/{repo}/commits/{selected_ref}"
+    )
     commit = payload.get("sha")
     if not isinstance(commit, str) or not commit.strip():
         raise RuntimeError(f"Could not resolve GitHub commit for {owner}/{repo}@{selected_ref}.")

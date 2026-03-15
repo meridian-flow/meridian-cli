@@ -1,6 +1,5 @@
 """Secret parsing and redaction helpers."""
 
-
 import re
 
 from pydantic import BaseModel, ConfigDict

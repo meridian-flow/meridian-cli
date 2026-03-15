@@ -164,7 +164,9 @@ def create_work_item(state_root: Path, label: str, description: str = "") -> Wor
         if not slug:
             raise ValueError("Work item label must contain at least one letter or number.")
         if get_work_item(state_root, slug) is not None:
-            raise ValueError(f"Work item '{slug}' already exists. Use `meridian work switch {slug}`.")
+            raise ValueError(
+                f"Work item '{slug}' already exists. Use `meridian work switch {slug}`."
+            )
 
         item = WorkItem(
             name=slug,

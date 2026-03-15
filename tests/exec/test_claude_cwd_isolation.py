@@ -5,9 +5,7 @@ the child subprocess CWD should be the spawn's log directory (not the project
 root) to prevent the child from deleting the parent's task output file.
 """
 
-import asyncio
 import json
-import os
 import sys
 import textwrap
 from pathlib import Path
@@ -15,11 +13,7 @@ from pathlib import Path
 import pytest
 
 from meridian.lib.core.domain import Spawn, TokenUsage
-from meridian.lib.launch.runner import execute_with_finalization
-from meridian.lib.harness.common import (
-    extract_session_id_from_artifacts,
-    extract_usage_from_artifacts,
-)
+from meridian.lib.core.types import HarnessId, ModelId, SpawnId
 from meridian.lib.harness.adapter import ArtifactStore as HarnessArtifactStore
 from meridian.lib.harness.adapter import (
     BaseSubprocessHarness,
@@ -27,12 +21,16 @@ from meridian.lib.harness.adapter import (
     PermissionResolver,
     SpawnParams,
 )
+from meridian.lib.harness.common import (
+    extract_session_id_from_artifacts,
+    extract_usage_from_artifacts,
+)
 from meridian.lib.harness.registry import HarnessRegistry
+from meridian.lib.launch.runner import execute_with_finalization
 from meridian.lib.ops.spawn.plan import ExecutionPolicy, PreparedSpawnPlan, SessionContinuation
 from meridian.lib.safety.permissions import PermissionConfig, TieredPermissionResolver
 from meridian.lib.state.artifact_store import LocalStore
-from meridian.lib.state.paths import resolve_state_paths, resolve_spawn_log_dir
-from meridian.lib.core.types import HarnessId, ModelId, SpawnId
+from meridian.lib.state.paths import resolve_spawn_log_dir, resolve_state_paths
 
 
 class ClaudeLikeAdapter(BaseSubprocessHarness):
@@ -130,7 +128,8 @@ def _build_plan(run: Spawn, harness_id: HarnessId) -> PreparedSpawnPlan:
 
 @pytest.mark.asyncio
 async def test_claude_harness_uses_log_dir_cwd_when_claudecode_set(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """When CLAUDECODE is set and harness is claude, child CWD should be log_dir."""
     monkeypatch.setenv("CLAUDECODE", "1")
@@ -170,7 +169,8 @@ async def test_claude_harness_uses_log_dir_cwd_when_claudecode_set(
 
 @pytest.mark.asyncio
 async def test_claude_harness_adds_add_dir_flag_when_claudecode_set(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """When CWD isolation is active, --add-dir <project-root> should be in argv."""
     monkeypatch.setenv("CLAUDECODE", "1")
@@ -213,7 +213,8 @@ async def test_claude_harness_adds_add_dir_flag_when_claudecode_set(
 
 @pytest.mark.asyncio
 async def test_claude_harness_uses_project_cwd_when_claudecode_not_set(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """When CLAUDECODE is NOT set, child CWD should be the project root (no isolation)."""
     monkeypatch.delenv("CLAUDECODE", raising=False)
@@ -244,8 +245,7 @@ async def test_claude_harness_uses_project_cwd_when_claudecode_not_set(
 
     report = json.loads(cwd_report.read_text(encoding="utf-8"))
     assert report["cwd"] == str(tmp_path), (
-        f"Child CWD should be project root when CLAUDECODE is not set, "
-        f"got {report['cwd']!r}"
+        f"Child CWD should be project root when CLAUDECODE is not set, got {report['cwd']!r}"
     )
     assert "--add-dir" not in report["argv"], (
         "--add-dir should not be added when CWD isolation is inactive"
@@ -254,7 +254,8 @@ async def test_claude_harness_uses_project_cwd_when_claudecode_not_set(
 
 @pytest.mark.asyncio
 async def test_non_claude_harness_uses_project_cwd_even_when_claudecode_set(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Non-claude harnesses should never get CWD isolation, even inside Claude Code."""
     monkeypatch.setenv("CLAUDECODE", "1")

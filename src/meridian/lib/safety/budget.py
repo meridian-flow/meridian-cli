@@ -1,6 +1,5 @@
 """Budget configuration and incremental cost tracking."""
 
-
 import json
 from typing import Literal
 

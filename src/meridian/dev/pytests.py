@@ -1,11 +1,9 @@
 """Token-efficient pytest wrapper for agent spawns."""
 
-
 import os
 import subprocess
 import sys
 from collections.abc import Sequence
-
 
 DEFAULT_ARGS: tuple[str, ...] = (
     "-q",
@@ -41,7 +39,9 @@ def build_pytest_args(
 
 def main(argv: Sequence[str] | None = None) -> int:
     user_args = list(sys.argv[1:] if argv is None else argv)
-    command = build_pytest_args(user_args, include_last_failed=_is_truthy_env("PYTESTS_LAST_FAILED"))
+    command = build_pytest_args(
+        user_args, include_last_failed=_is_truthy_env("PYTESTS_LAST_FAILED")
+    )
     completed = subprocess.run(command, check=False)
     return completed.returncode
 

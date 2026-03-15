@@ -13,7 +13,10 @@ from meridian.lib.harness.adapter import (
     PermissionResolver,
     SpawnParams,
 )
-from meridian.lib.harness.common import extract_session_id_from_artifacts, extract_usage_from_artifacts
+from meridian.lib.harness.common import (
+    extract_session_id_from_artifacts,
+    extract_usage_from_artifacts,
+)
 from meridian.lib.harness.registry import HarnessRegistry
 from meridian.lib.launch.runner import execute_with_finalization
 from meridian.lib.ops.spawn.plan import ExecutionPolicy, PreparedSpawnPlan, SessionContinuation
@@ -106,4 +109,7 @@ async def test_execute_with_finalization_passes_adhoc_agent_payload(tmp_path: Pa
     )
 
     assert recorded_runs
-    assert recorded_runs[0].adhoc_agent_payload == '{"reviewer":{"description":"desc","prompt":"body"}}'
+    assert (
+        recorded_runs[0].adhoc_agent_payload
+        == '{"reviewer":{"description":"desc","prompt":"body"}}'
+    )

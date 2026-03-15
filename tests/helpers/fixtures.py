@@ -1,6 +1,5 @@
 """Filesystem fixture helpers shared across tests."""
 
-
 from pathlib import Path
 
 
@@ -23,13 +22,7 @@ def write_skill(
     summary = description if description is not None else f"{name} skill"
     return _write(
         repo_root / ".agents" / "skills" / name / "SKILL.md",
-        (
-            "---\n"
-            f"name: {name}\n"
-            f"description: {summary}\n"
-            "---\n\n"
-            f"{skill_body}\n"
-        ),
+        (f"---\nname: {name}\ndescription: {summary}\n---\n\n{skill_body}\n"),
     )
 
 

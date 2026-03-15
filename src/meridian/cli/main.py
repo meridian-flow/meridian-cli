@@ -1,6 +1,5 @@
 """Cyclopts CLI entry point for meridian."""
 
-
 import logging
 import os
 import shlex
@@ -27,10 +26,10 @@ from meridian.cli.output import emit as emit_output
 from meridian.cli.report_cmd import register_report_commands
 from meridian.cli.session_cmd import register_session_commands
 from meridian.lib.core.sink import OutputSink
+from meridian.lib.core.util import FormatContext
 from meridian.lib.harness.registry import get_default_harness_registry
 from meridian.lib.harness.session_detection import infer_harness_from_untracked_session_ref
 from meridian.lib.launch import LaunchRequest, launch_primary
-from meridian.lib.core.util import FormatContext
 from meridian.lib.ops.spawn.api import SpawnActionOutput
 from meridian.lib.state.paths import resolve_state_paths
 from meridian.lib.state.session_store import cleanup_stale_sessions, resolve_session_ref
@@ -243,9 +242,7 @@ def _interactive_terminal_attached() -> bool:
 
 
 def _agent_sink_enabled(*, output_explicit: bool) -> bool:
-    if output_explicit or not agent_mode_enabled() or _interactive_terminal_attached():
-        return False
-    return True
+    return not (output_explicit or not agent_mode_enabled() or _interactive_terminal_attached())
 
 
 app = App(
@@ -380,7 +377,10 @@ report_app = App(name="report", help="Report management commands", help_formatte
 session_app = App(name="session", help="Session inspection commands", help_formatter="plain")
 work_app = App(
     name="work",
-    help="Active activity grouped by work, plus work item coordination commands. Unassigned spawns appear under '(no work)'.",
+    help=(
+        "Active activity grouped by work, plus work item coordination commands. "
+        "Unassigned spawns appear under '(no work)'."
+    ),
     help_formatter="plain",
 )
 sources_app = App(name="sources", help="Manage installed agent sources.", help_formatter="plain")
@@ -481,7 +481,9 @@ def _run_primary_launch(
             raise ValueError("Cannot combine --continue with --model.")
         if agent is not None and agent.strip():
             raise ValueError("Cannot combine --continue with --agent.")
-        resolved_continue = _resolve_continue_target(repo_root=repo_root, continue_ref=resume_target)
+        resolved_continue = _resolve_continue_target(
+            repo_root=repo_root, continue_ref=resume_target
+        )
         continue_harness_session_id = resolved_continue.harness_session_id
         continue_chat_id = resolved_continue.chat_id
         continue_harness = explicit_harness or resolved_continue.harness
@@ -641,9 +643,7 @@ def _resolve_continue_target(
     stored_harness_session_id = (
         session.harness_session_id.strip() or None if session is not None else None
     )
-    stored_harness = (
-        session.harness.strip() or None if session is not None else None
-    )
+    stored_harness = session.harness.strip() or None if session is not None else None
     # The actual session ID to resume — either what the store recorded or the
     # raw ref the user gave us.
     session_id = stored_harness_session_id or normalized
@@ -660,8 +660,13 @@ def _resolve_continue_target(
     # the caller decide — it may have an explicit --harness override.
     harness = verified_harness or stored_harness
 
-    warning = None if session is not None else (
-        f"Session '{normalized}' is not tracked yet; resuming with the provided harness session id."
+    warning = (
+        None
+        if session is not None
+        else (
+            f"Session '{normalized}' is not tracked yet; "
+            "resuming with the provided harness session id."
+        )
     )
     return _ResolvedContinueTarget(
         harness_session_id=session_id,
@@ -670,7 +675,6 @@ def _resolve_continue_target(
         tracked=session is not None,
         warning=warning,
     )
-
 
 
 @app.command(name="init")
@@ -823,7 +827,9 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     cleaned_args, options = _extract_global_options(args)
 
-    agent_mode = agent_mode_enabled() and not options.force_human and not _interactive_terminal_attached()
+    agent_mode = (
+        agent_mode_enabled() and not options.force_human and not _interactive_terminal_attached()
+    )
     if agent_mode and not options.output_explicit:
         options = options.model_copy(update={"output": OutputConfig(format="json")})
 

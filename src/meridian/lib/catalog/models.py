@@ -1,6 +1,5 @@
 """Model routing, discovery, alias resolution, and catalog."""
 
-
 import importlib.resources
 import json
 import logging
@@ -16,9 +15,9 @@ from urllib.error import HTTPError, URLError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from meridian.lib.config.settings import resolve_repo_root
+from meridian.lib.core.types import HarnessId, ModelId
 from meridian.lib.core.util import FormatContext
 from meridian.lib.state.paths import resolve_cache_dir, resolve_state_paths
-from meridian.lib.core.types import HarnessId, ModelId
 
 logger = logging.getLogger(__name__)
 
@@ -527,6 +526,7 @@ def load_discovered_models(
 
     return refresh_models_cache(resolved_dir)
 
+
 # ─── Aliases ───────────────────────────────────────────────────────────
 
 _DEFAULT_ALIASES_RESOURCE = "default-aliases.toml"
@@ -699,6 +699,7 @@ def resolve_alias(name: str, repo_root: Path | None = None) -> ModelId | None:
         if entry.alias == normalized:
             return entry.model_id
     return None
+
 
 def resolve_model(name_or_alias: str, repo_root: Path | None = None) -> AliasEntry:
     """Resolve alias to model id, or pass through a direct model identifier."""

@@ -4,7 +4,6 @@ from pathlib import Path
 
 from meridian.lib.install.lock import state_lock
 
-
 _LOCK_PROBE = """
 import fcntl
 import sys

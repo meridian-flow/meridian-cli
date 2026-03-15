@@ -1,6 +1,5 @@
 """Doctor operation for file-authoritative state health and repair."""
 
-
 import asyncio
 import os
 from pathlib import Path

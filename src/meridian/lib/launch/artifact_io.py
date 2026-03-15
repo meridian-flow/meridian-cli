@@ -1,8 +1,7 @@
 """Shared artifact read helpers for launch extraction."""
 
-
-from meridian.lib.state.artifact_store import ArtifactStore
 from meridian.lib.core.types import ArtifactKey, SpawnId
+from meridian.lib.state.artifact_store import ArtifactStore
 
 
 def read_artifact_text(artifacts: ArtifactStore, spawn_id: SpawnId, name: str) -> str:

@@ -2,16 +2,21 @@ from pathlib import Path
 
 import pytest
 
-from meridian.lib.state.paths import resolve_state_paths
-from meridian.lib.install.config import SourceConfig, SourcesConfig, SourceManifest
-from meridian.lib.install.config import load_sources_config, write_sources_config
-from meridian.lib.install.engine import reconcile_sources
-from meridian.lib.install.lock import read_lock, write_lock
 from meridian.lib.install.bootstrap import (
     ensure_bootstrap_assets,
     plan_bootstrap_assets,
     planned_bootstrap_agent_names,
 )
+from meridian.lib.install.config import (
+    SourceConfig,
+    SourceManifest,
+    SourcesConfig,
+    load_sources_config,
+    write_sources_config,
+)
+from meridian.lib.install.engine import reconcile_sources
+from meridian.lib.install.lock import read_lock, write_lock
+from meridian.lib.state.paths import resolve_state_paths
 
 
 def _write_source_tree(source_root: Path, *, agent_name: str) -> None:
@@ -81,9 +86,7 @@ def test_ensure_bootstrap_assets_bootstraps_missing_default(
         from meridian.lib.install.types import parse_item_id
 
         existing = manifest.find_source("meridian-base")
-        required_agent_names = tuple(
-            parse_item_id(item_id)[1] for item_id in item_ids
-        )
+        required_agent_names = tuple(parse_item_id(item_id)[1] for item_id in item_ids)
         if existing is None:
             bootstrap_source = SourceConfig(
                 name="meridian-base",

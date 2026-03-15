@@ -1,6 +1,5 @@
 """Terminal event filtering and formatting for harness stream output."""
 
-
 import sys
 from typing import TextIO
 

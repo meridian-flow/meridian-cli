@@ -1,6 +1,5 @@
 """Script-based post-run guardrails."""
 
-
 import os
 import subprocess
 from collections.abc import Mapping
@@ -10,7 +9,6 @@ from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.config.settings import MeridianConfig
 from meridian.lib.core.types import SpawnId
-
 
 DEFAULT_GUARDRAIL_TIMEOUT_SECONDS = MeridianConfig().guardrail_timeout_minutes * 60.0
 

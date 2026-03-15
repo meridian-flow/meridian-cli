@@ -12,16 +12,26 @@ from typing import Annotated, Any, Literal
 from cyclopts import Parameter
 
 from meridian.lib.config.settings import resolve_repo_root
-from meridian.lib.state.paths import resolve_state_paths
-from meridian.lib.install.config import SourceConfig
-from meridian.lib.install.config import load_source_manifest, write_source_manifest
-from meridian.lib.install.config import route_source_to_file
-from meridian.lib.install.engine import InstallItemAction, InstallResult, install_status
-from meridian.lib.install.engine import reconcile_sources, remove_source
+from meridian.lib.install.config import (
+    SourceConfig,
+    load_source_manifest,
+    route_source_to_file,
+    write_source_manifest,
+)
+from meridian.lib.install.engine import (
+    InstallItemAction,
+    InstallResult,
+    install_status,
+    reconcile_sources,
+    remove_source,
+)
 from meridian.lib.install.hash import compute_item_hash
-from meridian.lib.install.lock import state_lock, read_lock, write_lock
+from meridian.lib.install.lock import read_lock, state_lock, write_lock
+from meridian.lib.state.paths import resolve_state_paths
+
 Emitter = Callable[[Any], None]
 SourceSelector = Literal["git", "path"]
+
 
 def _install(
     emit: Emitter,
@@ -229,7 +239,9 @@ def _uninstall(
         return
 
     if not names:
-        raise ValueError("Provide item names to uninstall, or use --source to remove an entire source.")
+        raise ValueError(
+            "Provide item names to uninstall, or use --source to remove an entire source."
+        )
 
     repo_root = resolve_repo_root()
     state_paths = resolve_state_paths(repo_root)
@@ -272,14 +284,16 @@ def _uninstall(
                     else:
                         dest_path.unlink(missing_ok=True)
 
-            actions.append(InstallItemAction(
-                item_key=matched_key,
-                item_kind=item_kind,
-                source_name=entry.source_name,
-                action=action_name,
-                reason=reason,
-                dest_path=entry.destination_path,
-            ))
+            actions.append(
+                InstallItemAction(
+                    item_key=matched_key,
+                    item_kind=item_kind,
+                    source_name=entry.source_name,
+                    action=action_name,
+                    reason=reason,
+                    dest_path=entry.destination_path,
+                )
+            )
 
             if not dry_run and action_name == "removed":
                 del lock.items[matched_key]
@@ -294,15 +308,16 @@ def _uninstall(
                     continue
                 new_agents = (
                     tuple(a for a in src.agents if a not in removed_names)
-                    if src.agents is not None else None
+                    if src.agents is not None
+                    else None
                 )
                 new_skills = (
                     tuple(s for s in src.skills if s not in removed_names)
-                    if src.skills is not None else None
+                    if src.skills is not None
+                    else None
                 )
-                has_remaining = (
-                    (new_agents is None or len(new_agents) > 0)
-                    or (new_skills is None or len(new_skills) > 0)
+                has_remaining = (new_agents is None or len(new_agents) > 0) or (
+                    new_skills is None or len(new_skills) > 0
                 )
                 if not has_remaining:
                     if src_name in lock.sources:
@@ -310,10 +325,12 @@ def _uninstall(
                     updated_manifest = updated_manifest.without_source(src_name)
                 else:
                     target = updated_manifest.file_for_source(src_name) or "shared"
-                    updated_src = src.model_copy(update={
-                        "agents": new_agents if new_agents else None,
-                        "skills": new_skills if new_skills else None,
-                    })
+                    updated_src = src.model_copy(
+                        update={
+                            "agents": new_agents if new_agents else None,
+                            "skills": new_skills if new_skills else None,
+                        }
+                    )
                     updated_manifest = updated_manifest.with_source(updated_src, target=target)
             write_source_manifest(
                 state_paths.agents_manifest_path,
@@ -372,7 +389,9 @@ def register_sources_commands(app: Any, emit: Emitter) -> None:
     """Register sources subcommand group."""
 
     app.default(partial(_list_sources, emit))
-    app.command(partial(_list_sources, emit), name="list", help="Show installed sources and their items.")
+    app.command(
+        partial(_list_sources, emit), name="list", help="Show installed sources and their items."
+    )
     app.command(partial(_install, emit), name="install", help="Install sources and items.")
     app.command(partial(_uninstall, emit), name="uninstall", help="Remove items or sources.")
     app.command(partial(_update, emit), name="update", help="Re-resolve refs and install latest.")
@@ -449,10 +468,9 @@ def _merge_source_config(existing: SourceConfig, incoming: SourceConfig) -> Sour
     """Merge incoming agents/skills into an existing source config (union)."""
 
     # None means "all" — union with anything stays None
-    if existing.agents is None and existing.skills is None:
-        merged_agents = None
-        merged_skills = None
-    elif incoming.agents is None and incoming.skills is None:
+    if (existing.agents is None and existing.skills is None) or (
+        incoming.agents is None and incoming.skills is None
+    ):
         merged_agents = None
         merged_skills = None
     else:
@@ -469,11 +487,13 @@ def _merge_source_config(existing: SourceConfig, incoming: SourceConfig) -> Sour
     # Merge rename maps (incoming overrides)
     merged_rename = {**existing.rename, **incoming.rename}
 
-    return existing.model_copy(update={
-        "agents": merged_agents,
-        "skills": merged_skills,
-        "rename": merged_rename,
-    })
+    return existing.model_copy(
+        update={
+            "agents": merged_agents,
+            "skills": merged_skills,
+            "rename": merged_rename,
+        }
+    )
 
 
 def _classify_source(source: str, *, repo_root: Path) -> SourceSelector:
@@ -502,7 +522,9 @@ def _derive_source_name(source: str, selector: SourceSelector) -> str:
         return derived.replace(".", "-")
 
     normalized = Path(source.strip()).expanduser()
-    derived = normalized.name or normalized.resolve().name or source.strip().rstrip("/").split("/")[-1]
+    derived = (
+        normalized.name or normalized.resolve().name or source.strip().rstrip("/").split("/")[-1]
+    )
     if not derived:
         raise ValueError("Could not derive a source name from the provided path.")
     return derived

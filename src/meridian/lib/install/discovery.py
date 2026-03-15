@@ -19,7 +19,7 @@ class DiscoveredItem(BaseModel):
     path: str
 
     @model_validator(mode="after")
-    def _validate_fields(self) -> "DiscoveredItem":
+    def _validate_fields(self) -> DiscoveredItem:
         normalize_required_string(self.name, source="name")
         relative = Path(normalize_required_string(self.path, source="path"))
         if relative.is_absolute() or ".." in relative.parts:

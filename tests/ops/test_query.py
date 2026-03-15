@@ -1,6 +1,5 @@
 """Running-spawn query parser regressions."""
 
-
 import json
 
 from meridian.lib.ops.spawn.query import extract_last_assistant_message

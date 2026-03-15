@@ -1,6 +1,5 @@
 """File-backed session tracking for a Meridian state root's `sessions.jsonl`."""
 
-
 import fcntl
 import json
 import os
@@ -242,8 +241,11 @@ def _records_by_session(state_root: Path) -> dict[str, SessionRecord]:
                 continue
             records[event.chat_id] = existing.model_copy(
                 update={
-                    "stopped_at": event.stopped_at if event.stopped_at is not None else existing.stopped_at,
-                    "session_instance_id": event.session_instance_id or existing.session_instance_id,
+                    "stopped_at": event.stopped_at
+                    if event.stopped_at is not None
+                    else existing.stopped_at,
+                    "session_instance_id": event.session_instance_id
+                    or existing.session_instance_id,
                 }
             )
             continue
@@ -499,9 +501,7 @@ def resolve_session_ref(state_root: Path, ref: str) -> SessionRecord | None:
         return None
 
     records = _records_by_session(state_root)
-    matches = [
-        record for record in records.values() if normalized in record.harness_session_ids
-    ]
+    matches = [record for record in records.values() if normalized in record.harness_session_ids]
     if not matches:
         return None
     return max(matches, key=lambda item: (item.started_at, _session_sort_key(item.chat_id)))

@@ -2,9 +2,15 @@ from pathlib import Path
 
 import pytest
 
-from meridian.lib.install.config import SourceConfig, SourcesConfig, SourceManifest
-from meridian.lib.install.config import load_sources_config, write_sources_config
-from meridian.lib.install.config import load_source_manifest, write_source_manifest
+from meridian.lib.install.config import (
+    SourceConfig,
+    SourceManifest,
+    SourcesConfig,
+    load_source_manifest,
+    load_sources_config,
+    write_source_manifest,
+    write_sources_config,
+)
 from meridian.lib.install.types import ItemRef
 
 
@@ -76,14 +82,14 @@ def test_old_format_auto_migrates_on_read(tmp_path: Path) -> None:
     config_path = tmp_path / ".meridian" / "agents.toml"
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(
-        '[[sources]]\n'
+        "[[sources]]\n"
         'name = "test"\n'
         'kind = "git"\n'
         'url = "https://example.com/repo.git"\n'
-        'items = [\n'
+        "items = [\n"
         '  { kind = "agent", name = "orchestrator" },\n'
         '  { kind = "skill", name = "workflow" },\n'
-        ']\n',
+        "]\n",
         encoding="utf-8",
     )
     loaded = load_sources_config(config_path)
@@ -168,14 +174,18 @@ def test_manifest_local_overrides_shared_source() -> None:
 
 
 def test_manifest_all_sources_merges_without_duplicates() -> None:
-    shared = SourcesConfig(sources=(
-        SourceConfig(name="a", kind="git", url="https://a.git"),
-        SourceConfig(name="b", kind="git", url="https://b.git"),
-    ))
-    local = SourcesConfig(sources=(
-        SourceConfig(name="b", kind="git", url="https://b.git", ref="dev"),
-        SourceConfig(name="c", kind="path", path="./c"),
-    ))
+    shared = SourcesConfig(
+        sources=(
+            SourceConfig(name="a", kind="git", url="https://a.git"),
+            SourceConfig(name="b", kind="git", url="https://b.git"),
+        )
+    )
+    local = SourcesConfig(
+        sources=(
+            SourceConfig(name="b", kind="git", url="https://b.git", ref="dev"),
+            SourceConfig(name="c", kind="path", path="./c"),
+        )
+    )
     manifest = SourceManifest(shared=shared, local=local)
 
     names = [s.name for s in manifest.all_sources]
@@ -187,10 +197,16 @@ def test_manifest_all_sources_merges_without_duplicates() -> None:
 
 def test_manifest_without_local_override_reveals_shared() -> None:
     shared_source = SourceConfig(
-        name="team", kind="git", url="https://team.git", ref="main",
+        name="team",
+        kind="git",
+        url="https://team.git",
+        ref="main",
     )
     local_source = SourceConfig(
-        name="team", kind="git", url="https://team.git", ref="experiment",
+        name="team",
+        kind="git",
+        url="https://team.git",
+        ref="experiment",
     )
     manifest = SourceManifest(
         shared=SourcesConfig(sources=(shared_source,)),
@@ -211,13 +227,15 @@ def test_manifest_load_roundtrip_with_override(tmp_path: Path) -> None:
     shared_path = tmp_path / "agents.toml"
     local_path = tmp_path / "agents.local.toml"
 
-    shared = SourcesConfig(sources=(
-        SourceConfig(name="team", kind="git", url="https://team.git", ref="main"),
-    ))
-    local = SourcesConfig(sources=(
-        SourceConfig(name="team", kind="git", url="https://team.git", ref="dev"),
-        SourceConfig(name="local-dev", kind="path", path="./dev"),
-    ))
+    shared = SourcesConfig(
+        sources=(SourceConfig(name="team", kind="git", url="https://team.git", ref="main"),)
+    )
+    local = SourcesConfig(
+        sources=(
+            SourceConfig(name="team", kind="git", url="https://team.git", ref="dev"),
+            SourceConfig(name="local-dev", kind="path", path="./dev"),
+        )
+    )
     original = SourceManifest(shared=shared, local=local)
 
     write_source_manifest(shared_path, local_path, original)
@@ -233,9 +251,7 @@ def test_manifest_load_roundtrip_with_override(tmp_path: Path) -> None:
 def test_manifest_is_not_overridden_for_local_only_source() -> None:
     manifest = SourceManifest(
         shared=SourcesConfig(),
-        local=SourcesConfig(sources=(
-            SourceConfig(name="local-dev", kind="path", path="./dev"),
-        )),
+        local=SourcesConfig(sources=(SourceConfig(name="local-dev", kind="path", path="./dev"),)),
     )
     assert manifest.is_overridden("local-dev") is False
     assert manifest.file_for_source("local-dev") == "local"

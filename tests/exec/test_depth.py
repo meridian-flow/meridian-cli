@@ -1,18 +1,20 @@
 """Depth limit enforcement for recursive child spawns."""
 
 import json
-from pathlib import Path
 import sys
 import textwrap
+from pathlib import Path
 from typing import Any
 
 import pytest
 
 from meridian.lib.config.settings import load_config
 from meridian.lib.core.domain import TokenUsage
-from meridian.lib.core.types import HarnessId, ModelId, SpawnId
+from meridian.lib.core.types import HarnessId, SpawnId
 from meridian.lib.harness.adapter import (
     ArtifactStore as HarnessArtifactStore,
+)
+from meridian.lib.harness.adapter import (
     BaseSubprocessHarness,
     HarnessCapabilities,
     McpConfig,
@@ -28,7 +30,6 @@ from meridian.lib.ops.runtime import OperationRuntime
 from meridian.lib.ops.spawn.api import SpawnCreateInput, spawn_create_sync
 from meridian.lib.state.artifact_store import LocalStore
 from meridian.lib.state.paths import resolve_state_paths
-
 
 _RECURSIVE_PROBE_MODEL = "gpt-5.3-codex"
 

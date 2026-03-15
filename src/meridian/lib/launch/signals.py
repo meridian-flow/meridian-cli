@@ -4,16 +4,14 @@ Also includes process-group helpers for subprocess lifecycle management
 (formerly ``exec/process_groups.py``).
 """
 
-
 import asyncio
 import os
-from contextlib import contextmanager
 import signal
 from collections.abc import Iterator
+from contextlib import contextmanager
 from threading import Lock, RLock
 from types import FrameType
 from typing import Final, Self, cast
-
 
 # ---------------------------------------------------------------------------
 # Process-group helpers (absorbed from exec/process_groups.py)

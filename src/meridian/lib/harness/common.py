@@ -4,7 +4,6 @@ Merged from ``harness/_common.py`` (shared helpers) and
 ``harness/_strategies.py`` (strategy-driven command builder).
 """
 
-
 import json
 import re
 from collections.abc import Callable
@@ -14,9 +13,14 @@ from typing import cast
 from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.core.domain import TokenUsage
-from meridian.lib.harness.adapter import ArtifactStore, McpConfig, PermissionResolver, SpawnParams, StreamEvent
 from meridian.lib.core.types import ArtifactKey, HarnessId, SpawnId
-
+from meridian.lib.harness.adapter import (
+    ArtifactStore,
+    McpConfig,
+    PermissionResolver,
+    SpawnParams,
+    StreamEvent,
+)
 
 # ---------------------------------------------------------------------------
 # Shared helpers (from _common.py)
@@ -85,7 +89,7 @@ def parse_json_stream_event(line: str) -> StreamEvent | None:
     # Recognize both "spawn.*" and "meridian.spawn.*" as meridian protocol events.
     synth_type = event_type
     if synth_type.startswith("meridian."):
-        synth_type = synth_type[len("meridian."):]
+        synth_type = synth_type[len("meridian.") :]
     category = "sub-run" if synth_type.startswith("spawn.") else "progress"
     if text is None and "t" in payload and synth_type.startswith("spawn."):
         text = _synthesize_meridian_protocol_text(event_type=synth_type, payload=payload)

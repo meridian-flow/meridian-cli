@@ -1,11 +1,20 @@
 """Explicit operation manifest shared by CLI, MCP, and DirectAdapter surfaces."""
 
-
 from collections.abc import Callable, Coroutine
 from typing import Any, Generic, Literal, Self, TypeVar
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
+from meridian.lib.ops.catalog import (
+    ModelsListInput,
+    ModelsListOutput,
+    ModelsRefreshInput,
+    ModelsRefreshOutput,
+    models_list,
+    models_list_sync,
+    models_refresh,
+    models_refresh_sync,
+)
 from meridian.lib.ops.config import (
     ConfigGetInput,
     ConfigGetOutput,
@@ -29,16 +38,6 @@ from meridian.lib.ops.config import (
     config_show_sync,
 )
 from meridian.lib.ops.diag import DoctorInput, DoctorOutput, doctor, doctor_sync
-from meridian.lib.ops.catalog import (
-    ModelsListInput,
-    ModelsListOutput,
-    ModelsRefreshInput,
-    ModelsRefreshOutput,
-    models_list,
-    models_list_sync,
-    models_refresh,
-    models_refresh_sync,
-)
 from meridian.lib.ops.report import (
     ReportCreateInput,
     ReportCreateOutput,
@@ -58,51 +57,6 @@ from meridian.lib.ops.session_log import (
     SessionLogOutput,
     session_log,
     session_log_sync,
-)
-from meridian.lib.ops.work_dashboard import (
-    WorkListInput,
-    WorkListOutput,
-    WorkShowInput,
-    WorkShowOutput,
-    work_list,
-    work_list_sync,
-    work_show,
-    work_show_sync,
-)
-from meridian.lib.ops.work_lifecycle import (
-    WorkClearInput,
-    WorkClearOutput,
-    WorkDoneInput,
-    WorkReopenInput,
-    WorkReopenOutput,
-    WorkRenameInput,
-    WorkRenameOutput,
-    WorkStartInput,
-    WorkStartOutput,
-    WorkSwitchInput,
-    WorkSwitchOutput,
-    WorkUpdateInput,
-    WorkUpdateOutput,
-    work_clear,
-    work_clear_sync,
-    work_done,
-    work_done_sync,
-    work_reopen,
-    work_reopen_sync,
-    work_rename,
-    work_rename_sync,
-    work_start,
-    work_start_sync,
-    work_switch,
-    work_switch_sync,
-    work_update,
-    work_update_sync,
-)
-from meridian.lib.ops.spawn.log import (
-    SpawnLogInput,
-    SpawnLogOutput,
-    spawn_log,
-    spawn_log_sync,
 )
 from meridian.lib.ops.spawn.api import (
     SpawnActionOutput,
@@ -136,6 +90,51 @@ from meridian.lib.ops.spawn.api import (
     spawn_wait,
     spawn_wait_sync,
 )
+from meridian.lib.ops.spawn.log import (
+    SpawnLogInput,
+    SpawnLogOutput,
+    spawn_log,
+    spawn_log_sync,
+)
+from meridian.lib.ops.work_dashboard import (
+    WorkListInput,
+    WorkListOutput,
+    WorkShowInput,
+    WorkShowOutput,
+    work_list,
+    work_list_sync,
+    work_show,
+    work_show_sync,
+)
+from meridian.lib.ops.work_lifecycle import (
+    WorkClearInput,
+    WorkClearOutput,
+    WorkDoneInput,
+    WorkRenameInput,
+    WorkRenameOutput,
+    WorkReopenInput,
+    WorkReopenOutput,
+    WorkStartInput,
+    WorkStartOutput,
+    WorkSwitchInput,
+    WorkSwitchOutput,
+    WorkUpdateInput,
+    WorkUpdateOutput,
+    work_clear,
+    work_clear_sync,
+    work_done,
+    work_done_sync,
+    work_rename,
+    work_rename_sync,
+    work_reopen,
+    work_reopen_sync,
+    work_start,
+    work_start_sync,
+    work_switch,
+    work_switch_sync,
+    work_update,
+    work_update_sync,
+)
 
 InputT = TypeVar("InputT")
 OutputT = TypeVar("OutputT")
@@ -163,9 +162,8 @@ class OperationSpec(BaseModel, Generic[InputT, OutputT]):
     def _validate_surface_metadata(self) -> Self:
         if not self.surfaces:
             raise ValueError(f"Operation '{self.name}' must expose at least one surface")
-        if "cli" in self.surfaces:
-            if not self.cli_group or not self.cli_name:
-                raise ValueError(f"Operation '{self.name}' is missing CLI metadata")
+        if "cli" in self.surfaces and (not self.cli_group or not self.cli_name):
+            raise ValueError(f"Operation '{self.name}' is missing CLI metadata")
         if "mcp" in self.surfaces and not self.mcp_name:
             raise ValueError(f"Operation '{self.name}' is missing MCP metadata")
         return self
@@ -341,7 +339,10 @@ _OPERATIONS: tuple[OperationSpec[Any, Any], ...] = (
     ),
     _spec(
         name="session.log",
-        description="Show readable messages from a harness session JSONL, with compaction segment selection.",
+        description=(
+            "Show readable messages from a harness session JSONL, "
+            "with compaction segment selection."
+        ),
         handler=session_log,
         sync_handler=session_log_sync,
         input_type=SessionLogInput,
@@ -423,7 +424,10 @@ _OPERATIONS: tuple[OperationSpec[Any, Any], ...] = (
     ),
     _spec(
         name="spawn.show",
-        description="Show spawn status, duration, model, and report path. Use --report to include report text.",
+        description=(
+            "Show spawn status, duration, model, and report path. "
+            "Use --report to include report text."
+        ),
         handler=spawn_show,
         sync_handler=spawn_show_sync,
         input_type=SpawnShowInput,
@@ -445,7 +449,10 @@ _OPERATIONS: tuple[OperationSpec[Any, Any], ...] = (
     ),
     _spec(
         name="spawn.wait",
-        description="Block until spawn(s) complete. Inlines report text by default; use --no-report to omit report body.",
+        description=(
+            "Block until spawn(s) complete. Inlines report text by default; "
+            "use --no-report to omit report body."
+        ),
         handler=spawn_wait,
         sync_handler=spawn_wait_sync,
         input_type=SpawnWaitInput,
@@ -480,7 +487,9 @@ _OPERATIONS: tuple[OperationSpec[Any, Any], ...] = (
     ),
     _spec(
         name="work.reopen",
-        description="Reopen a done work item and restore its archived scratch directory when present.",
+        description=(
+            "Reopen a done work item and restore its archived scratch directory when present."
+        ),
         handler=work_reopen,
         sync_handler=work_reopen_sync,
         input_type=WorkReopenInput,
@@ -528,7 +537,9 @@ _OPERATIONS: tuple[OperationSpec[Any, Any], ...] = (
     ),
     _spec(
         name="work.start",
-        description="Create a work item if missing, or switch to it if it already exists and is active.",
+        description=(
+            "Create a work item if missing, or switch to it if it already exists and is active."
+        ),
         handler=work_start,
         sync_handler=work_start_sync,
         input_type=WorkStartInput,
@@ -576,7 +587,9 @@ def _build_operation_index() -> dict[str, OperationSpec[Any, Any]]:
         if spec.enabled_on("cli"):
             cli_command = (spec.cli_group or "", spec.cli_name or "")
             if cli_command in cli_commands:
-                raise ValueError(f"Duplicate CLI command '{cli_command[0]}.{cli_command[1]}' in manifest")
+                raise ValueError(
+                    f"Duplicate CLI command '{cli_command[0]}.{cli_command[1]}' in manifest"
+                )
             cli_commands.add(cli_command)
         if spec.enabled_on("mcp"):
             if spec.mcp_name in mcp_names:
@@ -611,9 +624,7 @@ def get_mcp_tool_names() -> frozenset[str]:
     """Return MCP tool names declared in the manifest."""
 
     return frozenset(
-        spec.mcp_name
-        for spec in get_operations_for_surface("mcp")
-        if spec.mcp_name is not None
+        spec.mcp_name for spec in get_operations_for_surface("mcp") if spec.mcp_name is not None
     )
 
 

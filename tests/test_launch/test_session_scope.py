@@ -64,15 +64,17 @@ def test_session_scope_stops_on_exception(tmp_path: Path) -> None:
     def fake_stop_session(state_root_arg: Path, chat_id: str) -> None:
         stop_calls.append((state_root_arg, chat_id))
 
-    with pytest.raises(RuntimeError, match="boom"):
-        with session_scope(
+    with (
+        pytest.raises(RuntimeError, match="boom"),
+        session_scope(
             state_root=state_root,
             harness="codex",
             harness_session_id="seed-session",
             model="gpt-5.4",
             _start_session=fake_start_session,
             _stop_session=fake_stop_session,
-        ):
-            raise RuntimeError("boom")
+        ),
+    ):
+        raise RuntimeError("boom")
 
     assert stop_calls == [(state_root, "c202")]

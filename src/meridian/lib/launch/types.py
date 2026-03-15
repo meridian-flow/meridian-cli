@@ -1,6 +1,5 @@
 """Shared types for the launch pipeline."""
 
-
 from pydantic import BaseModel, ConfigDict, Field
 
 _CONTINUATION_GUIDANCE = (

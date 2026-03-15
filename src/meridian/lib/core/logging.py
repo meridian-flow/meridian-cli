@@ -1,6 +1,5 @@
 """Structlog configuration helpers."""
 
-
 import logging as std_logging
 import sys
 

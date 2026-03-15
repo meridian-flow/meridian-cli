@@ -1,22 +1,19 @@
 """Operation runtime helpers for state/store resolution."""
 
-
 import asyncio
 import functools
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Coroutine, ParamSpec, TypeVar
+from typing import Any, ParamSpec, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from meridian.lib.config.settings import resolve_repo_root
-from meridian.lib.config.settings import MeridianConfig, load_config
+from meridian.lib.config.settings import MeridianConfig, load_config, resolve_repo_root
 from meridian.lib.core.context import RuntimeContext
 from meridian.lib.core.sink import NullSink, OutputSink
 from meridian.lib.state.artifact_store import LocalStore
 from meridian.lib.state.paths import resolve_state_paths
-
 
 P = ParamSpec("P")
 T = TypeVar("T")
@@ -32,6 +29,7 @@ def async_from_sync(sync_fn: Callable[P, T]) -> Callable[P, Coroutine[Any, Any, 
 
 class OperationRuntime(BaseModel):
     """Resolved dependencies used by operation handlers."""
+
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
 
     repo_root: Path

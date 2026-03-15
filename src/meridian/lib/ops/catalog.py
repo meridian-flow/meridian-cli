@@ -1,17 +1,21 @@
 """Catalog discovery operations for models and skills."""
 
-
 import re
 from datetime import date, timedelta
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, model_serializer
 
-from meridian.lib.catalog.models import AliasEntry, load_merged_aliases
-from meridian.lib.catalog.models import DiscoveredModel, load_discovered_models, refresh_models_cache
-from meridian.lib.catalog.models import route_model
-from meridian.lib.core.util import FormatContext
+from meridian.lib.catalog.models import (
+    AliasEntry,
+    DiscoveredModel,
+    load_discovered_models,
+    load_merged_aliases,
+    refresh_models_cache,
+    route_model,
+)
 from meridian.lib.core.types import HarnessId, ModelId
+from meridian.lib.core.util import FormatContext
 from meridian.lib.ops.runtime import async_from_sync
 
 
@@ -140,7 +144,7 @@ class ModelsListOutput(BaseModel):
         ]
         filtered_header = [header[index] for index in keep_indices]
         filtered_rows = [[row[index] for index in keep_indices] for row in rows]
-        return tabular([filtered_header] + filtered_rows)
+        return tabular([filtered_header, *filtered_rows])
 
 
 class ModelsRefreshOutput(BaseModel):
@@ -275,10 +279,7 @@ def _is_default_visible(model: CatalogModel, all_model_ids: set[str]) -> bool:
         return False
 
     # Hide expensive models ($$$$+) from the default listing.
-    if model.cost_input is not None and model.cost_input >= 10.0:
-        return False
-
-    return True
+    return not (model.cost_input is not None and model.cost_input >= 10.0)
 
 
 def _cost_tier(cost_input: float | None) -> str | None:

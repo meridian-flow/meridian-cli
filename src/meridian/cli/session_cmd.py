@@ -17,10 +17,7 @@ def _session_log(
     ref: Annotated[
         str,
         Parameter(
-            help=(
-                "Session reference: chat id (c123), spawn id (p123), "
-                "or harness session id."
-            )
+            help=("Session reference: chat id (c123), spawn id (p123), or harness session id.")
         ),
     ] = "",
     compaction: Annotated[
@@ -28,8 +25,7 @@ def _session_log(
         Parameter(
             name=["--compaction", "-c"],
             help=(
-                "Compaction segment index (0 = after last boundary, "
-                "1 = previous segment, etc.)."
+                "Compaction segment index (0 = after last boundary, 1 = previous segment, etc.)."
             ),
         ),
     ] = 0,

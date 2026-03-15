@@ -1,6 +1,6 @@
 from __future__ import annotations
-# pyright: reportPrivateUsage=false
 
+# pyright: reportPrivateUsage=false
 import asyncio
 import time
 from pathlib import Path

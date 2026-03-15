@@ -5,7 +5,7 @@ from meridian.lib.safety.permissions import PermissionConfig
 
 
 def test_background_worker_command_preserves_adhoc_agent_payload(tmp_path: Path) -> None:
-    builder = getattr(spawn_execute, "_build_background_worker_command")
+    builder = spawn_execute._build_background_worker_command
     command = builder(
         spawn_id="p1",
         repo_root=tmp_path,
@@ -31,7 +31,7 @@ def test_background_worker_command_preserves_adhoc_agent_payload(tmp_path: Path)
 
 
 def test_background_worker_command_serializes_skills_as_csv(tmp_path: Path) -> None:
-    builder = getattr(spawn_execute, "_build_background_worker_command")
+    builder = spawn_execute._build_background_worker_command
     command = builder(
         spawn_id="p1",
         repo_root=tmp_path,
@@ -57,7 +57,7 @@ def test_background_worker_command_serializes_skills_as_csv(tmp_path: Path) -> N
 
 
 def test_parse_csv_skills_rejects_empty_names() -> None:
-    parser = getattr(spawn_execute, "_parse_csv_skills")
+    parser = spawn_execute._parse_csv_skills
 
     try:
         parser("reviewing,,mermaid")

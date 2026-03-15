@@ -1,17 +1,17 @@
 from __future__ import annotations
 
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from functools import partial
 from pathlib import Path
-import threading
 
 import pytest
 
+import meridian.lib.state.work_store as work_store
 from meridian.lib.state.atomic import atomic_write_text
 from meridian.lib.state.event_store import utc_now_iso
 from meridian.lib.state.paths import StateRootPaths
-import meridian.lib.state.work_store as work_store
 from meridian.lib.state.work_store import WorkRenameIntent
 
 
@@ -46,7 +46,9 @@ def test_ensure_work_item_metadata_holds_lock_with_concurrent_calls(
 
     total = 24
     with ThreadPoolExecutor(max_workers=8) as pool:
-        names = list(pool.map(partial(_ensure_shared_task_name, state_root=state_root), range(total)))
+        names = list(
+            pool.map(partial(_ensure_shared_task_name, state_root=state_root), range(total))
+        )
 
     assert len(names) == total
     assert set(names) == {"shared-task"}
@@ -88,7 +90,9 @@ def test_rename_work_item_moves_archived_scratch_dir(tmp_path: Path) -> None:
 
     assert renamed.name == "new-name"
     assert not archived_dir.exists()
-    assert (paths.work_archive_dir / "new-name" / "notes.md").read_text(encoding="utf-8") == "archived"
+    assert (paths.work_archive_dir / "new-name" / "notes.md").read_text(
+        encoding="utf-8"
+    ) == "archived"
 
 
 def test_rename_work_item_crash_recovery_old_dir_exists_new_missing(tmp_path: Path) -> None:
@@ -253,9 +257,7 @@ def test_reconcile_work_store_tolerates_malformed_intent_file(tmp_path: Path) ->
     assert not paths.work_items_rename_intent.exists()
 
 
-def test_get_work_item_remains_unlocked(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_get_work_item_remains_unlocked(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     state_root = _state_root(tmp_path)
     item = work_store.create_work_item(state_root, "read-only-item")
 

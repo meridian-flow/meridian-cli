@@ -1,6 +1,5 @@
 """Public spawn operations package."""
 
-
 from .api import (
     SpawnActionOutput,
     SpawnCancelInput,

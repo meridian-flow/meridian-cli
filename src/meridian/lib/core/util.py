@@ -1,6 +1,5 @@
 """Formatting and serialization utilities."""
 
-
 from pathlib import Path
 from typing import Any, Protocol, cast, runtime_checkable
 

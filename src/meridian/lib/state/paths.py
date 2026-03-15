@@ -1,6 +1,5 @@
 """Filesystem path helpers for file-authoritative Meridian state."""
 
-
 import os
 from pathlib import Path
 from typing import Self

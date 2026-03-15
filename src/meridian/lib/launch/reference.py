@@ -1,6 +1,5 @@
 """Reference-file loading and template substitution helpers."""
 
-
 import re
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -34,8 +33,7 @@ def parse_template_assignments(assignments: Sequence[str]) -> dict[str, str]:
         normalized_key = key.strip()
         if not separator or not normalized_key:
             raise ValueError(
-                "Invalid template variable assignment. Expected KEY=VALUE, "
-                f"got '{assignment}'."
+                f"Invalid template variable assignment. Expected KEY=VALUE, got '{assignment}'."
             )
         parsed[normalized_key] = value
     return parsed

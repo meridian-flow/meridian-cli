@@ -1,8 +1,7 @@
 """Permission tiers and harness-flag translation."""
 
-
-import logging
 import json
+import logging
 from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict
@@ -216,8 +215,7 @@ def build_permission_resolver(
     allowed_tools: tuple[str, ...],
     permission_config: PermissionConfig,
 ) -> TieredPermissionResolver | ExplicitToolsResolver:
-    """Pick the right resolver: explicit tools if specified, else tier-based.
-    """
+    """Pick the right resolver: explicit tools if specified, else tier-based."""
     if allowed_tools:
         return ExplicitToolsResolver(
             allowed_tools=allowed_tools,

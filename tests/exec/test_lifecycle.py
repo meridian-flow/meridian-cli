@@ -1,4 +1,3 @@
-
 import asyncio
 import json
 import signal
@@ -8,13 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from meridian.lib.launch import runner as launch_runner
 from meridian.lib.core.domain import Spawn, TokenUsage
-from meridian.lib.launch.runner import execute_with_finalization
-from meridian.lib.harness.common import (
-    extract_session_id_from_artifacts,
-    extract_usage_from_artifacts,
-)
+from meridian.lib.core.types import HarnessId, ModelId, SpawnId
 from meridian.lib.harness.adapter import ArtifactStore as HarnessArtifactStore
 from meridian.lib.harness.adapter import (
     BaseSubprocessHarness,
@@ -23,13 +17,18 @@ from meridian.lib.harness.adapter import (
     PermissionResolver,
     SpawnParams,
 )
+from meridian.lib.harness.common import (
+    extract_session_id_from_artifacts,
+    extract_usage_from_artifacts,
+)
 from meridian.lib.harness.registry import HarnessRegistry
-from meridian.lib.safety.permissions import PermissionConfig, TieredPermissionResolver
+from meridian.lib.launch import runner as launch_runner
+from meridian.lib.launch.runner import execute_with_finalization
 from meridian.lib.ops.spawn.plan import ExecutionPolicy, PreparedSpawnPlan, SessionContinuation
+from meridian.lib.safety.permissions import PermissionConfig, TieredPermissionResolver
 from meridian.lib.state import spawn_store
 from meridian.lib.state.artifact_store import LocalStore, make_artifact_key
 from meridian.lib.state.paths import resolve_state_paths
-from meridian.lib.core.types import HarnessId, ModelId, SpawnId
 
 
 class ScriptHarnessAdapter(BaseSubprocessHarness):

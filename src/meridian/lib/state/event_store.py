@@ -5,10 +5,11 @@ from __future__ import annotations
 import fcntl
 import json
 import threading
-from contextlib import contextmanager
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable, IO, Iterator, TypeVar, cast
+from typing import IO, Any, TypeVar, cast
 
 from pydantic import BaseModel, ValidationError
 
@@ -25,10 +26,8 @@ def register_observer(observer: EventObserver) -> None:
 
 
 def unregister_observer(observer: EventObserver) -> None:
-    try:
+    with suppress(ValueError):
         _observers.remove(observer)
-    except ValueError:
-        pass
 
 
 def utc_now_iso() -> str:
@@ -88,11 +87,8 @@ def append_event(
     # Notify observers after durable write, outside the lock.
     # Snapshot the list so mutations during dispatch are safe.
     for observer in list(_observers):
-        try:
+        with suppress(Exception):
             observer(store_name, payload)
-        except Exception:
-            # Observer failures are isolated and must not break writers.
-            pass
 
 
 def read_events(
