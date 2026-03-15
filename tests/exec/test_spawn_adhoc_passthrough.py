@@ -7,7 +7,7 @@ from meridian.lib.core.domain import Spawn, TokenUsage
 from meridian.lib.core.types import HarnessId, ModelId, SpawnId
 from meridian.lib.harness.adapter import ArtifactStore as HarnessArtifactStore
 from meridian.lib.harness.adapter import (
-    BaseHarnessAdapter,
+    BaseSubprocessHarness,
     HarnessCapabilities,
     McpConfig,
     PermissionResolver,
@@ -23,13 +23,13 @@ from meridian.lib.state.artifact_store import LocalStore
 from meridian.lib.state.paths import resolve_state_paths
 
 
-class RecordingHarnessAdapter(BaseHarnessAdapter):
+class RecordingHarnessAdapter(BaseSubprocessHarness):
     def __init__(self, *, recorded_runs: list[SpawnParams]) -> None:
         self._recorded_runs = recorded_runs
 
     @property
     def id(self) -> HarnessId:
-        return HarnessId("recording-harness")
+        return HarnessId.CODEX
 
     @property
     def capabilities(self) -> HarnessCapabilities:

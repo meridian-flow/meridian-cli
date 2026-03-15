@@ -50,11 +50,14 @@ class MockHarnessAdapter:
 
     @property
     def id(self) -> HarnessId:
-        return HarnessId("mock")
+        return HarnessId.CODEX
 
     @property
     def capabilities(self) -> HarnessCapabilities:
         return HarnessCapabilities()
+
+    def mcp_config(self, run: SpawnParams) -> None:
+        return None
 
     def build_command(self, run: SpawnParams, perms: PermissionResolver) -> list[str]:
         if self._command_override is not None:
@@ -303,7 +306,7 @@ def test_kill_running_parent_process_still_finalizes_run(
             class WorkerAdapter:
                 @property
                 def id(self) -> HarnessId:
-                    return HarnessId("worker-mock")
+                    return HarnessId.CODEX
 
                 @property
                 def capabilities(self) -> HarnessCapabilities:
@@ -317,6 +320,9 @@ def test_kill_running_parent_process_still_finalizes_run(
                         "--hang",
                         *perms.resolve_flags(self.id),
                     ]
+
+                def mcp_config(self, run: SpawnParams) -> None:
+                    return None
 
                 def env_overrides(self, config: PermissionConfig) -> dict[str, str]:
                     _ = config
@@ -378,7 +384,7 @@ def test_kill_running_parent_process_still_finalizes_run(
                     state_root=resolve_state_paths(repo_root).root_dir,
                     artifacts=artifacts,
                     registry=registry,
-                    harness_id=HarnessId("worker-mock"),
+                    harness_id=HarnessId.CODEX,
                     cwd=repo_root,
                 )
 

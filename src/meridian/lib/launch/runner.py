@@ -613,7 +613,7 @@ async def execute_with_finalization(
         try:
             command = tuple(harness.build_command(run_params, resolved_perms))
 
-            if os.environ.get("CLAUDECODE") and str(harness.id) == "claude":
+            if os.environ.get("CLAUDECODE") and harness.id == HarnessId.CLAUDE:
                 child_cwd = log_dir
                 child_cwd.mkdir(parents=True, exist_ok=True)
                 command = (*command, "--add-dir", str(execution_cwd))

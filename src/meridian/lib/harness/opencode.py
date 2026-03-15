@@ -168,7 +168,7 @@ class OpenCodeAdapter(BaseSubprocessHarness):
 
     @property
     def id(self) -> HarnessId:
-        return HarnessId("opencode")
+        return HarnessId.OPENCODE
 
     @property
     def capabilities(self) -> HarnessCapabilities:

@@ -101,7 +101,7 @@ def test_run_harness_process_reuses_tracked_chat_id_on_resume(
         prompt="resume prompt",
         request=request,
         config=config,
-        adapter=harness_registry.get_subprocess_harness(HarnessId("codex")),
+        adapter=harness_registry.get_subprocess_harness(HarnessId.CODEX),
         session_metadata=PrimarySessionMetadata(
             harness="codex",
             model="gpt-5.4",
@@ -194,7 +194,7 @@ def test_run_harness_process_attaches_explicit_work_id(
         prompt="new prompt",
         request=request,
         config=config,
-        adapter=harness_registry.get_subprocess_harness(HarnessId("codex")),
+        adapter=harness_registry.get_subprocess_harness(HarnessId.CODEX),
         session_metadata=PrimarySessionMetadata(
             harness="codex",
             model="gpt-5.4",

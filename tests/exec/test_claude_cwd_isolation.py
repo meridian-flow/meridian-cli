@@ -22,7 +22,7 @@ from meridian.lib.harness.common import (
 )
 from meridian.lib.harness.adapter import ArtifactStore as HarnessArtifactStore
 from meridian.lib.harness.adapter import (
-    BaseHarnessAdapter,
+    BaseSubprocessHarness,
     HarnessCapabilities,
     PermissionResolver,
     SpawnParams,
@@ -36,7 +36,7 @@ from meridian.lib.state.paths import resolve_state_paths, resolve_spawn_log_dir
 from meridian.lib.core.types import HarnessId, ModelId, SpawnId
 
 
-class ClaudeLikeAdapter(BaseHarnessAdapter):
+class ClaudeLikeAdapter(BaseSubprocessHarness):
     """Adapter that reports id='claude' to trigger CWD isolation."""
 
     def __init__(self, *, command: tuple[str, ...]) -> None:
@@ -44,7 +44,7 @@ class ClaudeLikeAdapter(BaseHarnessAdapter):
 
     @property
     def id(self) -> HarnessId:
-        return HarnessId("claude")
+        return HarnessId.CLAUDE
 
     @property
     def capabilities(self) -> HarnessCapabilities:
@@ -71,7 +71,7 @@ class ClaudeLikeAdapter(BaseHarnessAdapter):
         return extract_session_id_from_artifacts(artifacts, spawn_id)
 
 
-class NonClaudeAdapter(BaseHarnessAdapter):
+class NonClaudeAdapter(BaseSubprocessHarness):
     """Adapter with a non-claude id — CWD isolation should NOT trigger."""
 
     def __init__(self, *, command: tuple[str, ...]) -> None:
@@ -79,7 +79,7 @@ class NonClaudeAdapter(BaseHarnessAdapter):
 
     @property
     def id(self) -> HarnessId:
-        return HarnessId("other-harness")
+        return HarnessId.CODEX
 
     @property
     def capabilities(self) -> HarnessCapabilities:

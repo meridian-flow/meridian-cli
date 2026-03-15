@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from meridian.lib.core.types import HarnessId
 from meridian.lib.harness.registry import HarnessRegistry, get_default_harness_registry
 
 
@@ -10,7 +11,7 @@ def infer_harness_from_untracked_session_ref(
     session_ref: str,
     *,
     registry: HarnessRegistry | None = None,
-) -> str | None:
+) -> HarnessId | None:
     """Detect which harness owns *session_ref* by querying registered adapters."""
 
     normalized = session_ref.strip()
@@ -24,5 +25,5 @@ def infer_harness_from_untracked_session_ref(
         except TypeError:
             continue
         if adapter.owns_untracked_session(repo_root=repo_root, session_ref=normalized):
-            return str(harness_id)
+            return harness_id
     return None

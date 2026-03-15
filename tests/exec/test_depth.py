@@ -13,7 +13,7 @@ from meridian.lib.core.domain import TokenUsage
 from meridian.lib.core.types import HarnessId, ModelId, SpawnId
 from meridian.lib.harness.adapter import (
     ArtifactStore as HarnessArtifactStore,
-    BaseHarnessAdapter,
+    BaseSubprocessHarness,
     HarnessCapabilities,
     McpConfig,
     PermissionResolver,
@@ -34,13 +34,13 @@ from meridian.lib.state.paths import resolve_state_paths
 _RECURSIVE_PROBE_MODEL = "gpt-5.3-codex"
 
 
-class RecursiveHarnessAdapter(BaseHarnessAdapter):
+class RecursiveHarnessAdapter(BaseSubprocessHarness):
     def __init__(self, *, script_path: Path) -> None:
         self._script_path = script_path
 
     @property
     def id(self) -> HarnessId:
-        return HarnessId("codex")
+        return HarnessId.CODEX
 
     @property
     def capabilities(self) -> HarnessCapabilities:
@@ -91,7 +91,7 @@ def _write_recursive_harness_script(path: Path) -> None:
             from meridian.lib.core.types import HarnessId, SpawnId
             from meridian.lib.harness.adapter import (
                 ArtifactStore as HarnessArtifactStore,
-                BaseHarnessAdapter,
+                BaseSubprocessHarness,
                 HarnessCapabilities,
                 McpConfig,
                 PermissionResolver,
@@ -111,13 +111,13 @@ def _write_recursive_harness_script(path: Path) -> None:
             MODEL = "{_RECURSIVE_PROBE_MODEL}"
 
 
-            class RecursiveHarnessAdapter(BaseHarnessAdapter):
+            class RecursiveHarnessAdapter(BaseSubprocessHarness):
                 def __init__(self, *, script_path: Path) -> None:
                     self._script_path = script_path
 
                 @property
                 def id(self) -> HarnessId:
-                    return HarnessId("codex")
+                    return HarnessId.CODEX
 
                 @property
                 def capabilities(self) -> HarnessCapabilities:

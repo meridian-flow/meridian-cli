@@ -656,13 +656,12 @@ class MeridianConfig(BaseSettings):
         """Return configured default model for one harness ID."""
 
         normalized = harness_id.strip().lower()
-        if normalized == "claude":
-            return self.harness.claude
-        if normalized == "codex":
-            return self.harness.codex
-        if normalized == "opencode":
-            return self.harness.opencode
-        return None
+        mapping: dict[str, str] = {
+            "claude": self.harness.claude,
+            "codex": self.harness.codex,
+            "opencode": self.harness.opencode,
+        }
+        return mapping.get(normalized)
 
     @classmethod
     def settings_customise_sources(

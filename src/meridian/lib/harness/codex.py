@@ -224,7 +224,7 @@ class CodexAdapter(BaseSubprocessHarness):
 
     @property
     def id(self) -> HarnessId:
-        return HarnessId("codex")
+        return HarnessId.CODEX
 
     @property
     def capabilities(self) -> HarnessCapabilities:

@@ -180,18 +180,18 @@ def permission_flags_for_harness(
 
     tier = config.tier
     if config.approval == "auto":
-        if harness_id == HarnessId("claude"):
+        if harness_id == HarnessId.CLAUDE:
             return ["--dangerously-skip-permissions"]
-        if harness_id == HarnessId("codex"):
+        if harness_id == HarnessId.CODEX:
             return ["--dangerously-bypass-approvals-and-sandbox"]
         # OpenCode currently has no equivalent global bypass flag.
     if tier is None:
         return []
 
-    if harness_id == HarnessId("claude"):
+    if harness_id == HarnessId.CLAUDE:
         return ["--allowedTools", ",".join(_claude_allowed_tools(tier))]
 
-    if harness_id == HarnessId("codex"):
+    if harness_id == HarnessId.CODEX:
         if tier is PermissionTier.READ_ONLY:
             return ["--sandbox", "read-only"]
         if tier is PermissionTier.WORKSPACE_WRITE:
@@ -230,11 +230,11 @@ class ExplicitToolsResolver(BaseModel):
 
     def resolve_flags(self, harness_id: HarnessId) -> list[str]:
         # Codex only supports --sandbox, not per-tool allowlists.
-        if harness_id == HarnessId("codex"):
+        if harness_id == HarnessId.CODEX:
             return permission_flags_for_harness(harness_id, self.fallback_config)
 
         # Claude: emit explicit allowedTools list.
-        if harness_id == HarnessId("claude"):
+        if harness_id == HarnessId.CLAUDE:
             return ["--allowedTools", ",".join(self.allowed_tools)]
 
         # OpenCode / others: no fine-grained tool allowlist support yet.

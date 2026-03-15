@@ -21,10 +21,10 @@ def test_auto_approval_bypass_and_invalid_approval() -> None:
     config = build_permission_config("full-access", approval="auto")
     assert config.tier is PermissionTier.FULL_ACCESS
     assert config.approval == "auto"
-    assert permission_flags_for_harness(HarnessId("claude"), config) == [
+    assert permission_flags_for_harness(HarnessId.CLAUDE, config) == [
         "--dangerously-skip-permissions"
     ]
-    assert permission_flags_for_harness(HarnessId("codex"), config) == [
+    assert permission_flags_for_harness(HarnessId.CODEX, config) == [
         "--dangerously-bypass-approvals-and-sandbox"
     ]
 
@@ -35,8 +35,8 @@ def test_auto_approval_bypass_and_invalid_approval() -> None:
 def test_none_tier_defaults_to_harness_choice() -> None:
     config = build_permission_config(None)
     assert config.tier is None
-    assert permission_flags_for_harness(HarnessId("claude"), config) == []
-    assert permission_flags_for_harness(HarnessId("codex"), config) == []
+    assert permission_flags_for_harness(HarnessId.CLAUDE, config) == []
+    assert permission_flags_for_harness(HarnessId.CODEX, config) == []
 
 
 @pytest.mark.parametrize(

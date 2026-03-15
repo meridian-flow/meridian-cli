@@ -245,7 +245,7 @@ class ClaudeAdapter(BaseSubprocessHarness):
 
     @property
     def id(self) -> HarnessId:
-        return HarnessId("claude")
+        return HarnessId.CLAUDE
 
     @property
     def capabilities(self) -> HarnessCapabilities:

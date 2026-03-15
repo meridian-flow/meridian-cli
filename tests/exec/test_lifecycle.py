@@ -17,7 +17,7 @@ from meridian.lib.harness.common import (
 )
 from meridian.lib.harness.adapter import ArtifactStore as HarnessArtifactStore
 from meridian.lib.harness.adapter import (
-    BaseHarnessAdapter,
+    BaseSubprocessHarness,
     HarnessCapabilities,
     McpConfig,
     PermissionResolver,
@@ -33,13 +33,13 @@ from meridian.lib.state.paths import resolve_state_paths
 from meridian.lib.core.types import HarnessId, ModelId, SpawnId
 
 
-class ScriptHarnessAdapter(BaseHarnessAdapter):
+class ScriptHarnessAdapter(BaseSubprocessHarness):
     def __init__(self, *, command: tuple[str, ...]) -> None:
         self._command = command
 
     @property
     def id(self) -> HarnessId:
-        return HarnessId("exec-script")
+        return HarnessId.CODEX
 
     @property
     def capabilities(self) -> HarnessCapabilities:

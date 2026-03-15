@@ -45,14 +45,14 @@ def route_model(model: str, mode: SpawnMode = "harness") -> RoutingDecision:
 
     normalized = model.strip()
     if mode == "direct":
-        return RoutingDecision(harness_id=HarnessId("direct"))
+        return RoutingDecision(harness_id=HarnessId.DIRECT)
 
     if normalized.startswith(("claude-", "opus", "sonnet", "haiku")):
-        return RoutingDecision(harness_id=HarnessId("claude"))
+        return RoutingDecision(harness_id=HarnessId.CLAUDE)
     if normalized.startswith(("gpt-", "o1", "o3", "o4", "codex")):
-        return RoutingDecision(harness_id=HarnessId("codex"))
+        return RoutingDecision(harness_id=HarnessId.CODEX)
     if normalized.startswith(("opencode-", "gemini-", "gemini")) or "/" in normalized:
-        return RoutingDecision(harness_id=HarnessId("opencode"))
+        return RoutingDecision(harness_id=HarnessId.OPENCODE)
 
     raise ValueError(
         f"Unknown model family '{model}'. Configure an explicit harness in models.toml."
@@ -66,9 +66,9 @@ _REQUEST_TIMEOUT_SECONDS = 10
 _CACHE_TTL_SECONDS = 24 * 60 * 60
 _CACHE_FILE_NAME = "models.json"
 _PROVIDER_TO_HARNESS: dict[str, HarnessId] = {
-    "anthropic": HarnessId("claude"),
-    "openai": HarnessId("codex"),
-    "google": HarnessId("opencode"),
+    "anthropic": HarnessId.CLAUDE,
+    "openai": HarnessId.CODEX,
+    "google": HarnessId.OPENCODE,
 }
 
 
@@ -380,12 +380,17 @@ def _deserialize_cached_model(row: _CachedModelRow) -> DiscoveredModel | None:
     ):
         return None
 
+    try:
+        harness = HarnessId(row.harness)
+    except ValueError:
+        return None
+
     return DiscoveredModel(
         id=row.id,
         name=row.name,
         family=row.family,
         provider=row.provider,
-        harness=HarnessId(row.harness),
+        harness=harness,
         cost_input=row.cost_input,
         cost_output=row.cost_output,
         context_limit=row.context_limit,

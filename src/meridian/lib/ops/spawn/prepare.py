@@ -24,7 +24,7 @@ from meridian.lib.launch.resolve import (
 from meridian.lib.safety.permissions import (
     resolve_permission_pipeline,
 )
-from meridian.lib.core.types import ModelId
+from meridian.lib.core.types import HarnessId, ModelId
 from meridian.lib.install.bootstrap import (
     ensure_bootstrap_assets,
     plan_bootstrap_assets,
@@ -239,7 +239,7 @@ def build_create_payload(
             description=profile.description,
             prompt=profile.body,
         )
-        if profile is not None and str(harness.id) == "claude"
+        if profile is not None and harness.id == HarnessId.CLAUDE
         else ""
     )
     agent_for_params = profile.name if profile is not None else None

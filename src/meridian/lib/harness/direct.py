@@ -65,7 +65,7 @@ class DirectAdapter:
 
     @property
     def id(self) -> HarnessId:
-        return HarnessId("direct")
+        return HarnessId.DIRECT
 
     @property
     def capabilities(self) -> HarnessCapabilities:

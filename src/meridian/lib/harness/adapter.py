@@ -287,21 +287,16 @@ class BaseSubprocessHarness:
         _ = output
         return None
 
+    def mcp_config(self, run: SpawnParams) -> McpConfig | None:
+        _ = run
+        return None
+
     def extract_report(self, artifacts: ArtifactStore, spawn_id: SpawnId) -> str | None:
         _ = artifacts, spawn_id
         return None
 
 
 def resolve_mcp_config(adapter: SubprocessHarness, run: SpawnParams) -> McpConfig | None:
-    """Resolve adapter MCP config if the adapter implements the optional hook."""
+    """Resolve adapter MCP config."""
 
-    resolver = getattr(adapter, "mcp_config", None)
-    if resolver is None:
-        return None
-    return resolver(run)
-
-
-# Backward compatibility: existing code that references HarnessAdapter continues
-# to work during migration.
-HarnessAdapter = SubprocessHarness
-BaseHarnessAdapter = BaseSubprocessHarness
+    return adapter.mcp_config(run)
