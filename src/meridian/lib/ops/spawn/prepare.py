@@ -17,7 +17,9 @@ from meridian.lib.launch.prompt import (
 )
 from meridian.lib.launch.reference import load_reference_files, parse_template_assignments
 from meridian.lib.launch.resolve import (
+    resolve_profile_path,
     resolve_policies,
+    resolve_skill_paths,
     resolve_skills_from_profile,
 )
 from meridian.lib.safety.permissions import (
@@ -25,9 +27,7 @@ from meridian.lib.safety.permissions import (
 )
 from meridian.lib.core.types import ModelId
 from meridian.lib.install.bootstrap import (
-    ensure_bootstrap_assets,
-    plan_bootstrap_assets,
-    planned_bootstrap_agent_names,
+    ensure_bootstrap_ready,
 )
 from meridian.lib.install.provenance import resolve_runtime_asset_provenance
 
@@ -177,26 +177,12 @@ def build_create_payload(
             config=runtime_bundle.config,
             harness_registry=runtime_bundle.harness_registry,
         )
-    bootstrap_agent_names = planned_bootstrap_agent_names(
-        configured_default=runtime_view.config.default_agent,
-        requested_agent=payload.agent,
-    )
-    bootstrap_plan = plan_bootstrap_assets(
+    bootstrap_plan = ensure_bootstrap_ready(
         repo_root=runtime_view.repo_root,
-        agent_names=bootstrap_agent_names,
+        configured_default_agent=runtime_view.config.default_agent,
+        requested_agent=payload.agent,
+        dry_run=payload.dry_run,
     )
-    if bootstrap_plan.missing_items:
-        if payload.dry_run:
-            joined = ", ".join(sorted(bootstrap_plan.missing_items))
-            raise FileNotFoundError(
-                "Required runtime agents are missing locally for dry-run and will not be "
-                f"auto-installed: {joined}. Install their source first or rerun without "
-                "--dry-run."
-            )
-        ensure_bootstrap_assets(
-            repo_root=runtime_view.repo_root,
-            plan=bootstrap_plan,
-        )
 
     policies = resolve_policies(
         repo_root=runtime_view.repo_root,
@@ -315,13 +301,8 @@ def build_create_payload(
             resolver,
         )
     )
-    session_agent_path = ""
-    if profile is not None and profile.path.is_absolute() and profile.path.exists():
-        session_agent_path = profile.path.resolve().as_posix()
-    session_skill_paths = tuple(
-        Path(skill.path).expanduser().resolve().as_posix()
-        for skill in resolved_skills.loaded_skills
-    )
+    session_agent_path = resolve_profile_path(profile)
+    session_skill_paths = resolve_skill_paths(resolved_skills.loaded_skills)
     runtime_provenance = resolve_runtime_asset_provenance(
         repo_root=runtime_view.repo_root,
         agent_path=session_agent_path,

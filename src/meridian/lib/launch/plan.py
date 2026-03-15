@@ -17,16 +17,16 @@ from meridian.lib.safety.permissions import (
 )
 from meridian.lib.state.paths import resolve_state_paths
 from meridian.lib.install.bootstrap import (
-    ensure_bootstrap_assets,
-    plan_bootstrap_assets,
-    planned_bootstrap_agent_names,
+    ensure_bootstrap_ready,
 )
 from meridian.lib.install.provenance import resolve_runtime_asset_provenance
 
 from .prompt import compose_skill_injections
 from .resolve import (
     ResolvedPolicies,
+    resolve_profile_path,
     resolve_policies,
+    resolve_skill_paths,
 )
 from .types import LaunchRequest, PrimarySessionMetadata, build_primary_prompt
 
@@ -125,26 +125,12 @@ def resolve_primary_launch_plan(
     resolved_config = config if config is not None else load_config(resolved_root)
     state_root = resolve_state_paths(resolved_root).root_dir
     resolved_prompt = prompt if prompt is not None else build_primary_prompt(request)
-    bootstrap_agent_names = planned_bootstrap_agent_names(
-        configured_default=resolved_config.primary_agent,
-        requested_agent=request.agent,
-    )
-    bootstrap_plan = plan_bootstrap_assets(
+    bootstrap_plan = ensure_bootstrap_ready(
         repo_root=resolved_root,
-        agent_names=bootstrap_agent_names,
+        configured_default_agent=resolved_config.primary_agent,
+        requested_agent=request.agent,
+        dry_run=request.dry_run,
     )
-    if bootstrap_plan.missing_items:
-        if request.dry_run:
-            joined = ", ".join(sorted(bootstrap_plan.missing_items))
-            raise FileNotFoundError(
-                "Required runtime agents are missing locally for dry-run and will not be "
-                f"auto-installed: {joined}. Install their source first or rerun without "
-                "--dry-run."
-            )
-        ensure_bootstrap_assets(
-            repo_root=resolved_root,
-            plan=bootstrap_plan,
-        )
 
     policies: ResolvedPolicies = resolve_policies(
         repo_root=resolved_root,
@@ -179,13 +165,8 @@ def resolve_primary_launch_plan(
         )
 
     profile_name = profile.name if profile is not None else ""
-    profile_path = ""
-    if profile is not None and profile.path.is_absolute() and profile.path.exists():
-        profile_path = profile.path.resolve().as_posix()
-    skill_paths = tuple(
-        Path(skill.path).expanduser().resolve().as_posix()
-        for skill in resolved_skills.loaded_skills
-    )
+    profile_path = resolve_profile_path(profile)
+    skill_paths = resolve_skill_paths(resolved_skills.loaded_skills)
     runtime_provenance = resolve_runtime_asset_provenance(
         repo_root=resolved_root,
         agent_path=profile_path,

@@ -102,6 +102,18 @@ def resolve_skills_from_profile(
     )
 
 
+def resolve_profile_path(profile: AgentProfile | None) -> str:
+    if profile is None:
+        return ""
+    if profile.path.is_absolute() and profile.path.exists():
+        return profile.path.resolve().as_posix()
+    return ""
+
+
+def resolve_skill_paths(loaded_skills: tuple[SkillContent, ...]) -> tuple[str, ...]:
+    return tuple(Path(skill.path).expanduser().resolve().as_posix() for skill in loaded_skills)
+
+
 def resolve_harness(
     *,
     model: ModelId,
@@ -249,6 +261,8 @@ __all__ = [
     "ResolvedSkills",
     "load_agent_profile_with_fallback",
     "resolve_harness",
+    "resolve_profile_path",
     "resolve_policies",
+    "resolve_skill_paths",
     "resolve_skills_from_profile",
 ]
