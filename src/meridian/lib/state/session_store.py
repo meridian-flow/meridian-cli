@@ -216,7 +216,7 @@ def _seed_counter_from_events(paths: StateRootPaths) -> int:
 
 def reserve_chat_id(state_root: Path) -> str:
     paths = StateRootPaths.from_root_dir(state_root)
-    with lock_file(paths.session_id_counter_lock):
+    with lock_file(paths.session_id_counter_flock):
         current = _read_session_counter(paths)
         if current == 0 and not paths.session_id_counter.is_file():
             current = _seed_counter_from_events(paths)
@@ -357,8 +357,8 @@ def start_session(
             session_instance_id=session_instance_id,
             started_at=started_at,
         )
-        with lock_file(paths.sessions_lock):
-            append_event(paths.sessions_jsonl, paths.sessions_lock, event, store_name="session")
+        with lock_file(paths.sessions_flock):
+            append_event(paths.sessions_jsonl, paths.sessions_flock, event, store_name="session")
             _write_session_lease(paths, resolved_chat_id, session_instance_id)
     except Exception:
         fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
@@ -382,10 +382,10 @@ def stop_session(state_root: Path, chat_id: str) -> None:
         session_instance_id=session_instance_id,
         stopped_at=utc_now_iso(),
     )
-    with lock_file(paths.sessions_lock):
+    with lock_file(paths.sessions_flock):
         append_event(
             paths.sessions_jsonl,
-            paths.sessions_lock,
+            paths.sessions_flock,
             event,
             store_name="session",
             exclude_none=True,
@@ -405,7 +405,7 @@ def update_session_harness_id(state_root: Path, chat_id: str, harness_session_id
     )
     append_event(
         paths.sessions_jsonl,
-        paths.sessions_lock,
+        paths.sessions_flock,
         event,
         store_name="session",
         exclude_none=True,
@@ -425,7 +425,7 @@ def update_session_work_id(state_root: Path, chat_id: str, work_id: str | None) 
     )
     append_event(
         paths.sessions_jsonl,
-        paths.sessions_lock,
+        paths.sessions_flock,
         event,
         store_name="session",
         exclude_none=True,
@@ -580,7 +580,7 @@ def cleanup_stale_sessions(state_root: Path) -> StaleSessionCleanup:
 
     cleaned_ids: list[str] = []
     stale_cleanup_scopes: list[str] = []
-    with lock_file(paths.sessions_lock):
+    with lock_file(paths.sessions_flock):
         records = _records_by_session(state_root)
         stopped_at = utc_now_iso()
         for chat_id, lock_path, _ in stale:
@@ -602,7 +602,7 @@ def cleanup_stale_sessions(state_root: Path) -> StaleSessionCleanup:
             ):
                 append_event(
                     paths.sessions_jsonl,
-                    paths.sessions_lock,
+                    paths.sessions_flock,
                     SessionStopEvent(
                         chat_id=chat_id,
                         session_instance_id=stop_session_instance_id,

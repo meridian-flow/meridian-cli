@@ -157,7 +157,7 @@ def create_work_item(state_root: Path, label: str, description: str = "") -> Wor
     """Create a new work item metadata record under `.meridian/work-items/`."""
 
     paths = StateRootPaths.from_root_dir(state_root)
-    with lock_file(paths.work_items_lock):
+    with lock_file(paths.work_items_flock):
         reconcile_work_store(state_root)
         paths.work_items_dir.mkdir(parents=True, exist_ok=True)
         slug = slugify(label)
@@ -193,7 +193,7 @@ def ensure_work_item_metadata(
         )
 
     paths = StateRootPaths.from_root_dir(state_root)
-    with lock_file(paths.work_items_lock):
+    with lock_file(paths.work_items_flock):
         reconcile_work_store(state_root)
         return _ensure_work_item_metadata_locked(
             paths=paths,
@@ -223,7 +223,7 @@ def list_work_items(state_root: Path) -> list[WorkItem]:
     """Return all work items sorted by creation time then slug."""
 
     paths = StateRootPaths.from_root_dir(state_root)
-    with lock_file(paths.work_items_lock):
+    with lock_file(paths.work_items_flock):
         reconcile_work_store(state_root)
         if not paths.work_items_dir.is_dir():
             return []
@@ -240,7 +240,7 @@ def rename_work_item(state_root: Path, old_work_id: str, new_name: str) -> WorkI
     """Rename work metadata and move scratch dir if it exists."""
 
     paths = StateRootPaths.from_root_dir(state_root)
-    with lock_file(paths.work_items_lock):
+    with lock_file(paths.work_items_flock):
         reconcile_work_store(state_root)
 
         old_item = get_work_item(state_root, old_work_id)
@@ -306,7 +306,7 @@ def update_work_item(
     """Update mutable work-item fields and rewrite metadata atomically."""
 
     paths = StateRootPaths.from_root_dir(state_root)
-    with lock_file(paths.work_items_lock):
+    with lock_file(paths.work_items_flock):
         reconcile_work_store(state_root)
         current = get_work_item(state_root, work_id)
         if current is None:
@@ -326,7 +326,7 @@ def archive_work_item(state_root: Path, work_id: str) -> WorkItem:
     """Mark a work item done and move its scratch dir into `.meridian/work-archive/`."""
 
     paths = StateRootPaths.from_root_dir(state_root)
-    with lock_file(paths.work_items_lock):
+    with lock_file(paths.work_items_flock):
         reconcile_work_store(state_root)
         current = get_work_item(state_root, work_id)
         if current is None:
@@ -351,7 +351,7 @@ def reopen_work_item(state_root: Path, work_id: str, *, status: str = "open") ->
     """Reopen a work item and restore its scratch dir to `.meridian/work/`."""
 
     paths = StateRootPaths.from_root_dir(state_root)
-    with lock_file(paths.work_items_lock):
+    with lock_file(paths.work_items_flock):
         reconcile_work_store(state_root)
         current = get_work_item(state_root, work_id)
         if current is None:

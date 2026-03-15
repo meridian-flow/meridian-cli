@@ -261,7 +261,7 @@ def test_get_work_item_remains_unlocked(
 
     @contextmanager
     def failing_lock(_lock_path: Path):
-        raise AssertionError("get_work_item should not acquire work-items.lock")
+        raise AssertionError("get_work_item should not acquire work-items.flock")
         yield
 
     monkeypatch.setattr(work_store, "lock_file", failing_lock)

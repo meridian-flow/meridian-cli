@@ -39,7 +39,7 @@ Examples:
 
 - `spawn.create`, `spawn.list`, `spawn.wait`
 - `SpawnId`, `SpawnRecord`, `spawn_store.py`
-- `spawns.jsonl`, `spawns.lock`, `.meridian/spawns/`
+- `spawns.jsonl`, `spawns.jsonl.flock`, `.meridian/spawns/`
 
 ### Internal execution surfaces (can keep `run` if purely mechanical)
 

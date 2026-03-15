@@ -198,12 +198,12 @@ def start_spawn(
     status: SpawnStatus = "running",
     started_at: str | None = None,
 ) -> SpawnId:
-    """Append a spawn start event under `spawns.lock` and return the spawn ID."""
+    """Append a spawn start event under `spawns.jsonl.flock` and return the spawn ID."""
 
     paths = StateRootPaths.from_root_dir(state_root)
     started = started_at or utc_now_iso()
 
-    with lock_file(paths.spawns_lock):
+    with lock_file(paths.spawns_flock):
         resolved_spawn_id = (
             SpawnId(str(spawn_id)) if spawn_id is not None else next_spawn_id(state_root)
         )
@@ -232,7 +232,7 @@ def start_spawn(
         )
         append_event(
             paths.spawns_jsonl,
-            paths.spawns_lock,
+            paths.spawns_flock,
             event,
             store_name="spawn",
             exclude_none=True,
@@ -252,7 +252,7 @@ def update_spawn(
     desc: str | None = None,
     work_id: str | None = None,
 ) -> None:
-    """Append a non-terminal spawn update event under `spawns.lock`."""
+    """Append a non-terminal spawn update event under `spawns.jsonl.flock`."""
 
     paths = StateRootPaths.from_root_dir(state_root)
     event = SpawnUpdateEvent(
@@ -267,7 +267,7 @@ def update_spawn(
     )
     append_event(
         paths.spawns_jsonl,
-        paths.spawns_lock,
+        paths.spawns_flock,
         event,
         store_name="spawn",
         exclude_none=True,
@@ -297,7 +297,7 @@ def finalize_spawn(
     or does not exist.
     """
     paths = StateRootPaths.from_root_dir(state_root)
-    with lock_file(paths.spawns_lock):
+    with lock_file(paths.spawns_flock):
         records = _record_from_events(read_events(paths.spawns_jsonl, _parse_event))
         record = records.get(str(spawn_id))
         was_active = record is not None and is_active_spawn_status(record.status)
@@ -314,7 +314,7 @@ def finalize_spawn(
         )
         append_event(
             paths.spawns_jsonl,
-            paths.spawns_lock,
+            paths.spawns_flock,
             event,
             store_name="spawn",
             exclude_none=True,

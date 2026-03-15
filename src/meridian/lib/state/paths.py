@@ -41,17 +41,17 @@ class StateRootPaths(BaseModel):
 
     root_dir: Path
     spawns_jsonl: Path
-    spawns_lock: Path
+    spawns_flock: Path
     sessions_jsonl: Path
-    sessions_lock: Path
+    sessions_flock: Path
     session_id_counter: Path
-    session_id_counter_lock: Path
+    session_id_counter_flock: Path
     sessions_dir: Path
     fs_dir: Path
     work_dir: Path
     work_archive_dir: Path
     work_items_dir: Path
-    work_items_lock: Path
+    work_items_flock: Path
     work_items_rename_intent: Path
     spawns_dir: Path
 
@@ -62,17 +62,17 @@ class StateRootPaths(BaseModel):
         return cls(
             root_dir=root_dir,
             spawns_jsonl=root_dir / "spawns.jsonl",
-            spawns_lock=root_dir / "spawns.lock",
+            spawns_flock=root_dir / "spawns.jsonl.flock",
             sessions_jsonl=root_dir / "sessions.jsonl",
-            sessions_lock=root_dir / "sessions.lock",
+            sessions_flock=root_dir / "sessions.jsonl.flock",
             session_id_counter=root_dir / "session-id-counter",
-            session_id_counter_lock=root_dir / "session-id-counter.lock",
+            session_id_counter_flock=root_dir / "session-id-counter.flock",
             sessions_dir=root_dir / "sessions",
             fs_dir=root_dir / "fs",
             work_dir=root_dir / "work",
             work_archive_dir=root_dir / "work-archive",
             work_items_dir=root_dir / "work-items",
-            work_items_lock=root_dir / "work-items.lock",
+            work_items_flock=root_dir / "work-items.flock",
             work_items_rename_intent=root_dir / "work-items.rename.intent.json",
             spawns_dir=root_dir / "spawns",
         )
