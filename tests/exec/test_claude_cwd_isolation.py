@@ -26,7 +26,6 @@ from meridian.lib.harness.adapter import (
     HarnessCapabilities,
     PermissionResolver,
     SpawnParams,
-    StreamEvent,
 )
 from meridian.lib.harness.registry import HarnessRegistry
 from meridian.lib.ops.spawn.plan import ExecutionPolicy, PreparedSpawnPlan, SessionContinuation
@@ -60,10 +59,6 @@ class ClaudeLikeAdapter(BaseSubprocessHarness):
     def blocked_child_env_vars(self) -> frozenset[str]:
         return frozenset({"CLAUDECODE"})
 
-    def parse_stream_event(self, line: str) -> StreamEvent | None:
-        _ = line
-        return None
-
     def extract_usage(self, artifacts: HarnessArtifactStore, spawn_id: SpawnId) -> TokenUsage:
         return extract_usage_from_artifacts(artifacts, spawn_id)
 
@@ -91,10 +86,6 @@ class NonClaudeAdapter(BaseSubprocessHarness):
     def env_overrides(self, config: PermissionConfig) -> dict[str, str]:
         _ = config
         return {}
-
-    def parse_stream_event(self, line: str) -> StreamEvent | None:
-        _ = line
-        return None
 
     def extract_usage(self, artifacts: HarnessArtifactStore, spawn_id: SpawnId) -> TokenUsage:
         return extract_usage_from_artifacts(artifacts, spawn_id)

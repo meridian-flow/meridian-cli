@@ -9,12 +9,9 @@ from uuid import uuid4
 from meridian.lib.core.conversation import Conversation, ConversationTurn, ToolCall
 from meridian.lib.core.types import ArtifactKey, HarnessId, SpawnId
 from meridian.lib.harness.common import (
-    categorize_stream_event,
     extract_claude_report,
     extract_session_id_from_artifacts,
     extract_usage_from_artifacts,
-    iter_nested_dicts,
-    parse_json_stream_event,
 )
 from meridian.lib.harness.common import (
     FlagEffect,
@@ -27,12 +24,10 @@ from meridian.lib.harness.adapter import (
     ArtifactStore,
     BaseSubprocessHarness,
     HarnessCapabilities,
-    HarnessNativeLayout,
     McpConfig,
     PermissionResolver,
     RunPromptPolicy,
     SpawnParams,
-    StreamEvent,
 )
 from meridian.lib.harness.launch_types import PromptPolicy, SessionSeed
 from meridian.lib.safety.permissions import PermissionConfig
@@ -123,57 +118,6 @@ def _extract_passthrough_session_id(args: tuple[str, ...]) -> str:
     return ""
 
 
-def _normalize_task(item: object) -> dict[str, str] | None:
-    if not isinstance(item, dict):
-        return None
-
-    payload = cast("dict[str, object]", item)
-    content_raw = (
-        payload.get("content") or payload.get("task") or payload.get("title") or payload.get("text")
-    )
-    if content_raw is None:
-        return None
-    content = str(content_raw).strip()
-    if not content:
-        return None
-
-    normalized: dict[str, str] = {"content": content}
-    status_raw = payload.get("status")
-    if status_raw is not None:
-        status = str(status_raw).strip()
-        if status:
-            normalized["status"] = status
-    id_raw = payload.get("id")
-    if id_raw is not None:
-        task_id = str(id_raw).strip()
-        if task_id:
-            normalized["id"] = task_id
-    return normalized
-
-
-def _extract_todowrite_tasks(metadata: dict[str, object]) -> list[dict[str, str]]:
-    tasks: list[dict[str, str]] = []
-    todo_tool_names = {"todowrite", "todo_write", "todo.write"}
-    for payload in iter_nested_dicts(metadata):
-        name = str(
-            payload.get("name") or payload.get("tool_name") or payload.get("tool") or ""
-        ).strip()
-        if name.lower() not in todo_tool_names:
-            continue
-        input_payload = payload.get("input")
-        todo_items = payload.get("todos")
-        if todo_items is None and isinstance(input_payload, dict):
-            input_dict = cast("dict[str, object]", input_payload)
-            todo_items = input_dict.get("todos") or input_dict.get("tasks")
-        if not isinstance(todo_items, list):
-            continue
-        for item in cast("list[object]", todo_items):
-            normalized = _normalize_task(item)
-            if normalized is not None:
-                tasks.append(normalized)
-    return tasks
-
-
 def _read_artifact_text(artifacts: ArtifactStore, spawn_id: SpawnId, name: str) -> str:
     key = ArtifactKey(f"{spawn_id}/{name}")
     if not artifacts.exists(key):
@@ -235,13 +179,6 @@ class ClaudeAdapter(BaseSubprocessHarness):
         "--verbose",  # required by Claude CLI when using stream-json with -p
     )
     PRIMARY_BASE_COMMAND: ClassVar[tuple[str, ...]] = ("claude",)
-    EVENT_CATEGORY_MAP: ClassVar[dict[str, str]] = {
-        "result": "lifecycle",
-        "tool_use": "tool-use",
-        "assistant": "assistant",
-        "thinking": "thinking",
-        "error": "error",
-    }
 
     @property
     def id(self) -> HarnessId:
@@ -258,14 +195,6 @@ class ClaudeAdapter(BaseSubprocessHarness):
             supports_native_agents=True,
             supports_programmatic_tools=False,
             supports_primary_launch=True,
-        )
-
-    def native_layout(self) -> HarnessNativeLayout | None:
-        return HarnessNativeLayout(
-            agents=(".claude/agents",),
-            skills=(".claude/skills",),
-            global_agents=("~/.claude/agents",),
-            global_skills=("~/.claude/skills",),
         )
 
     def run_prompt_policy(self) -> RunPromptPolicy:
@@ -318,12 +247,6 @@ class ClaudeAdapter(BaseSubprocessHarness):
         # Meridian manages nesting limits itself; suppress Claude's parent-session
         # sentinel so child Claude spawns can run under Meridian control.
         return frozenset({"CLAUDECODE"})
-
-    def parse_stream_event(self, line: str) -> StreamEvent | None:
-        event = parse_json_stream_event(line)
-        if event is None:
-            return None
-        return categorize_stream_event(event, exact_map=self.EVENT_CATEGORY_MAP)
 
     def extract_usage(self, artifacts: ArtifactStore, spawn_id: SpawnId):
         return extract_usage_from_artifacts(artifacts, spawn_id)
@@ -424,6 +347,3 @@ class ClaudeAdapter(BaseSubprocessHarness):
         session_file = _claude_project_dir(repo_root) / f"{session_ref}.jsonl"
         return session_file.is_file()
 
-    def extract_tasks(self, event: StreamEvent) -> list[dict[str, str]] | None:
-        tasks = _extract_todowrite_tasks(event.metadata)
-        return tasks or None

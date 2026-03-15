@@ -25,7 +25,6 @@ from meridian.lib.harness.adapter import (
     HarnessCapabilities,
     PermissionResolver,
     SpawnParams,
-    StreamEvent,
 )
 from meridian.lib.harness.registry import HarnessRegistry
 from meridian.lib.ops.spawn.plan import ExecutionPolicy, PreparedSpawnPlan, SessionContinuation
@@ -71,10 +70,6 @@ class MockHarnessAdapter:
     def env_overrides(self, config: PermissionConfig) -> dict[str, str]:
         _ = config
         return {}
-
-    def parse_stream_event(self, line: str) -> StreamEvent | None:
-        _ = line
-        return None
 
     def extract_usage(self, artifacts: HarnessArtifactStore, spawn_id: SpawnId) -> TokenUsage:
         _ = (artifacts, spawn_id)
@@ -290,7 +285,6 @@ def test_kill_running_parent_process_still_finalizes_run(
                 HarnessCapabilities,
                 PermissionResolver,
                 SpawnParams,
-                StreamEvent,
             )
             from meridian.lib.harness.registry import HarnessRegistry
             from meridian.lib.ops.spawn.plan import (
@@ -327,10 +321,6 @@ def test_kill_running_parent_process_still_finalizes_run(
                 def env_overrides(self, config: PermissionConfig) -> dict[str, str]:
                     _ = config
                     return {{}}
-
-                def parse_stream_event(self, line: str) -> StreamEvent | None:
-                    _ = line
-                    return None
 
                 def extract_usage(self, artifacts: ArtifactStore, spawn_id: SpawnId) -> TokenUsage:
                     _ = (artifacts, spawn_id)

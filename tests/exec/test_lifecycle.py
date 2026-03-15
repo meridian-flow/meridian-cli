@@ -22,7 +22,6 @@ from meridian.lib.harness.adapter import (
     McpConfig,
     PermissionResolver,
     SpawnParams,
-    StreamEvent,
 )
 from meridian.lib.harness.registry import HarnessRegistry
 from meridian.lib.safety.permissions import PermissionConfig, TieredPermissionResolver
@@ -54,10 +53,6 @@ class ScriptHarnessAdapter(BaseSubprocessHarness):
 
     def mcp_config(self, run: SpawnParams) -> McpConfig | None:
         _ = run
-        return None
-
-    def parse_stream_event(self, line: str) -> StreamEvent | None:
-        _ = line
         return None
 
     def extract_usage(self, artifacts: HarnessArtifactStore, spawn_id: SpawnId) -> TokenUsage:

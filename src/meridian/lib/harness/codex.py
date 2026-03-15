@@ -7,11 +7,9 @@ import re
 from typing import ClassVar, cast
 
 from meridian.lib.harness.common import (
-    categorize_stream_event,
     extract_codex_report,
     extract_session_id_from_artifacts_with_patterns,
     extract_usage_from_artifacts,
-    parse_json_stream_event,
 )
 from meridian.lib.harness.common import (
     FlagEffect,
@@ -24,12 +22,10 @@ from meridian.lib.harness.adapter import (
     ArtifactStore,
     BaseSubprocessHarness,
     HarnessCapabilities,
-    HarnessNativeLayout,
     McpConfig,
     PermissionResolver,
     RunPromptPolicy,
     SpawnParams,
-    StreamEvent,
 )
 from meridian.lib.harness.launch_types import PromptPolicy
 from meridian.lib.safety.permissions import PermissionConfig
@@ -200,14 +196,6 @@ class CodexAdapter(BaseSubprocessHarness):
     PROMPT_MODE: ClassVar[PromptMode] = PromptMode.POSITIONAL
     BASE_COMMAND: ClassVar[tuple[str, ...]] = ("codex", "exec", "--json")
     PRIMARY_BASE_COMMAND: ClassVar[tuple[str, ...]] = ("codex",)
-    EVENT_CATEGORY_MAP: ClassVar[dict[str, str]] = {
-        "response.completed": "lifecycle",
-        "response.output_text.delta": "assistant",
-        "response.reasoning_summary.delta": "thinking",
-        "tool.call.started": "tool-use",
-        "tool.call.completed": "tool-use",
-        "error": "error",
-    }
     SESSION_ID_KEYS: ClassVar[tuple[str, ...]] = (
         "session_id",
         "sessionId",
@@ -236,14 +224,6 @@ class CodexAdapter(BaseSubprocessHarness):
             supports_programmatic_tools=False,
             supports_primary_launch=True,
             reference_input_mode="paths",
-        )
-
-    def native_layout(self) -> HarnessNativeLayout | None:
-        return HarnessNativeLayout(
-            agents=(".agents/agents", ".codex/agents"),
-            skills=(".agents/skills", ".codex/skills"),
-            global_agents=("~/.codex/agents",),
-            global_skills=("~/.codex/skills",),
         )
 
     def run_prompt_policy(self) -> RunPromptPolicy:
@@ -301,12 +281,6 @@ class CodexAdapter(BaseSubprocessHarness):
     def env_overrides(self, config: PermissionConfig) -> dict[str, str]:
         _ = config
         return {}
-
-    def parse_stream_event(self, line: str) -> StreamEvent | None:
-        event = parse_json_stream_event(line)
-        if event is None:
-            return None
-        return categorize_stream_event(event, exact_map=self.EVENT_CATEGORY_MAP)
 
     def extract_usage(self, artifacts: ArtifactStore, spawn_id: SpawnId):
         return extract_usage_from_artifacts(artifacts, spawn_id)

@@ -647,7 +647,7 @@ async def execute_with_finalization(
                     budget_tracker=budget_tracker,
                     secrets=secrets,
                     parse_stream_event=(
-                        harness.parse_stream_event
+                        getattr(harness, "parse_stream_event", None)
                         if harness.capabilities.supports_stream_events
                         else None
                     ),

@@ -7,11 +7,9 @@ from pathlib import Path
 from typing import ClassVar
 
 from meridian.lib.harness.common import (
-    categorize_stream_event,
     extract_opencode_report,
     extract_session_id_from_artifacts_with_patterns,
     extract_usage_from_artifacts,
-    parse_json_stream_event,
 )
 from meridian.lib.harness.common import (
     FlagEffect,
@@ -24,12 +22,10 @@ from meridian.lib.harness.adapter import (
     ArtifactStore,
     BaseSubprocessHarness,
     HarnessCapabilities,
-    HarnessNativeLayout,
     McpConfig,
     PermissionResolver,
     RunPromptPolicy,
     SpawnParams,
-    StreamEvent,
 )
 from meridian.lib.harness.launch_types import PromptPolicy
 from meridian.lib.safety.permissions import PermissionConfig, opencode_permission_json
@@ -146,14 +142,6 @@ class OpenCodeAdapter(BaseSubprocessHarness):
     PROMPT_MODE: ClassVar[PromptMode] = PromptMode.POSITIONAL
     BASE_COMMAND: ClassVar[tuple[str, ...]] = ("opencode", "run")
     PRIMARY_BASE_COMMAND: ClassVar[tuple[str, ...]] = ("opencode",)
-    EVENT_CATEGORY_MAP: ClassVar[dict[str, str]] = {
-        "spawn.start": "sub-run",
-        "spawn.done": "sub-run",
-        "tool.call": "tool-use",
-        "assistant": "assistant",
-        "thinking": "thinking",
-        "error": "error",
-    }
     SESSION_ID_KEYS: ClassVar[tuple[str, ...]] = (
         "session_id",
         "sessionId",
@@ -180,14 +168,6 @@ class OpenCodeAdapter(BaseSubprocessHarness):
             supports_native_skills=True,
             supports_programmatic_tools=False,
             supports_primary_launch=True,
-        )
-
-    def native_layout(self) -> HarnessNativeLayout | None:
-        return HarnessNativeLayout(
-            agents=(".agents/agents", ".opencode/agents"),
-            skills=(".agents/skills", ".opencode/skills"),
-            global_agents=("~/.opencode/agents",),
-            global_skills=("~/.opencode/skills",),
         )
 
     def run_prompt_policy(self) -> RunPromptPolicy:
@@ -221,12 +201,6 @@ class OpenCodeAdapter(BaseSubprocessHarness):
         if config.tier is None:
             return {}
         return {"OPENCODE_PERMISSION": opencode_permission_json(config.tier)}
-
-    def parse_stream_event(self, line: str) -> StreamEvent | None:
-        event = parse_json_stream_event(line)
-        if event is None:
-            return None
-        return categorize_stream_event(event, exact_map=self.EVENT_CATEGORY_MAP)
 
     def extract_usage(self, artifacts: ArtifactStore, spawn_id: SpawnId):
         return extract_usage_from_artifacts(artifacts, spawn_id)

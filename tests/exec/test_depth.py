@@ -18,7 +18,6 @@ from meridian.lib.harness.adapter import (
     McpConfig,
     PermissionResolver,
     SpawnParams,
-    StreamEvent,
 )
 from meridian.lib.harness.common import (
     extract_session_id_from_artifacts,
@@ -66,10 +65,6 @@ class RecursiveHarnessAdapter(BaseSubprocessHarness):
         _ = config
         return {}
 
-    def parse_stream_event(self, line: str) -> StreamEvent | None:
-        _ = line
-        return None
-
     def extract_usage(self, artifacts: HarnessArtifactStore, spawn_id: SpawnId) -> TokenUsage:
         return extract_usage_from_artifacts(artifacts, spawn_id)
 
@@ -96,7 +91,6 @@ def _write_recursive_harness_script(path: Path) -> None:
                 McpConfig,
                 PermissionResolver,
                 SpawnParams,
-                StreamEvent,
             )
             from meridian.lib.harness.common import (
                 extract_session_id_from_artifacts,
@@ -142,10 +136,6 @@ def _write_recursive_harness_script(path: Path) -> None:
                 def env_overrides(self, config) -> dict[str, str]:
                     _ = config
                     return {{}}
-
-                def parse_stream_event(self, line: str) -> StreamEvent | None:
-                    _ = line
-                    return None
 
                 def extract_usage(
                     self,

@@ -36,17 +36,6 @@ class HarnessCapabilities(BaseModel):
     reference_input_mode: Literal["inline", "paths"] = "paths"
 
 
-class HarnessNativeLayout(BaseModel):
-    """Directories a harness reads agents/skills from natively."""
-
-    model_config = ConfigDict(frozen=True)
-
-    agents: tuple[str, ...] = ()
-    skills: tuple[str, ...] = ()
-    global_agents: tuple[str, ...] = ()
-    global_skills: tuple[str, ...] = ()
-
-
 class RunPromptPolicy(BaseModel):
     """Adapter-owned policy for composing one run prompt."""
 
@@ -138,8 +127,6 @@ class SubprocessHarness(Protocol):
     @property
     def capabilities(self) -> HarnessCapabilities: ...
 
-    def native_layout(self) -> HarnessNativeLayout | None: ...
-
     def run_prompt_policy(self) -> RunPromptPolicy: ...
 
     def build_command(self, run: SpawnParams, perms: PermissionResolver) -> list[str]: ...
@@ -149,8 +136,6 @@ class SubprocessHarness(Protocol):
     def env_overrides(self, config: PermissionConfig) -> dict[str, str]: ...
 
     def blocked_child_env_vars(self) -> frozenset[str]: ...
-
-    def parse_stream_event(self, line: str) -> StreamEvent | None: ...
 
     def extract_usage(self, artifacts: ArtifactStore, spawn_id: SpawnId) -> TokenUsage: ...
 
@@ -187,23 +172,6 @@ class SubprocessHarness(Protocol):
         """Return True if this harness owns the given untracked session reference."""
         ...
 
-    def extract_tasks(self, event: StreamEvent) -> list[dict[str, str]] | None:
-        """Extract structured task updates from one stream event."""
-
-        _ = event
-        return None
-
-    def extract_findings(self, event: StreamEvent) -> list[dict[str, str]] | None:
-        """Extract structured findings from one stream event."""
-
-        _ = event
-        return None
-
-    def extract_summary(self, output: str) -> str | None:
-        """Extract a concise run summary from final output text."""
-
-        _ = output
-        return None
 
 
 @runtime_checkable
@@ -230,9 +198,6 @@ class ConversationExtractingHarness(Protocol):
 
 class BaseSubprocessHarness:
     """Base with default no-op implementations for optional adapter methods."""
-
-    def native_layout(self) -> HarnessNativeLayout | None:
-        return None
 
     def run_prompt_policy(self) -> RunPromptPolicy:
         return RunPromptPolicy()
@@ -273,18 +238,6 @@ class BaseSubprocessHarness:
         started_at_local_iso: str | None,
     ) -> str | None:
         _ = repo_root, started_at_epoch, started_at_local_iso
-        return None
-
-    def extract_tasks(self, event: StreamEvent) -> list[dict[str, str]] | None:
-        _ = event
-        return None
-
-    def extract_findings(self, event: StreamEvent) -> list[dict[str, str]] | None:
-        _ = event
-        return None
-
-    def extract_summary(self, output: str) -> str | None:
-        _ = output
         return None
 
     def mcp_config(self, run: SpawnParams) -> McpConfig | None:
