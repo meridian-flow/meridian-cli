@@ -13,7 +13,6 @@ from meridian.lib.safety.permissions import (
     PermissionConfig,
     PermissionTier,
     build_permission_config,
-    opencode_permission_json,
     opencode_permission_json_for_allowed_tools,
     permission_flags_for_harness,
     resolve_permission_pipeline,
@@ -56,36 +55,7 @@ def test_claude_tier_permissions_do_not_emit_allowed_tools(tier: PermissionTier)
     assert permission_flags_for_harness(HarnessId.CLAUDE, config) == []
 
 
-@pytest.mark.parametrize(
-    ("tier", "expected"),
-    (
-        (
-            PermissionTier.READ_ONLY,
-            {"*": "deny", "read": "allow", "grep": "allow", "glob": "allow", "list": "allow"},
-        ),
-        (
-            PermissionTier.WORKSPACE_WRITE,
-            {
-                "*": "deny",
-                "read": "allow",
-                "grep": "allow",
-                "glob": "allow",
-                "list": "allow",
-                "edit": "allow",
-                "bash": "deny",
-            },
-        ),
-        (PermissionTier.FULL_ACCESS, {"*": "allow"}),
-    ),
-)
-def test_opencode_permission_json_matches_expected_mappings(
-    tier: PermissionTier,
-    expected: dict[str, str],
-) -> None:
-    assert json.loads(opencode_permission_json(tier)) == expected
-
-
-def test_opencode_permission_json_for_allowed_tools_maps_claude_style_names() -> None:
+def test_opencode_permission_json_for_allowed_tools_normalizes_tool_names() -> None:
     allowed_tools = ("Read", "Glob", "Grep", "Bash(git status)", "WebSearch")
     expected = {
         "*": "deny",
@@ -116,17 +86,19 @@ def test_resolve_permission_pipeline_sets_opencode_override_for_explicit_tools()
     }
 
 
-def test_opencode_env_overrides_prefers_explicit_permission_override() -> None:
+def test_opencode_env_overrides_uses_explicit_permission_override() -> None:
     adapter = OpenCodeAdapter()
     override = '{"*":"deny","read":"allow"}'
     env = adapter.env_overrides(
-        PermissionConfig(
-            tier=PermissionTier.FULL_ACCESS,
-            opencode_permission_override=override,
-        )
+        PermissionConfig(opencode_permission_override=override)
     )
-
     assert env == {"OPENCODE_PERMISSION": override}
+
+
+def test_opencode_env_overrides_returns_empty_without_override() -> None:
+    adapter = OpenCodeAdapter()
+    env = adapter.env_overrides(PermissionConfig(tier=PermissionTier.WORKSPACE_WRITE))
+    assert env == {}
 
 
 def test_sanitize_child_env_filters_parent_secrets_and_keeps_explicit_overrides() -> None:

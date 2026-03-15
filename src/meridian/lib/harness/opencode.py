@@ -28,7 +28,7 @@ from meridian.lib.harness.adapter import (
     SpawnParams,
 )
 from meridian.lib.harness.launch_types import PromptPolicy
-from meridian.lib.safety.permissions import PermissionConfig, opencode_permission_json
+from meridian.lib.safety.permissions import PermissionConfig
 from meridian.lib.core.domain import TokenUsage
 from meridian.lib.core.types import HarnessId, SpawnId
 
@@ -201,9 +201,7 @@ class OpenCodeAdapter(BaseSubprocessHarness):
     def env_overrides(self, config: PermissionConfig) -> dict[str, str]:
         if config.opencode_permission_override:
             return {"OPENCODE_PERMISSION": config.opencode_permission_override}
-        if config.tier is None:
-            return {}
-        return {"OPENCODE_PERMISSION": opencode_permission_json(config.tier)}
+        return {}
 
     def extract_usage(self, artifacts: ArtifactStore, spawn_id: SpawnId) -> TokenUsage:
         return extract_usage_from_artifacts(artifacts, spawn_id)

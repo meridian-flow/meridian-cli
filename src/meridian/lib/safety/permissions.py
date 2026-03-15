@@ -115,50 +115,13 @@ def build_permission_config(
     )
 
 
-def opencode_permission_json(tier: PermissionTier) -> str:
-    """Build OpenCode permission JSON from one safety tier."""
+def _normalize_tool_name(raw: str) -> str:
+    """Normalize a tool name: strip Claude-style qualifiers and lowercase.
 
-    if tier is PermissionTier.READ_ONLY:
-        permissions = {
-            "*": "deny",
-            "read": "allow",
-            "grep": "allow",
-            "glob": "allow",
-            "list": "allow",
-        }
-    elif tier is PermissionTier.WORKSPACE_WRITE:
-        permissions = {
-            "*": "deny",
-            "read": "allow",
-            "grep": "allow",
-            "glob": "allow",
-            "list": "allow",
-            "edit": "allow",
-            "bash": "deny",
-        }
-    elif tier is PermissionTier.FULL_ACCESS:
-        permissions = {"*": "allow"}
-    else:  # pragma: no cover - enum exhaustive guard
-        raise ValueError(f"Unsupported OpenCode permission tier: {tier!r}")
-
-    return json.dumps(permissions, sort_keys=True, separators=(",", ":"))
-
-
-_OPENCODE_TOOL_NAME_MAP = {
-    "read": "read",
-    "grep": "grep",
-    "glob": "glob",
-    "list": "list",
-    "edit": "edit",
-    "write": "write",
-    "bash": "bash",
-    "webfetch": "webfetch",
-    "websearch": "websearch",
-}
-
-
-def _normalize_explicit_tool_name(raw: str) -> str:
-    # Claude-style tools may include qualifiers, e.g. `Bash(git status)`.
+    ``Bash(git status)`` → ``bash``, ``Read`` → ``read``.
+    Tool names pass through directly — no mapping table needed since
+    Claude, OpenCode, and Codex use the same lowercase names.
+    """
     return raw.split("(", 1)[0].strip().lower()
 
 
@@ -167,11 +130,10 @@ def opencode_permission_json_for_allowed_tools(allowed_tools: tuple[str, ...]) -
 
     permissions: dict[str, str] = {"*": "deny"}
     for raw_tool in allowed_tools:
-        normalized = _normalize_explicit_tool_name(raw_tool)
+        normalized = _normalize_tool_name(raw_tool)
         if not normalized:
             continue
-        opencode_tool = _OPENCODE_TOOL_NAME_MAP.get(normalized, normalized)
-        permissions[opencode_tool] = "allow"
+        permissions[normalized] = "allow"
     return json.dumps(permissions, sort_keys=True, separators=(",", ":"))
 
 
