@@ -10,12 +10,18 @@ from typing import NamedTuple, cast
 from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.core.context import RuntimeContext
+from meridian.lib.core.types import HarnessId
 from meridian.lib.core.util import FormatContext
+from meridian.lib.harness.registry import get_default_harness_registry
 from meridian.lib.harness.session_detection import infer_harness_from_untracked_session_ref
-from meridian.lib.ops.runtime import async_from_sync, resolve_runtime_root_and_config, resolve_state_root
+from meridian.lib.harness.transcript import TranscriptMessage, text_from_value
+from meridian.lib.ops.runtime import (
+    async_from_sync,
+    resolve_runtime_root_and_config,
+    resolve_state_root,
+)
 from meridian.lib.ops.spawn.query import read_spawn_row
 from meridian.lib.state import session_store
-
 
 _CODEX_FILENAME_RE = re.compile(
     r"^rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-(?P<session_id>[0-9a-fA-F-]{36})\.jsonl$"
@@ -56,7 +62,8 @@ class SessionLogOutput(BaseModel):
         _ = ctx
         message_label = "message" if self.segment_messages == 1 else "messages"
         lines = [
-            f"Session {self.session_id} — segment {self.segment}, {self.segment_messages} {message_label} (showing {self.showing})"
+            f"Session {self.session_id} — segment {self.segment}, "
+            f"{self.segment_messages} {message_label} (showing {self.showing})"
         ]
         for message in self.messages:
             lines.append("")
@@ -71,35 +78,8 @@ class _ResolvedTarget(NamedTuple):
     file_path: Path
 
 
-class _ExtractedMessage(NamedTuple):
-    role: str
-    content: str
-
-
 def _normalize_text(value: str) -> str:
     return value.strip()
-
-
-def _text_from_value(value: object) -> str:
-    if isinstance(value, str):
-        return _normalize_text(value)
-
-    if isinstance(value, list):
-        payload = cast("list[object]", value)
-        parts = [_text_from_value(item) for item in payload]
-        return "\n".join(part for part in parts if part).strip()
-
-    if isinstance(value, dict):
-        payload = cast("dict[str, object]", value)
-        parts: list[str] = []
-        for key in ("text", "content", "message", "output", "toolUseResult"):
-            if key in payload:
-                text = _text_from_value(payload[key])
-                if text:
-                    parts.append(text)
-        return "\n".join(parts).strip()
-
-    return ""
 
 
 def _preview(value: str, *, limit: int = _MAX_PREVIEW) -> str:
@@ -124,131 +104,136 @@ def _tool_use_summary(block: dict[str, object]) -> str:
 
 
 def _tool_result_summary(block: dict[str, object]) -> str:
-    content = _text_from_value(block.get("content"))
+    content = text_from_value(block.get("content"))
     if not content:
         return "[tool_result]"
     return f"[tool_result] {content}"
 
 
-def _extract_claude_content(role: str, content: object) -> list[_ExtractedMessage]:
-    messages: list[_ExtractedMessage] = []
+def _extract_claude_content(role: str, content: object) -> list[TranscriptMessage]:
+    messages: list[TranscriptMessage] = []
 
     if isinstance(content, str):
         text = _normalize_text(content)
         if text:
-            messages.append(_ExtractedMessage(role=role, content=text))
+            messages.append(TranscriptMessage(role=role, content=text))
         return messages
 
     if not isinstance(content, list):
-        text = _text_from_value(content)
+        text = text_from_value(content)
         if text:
-            messages.append(_ExtractedMessage(role=role, content=text))
+            messages.append(TranscriptMessage(role=role, content=text))
         return messages
 
     blocks = cast("list[object]", content)
     for item in blocks:
         if not isinstance(item, dict):
-            text = _text_from_value(item)
+            text = text_from_value(item)
             if text:
-                messages.append(_ExtractedMessage(role=role, content=text))
+                messages.append(TranscriptMessage(role=role, content=text))
             continue
 
         block = cast("dict[str, object]", item)
         block_type = str(block.get("type", "")).strip().lower()
         if block_type == "text":
-            text = _text_from_value(block.get("text"))
+            text = text_from_value(block.get("text"))
             if text:
-                messages.append(_ExtractedMessage(role=role, content=text))
+                messages.append(TranscriptMessage(role=role, content=text))
             continue
         if role == "assistant" and block_type == "tool_use":
-            messages.append(_ExtractedMessage(role=role, content=_tool_use_summary(block)))
+            messages.append(TranscriptMessage(role=role, content=_tool_use_summary(block)))
             continue
         if role == "user" and block_type == "tool_result":
-            messages.append(_ExtractedMessage(role=role, content=_tool_result_summary(block)))
+            messages.append(TranscriptMessage(role=role, content=_tool_result_summary(block)))
             continue
 
-        text = _text_from_value(block)
+        text = text_from_value(block)
         if text:
-            messages.append(_ExtractedMessage(role=role, content=text))
+            messages.append(TranscriptMessage(role=role, content=text))
 
     return messages
 
 
-def _extract_codex_response_item(payload: dict[str, object]) -> list[_ExtractedMessage]:
+def _extract_codex_response_item(payload: dict[str, object]) -> list[TranscriptMessage]:
     item_type = str(payload.get("type", "")).strip().lower()
     if item_type == "message":
         role = str(payload.get("role", "assistant")).strip().lower() or "assistant"
         content = payload.get("content")
-        messages: list[_ExtractedMessage] = []
+        messages: list[TranscriptMessage] = []
         if isinstance(content, list):
             blocks = cast("list[object]", content)
             for block in blocks:
                 if not isinstance(block, dict):
-                    text = _text_from_value(block)
+                    text = text_from_value(block)
                     if text:
-                        messages.append(_ExtractedMessage(role=role, content=text))
+                        messages.append(TranscriptMessage(role=role, content=text))
                     continue
                 block_payload = cast("dict[str, object]", block)
                 block_type = str(block_payload.get("type", "")).strip().lower()
                 if block_type in {"input_text", "output_text", "text"}:
-                    text = _text_from_value(block_payload.get("text"))
+                    text = text_from_value(block_payload.get("text"))
                     if text:
-                        messages.append(_ExtractedMessage(role=role, content=text))
+                        messages.append(TranscriptMessage(role=role, content=text))
                     continue
-                text = _text_from_value(block_payload)
+                text = text_from_value(block_payload)
                 if text:
-                    messages.append(_ExtractedMessage(role=role, content=text))
+                    messages.append(TranscriptMessage(role=role, content=text))
         else:
-            text = _text_from_value(content)
+            text = text_from_value(content)
             if text:
-                messages.append(_ExtractedMessage(role=role, content=text))
+                messages.append(TranscriptMessage(role=role, content=text))
         if not messages:
-            fallback = _text_from_value(payload.get("text"))
+            fallback = text_from_value(payload.get("text"))
             if fallback:
-                messages.append(_ExtractedMessage(role=role, content=fallback))
+                messages.append(TranscriptMessage(role=role, content=fallback))
         return messages
 
     if item_type == "function_call":
         name = str(payload.get("name", "tool")).strip() or "tool"
-        arguments = _text_from_value(payload.get("arguments"))
+        arguments = text_from_value(payload.get("arguments"))
         rendered = f"[tool: {name}]"
         if arguments:
             rendered = f"[tool: {name} {_preview(arguments)}]"
-        return [_ExtractedMessage(role="assistant", content=rendered)]
+        return [TranscriptMessage(role="assistant", content=rendered)]
 
     if item_type == "function_call_output":
-        output = _text_from_value(payload.get("output"))
+        output = text_from_value(payload.get("output"))
         if output:
-            return [_ExtractedMessage(role="user", content=f"[tool_result] {output}")]
-        return [_ExtractedMessage(role="user", content="[tool_result]")]
+            return [TranscriptMessage(role="user", content=f"[tool_result] {output}")]
+        return [TranscriptMessage(role="user", content="[tool_result]")]
 
     return []
 
 
-def _extract_codex_exec_item(item: dict[str, object]) -> list[_ExtractedMessage]:
+def _extract_codex_exec_item(item: dict[str, object]) -> list[TranscriptMessage]:
     item_type = str(item.get("type", "")).strip().lower()
     if item_type == "agent_message":
-        text = _text_from_value(item.get("text"))
+        text = text_from_value(item.get("text"))
         if not text:
             return []
-        return [_ExtractedMessage(role="assistant", content=text)]
+        return [TranscriptMessage(role="assistant", content=text)]
 
     if item_type == "command_execution":
-        output = _text_from_value(item.get("aggregated_output"))
-        command = _text_from_value(item.get("command"))
+        output = text_from_value(item.get("aggregated_output"))
+        command = text_from_value(item.get("command"))
         if output:
-            return [_ExtractedMessage(role="user", content=f"[tool_result] {output}")]
+            return [TranscriptMessage(role="user", content=f"[tool_result] {output}")]
         if command:
-            return [_ExtractedMessage(role="assistant", content=f"[tool: bash {_preview(command)}]")]
+            return [
+                TranscriptMessage(role="assistant", content=f"[tool: bash {_preview(command)}]")
+            ]
 
     return []
 
 
-def _extract_from_event(payload: dict[str, object]) -> tuple[list[_ExtractedMessage], bool]:
+def _extract_from_event(payload: dict[str, object]) -> tuple[list[TranscriptMessage], bool]:
     event_type = str(payload.get("type", "")).strip().lower()
 
     # Claude compaction boundary.
-    is_boundary = event_type == "system" and str(payload.get("subtype", "")).strip().lower() == "compact_boundary"
+    is_boundary = (
+        event_type == "system"
+        and str(payload.get("subtype", "")).strip().lower() == "compact_boundary"
+    )
 
     # Claude live progress wrappers embed assistant/user events at data.message.
     if event_type == "progress":
@@ -256,7 +241,9 @@ def _extract_from_event(payload: dict[str, object]) -> tuple[list[_ExtractedMess
         if isinstance(data, dict):
             nested_message = cast("dict[str, object]", data).get("message")
             if isinstance(nested_message, dict):
-                nested_messages, nested_boundary = _extract_from_event(cast("dict[str, object]", nested_message))
+                nested_messages, nested_boundary = _extract_from_event(
+                    cast("dict[str, object]", nested_message)
+                )
                 return nested_messages, is_boundary or nested_boundary
         return ([], is_boundary)
 
@@ -268,9 +255,12 @@ def _extract_from_event(payload: dict[str, object]) -> tuple[list[_ExtractedMess
             extracted = _extract_claude_content(role, content)
             if extracted:
                 return extracted, is_boundary
-        fallback_text = _text_from_value(payload.get("tool_use_result"))
+        fallback_text = text_from_value(payload.get("tool_use_result"))
         if role == "user" and fallback_text:
-            return ([_ExtractedMessage(role="user", content=f"[tool_result] {fallback_text}")], is_boundary)
+            return (
+                [TranscriptMessage(role="user", content=f"[tool_result] {fallback_text}")],
+                is_boundary,
+            )
         return ([], is_boundary)
 
     # Codex native session file.
@@ -291,15 +281,15 @@ def _extract_from_event(payload: dict[str, object]) -> tuple[list[_ExtractedMess
     # Generic fallback for simple role/content payloads.
     role = str(payload.get("role", "")).strip().lower()
     if role in {"assistant", "user", "system"}:
-        text = _text_from_value(payload.get("content"))
+        text = text_from_value(payload.get("content"))
         if text:
-            return ([_ExtractedMessage(role=role, content=text)], is_boundary)
+            return ([TranscriptMessage(role=role, content=text)], is_boundary)
 
     return ([], is_boundary)
 
 
-def _parse_session_file(path: Path) -> tuple[list[list[_ExtractedMessage]], int]:
-    segments: list[list[_ExtractedMessage]] = [[]]
+def _parse_session_file(path: Path) -> tuple[list[list[TranscriptMessage]], int]:
+    segments: list[list[TranscriptMessage]] = [[]]
     total_compactions = 0
 
     with path.open("r", encoding="utf-8", errors="ignore") as handle:
@@ -323,37 +313,6 @@ def _parse_session_file(path: Path) -> tuple[list[list[_ExtractedMessage]], int]
                 segments[-1].extend(extracted)
 
     return segments, total_compactions
-
-
-def _claude_project_slug(repo_root: Path) -> str:
-    return str(repo_root.resolve()).replace("/", "-")
-
-
-def _resolve_claude_session_path(repo_root: Path, session_id: str) -> Path:
-    project_slug = _claude_project_slug(repo_root)
-    return Path.home() / ".claude" / "projects" / project_slug / f"{session_id}.jsonl"
-
-
-def _resolve_codex_session_path(session_id: str) -> Path | None:
-    sessions_root = Path.home() / ".codex" / "sessions"
-    if not sessions_root.is_dir():
-        return None
-
-    matches: list[tuple[float, Path]] = []
-    for candidate in sessions_root.rglob(f"rollout-*-{session_id}.jsonl"):
-        if _CODEX_FILENAME_RE.match(candidate.name) is None:
-            continue
-        try:
-            modified_at = candidate.stat().st_mtime
-        except OSError:
-            continue
-        matches.append((modified_at, candidate))
-
-    if not matches:
-        return None
-
-    matches.sort(key=lambda item: item[0], reverse=True)
-    return matches[0][1]
 
 
 def _extract_session_id_from_path(path: Path) -> str:
@@ -390,29 +349,57 @@ def _resolve_harness_session_file(
     session_id: str,
     harness: str | None,
 ) -> _ResolvedTarget:
+    normalized_session_id = session_id.strip()
+    if not normalized_session_id:
+        raise FileNotFoundError("Session ID is required to resolve harness session file")
+
+    registry = get_default_harness_registry()
     normalized_harness = (harness or "").strip().lower() or None
-    checked_paths: list[str] = []
-
-    if normalized_harness in {None, "claude"}:
-        candidate = _resolve_claude_session_path(repo_root, session_id)
-        checked_paths.append(candidate.as_posix())
-        if candidate.is_file():
-            return _ResolvedTarget(session_id=session_id, harness="claude", file_path=candidate)
-
-    if normalized_harness in {None, "codex"}:
-        candidate = _resolve_codex_session_path(session_id)
-        if candidate is not None:
-            return _ResolvedTarget(session_id=session_id, harness="codex", file_path=candidate)
-        checked_paths.append((Path.home() / ".codex" / "sessions" / f"**/rollout-*-{session_id}.jsonl").as_posix())
-
     if normalized_harness is not None:
+        try:
+            harness_id = HarnessId(normalized_harness)
+            adapter = registry.get_subprocess_harness(harness_id)
+        except (ValueError, KeyError, TypeError) as exc:
+            raise FileNotFoundError(
+                f"Session file for '{normalized_session_id}' "
+                f"(harness={normalized_harness}) not found"
+            ) from exc
+
+        candidate = adapter.resolve_session_file(
+            repo_root=repo_root,
+            session_id=normalized_session_id,
+        )
+        if candidate is not None and candidate.is_file():
+            return _ResolvedTarget(
+                session_id=normalized_session_id,
+                harness=str(harness_id),
+                file_path=candidate,
+            )
         raise FileNotFoundError(
-            f"Session file for '{session_id}' (harness={normalized_harness}) not found"
+            f"Session file for '{normalized_session_id}' (harness={normalized_harness}) not found"
         )
 
-    searched = "\n".join(checked_paths)
+    checked_harnesses: list[str] = []
+    for harness_id in registry.ids():
+        try:
+            adapter = registry.get_subprocess_harness(harness_id)
+        except TypeError:
+            continue
+        checked_harnesses.append(str(harness_id))
+        candidate = adapter.resolve_session_file(
+            repo_root=repo_root,
+            session_id=normalized_session_id,
+        )
+        if candidate is not None and candidate.is_file():
+            return _ResolvedTarget(
+                session_id=normalized_session_id,
+                harness=str(harness_id),
+                file_path=candidate,
+            )
+
+    checked = ", ".join(checked_harnesses) if checked_harnesses else "<none>"
     raise FileNotFoundError(
-        f"Session file for '{session_id}' not found. Checked:\n{searched}"
+        f"Session file for '{normalized_session_id}' not found. Checked harnesses: {checked}"
     )
 
 
@@ -493,7 +480,9 @@ def _resolve_from_session_ref(
     )
 
 
-def _resolve_target(payload: SessionLogInput, *, repo_root: Path, state_root: Path) -> _ResolvedTarget:
+def _resolve_target(
+    payload: SessionLogInput, *, repo_root: Path, state_root: Path
+) -> _ResolvedTarget:
     if payload.file_path is not None and payload.file_path.strip():
         return _resolve_file_target(payload.file_path)
 
@@ -511,10 +500,10 @@ def _resolve_target(payload: SessionLogInput, *, repo_root: Path, state_root: Pa
 
 
 def _select_segment(
-    segments: list[list[_ExtractedMessage]],
+    segments: list[list[TranscriptMessage]],
     *,
     compaction: int,
-) -> list[_ExtractedMessage]:
+) -> list[TranscriptMessage]:
     if compaction < 0:
         raise ValueError("compaction must be >= 0")
 
@@ -527,11 +516,11 @@ def _select_segment(
 
 
 def _paginate_messages(
-    messages: list[_ExtractedMessage],
+    messages: list[TranscriptMessage],
     *,
     last_n: int | None,
     offset: int,
-) -> tuple[list[_ExtractedMessage], int]:
+) -> tuple[list[TranscriptMessage], int]:
     if offset < 0:
         raise ValueError("offset must be >= 0")
     if last_n is not None and last_n < 0:
@@ -542,10 +531,7 @@ def _paginate_messages(
         return ([], total)
 
     end = total - offset
-    if last_n is None:
-        start = 0
-    else:
-        start = max(end - last_n, 0)
+    start = 0 if last_n is None else max(end - last_n, 0)
 
     return (messages[start:end], start)
 

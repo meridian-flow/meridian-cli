@@ -1,6 +1,5 @@
 """Session log parser regressions."""
 
-
 import json
 
 from meridian.lib.ops.session_log import _extract_from_event, _parse_session_file
@@ -29,8 +28,12 @@ def test_parse_session_file_splits_segments_on_compaction_boundary(tmp_path) -> 
 
     assert total_compactions == 1
     assert len(segments) == 2
-    assert [(message.role, message.content) for message in segments[0]] == [("assistant", "before boundary")]
-    assert [(message.role, message.content) for message in segments[1]] == [("assistant", "after boundary")]
+    assert [(message.role, message.content) for message in segments[0]] == [
+        ("assistant", "before boundary")
+    ]
+    assert [(message.role, message.content) for message in segments[1]] == [
+        ("assistant", "after boundary")
+    ]
 
 
 def test_extract_from_event_claude_assistant_and_user_messages() -> None:
@@ -49,7 +52,9 @@ def test_extract_from_event_claude_assistant_and_user_messages() -> None:
 
     assert assistant_boundary is False
     assert user_boundary is False
-    assert [(message.role, message.content) for message in assistant_messages] == [("assistant", "assistant text")]
+    assert [(message.role, message.content) for message in assistant_messages] == [
+        ("assistant", "assistant text")
+    ]
     assert [(message.role, message.content) for message in user_messages] == [("user", "user text")]
 
 
@@ -73,5 +78,9 @@ def test_extract_from_event_codex_response_and_exec_events() -> None:
 
     assert response_boundary is False
     assert exec_boundary is False
-    assert [(message.role, message.content) for message in response_messages] == [("assistant", "codex response")]
-    assert [(message.role, message.content) for message in exec_messages] == [("assistant", "codex exec")]
+    assert [(message.role, message.content) for message in response_messages] == [
+        ("assistant", "codex response")
+    ]
+    assert [(message.role, message.content) for message in exec_messages] == [
+        ("assistant", "codex exec")
+    ]

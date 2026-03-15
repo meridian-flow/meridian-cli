@@ -9,18 +9,6 @@ from uuid import uuid4
 from meridian.lib.core.conversation import Conversation, ConversationTurn, ToolCall
 from meridian.lib.core.domain import TokenUsage
 from meridian.lib.core.types import ArtifactKey, HarnessId, SpawnId
-from meridian.lib.harness.common import (
-    extract_claude_report,
-    extract_session_id_from_artifacts,
-    extract_usage_from_artifacts,
-)
-from meridian.lib.harness.common import (
-    FlagEffect,
-    FlagStrategy,
-    PromptMode,
-    StrategyMap,
-    build_harness_command,
-)
 from meridian.lib.harness.adapter import (
     ArtifactStore,
     BaseSubprocessHarness,
@@ -29,6 +17,16 @@ from meridian.lib.harness.adapter import (
     PermissionResolver,
     RunPromptPolicy,
     SpawnParams,
+)
+from meridian.lib.harness.common import (
+    FlagEffect,
+    FlagStrategy,
+    PromptMode,
+    StrategyMap,
+    build_harness_command,
+    extract_claude_report,
+    extract_session_id_from_artifacts,
+    extract_usage_from_artifacts,
 )
 from meridian.lib.harness.launch_types import PromptPolicy, SessionSeed
 from meridian.lib.safety.permissions import PermissionConfig
@@ -152,7 +150,9 @@ def _tool_call_from_payload(payload: dict[str, object]) -> ToolCall | None:
         return None
 
     raw_input = payload.get("input")
-    tool_input: dict[str, Any] = cast("dict[str, Any]", raw_input) if isinstance(raw_input, dict) else {}
+    tool_input: dict[str, Any] = (
+        cast("dict[str, Any]", raw_input) if isinstance(raw_input, dict) else {}
+    )
     output_text: str | None = None
     output_value = payload.get("output")
     if isinstance(output_value, str):
@@ -363,6 +363,15 @@ class ClaudeAdapter(BaseSubprocessHarness):
     ) -> str | None:
         _ = started_at_local_iso
         return _detect_primary_session_id(repo_root, started_at_epoch)
+
+    def resolve_session_file(self, *, repo_root: Path, session_id: str) -> Path | None:
+        normalized_session_id = session_id.strip()
+        if not normalized_session_id:
+            return None
+        candidate = _claude_project_dir(repo_root) / f"{normalized_session_id}.jsonl"
+        if not candidate.is_file():
+            return None
+        return candidate
 
     def owns_untracked_session(self, *, repo_root: Path, session_ref: str) -> bool:
         session_file = _claude_project_dir(repo_root) / f"{session_ref}.jsonl"

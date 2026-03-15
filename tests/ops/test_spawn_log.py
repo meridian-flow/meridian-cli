@@ -1,6 +1,5 @@
 """Spawn log assistant extraction regression tests."""
 
-
 import json
 
 from meridian.lib.ops.spawn.log import _extract_assistant_messages
@@ -35,9 +34,7 @@ def test_extract_assistant_messages_claude_top_level_content() -> None:
 
 
 def test_extract_assistant_messages_opencode_string_message() -> None:
-    output = _extract_assistant_messages(
-        _jsonl({"type": "assistant", "message": "first message"})
-    )
+    output = _extract_assistant_messages(_jsonl({"type": "assistant", "message": "first message"}))
     assert output == ["first message"]
 
 
@@ -83,3 +80,20 @@ def test_extract_assistant_messages_skips_progress_and_rate_limit_events() -> No
         )
     )
     assert output == ["kept"]
+
+
+def test_extract_assistant_messages_unwraps_progress_nested_message() -> None:
+    output = _extract_assistant_messages(
+        _jsonl(
+            {
+                "type": "progress",
+                "data": {
+                    "message": {
+                        "type": "assistant",
+                        "message": {"content": [{"type": "text", "text": "wrapped assistant"}]},
+                    }
+                },
+            }
+        )
+    )
+    assert output == ["wrapped assistant"]

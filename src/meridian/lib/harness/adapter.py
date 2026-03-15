@@ -7,9 +7,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from meridian.lib.core.conversation import Conversation
 from meridian.lib.core.domain import TokenUsage
+from meridian.lib.core.types import ArtifactKey, HarnessId, ModelId, SpawnId
 from meridian.lib.harness.launch_types import PromptPolicy, SessionSeed
 from meridian.lib.safety.permissions import PermissionConfig
-from meridian.lib.core.types import ArtifactKey, HarnessId, ModelId, SpawnId
 
 
 def _empty_metadata() -> dict[str, object]:
@@ -130,9 +130,7 @@ class SubprocessHarness(Protocol):
 
     def run_prompt_policy(self) -> RunPromptPolicy: ...
 
-    def build_adhoc_agent_payload(
-        self, *, name: str, description: str, prompt: str
-    ) -> str: ...
+    def build_adhoc_agent_payload(self, *, name: str, description: str, prompt: str) -> str: ...
 
     def build_command(self, run: SpawnParams, perms: PermissionResolver) -> list[str]: ...
 
@@ -147,6 +145,8 @@ class SubprocessHarness(Protocol):
     def extract_session_id(self, artifacts: ArtifactStore, spawn_id: SpawnId) -> str | None: ...
 
     def extract_report(self, artifacts: ArtifactStore, spawn_id: SpawnId) -> str | None: ...
+
+    def resolve_session_file(self, *, repo_root: Path, session_id: str) -> Path | None: ...
 
     def seed_session(
         self,
@@ -178,7 +178,6 @@ class SubprocessHarness(Protocol):
         ...
 
 
-
 @runtime_checkable
 class InProcessHarness(Protocol):
     """Protocol for in-process harness execution behavior."""
@@ -207,9 +206,7 @@ class BaseSubprocessHarness:
     def run_prompt_policy(self) -> RunPromptPolicy:
         return RunPromptPolicy()
 
-    def build_adhoc_agent_payload(
-        self, *, name: str, description: str, prompt: str
-    ) -> str:
+    def build_adhoc_agent_payload(self, *, name: str, description: str, prompt: str) -> str:
         _ = name, description, prompt
         return ""
 
@@ -257,6 +254,10 @@ class BaseSubprocessHarness:
 
     def extract_report(self, artifacts: ArtifactStore, spawn_id: SpawnId) -> str | None:
         _ = artifacts, spawn_id
+        return None
+
+    def resolve_session_file(self, *, repo_root: Path, session_id: str) -> Path | None:
+        _ = repo_root, session_id
         return None
 
 

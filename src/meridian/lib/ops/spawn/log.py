@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict
 from meridian.lib.core.context import RuntimeContext
 from meridian.lib.core.types import ArtifactKey
 from meridian.lib.core.util import FormatContext
+from meridian.lib.harness.transcript import text_from_value
 from meridian.lib.ops.runtime import async_from_sync, resolve_runtime_root_and_config
 from meridian.lib.state.artifact_store import LocalStore
 from meridian.lib.state.paths import resolve_state_paths
@@ -45,7 +46,8 @@ class SpawnLogOutput(BaseModel):
         _ = ctx
         message_label = "message" if self.total_messages == 1 else "messages"
         lines = [
-            f"Spawn {self.spawn_id} — {self.total_messages} assistant {message_label} (showing {self.showing})"
+            f"Spawn {self.spawn_id} — {self.total_messages} assistant "
+            f"{message_label} (showing {self.showing})"
         ]
         for message in self.messages:
             lines.append("")
@@ -63,35 +65,13 @@ def _append_dedup(messages: list[str], candidate: str) -> None:
     messages.append(normalized)
 
 
-def _text_from_value(value: object) -> str:
-    if isinstance(value, str):
-        return value.strip()
-
-    if isinstance(value, list):
-        payload = cast("list[object]", value)
-        parts = [_text_from_value(item) for item in payload]
-        return "\n".join(part for part in parts if part).strip()
-
-    if isinstance(value, dict):
-        payload = cast("dict[str, object]", value)
-        parts: list[str] = []
-        for key in ("text", "message", "output", "content"):
-            if key in payload:
-                text = _text_from_value(payload[key])
-                if text:
-                    parts.append(text)
-        return "\n".join(parts).strip()
-
-    return ""
-
-
 def _extract_claude_text_blocks(content: object) -> list[str]:
     found: list[str] = []
 
     if isinstance(content, list):
         for item in cast("list[object]", content):
             if not isinstance(item, dict):
-                text = _text_from_value(item)
+                text = text_from_value(item)
                 if text:
                     found.append(text)
                 continue
@@ -99,12 +79,12 @@ def _extract_claude_text_blocks(content: object) -> list[str]:
             block = cast("dict[str, object]", item)
             if str(block.get("type", "")).strip().lower() != "text":
                 continue
-            text = _text_from_value(block.get("text"))
+            text = text_from_value(block.get("text"))
             if text:
                 found.append(text)
         return found
 
-    text = _text_from_value(content)
+    text = text_from_value(content)
     if text:
         found.append(text)
     return found
@@ -119,7 +99,7 @@ def _extract_claude_assistant_messages(payload: dict[str, object]) -> list[str]:
     message = payload.get("message")
 
     if isinstance(message, str):
-        text = _text_from_value(message)
+        text = text_from_value(message)
         if text:
             found.append(text)
         return found
@@ -128,7 +108,7 @@ def _extract_claude_assistant_messages(payload: dict[str, object]) -> list[str]:
         message_payload = cast("dict[str, object]", message)
         found.extend(_extract_claude_text_blocks(message_payload.get("content")))
         if not found:
-            text = _text_from_value(message_payload.get("text"))
+            text = text_from_value(message_payload.get("text"))
             if text:
                 found.append(text)
 
@@ -152,7 +132,7 @@ def _extract_codex_assistant_messages(payload: dict[str, object]) -> list[str]:
     if item_type != "agent_message":
         return []
 
-    text = _text_from_value(item_payload.get("text"))
+    text = text_from_value(item_payload.get("text"))
     if not text:
         return []
     return [text]
@@ -167,7 +147,7 @@ def _assistant_texts_generic(payload: object) -> list[str]:
         category = str(obj.get("category", "")).lower()
 
         if role == "assistant" or "assistant" in event_type or category == "assistant":
-            text = _text_from_value(obj)
+            text = text_from_value(obj)
             if text:
                 found.append(text)
 
@@ -179,6 +159,32 @@ def _assistant_texts_generic(payload: object) -> list[str]:
         for item in cast("list[object]", payload):
             found.extend(_assistant_texts_generic(item))
     return found
+
+
+def _extract_from_payload(payload: dict[str, object]) -> list[str]:
+    event_type = str(payload.get("type", "")).strip().lower()
+    if event_type == "progress":
+        data = payload.get("data")
+        if isinstance(data, dict):
+            nested_message = cast("dict[str, object]", data).get("message")
+            if isinstance(nested_message, dict):
+                return _extract_from_payload(cast("dict[str, object]", nested_message))
+        return []
+    if event_type == "rate_limit_event":
+        return []
+
+    extracted: list[str] = []
+    extracted.extend(_extract_codex_assistant_messages(payload))
+    extracted.extend(_extract_claude_assistant_messages(payload))
+    if extracted:
+        return extracted
+
+    # Codex item.completed events without extracted assistant text should
+    # not recurse generically (prevents command/tool payload noise).
+    if event_type == "item.completed":
+        return []
+
+    return _assistant_texts_generic(payload)
 
 
 def _extract_assistant_messages(output_lines: str) -> list[str]:
@@ -195,25 +201,7 @@ def _extract_assistant_messages(output_lines: str) -> list[str]:
             continue
 
         payload = cast("dict[str, object]", payload_obj)
-        event_type = str(payload.get("type", "")).strip().lower()
-        if event_type in {"progress", "rate_limit_event"}:
-            continue
-
-        extracted: list[str] = []
-        extracted.extend(_extract_codex_assistant_messages(payload))
-        extracted.extend(_extract_claude_assistant_messages(payload))
-        if extracted:
-            for text in extracted:
-                _append_dedup(messages, text)
-            continue
-
-        # Codex item.completed events without extracted assistant text should
-        # not recurse generically (prevents command/tool payload noise).
-        if event_type == "item.completed":
-            continue
-
-        extracted.extend(_assistant_texts_generic(payload))
-
+        extracted = _extract_from_payload(payload)
         for text in extracted:
             _append_dedup(messages, text)
 
@@ -271,8 +259,7 @@ def spawn_log_sync(
     )
     selected = assistant_messages[start:end]
     messages = tuple(
-        SpawnLogMessage(index=start + idx + 1, content=text)
-        for idx, text in enumerate(selected)
+        SpawnLogMessage(index=start + idx + 1, content=text) for idx, text in enumerate(selected)
     )
     return SpawnLogOutput(
         spawn_id=spawn_id,

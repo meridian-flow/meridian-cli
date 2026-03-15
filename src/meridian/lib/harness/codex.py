@@ -2,22 +2,12 @@
 
 import json
 import logging
-from pathlib import Path
 import re
+from pathlib import Path
 from typing import ClassVar, cast
 
-from meridian.lib.harness.common import (
-    extract_codex_report,
-    extract_session_id_from_artifacts_with_patterns,
-    extract_usage_from_artifacts,
-)
-from meridian.lib.harness.common import (
-    FlagEffect,
-    FlagStrategy,
-    PromptMode,
-    StrategyMap,
-    build_harness_command,
-)
+from meridian.lib.core.domain import TokenUsage
+from meridian.lib.core.types import HarnessId, SpawnId
 from meridian.lib.harness.adapter import (
     ArtifactStore,
     BaseSubprocessHarness,
@@ -27,10 +17,18 @@ from meridian.lib.harness.adapter import (
     RunPromptPolicy,
     SpawnParams,
 )
+from meridian.lib.harness.common import (
+    FlagEffect,
+    FlagStrategy,
+    PromptMode,
+    StrategyMap,
+    build_harness_command,
+    extract_codex_report,
+    extract_session_id_from_artifacts_with_patterns,
+    extract_usage_from_artifacts,
+)
 from meridian.lib.harness.launch_types import PromptPolicy
 from meridian.lib.safety.permissions import PermissionConfig
-from meridian.lib.core.domain import TokenUsage
-from meridian.lib.core.types import HarnessId, SpawnId
 
 logger = logging.getLogger(__name__)
 
@@ -273,7 +271,7 @@ class CodexAdapter(BaseSubprocessHarness):
             if run.report_output_path:
                 command_run = command_run.model_copy(
                     update={
-                        "extra_args": command_run.extra_args + ("-o", run.report_output_path),
+                        "extra_args": (*command_run.extra_args, "-o", run.report_output_path),
                     },
                 )
         return build_harness_command(
@@ -319,6 +317,32 @@ class CodexAdapter(BaseSubprocessHarness):
     ) -> str | None:
         _ = started_at_local_iso
         return _detect_primary_session_id(repo_root, started_at_epoch)
+
+    def resolve_session_file(self, *, repo_root: Path, session_id: str) -> Path | None:
+        _ = repo_root
+        normalized_session_id = session_id.strip()
+        if not normalized_session_id:
+            return None
+
+        sessions_root = Path.home() / ".codex" / "sessions"
+        if not sessions_root.is_dir():
+            return None
+
+        matches: list[tuple[float, Path]] = []
+        for candidate in sessions_root.rglob(f"rollout-*-{normalized_session_id}.jsonl"):
+            if CODEX_ROLLOUT_FILENAME_RE.match(candidate.name) is None:
+                continue
+            try:
+                modified_at = candidate.stat().st_mtime
+            except OSError:
+                continue
+            matches.append((modified_at, candidate))
+
+        if not matches:
+            return None
+
+        matches.sort(key=lambda item: item[0], reverse=True)
+        return matches[0][1]
 
     def extract_session_id(self, artifacts: ArtifactStore, spawn_id: SpawnId) -> str | None:
         return extract_session_id_from_artifacts_with_patterns(

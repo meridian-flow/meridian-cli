@@ -6,13 +6,14 @@ import os
 import pty
 import select
 import signal
+import struct
 import subprocess
 import sys
 import termios
 import time
 import tty
-import struct
 from collections.abc import Callable
+from contextlib import suppress
 from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
@@ -42,8 +43,8 @@ from meridian.lib.state.spawn_store import FOREGROUND_LAUNCH_MODE
 from .command import build_launch_env
 from .heartbeat import threaded_heartbeat_scope
 from .plan import ResolvedPrimaryLaunchPlan
-from .session_scope import session_scope
 from .session_ids import extract_latest_session_id
+from .session_scope import session_scope
 
 logger = logging.getLogger(__name__)
 _PRIMARY_OUTPUT_FILENAME = "output.jsonl"
@@ -62,8 +63,6 @@ class ProcessOutcome(BaseModel):
     primary_started_epoch: float
     primary_started_local_iso: str | None
     resolved_harness_session_id: str
-
-
 
 
 def _copy_primary_pty_output(
@@ -163,14 +162,10 @@ def _run_primary_process_with_capture(
             try:
                 on_child_started(child_pid)
             except Exception:
-                try:
+                with suppress(ProcessLookupError):
                     os.kill(child_pid, signal.SIGTERM)
-                except ProcessLookupError:
-                    pass
-                try:
+                with suppress(ChildProcessError):
                     os.waitpid(child_pid, 0)
-                except ChildProcessError:
-                    pass
                 raise
         _sync_pty_winsize(source_fd=sys.stdout.fileno(), target_fd=master_fd)
         exit_code = _copy_primary_pty_output(
@@ -180,10 +175,8 @@ def _run_primary_process_with_capture(
         )
         return exit_code, child_pid
     finally:
-        try:
+        with suppress(OSError):
             os.close(master_fd)
-        except OSError:
-            pass
 
 
 def _read_winsize(fd: int) -> bytes | None:
@@ -357,13 +350,15 @@ def run_harness_process(
                 if primary_spawn_id is not None:
                     report_path = resolve_spawn_log_dir(repo_root, primary_spawn_id) / "report.md"
                     try:
-                        report_text = report_path.read_text(encoding="utf-8") if report_path.is_file() else None
+                        report_text = (
+                            report_path.read_text(encoding="utf-8")
+                            if report_path.is_file()
+                            else None
+                        )
                     except OSError:
                         report_text = None
                     durable_report = has_durable_report_completion(report_text)
-                    terminated_after_completion = (
-                        durable_report and exit_code in (143, -15)
-                    )
+                    terminated_after_completion = durable_report and exit_code in (143, -15)
                 status, exit_code, _failure_reason = resolve_execution_terminal_state(
                     exit_code=exit_code,
                     failure_reason=None,
@@ -383,30 +378,37 @@ def run_harness_process(
                         exit_code=exit_code,
                         duration_secs=duration,
                     )
-                observed_harness_session_id = None
-                if primary_started_epoch > 0.0:
-                    observed_harness_session_id = extract_latest_session_id(
-                        adapter=plan.adapter,
-                        current_session_id=resolved_harness_session_id,
-                        artifacts=artifacts,
-                        spawn_id=primary_spawn_id,
-                        repo_root=repo_root,
-                        started_at_epoch=primary_started_epoch,
-                        started_at_local_iso=primary_started_local_iso,
-                    )
-                if (
-                    observed_harness_session_id is not None
-                    and observed_harness_session_id.strip()
-                    and observed_harness_session_id.strip() != resolved_harness_session_id.strip()
-                ):
-                    resolved_harness_session_id = observed_harness_session_id.strip()
-                    managed.record_harness_session_id(resolved_harness_session_id)
-                    if primary_spawn_id is not None:
-                        spawn_store.update_spawn(
-                            plan.state_root,
-                            primary_spawn_id,
-                            harness_session_id=resolved_harness_session_id,
+                try:
+                    observed_harness_session_id = None
+                    if primary_started_epoch > 0.0:
+                        observed_harness_session_id = extract_latest_session_id(
+                            adapter=plan.adapter,
+                            current_session_id=resolved_harness_session_id,
+                            artifacts=artifacts,
+                            spawn_id=primary_spawn_id,
+                            repo_root=repo_root,
+                            started_at_epoch=primary_started_epoch,
+                            started_at_local_iso=primary_started_local_iso,
                         )
+                    if (
+                        observed_harness_session_id is not None
+                        and observed_harness_session_id.strip()
+                        and observed_harness_session_id.strip()
+                        != resolved_harness_session_id.strip()
+                    ):
+                        resolved_harness_session_id = observed_harness_session_id.strip()
+                        managed.record_harness_session_id(resolved_harness_session_id)
+                        if primary_spawn_id is not None:
+                            spawn_store.update_spawn(
+                                plan.state_root,
+                                primary_spawn_id,
+                                harness_session_id=resolved_harness_session_id,
+                            )
+                except Exception:
+                    logger.debug(
+                        "Best-effort harness session persistence failed",
+                        exc_info=True,
+                    )
     except FileNotFoundError:
         logger.debug("Harness command not found", exc_info=True)
         exit_code = 2
