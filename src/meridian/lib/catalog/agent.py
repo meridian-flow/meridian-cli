@@ -22,6 +22,7 @@ _KNOWN_SANDBOX_VALUES = frozenset(
         "unrestricted",
     }
 )
+_KNOWN_THINKING_VALUES = frozenset({"low", "medium", "high", "xhigh"})
 
 
 class AgentProfile(BaseModel):
@@ -38,6 +39,7 @@ class AgentProfile(BaseModel):
     tools: tuple[str, ...]
     mcp_tools: tuple[str, ...]
     sandbox: str | None
+    thinking: str | None
     variant_models: tuple[str, ...]
     body: str
     path: Path
@@ -84,6 +86,7 @@ def parse_agent_profile(path: Path) -> AgentProfile:
     harness_value = frontmatter.get("harness")
     variant_value = frontmatter.get("variant")
     sandbox_value = frontmatter.get("sandbox")
+    thinking_value = frontmatter.get("thinking")
 
     profile_name = str(name_value).strip() if name_value is not None else path.stem
     sandbox = str(sandbox_value).strip() if sandbox_value is not None else None
@@ -92,6 +95,13 @@ def parse_agent_profile(path: Path) -> AgentProfile:
             "Agent profile '%s' has unknown sandbox '%s'.",
             profile_name,
             sandbox,
+        )
+    thinking = str(thinking_value).strip() if thinking_value is not None else None
+    if thinking is not None and thinking and thinking not in _KNOWN_THINKING_VALUES:
+        logger.warning(
+            "Agent profile '%s' has unknown thinking '%s'.",
+            profile_name,
+            thinking,
         )
 
     return AgentProfile(
@@ -104,6 +114,7 @@ def parse_agent_profile(path: Path) -> AgentProfile:
         tools=_normalize_string_list(frontmatter.get("tools")),
         mcp_tools=_normalize_deduplicated(frontmatter.get("mcp-tools")),
         sandbox=sandbox,
+        thinking=thinking,
         variant_models=_normalize_string_list(frontmatter.get("variant-models")),
         body=body,
         path=path.resolve(),

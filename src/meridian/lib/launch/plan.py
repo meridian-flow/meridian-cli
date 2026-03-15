@@ -208,6 +208,7 @@ def resolve_primary_launch_plan(
         run_params = SpawnParams(
             prompt=resolved_prompt,
             model=model,
+            thinking=profile.thinking if profile is not None else None,
             skills=resolved_skills.skill_names,
             agent=profile_name or None,
             adhoc_agent_payload=adhoc_agent_payload,
@@ -268,6 +269,7 @@ def resolve_primary_launch_plan(
     run_params = SpawnParams(
         prompt=appended_prompt,
         model=model,
+        thinking=profile.thinking if profile is not None else None,
         skills=resolved_skills.skill_names,
         agent=profile_name or None,
         adhoc_agent_payload=adhoc_agent_payload,

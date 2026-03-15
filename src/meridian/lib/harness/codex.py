@@ -39,6 +39,13 @@ CODEX_ROLLOUT_FILENAME_RE = re.compile(
 )
 
 
+def _codex_thinking_transform(value: object, args: list[str]) -> None:
+    normalized = str(value).strip()
+    if not normalized:
+        return
+    args.extend(["-c", f'model_reasoning_effort="{normalized}"'])
+
+
 def _resolve_rollout_session_id(path: Path, resolved_repo: Path) -> str | None:
     session_id: str | None = None
     saw_assistant_message = False
@@ -188,6 +195,10 @@ class CodexAdapter(BaseSubprocessHarness):
 
     STRATEGIES: ClassVar[StrategyMap] = {
         "model": FlagStrategy(effect=FlagEffect.CLI_FLAG, cli_flag="--model"),
+        "thinking": FlagStrategy(
+            effect=FlagEffect.TRANSFORM,
+            transform=_codex_thinking_transform,
+        ),
         "agent": FlagStrategy(effect=FlagEffect.DROP),
         "skills": FlagStrategy(effect=FlagEffect.DROP),
         "continue_harness_session_id": FlagStrategy(effect=FlagEffect.DROP),

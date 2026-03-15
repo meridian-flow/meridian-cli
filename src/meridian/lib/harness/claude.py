@@ -160,11 +160,28 @@ def _tool_call_from_payload(payload: dict[str, object]) -> ToolCall | None:
     return ToolCall(tool_name=tool_name, input=tool_input, output=output_text)
 
 
+def _claude_thinking_transform(value: object, args: list[str]) -> None:
+    normalized = str(value).strip()
+    if not normalized:
+        return
+    mapped = {
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+        "xhigh": "max",
+    }.get(normalized, normalized)
+    args.extend(["--effort", mapped])
+
+
 class ClaudeAdapter(BaseSubprocessHarness):
     """SubprocessHarness implementation for `claude`."""
 
     STRATEGIES: ClassVar[StrategyMap] = {
         "model": FlagStrategy(effect=FlagEffect.CLI_FLAG, cli_flag="--model"),
+        "thinking": FlagStrategy(
+            effect=FlagEffect.TRANSFORM,
+            transform=_claude_thinking_transform,
+        ),
         "agent": FlagStrategy(effect=FlagEffect.CLI_FLAG, cli_flag="--agent"),
         "skills": FlagStrategy(effect=FlagEffect.DROP),
         "continue_harness_session_id": FlagStrategy(effect=FlagEffect.DROP),
