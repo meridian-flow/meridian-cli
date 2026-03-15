@@ -40,6 +40,19 @@ def test_none_tier_defaults_to_harness_choice() -> None:
 
 
 @pytest.mark.parametrize(
+    "tier",
+    (
+        PermissionTier.READ_ONLY,
+        PermissionTier.WORKSPACE_WRITE,
+        PermissionTier.FULL_ACCESS,
+    ),
+)
+def test_claude_tier_permissions_do_not_emit_allowed_tools(tier: PermissionTier) -> None:
+    config = build_permission_config(tier)
+    assert permission_flags_for_harness(HarnessId.CLAUDE, config) == []
+
+
+@pytest.mark.parametrize(
     ("tier", "expected"),
     (
         (

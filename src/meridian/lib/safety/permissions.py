@@ -112,37 +112,6 @@ def build_permission_config(
     )
 
 
-def _claude_allowed_tools(tier: PermissionTier) -> tuple[str, ...]:
-    read_only = (
-        "Read",
-        "Glob",
-        "Grep",
-        "Bash(git status)",
-        "Bash(git log)",
-        "Bash(git diff)",
-    )
-    workspace_write = (
-        *read_only,
-        "Edit",
-        "Write",
-        "Bash(git add)",
-        "Bash(git commit)",
-    )
-    full_access = (
-        *workspace_write,
-        "WebFetch",
-        "WebSearch",
-        "Bash",
-    )
-    if tier is PermissionTier.READ_ONLY:
-        return read_only
-    if tier is PermissionTier.WORKSPACE_WRITE:
-        return workspace_write
-    if tier is PermissionTier.FULL_ACCESS:
-        return full_access
-    raise ValueError(f"Unsupported Claude permission tier: {tier!r}")
-
-
 def opencode_permission_json(tier: PermissionTier) -> str:
     """Build OpenCode permission JSON from one safety tier."""
 
@@ -187,9 +156,6 @@ def permission_flags_for_harness(
         # OpenCode currently has no equivalent global bypass flag.
     if tier is None:
         return []
-
-    if harness_id == HarnessId.CLAUDE:
-        return ["--allowedTools", ",".join(_claude_allowed_tools(tier))]
 
     if harness_id == HarnessId.CODEX:
         if tier is PermissionTier.READ_ONLY:
