@@ -34,13 +34,11 @@ class AgentProfile(BaseModel):
     description: str
     model: str | None
     harness: str | None = None
-    variant: str | None
     skills: tuple[str, ...]
     tools: tuple[str, ...]
     mcp_tools: tuple[str, ...]
     sandbox: str | None
     thinking: str | None
-    variant_models: tuple[str, ...]
     body: str
     path: Path
     raw_content: str
@@ -84,7 +82,6 @@ def parse_agent_profile(path: Path) -> AgentProfile:
     description_value = frontmatter.get("description")
     model_value = frontmatter.get("model")
     harness_value = frontmatter.get("harness")
-    variant_value = frontmatter.get("variant")
     sandbox_value = frontmatter.get("sandbox")
     thinking_value = frontmatter.get("thinking")
 
@@ -109,13 +106,11 @@ def parse_agent_profile(path: Path) -> AgentProfile:
         description=str(description_value).strip() if description_value is not None else "",
         model=str(model_value).strip() if model_value is not None else None,
         harness=str(harness_value).strip() if harness_value is not None else None,
-        variant=str(variant_value).strip() if variant_value is not None else None,
         skills=_normalize_string_list(frontmatter.get("skills")),
         tools=_normalize_string_list(frontmatter.get("tools")),
         mcp_tools=_normalize_deduplicated(frontmatter.get("mcp-tools")),
         sandbox=sandbox,
         thinking=thinking,
-        variant_models=_normalize_string_list(frontmatter.get("variant-models")),
         body=body,
         path=path.resolve(),
         raw_content=markdown,
