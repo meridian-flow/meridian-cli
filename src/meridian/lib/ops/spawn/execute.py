@@ -268,7 +268,7 @@ def _write_params_json(
         "agent": prepared.agent_name,
         "agent_path": prepared.agent_path,
         "agent_source": prepared.agent_source,
-        "adhoc_agent_json": prepared.adhoc_agent_json,
+        "adhoc_agent_payload": prepared.adhoc_agent_payload,
         "desc": desc,
         "work_id": work_id,
         "prompt_length": len(prepared.prompt),
@@ -348,7 +348,7 @@ async def _execute_existing_spawn(
     session_agent: str = "",
     session_agent_path: str = "",
     session_skill_paths: tuple[str, ...] = (),
-    adhoc_agent_json: str = "",
+    adhoc_agent_payload: str = "",
     appended_system_prompt: str | None = None,
     sink: OutputSink | None = None,
     ctx: RuntimeContext | None = None,
@@ -387,7 +387,7 @@ async def _execute_existing_spawn(
         mcp_tools=mcp_tools,
         session_agent=session_agent,
         session_agent_path=session_agent_path,
-        adhoc_agent_json=adhoc_agent_json,
+        adhoc_agent_payload=adhoc_agent_payload,
         appended_system_prompt=appended_system_prompt,
         session=SessionContinuation(
             harness_session_id=continue_harness_session_id,
@@ -457,7 +457,7 @@ def _build_background_worker_command(
     session_agent: str,
     session_agent_path: str,
     session_skill_paths: tuple[str, ...],
-    adhoc_agent_json: str = "",
+    adhoc_agent_payload: str = "",
     appended_system_prompt: str | None = None,
 ) -> tuple[str, ...]:
     command: list[str] = [
@@ -484,8 +484,8 @@ def _build_background_worker_command(
         command.extend(["--allowed-tool", tool])
     for passthrough_arg in passthrough_args:
         command.extend(["--harness-arg", passthrough_arg])
-    if adhoc_agent_json.strip():
-        command.extend(["--adhoc-agent-json", adhoc_agent_json])
+    if adhoc_agent_payload.strip():
+        command.extend(["--adhoc-agent-payload", adhoc_agent_payload])
     if continue_harness_session_id is not None and continue_harness_session_id.strip():
         command.extend(["--continue-harness-session-id", continue_harness_session_id.strip()])
     if continue_fork:
@@ -548,7 +548,7 @@ def execute_spawn_background(
         session_agent=prepared.session_agent,
         session_agent_path=prepared.session_agent_path,
         session_skill_paths=prepared.skill_paths,
-        adhoc_agent_json=prepared.adhoc_agent_json,
+        adhoc_agent_payload=prepared.adhoc_agent_payload,
         appended_system_prompt=prepared.appended_system_prompt,
     )
     log_dir = resolve_spawn_log_dir(runtime.repo_root, context.spawn.spawn_id)
@@ -768,7 +768,7 @@ def _build_background_worker_parser() -> argparse.ArgumentParser:
     parser.add_argument("--session-agent", default="")
     parser.add_argument("--session-agent-path", default="")
     parser.add_argument("--session-skill-path", action="append", default=[])
-    parser.add_argument("--adhoc-agent-json", default="")
+    parser.add_argument("--adhoc-agent-payload", default="")
     parser.add_argument("--appended-system-prompt", default=None)
     return parser
 
@@ -805,7 +805,7 @@ def _background_worker_main(
             session_agent=str(parsed.session_agent),
             session_agent_path=str(parsed.session_agent_path),
             session_skill_paths=tuple(str(item) for item in parsed.session_skill_path),
-            adhoc_agent_json=str(parsed.adhoc_agent_json),
+            adhoc_agent_payload=str(parsed.adhoc_agent_payload),
             appended_system_prompt=cast("str | None", parsed.appended_system_prompt),
             ctx=resolved_context,
         )

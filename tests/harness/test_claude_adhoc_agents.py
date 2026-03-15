@@ -41,7 +41,7 @@ def test_claude_command_includes_adhoc_agents_payload() -> None:
             prompt="hello",
             model=ModelId("claude-sonnet-4-6"),
             agent="reviewer",
-            adhoc_agent_json=adhoc_payload,
+            adhoc_agent_payload=adhoc_payload,
         ),
         _NoopResolver(),
     )

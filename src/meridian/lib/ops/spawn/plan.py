@@ -52,7 +52,7 @@ class PreparedSpawnPlan(BaseModel):
     session_agent_path: str
     session: SessionContinuation
     execution: ExecutionPolicy
-    adhoc_agent_json: str = ""
+    adhoc_agent_payload: str = ""
     appended_system_prompt: str | None = None
     cli_command: tuple[str, ...]
     warning: str | None = None

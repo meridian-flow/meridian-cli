@@ -54,7 +54,7 @@ class RecordingHarnessAdapter(BaseSubprocessHarness):
 
 
 @pytest.mark.asyncio
-async def test_execute_with_finalization_passes_adhoc_agent_json(tmp_path: Path) -> None:
+async def test_execute_with_finalization_passes_adhoc_agent_payload(tmp_path: Path) -> None:
     run = Spawn(
         spawn_id=SpawnId("r1"),
         prompt="hello",
@@ -80,7 +80,7 @@ async def test_execute_with_finalization_passes_adhoc_agent_json(tmp_path: Path)
         mcp_tools=(),
         session_agent="reviewer",
         session_agent_path="",
-        adhoc_agent_json='{"reviewer":{"description":"desc","prompt":"body"}}',
+        adhoc_agent_payload='{"reviewer":{"description":"desc","prompt":"body"}}',
         session=SessionContinuation(),
         execution=ExecutionPolicy(
             timeout_secs=None,
@@ -106,4 +106,4 @@ async def test_execute_with_finalization_passes_adhoc_agent_json(tmp_path: Path)
     )
 
     assert recorded_runs
-    assert recorded_runs[0].adhoc_agent_json == '{"reviewer":{"description":"desc","prompt":"body"}}'
+    assert recorded_runs[0].adhoc_agent_payload == '{"reviewer":{"description":"desc","prompt":"body"}}'

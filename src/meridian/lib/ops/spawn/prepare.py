@@ -17,6 +17,7 @@ from meridian.lib.launch.prompt import (
 )
 from meridian.lib.launch.reference import load_reference_files, parse_template_assignments
 from meridian.lib.launch.resolve import (
+    ensure_bootstrap_ready,
     resolve_profile_path,
     resolve_policies,
     resolve_skill_paths,
@@ -26,9 +27,6 @@ from meridian.lib.safety.permissions import (
     resolve_permission_pipeline,
 )
 from meridian.lib.core.types import ModelId
-from meridian.lib.install.bootstrap import (
-    ensure_bootstrap_ready,
-)
 from meridian.lib.install.provenance import resolve_runtime_asset_provenance
 
 from meridian.lib.utils.time import minutes_to_seconds
@@ -218,13 +216,13 @@ def build_create_payload(
         include_content=not use_reference_paths,
     )
     parsed_template_vars = parse_template_assignments(payload.template_vars)
-    adhoc_agent_json = (
+    adhoc_agent_payload = (
         harness.build_adhoc_agent_payload(
             name=profile.name,
             description=profile.description,
             prompt=profile.body,
         )
-        if profile is not None
+        if profile is not None and harness.capabilities.supports_native_agents
         else ""
     )
     agent_for_params = profile.name if profile is not None else None
@@ -290,7 +288,7 @@ def build_create_payload(
                 model=ModelId(policies.model) if policies.model else None,
                 skills=resolved_skills.skill_names,
                 agent=agent_for_params,
-                adhoc_agent_json=adhoc_agent_json,
+                adhoc_agent_payload=adhoc_agent_payload,
                 repo_root=runtime_view.repo_root.as_posix(),
                 mcp_tools=profile.mcp_tools if profile is not None else (),
                 continue_harness_session_id=resolved_continue_harness_session_id,
@@ -327,7 +325,7 @@ def build_create_payload(
         session_agent=profile.name if profile is not None else "",
         session_agent_path=session_agent_path,
         skill_paths=session_skill_paths,
-        adhoc_agent_json=adhoc_agent_json,
+        adhoc_agent_payload=adhoc_agent_payload,
         cli_command=preview_command,
         passthrough_args=payload.passthrough_args,
         appended_system_prompt=appended_system_prompt,

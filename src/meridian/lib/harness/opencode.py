@@ -29,6 +29,7 @@ from meridian.lib.harness.adapter import (
 )
 from meridian.lib.harness.launch_types import PromptPolicy
 from meridian.lib.safety.permissions import PermissionConfig, opencode_permission_json
+from meridian.lib.core.domain import TokenUsage
 from meridian.lib.core.types import HarnessId, SpawnId
 
 logger = logging.getLogger(__name__)
@@ -202,7 +203,7 @@ class OpenCodeAdapter(BaseSubprocessHarness):
             return {}
         return {"OPENCODE_PERMISSION": opencode_permission_json(config.tier)}
 
-    def extract_usage(self, artifacts: ArtifactStore, spawn_id: SpawnId):
+    def extract_usage(self, artifacts: ArtifactStore, spawn_id: SpawnId) -> TokenUsage:
         return extract_usage_from_artifacts(artifacts, spawn_id)
 
     def filter_launch_content(

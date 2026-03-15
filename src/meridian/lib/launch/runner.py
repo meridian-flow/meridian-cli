@@ -524,7 +524,7 @@ async def execute_with_finalization(
         model=run.model if str(run.model).strip() else None,
         skills=plan.skills,
         agent=plan.agent_name,
-        adhoc_agent_json=plan.adhoc_agent_json,
+        adhoc_agent_payload=plan.adhoc_agent_payload,
         extra_args=plan.passthrough_args,
         repo_root=execution_cwd.as_posix(),
         mcp_tools=plan.mcp_tools,

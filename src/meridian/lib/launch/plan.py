@@ -16,14 +16,12 @@ from meridian.lib.safety.permissions import (
     resolve_permission_pipeline,
 )
 from meridian.lib.state.paths import resolve_state_paths
-from meridian.lib.install.bootstrap import (
-    ensure_bootstrap_ready,
-)
 from meridian.lib.install.provenance import resolve_runtime_asset_provenance
 
 from .prompt import compose_skill_injections
 from .resolve import (
     ResolvedPolicies,
+    ensure_bootstrap_ready,
     resolve_profile_path,
     resolve_policies,
     resolve_skill_paths,
@@ -148,13 +146,13 @@ def resolve_primary_launch_plan(
     harness = policies.harness
     adapter = policies.adapter
     resolved_skills = policies.resolved_skills
-    adhoc_agent_json = (
+    adhoc_agent_payload = (
         adapter.build_adhoc_agent_payload(
             name=profile.name,
             description=profile.description,
             prompt=profile.body,
         )
-        if profile is not None
+        if profile is not None and adapter.capabilities.supports_native_agents
         else ""
     )
 
@@ -212,7 +210,7 @@ def resolve_primary_launch_plan(
             model=model,
             skills=resolved_skills.skill_names,
             agent=profile_name or None,
-            adhoc_agent_json=adhoc_agent_json,
+            adhoc_agent_payload=adhoc_agent_payload,
             extra_args=command_request.passthrough_args,
             repo_root=resolved_root.as_posix(),
             mcp_tools=profile.mcp_tools if profile is not None else (),
@@ -272,7 +270,7 @@ def resolve_primary_launch_plan(
         model=model,
         skills=resolved_skills.skill_names,
         agent=profile_name or None,
-        adhoc_agent_json=adhoc_agent_json,
+        adhoc_agent_payload=adhoc_agent_payload,
         extra_args=passthrough_args,
         repo_root=resolved_root.as_posix(),
         mcp_tools=profile.mcp_tools if profile is not None else (),

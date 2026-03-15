@@ -71,31 +71,6 @@ def plan_bootstrap_assets(
     return BootstrapPlan(required_items=required_items, missing_items=missing_items)
 
 
-def ensure_bootstrap_ready(
-    *,
-    repo_root: Path,
-    configured_default_agent: str,
-    requested_agent: str | None,
-    dry_run: bool,
-) -> BootstrapPlan:
-    """Plan and auto-install bootstrap assets. Raises FileNotFoundError for dry-run."""
-
-    agent_names = planned_bootstrap_agent_names(
-        configured_default=configured_default_agent,
-        requested_agent=requested_agent,
-    )
-    plan = plan_bootstrap_assets(repo_root=repo_root, agent_names=agent_names)
-    if plan.missing_items:
-        if dry_run:
-            joined = ", ".join(sorted(plan.missing_items))
-            raise FileNotFoundError(
-                "Required runtime agents are missing locally for dry-run and will not be "
-                f"auto-installed: {joined}. Install their source first or rerun without --dry-run."
-            )
-        ensure_bootstrap_assets(repo_root=repo_root, plan=plan)
-    return plan
-
-
 def ensure_bootstrap_assets(
     *,
     repo_root: Path,

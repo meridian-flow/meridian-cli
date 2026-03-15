@@ -7,6 +7,7 @@ from typing import Any, ClassVar, cast
 from uuid import uuid4
 
 from meridian.lib.core.conversation import Conversation, ConversationTurn, ToolCall
+from meridian.lib.core.domain import TokenUsage
 from meridian.lib.core.types import ArtifactKey, HarnessId, SpawnId
 from meridian.lib.harness.common import (
     extract_claude_report,
@@ -225,10 +226,10 @@ class ClaudeAdapter(BaseSubprocessHarness):
         # Inject skill content for --append-system-prompt (workaround for issue #29902).
         if run.appended_system_prompt:
             command.extend(["--append-system-prompt", run.appended_system_prompt])
-        # Ad-hoc agent JSON for native skill loading via Claude --agents flag
-        adhoc_json = run.adhoc_agent_json.strip()
-        if adhoc_json:
-            command.extend(["--agents", adhoc_json])
+        # Ad-hoc agent payload for native skill loading via Claude --agents flag
+        adhoc_payload = run.adhoc_agent_payload.strip()
+        if adhoc_payload:
+            command.extend(["--agents", adhoc_payload])
         harness_session_id = (run.continue_harness_session_id or "").strip()
         if not harness_session_id:
             return command
@@ -251,7 +252,7 @@ class ClaudeAdapter(BaseSubprocessHarness):
         # sentinel so child Claude spawns can run under Meridian control.
         return frozenset({"CLAUDECODE"})
 
-    def extract_usage(self, artifacts: ArtifactStore, spawn_id: SpawnId):
+    def extract_usage(self, artifacts: ArtifactStore, spawn_id: SpawnId) -> TokenUsage:
         return extract_usage_from_artifacts(artifacts, spawn_id)
 
     def extract_session_id(self, artifacts: ArtifactStore, spawn_id: SpawnId) -> str | None:

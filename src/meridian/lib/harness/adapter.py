@@ -55,8 +55,8 @@ class SpawnParams(BaseModel):
     model: ModelId | None = None
     skills: tuple[str, ...] = ()
     agent: str | None = None
-    # Pre-built --agents JSON for Claude ad-hoc agent passthrough. Empty string when not used.
-    adhoc_agent_json: str = ""
+    # Pre-built ad-hoc native-agent payload. Empty string when not used.
+    adhoc_agent_payload: str = ""
     extra_args: tuple[str, ...] = ()
     repo_root: str | None = None
     mcp_tools: tuple[str, ...] = ()

@@ -4,7 +4,7 @@ from meridian.lib.ops.spawn import execute as spawn_execute
 from meridian.lib.safety.permissions import PermissionConfig
 
 
-def test_background_worker_command_preserves_adhoc_agent_json(tmp_path: Path) -> None:
+def test_background_worker_command_preserves_adhoc_agent_payload(tmp_path: Path) -> None:
     builder = getattr(spawn_execute, "_build_background_worker_command")
     command = builder(
         spawn_id="p1",
@@ -21,12 +21,12 @@ def test_background_worker_command_preserves_adhoc_agent_json(tmp_path: Path) ->
         session_agent="reviewer",
         session_agent_path="",
         session_skill_paths=(),
-        adhoc_agent_json='{"reviewer":{"description":"desc","prompt":"body"}}',
+        adhoc_agent_payload='{"reviewer":{"description":"desc","prompt":"body"}}',
         appended_system_prompt=None,
     )
 
-    assert "--adhoc-agent-json" in command
-    index = command.index("--adhoc-agent-json")
+    assert "--adhoc-agent-payload" in command
+    index = command.index("--adhoc-agent-payload")
     assert command[index + 1] == '{"reviewer":{"description":"desc","prompt":"body"}}'
 
 
@@ -47,7 +47,7 @@ def test_background_worker_command_serializes_skills_as_csv(tmp_path: Path) -> N
         session_agent="reviewer",
         session_agent_path="",
         session_skill_paths=(),
-        adhoc_agent_json="",
+        adhoc_agent_payload="",
         appended_system_prompt=None,
     )
 
