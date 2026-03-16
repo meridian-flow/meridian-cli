@@ -9,7 +9,7 @@ You have a design doc. Now you need to turn it into work that agents can execute
 
 The central idea: **blueprint distillation**. Don't hand the coder your full design doc and hope they extract what's relevant. Instead, compress the design into a focused, phase-specific blueprint that contains only what the coder needs for that phase. Research consistently shows that LLMs perform better with focused, relevant context than with a full information dump. A coder working on "Phase 3: auth middleware" doesn't need the database migration plan from Phase 1. It needs the interfaces Phase 1 produced and the specific requirements for Phase 3.
 
-This skill assumes work setup and artifact placement already come from `work-coordination`. Keep phase files and other work-scoped planning artifacts under `$MERIDIAN_WORK_DIR`.
+This skill assumes work setup and artifact placement already come from `__meridian-work-coordination`. Keep phase files and other work-scoped planning artifacts under `$MERIDIAN_WORK_DIR`.
 
 ## Phase Decomposition
 

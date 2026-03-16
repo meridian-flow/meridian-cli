@@ -1,5 +1,5 @@
 ---
-name: work-coordination
+name: __meridian-work-coordination
 description: Meridian work item lifecycle for tracking multi-spawn efforts. Use when creating, switching, updating, or completing work items, managing work status, or deciding where work-scoped files vs shared project files belong.
 ---
 

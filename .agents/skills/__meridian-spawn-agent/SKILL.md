@@ -61,7 +61,7 @@ meridian spawn -a agent --desc "Implement step 2" -p "..."
 meridian spawn -a reviewer --work auth-refactor --desc "Review step 1" -p "..."
 ```
 
-See the `work-coordination` skill for full work item lifecycle (creating, switching, updating, completing work items, and artifact placement).
+See the `__meridian-work-coordination` skill for full work item lifecycle (creating, switching, updating, completing work items, and artifact placement).
 
 ## Parallel Spawns
 

@@ -2,7 +2,7 @@
 
 Detailed conventions for phase files, dependency graphs, sizing, and context selection. Reference this when you need specifics during planning.
 
-Work setup and artifact placement come from `work-coordination`. This file only defines how to structure planning artifacts that already live under `$MERIDIAN_WORK_DIR`.
+Work setup and artifact placement come from `__meridian-work-coordination`. This file only defines how to structure planning artifacts that already live under `$MERIDIAN_WORK_DIR`.
 
 ## Phase File Conventions
 

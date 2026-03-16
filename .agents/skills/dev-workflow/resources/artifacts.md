@@ -2,7 +2,7 @@
 
 Reference this when writing entries to `decision-log.md`, `implementation-log.md`, or creating the initial `overview.md`. These formats keep tracking consistent across work items and sessions.
 
-Artifact placement policy comes from `work-coordination`. This file only defines the content and format of work-scoped artifacts that already live under `$MERIDIAN_WORK_DIR`.
+Artifact placement policy comes from `__meridian-work-coordination`. This file only defines the content and format of work-scoped artifacts that already live under `$MERIDIAN_WORK_DIR`.
 
 ## overview.md Template
 

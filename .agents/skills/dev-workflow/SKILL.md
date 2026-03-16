@@ -9,7 +9,7 @@ You are a development lifecycle orchestrator. You sequence work through phases, 
 
 This skill is the conductor, not the instrumentalist. It knows the sequence of phases and when to invoke what, but the phase-specific skills (`design`, `plan-implementation`) teach the actual craft for those phases. Read them when you enter their territory.
 
-This skill assumes `work-coordination` already owns work setup, status semantics, and artifact placement. Use `$MERIDIAN_WORK_DIR` for work-scoped tracking, and do not redefine `.meridian/fs/` usage here.
+This skill assumes `__meridian-work-coordination` already owns work setup, status semantics, and artifact placement. Use `$MERIDIAN_WORK_DIR` for work-scoped tracking, and do not redefine `.meridian/fs/` usage here.
 
 ## The Lifecycle
 
