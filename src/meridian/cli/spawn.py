@@ -102,6 +102,14 @@ def _spawn_create(
             negative_iterable=(),
         ),
     ] = (),
+    context_from: Annotated[
+        tuple[str, ...],
+        Parameter(
+            name=["--from"],
+            help="Include context (report, files) from a prior spawn or session (repeatable).",
+            negative_iterable=(),
+        ),
+    ] = (),
     agent: Annotated[
         str | None,
         Parameter(name=["--agent", "-a"], help="Agent profile name to execute."),
@@ -170,6 +178,8 @@ def _spawn_create(
     ] = False,
 ) -> None:
     if continue_from is not None:
+        if context_from:
+            raise ValueError("Cannot use --from with --continue")
         if yolo:
             raise ValueError("Cannot use --yolo with --continue")
         result = spawn_continue_sync(
@@ -192,6 +202,7 @@ def _spawn_create(
                 prompt=prompt,
                 model=model,
                 files=references,
+                context_from=context_from,
                 template_vars=template_vars,
                 agent=agent,
                 skills=_parse_csv_list(skills, field_name="skills"),

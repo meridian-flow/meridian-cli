@@ -94,6 +94,7 @@ def spawn_create_sync(
             bootstrap_missing_items=prepared.bootstrap_missing_items,
             reference_files=prepared.reference_files,
             template_vars=prepared.template_vars,
+            context_from_resolved=prepared.context_from_resolved,
             composed_prompt=prepared.prompt,
             cli_command=prepared.cli_command,
             message="Dry run complete.",

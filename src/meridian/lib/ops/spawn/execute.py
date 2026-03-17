@@ -606,6 +606,7 @@ def execute_spawn_background(
             agent=prepared.agent_name,
             reference_files=prepared.reference_files,
             template_vars=prepared.template_vars,
+            context_from_resolved=prepared.context_from_resolved,
             exit_code=1,
         )
 
@@ -630,6 +631,7 @@ def execute_spawn_background(
         agent=prepared.agent_name,
         reference_files=prepared.reference_files,
         template_vars=prepared.template_vars,
+        context_from_resolved=prepared.context_from_resolved,
         background=True,
     )
 
@@ -748,6 +750,7 @@ def execute_spawn_blocking(
         agent=session_context.resolved_agent_name,
         reference_files=prepared.reference_files,
         template_vars=prepared.template_vars,
+        context_from_resolved=prepared.context_from_resolved,
         report=report_text,
         exit_code=exit_code,
         duration_secs=duration,

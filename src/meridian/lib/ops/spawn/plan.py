@@ -47,6 +47,7 @@ class PreparedSpawnPlan(BaseModel):
     bootstrap_missing_items: tuple[str, ...] = ()
     reference_files: tuple[str, ...]
     template_vars: dict[str, str]
+    context_from_resolved: tuple[str, ...] = ()
     mcp_tools: tuple[str, ...]
     session_agent: str
     session_agent_path: str

@@ -23,6 +23,7 @@ class SpawnCreateInput(BaseModel):
     prompt: str = ""
     model: str = ""
     files: tuple[str, ...] = ()
+    context_from: tuple[str, ...] = ()
     template_vars: tuple[str, ...] = ()
     agent: str | None = None
     skills: tuple[str, ...] = ()
@@ -65,6 +66,7 @@ class SpawnActionOutput(BaseModel):
     bootstrap_missing_items: tuple[str, ...] = ()
     reference_files: tuple[str, ...] = ()
     template_vars: dict[str, str] = Field(default_factory=_empty_template_vars)
+    context_from_resolved: tuple[str, ...] = ()
     report: str | None = None
     composed_prompt: str | None = None
     cli_command: tuple[str, ...] = ()
@@ -87,6 +89,8 @@ class SpawnActionOutput(BaseModel):
             wire["warning"] = self.warning
         if self.exit_code is not None:
             wire["exit_code"] = self.exit_code
+        if self.context_from_resolved:
+            wire["context_from_resolved"] = list(self.context_from_resolved)
         if self.status == "dry-run":
             if self.model is not None:
                 wire["model"] = self.model

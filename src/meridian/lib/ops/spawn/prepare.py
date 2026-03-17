@@ -31,6 +31,7 @@ from meridian.lib.safety.permissions import (
 from meridian.lib.utils.time import minutes_to_seconds
 
 from ..runtime import OperationRuntime, build_runtime, resolve_runtime_root_and_config
+from .context_ref import render_context_refs, resolve_context_ref
 from .models import SpawnCreateInput
 from .plan import ExecutionPolicy, PreparedSpawnPlan, SessionContinuation
 
@@ -231,6 +232,15 @@ def build_create_payload(
     )
     agent_for_params = profile.name if profile is not None else None
 
+    context_from_resolved: tuple[str, ...] = ()
+    prior_output: str | None = None
+    if payload.context_from:
+        resolved_context_refs = tuple(
+            resolve_context_ref(runtime_view.repo_root, ref) for ref in payload.context_from
+        )
+        context_from_resolved = tuple(ref.spawn_id for ref in resolved_context_refs)
+        prior_output = render_context_refs(resolved_context_refs)
+
     composed_prompt = compose_run_prompt_text(
         skills=resolved_skills.loaded_skills if prompt_policy.include_skills else (),
         references=loaded_references,
@@ -239,6 +249,7 @@ def build_create_payload(
         if prompt_policy.include_agent_body
         else "",
         template_variables=parsed_template_vars,
+        prior_output=prior_output,
         reference_mode=reference_mode,
     )
     requested_harness_session_id = (payload.continue_harness_session_id or "").strip()
@@ -325,6 +336,7 @@ def build_create_payload(
         bootstrap_missing_items=bootstrap_plan.missing_items,
         reference_files=tuple(str(reference.path) for reference in loaded_references),
         template_vars=parsed_template_vars,
+        context_from_resolved=context_from_resolved,
         mcp_tools=profile.mcp_tools if profile is not None else (),
         agent_name=agent_for_params,
         session_agent=profile.name if profile is not None else "",
