@@ -6,6 +6,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
+from meridian.lib.catalog.agent import load_agent_profile
 from meridian.lib.install.config import (
     SourceConfig,
     SourceManifest,
@@ -25,18 +26,7 @@ from meridian.lib.state.paths import resolve_state_paths
 _BOOTSTRAP_SOURCE_NAME = "meridian-base"
 _BOOTSTRAP_URL = "https://github.com/haowjy/meridian-base.git"
 _BOOTSTRAP_AGENT_NAMES = frozenset({"__meridian-orchestrator", "__meridian-subagent"})
-# Keep the bootstrap source filter aligned with the runtime closure of the
-# bootstrap agents. Wider "all builtin skills" filters can drift from the
-# actual managed source contents and break first-run bootstrap.
-_BOOTSTRAP_SKILL_NAMES = frozenset(
-    {
-        "__meridian-orchestrate",
-        "__meridian-spawn-agent",
-        "__meridian-work-coordination",
-    }
-)
 _BOOTSTRAP_AGENT_LIST = tuple(sorted(_BOOTSTRAP_AGENT_NAMES))
-_BOOTSTRAP_SKILL_LIST = tuple(sorted(_BOOTSTRAP_SKILL_NAMES))
 
 
 class BootstrapPlan(BaseModel):
@@ -46,6 +36,25 @@ class BootstrapPlan(BaseModel):
 
     required_items: tuple[str, ...]
     missing_items: tuple[str, ...]
+
+
+def bootstrap_source_config() -> SourceConfig:
+    """Return the canonical managed source record for bootstrap runtime assets."""
+
+    skill_names: set[str] = set()
+    bundled_repo_root = _bundled_repo_root()
+    for agent_name in _BOOTSTRAP_AGENT_LIST:
+        profile = load_agent_profile(agent_name, repo_root=bundled_repo_root)
+        skill_names.update(profile.skills)
+
+    return SourceConfig(
+        name=_BOOTSTRAP_SOURCE_NAME,
+        kind="git",
+        url=_BOOTSTRAP_URL,
+        ref="main",
+        agents=_BOOTSTRAP_AGENT_LIST,
+        skills=tuple(sorted(skill_names)),
+    )
 
 
 def planned_bootstrap_agent_names(
@@ -174,7 +183,7 @@ def _select_runtime_sources(
             f"{joined}. Install their source first or set a different configured default."
         )
 
-    updated_manifest = _ensure_bootstrap_source(
+    updated_manifest = ensure_bootstrap_source_manifest(
         manifest=manifest,
         item_ids=tuple(unresolved_bootstrap_items),
     )
@@ -194,24 +203,17 @@ def _is_bootstrap_item(item_id: str) -> bool:
     return kind == "agent" and name in _BOOTSTRAP_AGENT_NAMES
 
 
-def _ensure_bootstrap_source(
+def ensure_bootstrap_source_manifest(
     *,
     manifest: SourceManifest,
     item_ids: tuple[str, ...],
 ) -> SourceManifest:
     existing = manifest.find_source(_BOOTSTRAP_SOURCE_NAME)
+    bootstrap_source = bootstrap_source_config()
     # Validate item ids even though the source we record is the complete bootstrap set.
     _ = tuple(parse_item_id(item_id)[1] for item_id in item_ids)
 
     if existing is None:
-        bootstrap_source = SourceConfig(
-            name=_BOOTSTRAP_SOURCE_NAME,
-            kind="git",
-            url=_BOOTSTRAP_URL,
-            ref="main",
-            agents=_BOOTSTRAP_AGENT_LIST,
-            skills=_BOOTSTRAP_SKILL_LIST,
-        )
         # Bootstrap sources are always shared (git)
         return manifest.with_source(bootstrap_source, target="shared")
 
@@ -219,16 +221,16 @@ def _ensure_bootstrap_source(
         # No filter -- all items included, nothing to add
         return manifest
 
-    agents_changed = tuple(existing.agents or ()) != _BOOTSTRAP_AGENT_LIST
-    skills_changed = tuple(existing.skills or ()) != _BOOTSTRAP_SKILL_LIST
+    agents_changed = tuple(existing.agents or ()) != tuple(bootstrap_source.agents or ())
+    skills_changed = tuple(existing.skills or ()) != tuple(bootstrap_source.skills or ())
     if not agents_changed and not skills_changed:
         return manifest
 
     updates: dict[str, object] = {}
     if agents_changed:
-        updates["agents"] = _BOOTSTRAP_AGENT_LIST
+        updates["agents"] = bootstrap_source.agents
     if skills_changed:
-        updates["skills"] = _BOOTSTRAP_SKILL_LIST
+        updates["skills"] = bootstrap_source.skills
     updated_source = existing.model_copy(update=updates)
     target = manifest.file_for_source(_BOOTSTRAP_SOURCE_NAME) or "shared"
     return manifest.with_source(updated_source, target=target)
@@ -237,3 +239,7 @@ def _ensure_bootstrap_source(
 def _agent_profile_path(repo_root: Path, item_id: str) -> Path:
     _, name = parse_item_id(item_id)
     return repo_root / ".agents" / "agents" / f"{name}.md"
+
+
+def _bundled_repo_root() -> Path:
+    return Path(__file__).resolve().parents[4]

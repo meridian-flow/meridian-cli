@@ -3,8 +3,9 @@ from pathlib import Path
 import pytest
 
 from meridian.lib.install.bootstrap import (
-    _ensure_bootstrap_source,
+    bootstrap_source_config,
     ensure_bootstrap_assets,
+    ensure_bootstrap_source_manifest,
     plan_bootstrap_assets,
     planned_bootstrap_agent_names,
 )
@@ -79,7 +80,7 @@ def test_ensure_bootstrap_assets_bootstraps_missing_default(
     source_root = tmp_path / "bootstrap-source"
     _write_source_tree(source_root, agent_name="__meridian-subagent")
 
-    def fake_ensure_bootstrap_source(
+    def fake_ensure_bootstrap_source_manifest(
         *,
         manifest: SourceManifest,
         item_ids: tuple[str, ...],
@@ -100,8 +101,8 @@ def test_ensure_bootstrap_assets_bootstraps_missing_default(
         return manifest
 
     monkeypatch.setattr(
-        "meridian.lib.install.bootstrap._ensure_bootstrap_source",
-        fake_ensure_bootstrap_source,
+        "meridian.lib.install.bootstrap.ensure_bootstrap_source_manifest",
+        fake_ensure_bootstrap_source_manifest,
     )
 
     plan = plan_bootstrap_assets(
@@ -127,16 +128,8 @@ def test_ensure_bootstrap_assets_bootstraps_missing_default(
     assert "agent:__meridian-subagent" in lock.items
 
 
-def test_ensure_bootstrap_source_records_runtime_bootstrap_filter() -> None:
-    manifest = SourceManifest()
-
-    updated = _ensure_bootstrap_source(
-        manifest=manifest,
-        item_ids=("agent:__meridian-subagent",),
-    )
-
-    source = updated.find_source("meridian-base")
-    assert source is not None
+def test_bootstrap_source_config_records_runtime_bootstrap_filter() -> None:
+    source = bootstrap_source_config()
     assert source.agents == ("__meridian-orchestrator", "__meridian-subagent")
     assert source.skills == (
         "__meridian-orchestrate",
@@ -145,7 +138,8 @@ def test_ensure_bootstrap_source_records_runtime_bootstrap_filter() -> None:
     )
 
 
-def test_ensure_bootstrap_source_upgrades_partial_filter_to_runtime_bootstrap_filter() -> None:
+def test_ensure_bootstrap_source_manifest_upgrades_partial_filter(
+) -> None:
     manifest = SourceManifest(
         shared=SourcesConfig(
             sources=(
@@ -161,7 +155,7 @@ def test_ensure_bootstrap_source_upgrades_partial_filter_to_runtime_bootstrap_fi
         )
     )
 
-    updated = _ensure_bootstrap_source(
+    updated = ensure_bootstrap_source_manifest(
         manifest=manifest,
         item_ids=("agent:__meridian-subagent",),
     )
