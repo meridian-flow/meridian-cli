@@ -394,6 +394,4 @@ def route_source_to_file(
     """Determine which manifest file a new source should be written to."""
     if force_local:
         return "local"
-    if source.kind == "path":
-        return "local"
     return "shared"

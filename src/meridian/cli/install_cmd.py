@@ -65,7 +65,7 @@ def _install(
     ] = (),
     local: Annotated[
         bool,
-        Parameter(name="--local", help="Write source to agents.local.toml (gitignored)."),
+        Parameter(name="--local", help="Write source to agents.local.toml instead of agents.toml."),
     ] = False,
     force: Annotated[
         bool,

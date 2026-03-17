@@ -8,6 +8,7 @@ from meridian.lib.install.config import (
     SourcesConfig,
     load_source_manifest,
     load_sources_config,
+    route_source_to_file,
     write_source_manifest,
     write_sources_config,
 )
@@ -255,3 +256,23 @@ def test_manifest_is_not_overridden_for_local_only_source() -> None:
     )
     assert manifest.is_overridden("local-dev") is False
     assert manifest.file_for_source("local-dev") == "local"
+
+
+def test_route_source_to_file_defaults_path_sources_to_shared() -> None:
+    source = SourceConfig(
+        name="workflow",
+        kind="path",
+        path="meridian-dev-workflow",
+    )
+
+    assert route_source_to_file(source) == "shared"
+
+
+def test_route_source_to_file_uses_local_when_explicitly_requested() -> None:
+    source = SourceConfig(
+        name="workflow",
+        kind="path",
+        path="meridian-dev-workflow",
+    )
+
+    assert route_source_to_file(source, force_local=True) == "local"

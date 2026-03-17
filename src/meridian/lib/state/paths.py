@@ -35,6 +35,21 @@ _GITIGNORE_CONTENT = (
     "!work-archive/\n"
     "!work-archive/**\n"
 )
+_REQUIRED_GITIGNORE_LINES = (
+    "!.gitignore",
+    "!config.toml",
+    "!models.toml",
+    "!agents.toml",
+    "!agents.lock",
+    "!fs/",
+    "!fs/**",
+    "!work-items/",
+    "!work-items/**",
+    "!work/",
+    "!work/**",
+    "!work-archive/",
+    "!work-archive/**",
+)
 
 
 class StateRootPaths(BaseModel):
@@ -184,14 +199,37 @@ def resolve_spawn_log_dir(repo_root: Path, spawn_id: SpawnId | str) -> Path:
 
 
 def ensure_gitignore(repo_root: Path) -> Path:
-    """Seed `.meridian/.gitignore` on first init. Never overwrites user edits."""
+    """Seed `.meridian/.gitignore` and non-destructively add required tracked entries."""
 
     meridian_dir = resolve_state_paths(repo_root).root_dir
     meridian_dir.mkdir(parents=True, exist_ok=True)
     gitignore_path = meridian_dir / ".gitignore"
 
     if gitignore_path.exists():
+        existing_text = gitignore_path.read_text(encoding="utf-8")
+        updated_text = _merge_required_gitignore_lines(existing_text)
+        if updated_text != existing_text:
+            atomic_write_text(gitignore_path, updated_text)
         return gitignore_path
 
     atomic_write_text(gitignore_path, _GITIGNORE_CONTENT)
     return gitignore_path
+
+
+def _merge_required_gitignore_lines(existing_text: str) -> str:
+    present_lines = {line.strip() for line in existing_text.splitlines()}
+    missing_lines = [line for line in _REQUIRED_GITIGNORE_LINES if line not in present_lines]
+    if not missing_lines:
+        return existing_text
+
+    suffix = "\n".join(
+        [
+            "",
+            "# Added by Meridian to keep required project state tracked",
+            *missing_lines,
+            "",
+        ]
+    )
+    if not existing_text.endswith("\n"):
+        return existing_text + suffix
+    return existing_text + suffix.lstrip("\n")
