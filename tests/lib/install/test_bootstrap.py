@@ -138,7 +138,11 @@ def test_ensure_bootstrap_source_records_complete_builtin_filter() -> None:
     source = updated.find_source("meridian-base")
     assert source is not None
     assert source.agents == ("__meridian-orchestrator", "__meridian-subagent")
-    assert source.skills == ("__meridian-orchestrate", "__meridian-spawn-agent")
+    assert source.skills == (
+        "__meridian-orchestrate",
+        "__meridian-spawn-agent",
+        "__meridian-work-coordination",
+    )
 
 
 def test_ensure_bootstrap_source_upgrades_partial_filter_to_complete_builtin_filter() -> None:
@@ -165,7 +169,11 @@ def test_ensure_bootstrap_source_upgrades_partial_filter_to_complete_builtin_fil
     source = updated.find_source("meridian-base")
     assert source is not None
     assert source.agents == ("__meridian-subagent", "__meridian-orchestrator")
-    assert source.skills == ("__meridian-orchestrate", "__meridian-spawn-agent")
+    assert source.skills == (
+        "__meridian-orchestrate",
+        "__meridian-spawn-agent",
+        "__meridian-work-coordination",
+    )
 
 
 def test_ensure_bootstrap_assets_rejects_unknown_missing_default(tmp_path: Path) -> None:

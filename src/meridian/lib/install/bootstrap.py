@@ -25,8 +25,10 @@ from meridian.lib.state.paths import resolve_state_paths
 _BOOTSTRAP_SOURCE_NAME = "meridian-base"
 _BOOTSTRAP_URL = "https://github.com/haowjy/meridian-base.git"
 _BOOTSTRAP_AGENT_NAMES = frozenset({"__meridian-orchestrator", "__meridian-subagent"})
-# Known skill deps for bootstrap agents — auto-included when bootstrapping
-_BOOTSTRAP_SKILL_NAMES = frozenset({"__meridian-orchestrate", "__meridian-spawn-agent"})
+# Known skill deps for bootstrap agents — recorded explicitly for readability
+_BOOTSTRAP_SKILL_NAMES = frozenset(
+    {"__meridian-orchestrate", "__meridian-spawn-agent", "__meridian-work-coordination"}
+)
 _BOOTSTRAP_AGENT_LIST = tuple(sorted(_BOOTSTRAP_AGENT_NAMES))
 _BOOTSTRAP_SKILL_LIST = tuple(sorted(_BOOTSTRAP_SKILL_NAMES))
 
