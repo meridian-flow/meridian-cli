@@ -51,6 +51,9 @@ uv run pyright
 Use the release helper to bump the package version, create a release commit,
 and create the matching `v<version>` tag in one step:
 
+The package version currently lives in `src/meridian/__init__.py` as
+`__version__`.
+
 ```bash
 scripts/release.sh patch
 scripts/release.sh 0.1.0 --push
