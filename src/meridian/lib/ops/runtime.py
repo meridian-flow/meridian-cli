@@ -61,6 +61,9 @@ def resolve_runtime_root_and_config(
     _ = sink
     explicit_root = Path(repo_root).expanduser().resolve() if repo_root else None
     resolved_root = resolve_repo_root(explicit_root)
+    from meridian.lib.ops.config import ensure_state_bootstrap_sync
+
+    ensure_state_bootstrap_sync(resolved_root)
     return resolved_root, load_config(resolved_root)
 
 

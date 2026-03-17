@@ -817,18 +817,6 @@ def main(argv: Sequence[str] | None = None) -> None:
     verbose_count = args.count("--verbose") + args.count("-v")
     configure_logging(json_mode=json_mode, verbosity=verbose_count)
 
-    if not agent_mode_enabled():
-        try:
-            repo_root = Path.cwd().resolve()
-            state_root = resolve_state_paths(repo_root).root_dir
-            if state_root.is_dir():
-                from meridian.lib.state.paths import ensure_gitignore
-
-                ensure_gitignore(repo_root)
-            cleanup_stale_sessions(state_root)
-        except Exception:
-            logger.debug("stale session cleanup failed", exc_info=True)
-
     cleaned_args, options = _extract_global_options(args)
 
     agent_mode = (
@@ -842,6 +830,17 @@ def main(argv: Sequence[str] | None = None) -> None:
         return
 
     _validate_top_level_command(cleaned_args)
+
+    if not agent_mode_enabled():
+        try:
+            from meridian.lib.config.settings import resolve_repo_root
+            from meridian.lib.ops.config import ensure_state_bootstrap_sync
+
+            repo_root = resolve_repo_root()
+            ensure_state_bootstrap_sync(repo_root)
+            cleanup_stale_sessions(resolve_state_paths(repo_root).root_dir)
+        except Exception:
+            logger.debug("startup bootstrap failed", exc_info=True)
 
     active_sink = create_sink(
         options.output,

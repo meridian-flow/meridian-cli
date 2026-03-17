@@ -63,10 +63,6 @@ def spawn_create_sync(
     resolved_context = runtime_context(ctx)
     payload, preflight_warning = validate_create_input(payload)
     resolved_root, config = resolve_runtime_root_and_config(payload.repo_root)
-    # Ensure .meridian/.gitignore exists on first spawn
-    from meridian.lib.state.paths import ensure_gitignore
-
-    ensure_gitignore(resolved_root)
 
     runtime = None
     if not payload.dry_run:

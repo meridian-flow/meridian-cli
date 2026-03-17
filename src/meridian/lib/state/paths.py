@@ -17,6 +17,9 @@ _GITIGNORE_CONTENT = (
     "# Track .gitignore itself\n"
     "!.gitignore\n"
     "\n"
+    "# Track project config\n"
+    "!config.toml\n"
+    "\n"
     "# Track shared install manifest and lock\n"
     "!agents.toml\n"
     "!agents.lock\n"
@@ -182,7 +185,7 @@ def resolve_spawn_log_dir(repo_root: Path, spawn_id: SpawnId | str) -> Path:
 def ensure_gitignore(repo_root: Path) -> Path:
     """Seed `.meridian/.gitignore` on first init. Never overwrites user edits."""
 
-    meridian_dir = repo_root / _MERIDIAN_DIR
+    meridian_dir = resolve_state_paths(repo_root).root_dir
     meridian_dir.mkdir(parents=True, exist_ok=True)
     gitignore_path = meridian_dir / ".gitignore"
 

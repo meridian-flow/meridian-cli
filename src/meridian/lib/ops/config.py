@@ -665,22 +665,36 @@ def _scaffold_template() -> str:
     return "\n".join(lines)
 
 
-def config_init_sync(payload: ConfigInitInput) -> ConfigInitOutput:
-    repo_root = _resolve_repo_root(payload.repo_root)
+def ensure_state_bootstrap_sync(repo_root: Path) -> ConfigInitOutput:
+    """Ensure first-run state exists and scaffold project config when missing."""
+
+    state = resolve_state_paths(repo_root)
+    bootstrap_dirs = (
+        state.root_dir,
+        state.artifacts_dir,
+        state.cache_dir,
+        state.agents_cache_dir,
+        state.spawns_dir,
+        state.root_dir / "fs",
+        state.root_dir / "work",
+        state.root_dir / "work-archive",
+        state.root_dir / "work-items",
+    )
+    for dir_path in bootstrap_dirs:
+        dir_path.mkdir(parents=True, exist_ok=True)
+    ensure_gitignore(repo_root)
+
     path = _config_path(repo_root)
     if path.exists():
         return ConfigInitOutput(path=path.as_posix(), created=False)
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(_scaffold_template(), encoding="utf-8")
-
-    # Eagerly create standard state directories and .gitignore.
-    state = resolve_state_paths(repo_root)
-    state.spawns_dir.mkdir(parents=True, exist_ok=True)
-    (state.root_dir / "fs").mkdir(parents=True, exist_ok=True)
-    ensure_gitignore(repo_root)
-
+    _atomic_write_text(path, _scaffold_template())
     return ConfigInitOutput(path=path.as_posix(), created=True)
+
+
+def config_init_sync(payload: ConfigInitInput) -> ConfigInitOutput:
+    repo_root = _resolve_repo_root(payload.repo_root)
+    return ensure_state_bootstrap_sync(repo_root)
 
 
 def config_show_sync(payload: ConfigShowInput) -> ConfigShowOutput:

@@ -44,14 +44,14 @@ echo "PASS: help exposes core commands" || echo "FAIL: help is missing core comm
 uv run meridian --version 2>&1 | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+' && echo "PASS: version looks valid" || echo "FAIL: version output is malformed"
 ```
 
-### QS-3. Config init and show [CRITICAL]
+### QS-3. First run bootstraps config and show works [CRITICAL]
 
 ```bash
-uv run meridian config init >/tmp/meridian-qs-config-init.txt && \
+uv run meridian --help >/tmp/meridian-qs-help.txt && \
 uv run meridian config show >/tmp/meridian-qs-config-show.txt && \
-grep -q 'config.toml' /tmp/meridian-qs-config-init.txt && \
+test -f "$MERIDIAN_STATE_ROOT/config.toml" && \
 grep -q '^defaults.model:' /tmp/meridian-qs-config-show.txt && \
-echo "PASS: config init and show work" || echo "FAIL: config init or show output was unexpected"
+echo "PASS: first-run bootstrap created config.toml and show works" || echo "FAIL: first-run bootstrap or config show output was unexpected"
 ```
 
 ### QS-4. Models list [CRITICAL]
