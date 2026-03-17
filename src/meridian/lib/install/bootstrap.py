@@ -25,16 +25,13 @@ from meridian.lib.state.paths import resolve_state_paths
 _BOOTSTRAP_SOURCE_NAME = "meridian-base"
 _BOOTSTRAP_URL = "https://github.com/haowjy/meridian-base.git"
 _BOOTSTRAP_AGENT_NAMES = frozenset({"__meridian-orchestrator", "__meridian-subagent"})
-# Current builtin skills bundled with the bootstrap source. Keep this explicit
-# so the generated manifest shows the canonical meridian-base pattern.
+# Keep the bootstrap source filter aligned with the runtime closure of the
+# bootstrap agents. Wider "all builtin skills" filters can drift from the
+# actual managed source contents and break first-run bootstrap.
 _BOOTSTRAP_SKILL_NAMES = frozenset(
     {
-        "__meridian-install",
-        "__meridian-managed-install",
         "__meridian-orchestrate",
-        "__meridian-session-context",
         "__meridian-spawn-agent",
-        "__meridian-troubleshoot",
         "__meridian-work-coordination",
     }
 )

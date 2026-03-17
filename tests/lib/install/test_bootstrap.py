@@ -127,7 +127,7 @@ def test_ensure_bootstrap_assets_bootstraps_missing_default(
     assert "agent:__meridian-subagent" in lock.items
 
 
-def test_ensure_bootstrap_source_records_complete_builtin_filter() -> None:
+def test_ensure_bootstrap_source_records_runtime_bootstrap_filter() -> None:
     manifest = SourceManifest()
 
     updated = _ensure_bootstrap_source(
@@ -139,17 +139,13 @@ def test_ensure_bootstrap_source_records_complete_builtin_filter() -> None:
     assert source is not None
     assert source.agents == ("__meridian-orchestrator", "__meridian-subagent")
     assert source.skills == (
-        "__meridian-install",
-        "__meridian-managed-install",
         "__meridian-orchestrate",
-        "__meridian-session-context",
         "__meridian-spawn-agent",
-        "__meridian-troubleshoot",
         "__meridian-work-coordination",
     )
 
 
-def test_ensure_bootstrap_source_upgrades_partial_filter_to_complete_builtin_filter() -> None:
+def test_ensure_bootstrap_source_upgrades_partial_filter_to_runtime_bootstrap_filter() -> None:
     manifest = SourceManifest(
         shared=SourcesConfig(
             sources=(
@@ -174,12 +170,8 @@ def test_ensure_bootstrap_source_upgrades_partial_filter_to_complete_builtin_fil
     assert source is not None
     assert source.agents == ("__meridian-orchestrator", "__meridian-subagent")
     assert source.skills == (
-        "__meridian-install",
-        "__meridian-managed-install",
         "__meridian-orchestrate",
-        "__meridian-session-context",
         "__meridian-spawn-agent",
-        "__meridian-troubleshoot",
         "__meridian-work-coordination",
     )
 
