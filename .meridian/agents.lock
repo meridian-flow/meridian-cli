@@ -24,8 +24,14 @@
       "source_item_id": "agent:coder",
       "source_name": "meridian-dev-workflow"
     },
+    "agent:designer": {
+      "content_hash": "sha256:ad045b982bee9f0bf8ab51b653e7021e1aaa818ca0f43478ed5d137657600244",
+      "destination_path": ".agents/agents/designer.md",
+      "source_item_id": "agent:designer",
+      "source_name": "meridian-dev-workflow"
+    },
     "agent:dev-orchestrator": {
-      "content_hash": "sha256:625065a4a79f736cc506e9c20b34f827e1556076dc2eeb6c46a7b14ad63495ec",
+      "content_hash": "sha256:786d3c0f1905ae2b2589aa1e78caa4ebd91349a33728f1b8855504ed4470d214",
       "destination_path": ".agents/agents/dev-orchestrator.md",
       "source_item_id": "agent:dev-orchestrator",
       "source_name": "meridian-dev-workflow"
@@ -236,13 +242,16 @@
     },
     "meridian-dev-workflow": {
       "installed_at": null,
-      "installed_tree_hash": "sha256:a873712c54901cf2fbadf3152298ed041109979b1e822f2abe1cbb00016f0273",
+      "installed_tree_hash": "sha256:c350c8be2234a5c6395f2f3c2233dd3e7ae0b533ce477e3ac3da5c37d70264c1",
       "items": {
         "agent:browser-tester": {
           "path": "agents/browser-tester.md"
         },
         "agent:coder": {
           "path": "agents/coder.md"
+        },
+        "agent:designer": {
+          "path": "agents/designer.md"
         },
         "agent:dev-orchestrator": {
           "path": "agents/dev-orchestrator.md"
@@ -313,6 +322,7 @@
       "realized_closure": [
         "agent:browser-tester",
         "agent:coder",
+        "agent:designer",
         "agent:dev-orchestrator",
         "agent:documenter",
         "agent:explorer",

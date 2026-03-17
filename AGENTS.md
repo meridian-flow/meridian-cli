@@ -2,6 +2,8 @@
 
 No real users, no real user data. No backwards compatibility needed — completely change the schema to get it right.
 
+(if this is CLAUDE.md, it is symlink to AGENTS.md)
+
 ## Philosophy
 
 **Meridian-Channel** is a coordination layer for multi-agent systems — not a file system, execution engine, or data warehouse.
@@ -52,6 +54,16 @@ uv run pytest-llm        # Unit tests (token-efficient output)
 uv run pyright            # Type check
 uv run meridian           # Smoke test the CLI directly
 uv add <package>          # Add a dependency (never use pip install)
+```
+
+### Versioning
+
+The package version lives in `src/meridian/__init__.py` as `__version__`. Usually just bump patch:
+
+```bash
+scripts/release.sh patch          # 0.0.2 → 0.0.3 (default choice)
+scripts/release.sh minor          # 0.0.3 → 0.1.0
+scripts/release.sh 0.2.0 --push   # explicit version, push tag
 ```
 
 ### Always Use `uv`
