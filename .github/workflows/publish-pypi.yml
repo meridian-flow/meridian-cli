@@ -27,11 +27,15 @@ jobs:
       - name: Build distributions
         run: uv build --no-sources
 
-      - name: Smoke test wheel
-        run: uv run --isolated --no-project --with dist/*.whl tests/smoke_test.py
+      - name: Validate wheel artifact
+        run: |
+          uv run --isolated --no-project --with dist/*.whl meridian --version
+          uv run --isolated --no-project --with dist/*.whl meridian doctor
 
-      - name: Smoke test sdist
-        run: uv run --isolated --no-project --with dist/*.tar.gz tests/smoke_test.py
+      - name: Validate sdist artifact
+        run: |
+          uv run --isolated --no-project --with dist/*.tar.gz meridian --version
+          uv run --isolated --no-project --with dist/*.tar.gz meridian doctor
 
       - name: Upload distributions
         uses: actions/upload-artifact@v4
