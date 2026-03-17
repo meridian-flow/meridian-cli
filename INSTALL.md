@@ -49,26 +49,38 @@ meridian --help
 
 ## Step 2: Initialize Project
 
-In the user’s project root, run:
+In the user's project root, run:
 
 ```bash
-meridian init
-meridian install
+meridian config init
 ```
 
-`meridian init` creates `.meridian/` and baseline config. `meridian install` installs configured base agents and skills.
+This creates `.meridian/` with baseline config.
 
-## Step 3: Shell Completion (Optional)
+## Step 3: Install Agent & Skill Sources
 
-Ask the user: `Would you like shell autocompletion for the meridian CLI?`
+Ask the user: `Would you like to install the dev workflow agents and skills? This gives you a full dev team — coder, reviewers, testers, researcher, documenter — with structured workflow skills.`
 
-If yes, run:
+If yes:
 
 ```bash
-meridian completion install
+meridian sources add @haowjy/meridian-base
+meridian sources add @haowjy/meridian-dev-workflow
+meridian sources install
 ```
 
-Tell the user to restart their shell (or source their shell profile) for completion to take effect.
+If they only want the core coordination primitives:
+
+```bash
+meridian sources add @haowjy/meridian-base
+meridian sources install
+```
+
+Verify what's installed:
+
+```bash
+meridian sources list
+```
 
 ## Step 4: Claude Code Symlinks (Optional)
 
@@ -82,8 +94,9 @@ Explain before acting:
 If yes, run in the repo root:
 
 ```bash
-ln -sf "$(pwd)/.agents/agents" "$(pwd)/.claude/agents"
-ln -sf "$(pwd)/.agents/skills" "$(pwd)/.claude/skills"
+mkdir -p .claude
+ln -sf ../.agents/agents .claude/agents
+ln -sf ../.agents/skills .claude/skills
 ```
 
 Check `.gitignore` and ensure these symlink paths are ignored:
@@ -92,14 +105,25 @@ Check `.gitignore` and ensure these symlink paths are ignored:
 
 If they are not ignored, ask the user for permission to add them.
 
-## Step 5: Verify Setup
+## Step 5: Shell Completion (Optional)
+
+Ask the user: `Would you like shell autocompletion for the meridian CLI?`
+
+If yes, run:
+
+```bash
+meridian completion install
+```
+
+Tell the user to restart their shell (or source their shell profile) for completion to take effect.
+
+## Step 6: Verify Setup
 
 Run:
 
 ```bash
 meridian doctor
-meridian agents list
-meridian skills list
+meridian sources list
 meridian models list
 ```
 

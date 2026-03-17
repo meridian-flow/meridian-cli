@@ -187,8 +187,7 @@ meridian sources install
 Browse their READMEs for full agent/skill catalogs.
 
 ```bash
-meridian skills list       # What's loaded
-meridian sources list      # Where it came from
+meridian sources list      # What's installed and where it came from
 ```
 
 ## Architecture
@@ -250,8 +249,7 @@ graph TB
 | `meridian config init` | Initialize repo config |
 | `meridian config set KEY VALUE` | Set a config value |
 | `meridian models list` | Inspect the model catalog |
-| `meridian skills list` | Inspect loaded skills |
-| `meridian sources list` | Show installed agent/skill sources |
+| `meridian sources list` | Show installed agents, skills, and their sources |
 | `meridian doctor` | Run diagnostics |
 | `meridian serve` | Start the MCP server |
 
