@@ -25,9 +25,18 @@ from meridian.lib.state.paths import resolve_state_paths
 _BOOTSTRAP_SOURCE_NAME = "meridian-base"
 _BOOTSTRAP_URL = "https://github.com/haowjy/meridian-base.git"
 _BOOTSTRAP_AGENT_NAMES = frozenset({"__meridian-orchestrator", "__meridian-subagent"})
-# Known skill deps for bootstrap agents — recorded explicitly for readability
+# Current builtin skills bundled with the bootstrap source. Keep this explicit
+# so the generated manifest shows the canonical meridian-base pattern.
 _BOOTSTRAP_SKILL_NAMES = frozenset(
-    {"__meridian-orchestrate", "__meridian-spawn-agent", "__meridian-work-coordination"}
+    {
+        "__meridian-install",
+        "__meridian-managed-install",
+        "__meridian-orchestrate",
+        "__meridian-session-context",
+        "__meridian-spawn-agent",
+        "__meridian-troubleshoot",
+        "__meridian-work-coordination",
+    }
 )
 _BOOTSTRAP_AGENT_LIST = tuple(sorted(_BOOTSTRAP_AGENT_NAMES))
 _BOOTSTRAP_SKILL_LIST = tuple(sorted(_BOOTSTRAP_SKILL_NAMES))
@@ -213,29 +222,16 @@ def _ensure_bootstrap_source(
         # No filter -- all items included, nothing to add
         return manifest
 
-    existing_agent_names = set(existing.agents or ())
-    merged_agents = list(existing.agents or ())
-    for name in _BOOTSTRAP_AGENT_LIST:
-        if name not in existing_agent_names:
-            merged_agents.append(name)
-
-    # Also ensure skill deps are included
-    existing_skill_names = set(existing.skills or ())
-    merged_skills = list(existing.skills or ())
-    for skill_name in _BOOTSTRAP_SKILL_LIST:
-        if skill_name not in existing_skill_names:
-            merged_skills.append(skill_name)
-
-    agents_changed = len(merged_agents) != len(existing.agents or ())
-    skills_changed = len(merged_skills) != len(existing.skills or ())
+    agents_changed = tuple(existing.agents or ()) != _BOOTSTRAP_AGENT_LIST
+    skills_changed = tuple(existing.skills or ()) != _BOOTSTRAP_SKILL_LIST
     if not agents_changed and not skills_changed:
         return manifest
 
     updates: dict[str, object] = {}
     if agents_changed:
-        updates["agents"] = tuple(merged_agents)
+        updates["agents"] = _BOOTSTRAP_AGENT_LIST
     if skills_changed:
-        updates["skills"] = tuple(merged_skills)
+        updates["skills"] = _BOOTSTRAP_SKILL_LIST
     updated_source = existing.model_copy(update=updates)
     target = manifest.file_for_source(_BOOTSTRAP_SOURCE_NAME) or "shared"
     return manifest.with_source(updated_source, target=target)

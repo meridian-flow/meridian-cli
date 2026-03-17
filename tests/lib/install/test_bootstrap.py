@@ -139,8 +139,12 @@ def test_ensure_bootstrap_source_records_complete_builtin_filter() -> None:
     assert source is not None
     assert source.agents == ("__meridian-orchestrator", "__meridian-subagent")
     assert source.skills == (
+        "__meridian-install",
+        "__meridian-managed-install",
         "__meridian-orchestrate",
+        "__meridian-session-context",
         "__meridian-spawn-agent",
+        "__meridian-troubleshoot",
         "__meridian-work-coordination",
     )
 
@@ -168,10 +172,14 @@ def test_ensure_bootstrap_source_upgrades_partial_filter_to_complete_builtin_fil
 
     source = updated.find_source("meridian-base")
     assert source is not None
-    assert source.agents == ("__meridian-subagent", "__meridian-orchestrator")
+    assert source.agents == ("__meridian-orchestrator", "__meridian-subagent")
     assert source.skills == (
+        "__meridian-install",
+        "__meridian-managed-install",
         "__meridian-orchestrate",
+        "__meridian-session-context",
         "__meridian-spawn-agent",
+        "__meridian-troubleshoot",
         "__meridian-work-coordination",
     )
 
