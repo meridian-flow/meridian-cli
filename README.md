@@ -104,6 +104,29 @@ support but lighter day-to-day coverage.
 primary session. Codex and OpenCode work well as **spawn targets** but aren't
 suited as the primary harness.
 
+### Claude Code integration
+
+Meridian installs agents and skills into `.agents/`. Claude Code discovers
+them from `.claude/`. Symlink them so Claude Code sees everything meridian
+installs:
+
+```bash
+mkdir -p .claude
+ln -sf ../.agents/agents .claude/agents
+ln -sf ../.agents/skills .claude/skills
+```
+
+Add these to `.gitignore` if they aren't already:
+
+```
+.claude/agents
+.claude/skills
+```
+
+Without these symlinks, `meridian spawn` still works (it injects context
+directly), but interactive Claude Code sessions won't auto-discover your
+installed agents and skills.
+
 ## Quick Start
 
 ```bash
