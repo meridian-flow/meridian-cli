@@ -92,29 +92,47 @@ graph TB
    and those spawns write logs, reports, and metadata back into the same
    shared state root.
 
-## Bundled Profiles and Skills
+## Agent & Skill Sources
 
-Meridian ships with built-in defaults:
+Meridian discovers agent profiles and skills from `.agents/agents/` and
+`.agents/skills/` in your repo. You can write these directly, or install them
+from external sources using `meridian sources install`.
 
-- agent profiles: `primary`, `agent`
-- skills: `orchestrate`, `meridian-spawn-agent`
+### Core: [meridian-base](https://github.com/haowjy/meridian-base)
 
-Those bundled profiles/skills are used automatically when no on-disk override is
-present. You can also add repo-local profiles and skills under:
+Non-opinionated coordination primitives — the orchestrator and subagent profiles,
+plus skills for spawning, work coordination, session context, install management,
+and troubleshooting. Meridian auto-bootstraps the minimum needed runtime agents
+from this repo; install it explicitly to get everything:
 
-- `.agents/agents/`
-- `.agents/skills/`
+```bash
+meridian sources add @haowjy/meridian-base
+meridian sources install
+```
 
-You do not need to launch a primary session to inspect the built-in skills:
+### Dev Workflow: [meridian-dev-workflow](https://github.com/haowjy/meridian-dev-workflow)
+
+Opinionated SDLC methodology built on top of meridian-base. A complete dev team
+(coder, reviewers, testers, investigator, researcher, documenter) plus structured
+workflow skills for design, planning, implementation, review, testing, and
+documentation. Requires meridian-base:
+
+```bash
+meridian sources add @haowjy/meridian-base
+meridian sources add @haowjy/meridian-dev-workflow
+meridian sources install
+```
+
+These two repos are the primary examples of how Meridian's managed install system
+works end-to-end — browse their READMEs for the full agent/skill catalogs.
+
+### Inspecting what's installed
 
 ```bash
 meridian skills list
 meridian skills show orchestrate
-meridian skills show meridian-spawn-agent
+meridian sources list
 ```
-
-If you already work directly with a harness, Meridian's skill catalog is still
-useful as a standalone prompt/skill source.
 
 ## Install
 
