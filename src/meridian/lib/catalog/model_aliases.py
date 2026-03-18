@@ -40,16 +40,37 @@ _FALLBACK_ALIASES: dict[str, str] = {
     "gemini": "gemini-3.1-pro-preview",
 }
 
+_BUILTIN_DESCRIPTIONS: dict[str, str] = {
+    "claude-opus-4-6": (
+        "Creative planner with strong vision."
+        " Best for frontend, UI, architecture, and design exploration."
+        " Pair with a GPT reviewer for final verification."
+    ),
+    "gpt-5.3-codex": (
+        "Default implementer. Fast, token-efficient, and detail-oriented."
+        " Best when given a clear task. Excels at backend and general coding."
+    ),
+    "gpt-5.4": (
+        "Strongest generalist with broad reasoning."
+        " Best for review, verification, security, and architectural judgment."
+    ),
+    "gemini-3.1-pro-preview": "Large context window. Best for multimodal tasks.",
+}
+
+
+class ModelEntriesResult(NamedTuple):
+    aliases: dict[str, AliasEntry]
+    descriptions: dict[str, str]  # model_id → description
+    pinned: set[str]  # model_ids with pinned=true
+
 
 class AliasEntry(BaseModel):
-    """Alias entry for model lookup + operator-facing guidance."""
+    """Alias entry for model lookup."""
 
     model_config = ConfigDict(frozen=True)
 
     alias: str
     model_id: ModelId
-    role: str | None = None
-    strengths: str | None = None
     resolved_harness: HarnessId | None = Field(default=None, exclude=True)
 
     @property
@@ -69,18 +90,14 @@ class AliasEntry(BaseModel):
             ("Model", str(self.model_id)),
             ("Harness", str(self.harness)),
             ("Alias", self.alias or None),
-            ("Role", self.role or None),
-            ("Strengths", self.strengths or None),
         ]
         return kv_block(pairs)
 
 
-def entry(*, alias: str, model_id: str, role: str | None, strengths: str | None) -> AliasEntry:
+def entry(*, alias: str, model_id: str) -> AliasEntry:
     return AliasEntry(
         alias=alias,
         model_id=ModelId(model_id),
-        role=role,
-        strengths=strengths,
     )
 
 
@@ -125,7 +142,7 @@ def load_builtin_aliases(
             resolved[alias] = model_id
 
     return [
-        entry(alias=a, model_id=mid, role=None, strengths=None)
+        entry(alias=a, model_id=mid)
         for a, mid in sorted(resolved.items())
     ]
 
@@ -139,16 +156,17 @@ def load_user_aliases(
         return []
 
     payload = load_models_file_payload(path)
-    pinned = _load_aliases_from_payload(payload)
+    result = _load_aliases_from_payload(payload)
+    pinned = result.aliases
 
     if discovered_models:
-        specs = _coerce_user_alias_specs(payload.get("aliases"))
+        specs = _coerce_user_alias_specs(payload.get("models"))
         for alias, spec in specs.items():
             if alias not in pinned:
                 model_id = _resolve_alias_from_models(spec, discovered_models)
                 if model_id is not None:
                     pinned[alias] = entry(
-                        alias=alias, model_id=model_id, role=None, strengths=None
+                        alias=alias, model_id=model_id
                     )
 
     return [pinned[key] for key in sorted(pinned)]
@@ -174,62 +192,74 @@ def load_alias_by_name(name: str, aliases: list[AliasEntry]) -> AliasEntry | Non
     return None
 
 
-def _load_aliases_from_payload(payload: dict[str, object]) -> dict[str, AliasEntry]:
-    metadata = _coerce_metadata_map(payload.get("metadata"))
-    return _coerce_alias_entries(payload.get("aliases"), metadata=metadata)
+def _load_aliases_from_payload(payload: dict[str, object]) -> ModelEntriesResult:
+    return _coerce_model_entries(payload.get("models"))
 
 
-def _coerce_alias_entries(
-    raw_aliases: object,
-    *,
-    metadata: dict[str, dict[str, str]],
-) -> dict[str, AliasEntry]:
-    if not isinstance(raw_aliases, dict):
-        return {}
+def _coerce_model_entries(
+    raw_models: object,
+) -> ModelEntriesResult:
+    if not isinstance(raw_models, dict):
+        return ModelEntriesResult(aliases={}, descriptions={}, pinned=set())
 
     aliases: dict[str, AliasEntry] = {}
-    for raw_alias, raw_value in cast("dict[object, object]", raw_aliases).items():
-        alias = _coerce_string(raw_alias)
-        if alias is None:
+    descriptions: dict[str, str] = {}
+    pinned: set[str] = set()
+
+    for raw_key, raw_value in cast("dict[object, object]", raw_models).items():
+        key = _coerce_string(raw_key)
+        if key is None:
             continue
 
-        meta_row = metadata.get(alias, {})
+        # Case 1: String shorthand — pinned alias
         if isinstance(raw_value, str):
             model_id = _coerce_string(raw_value)
             if model_id is None:
                 continue
-            aliases[alias] = entry(
-                alias=alias,
-                model_id=model_id,
-                role=meta_row.get("role") or None,
-                strengths=meta_row.get("strengths") or None,
-            )
+            aliases[key] = entry(alias=key, model_id=model_id)
             continue
 
         if isinstance(raw_value, dict):
             table = cast("dict[object, object]", raw_value)
-            # Skip auto-resolve specs (tables with provider + include)
+
+            # Case 2: Auto-resolve spec (provider + include)
             if _coerce_string(table.get("provider")) and _coerce_string(table.get("include")):
+                desc = _coerce_string(table.get("description"))
+                if desc:
+                    # Can't resolve model_id yet for description — store by alias key
+                    # Will be resolved later when auto-resolve runs
+                    pass
+                if isinstance(table.get("pinned"), bool) and table["pinned"]:
+                    pass  # pinned for auto-resolve handled after resolution
                 continue
+
+            # Case 3: Dict with model_id — alias with metadata
             model_id = _coerce_string(table.get("model_id") or table.get("id"))
-            if model_id is None:
+            if model_id is not None:
+                aliases[key] = entry(alias=key, model_id=model_id)
+                desc = _coerce_string(table.get("description"))
+                if desc:
+                    descriptions[model_id] = desc
+                if isinstance(table.get("pinned"), bool) and table["pinned"]:
+                    pinned.add(model_id)
                 continue
-            aliases[alias] = entry(
-                alias=alias,
-                model_id=model_id,
-                role=_coerce_string(table.get("role")) or None,
-                strengths=_coerce_string(table.get("strengths")) or None,
-            )
-        # invalid rows are ignored to match prior behavior
-    return aliases
+
+            # Case 4: No model_id — key IS the model_id, metadata only
+            desc = _coerce_string(table.get("description"))
+            if desc:
+                descriptions[key] = desc
+            if isinstance(table.get("pinned"), bool) and table["pinned"]:
+                pinned.add(key)
+
+    return ModelEntriesResult(aliases=aliases, descriptions=descriptions, pinned=pinned)
 
 
-def _coerce_user_alias_specs(raw_aliases: object) -> dict[str, _AliasSpec]:
-    if not isinstance(raw_aliases, dict):
+def _coerce_user_alias_specs(raw_models: object) -> dict[str, _AliasSpec]:
+    if not isinstance(raw_models, dict):
         return {}
 
     specs: dict[str, _AliasSpec] = {}
-    for raw_alias, raw_value in cast("dict[object, object]", raw_aliases).items():
+    for raw_alias, raw_value in cast("dict[object, object]", raw_models).items():
         alias = _coerce_string(raw_alias)
         if alias is None or not isinstance(raw_value, dict):
             continue
@@ -252,21 +282,44 @@ def _coerce_user_alias_specs(raw_aliases: object) -> dict[str, _AliasSpec]:
     return specs
 
 
-def _coerce_metadata_map(raw_metadata: object) -> dict[str, dict[str, str]]:
-    if not isinstance(raw_metadata, dict):
-        return {}
+def load_builtin_descriptions() -> dict[str, str]:
+    """Return builtin descriptions keyed by model_id."""
+    return dict(_BUILTIN_DESCRIPTIONS)
 
-    metadata: dict[str, dict[str, str]] = {}
-    for raw_alias, raw_row in cast("dict[object, object]", raw_metadata).items():
-        alias = _coerce_string(raw_alias)
-        if alias is None or not isinstance(raw_row, dict):
-            continue
-        row = cast("dict[object, object]", raw_row)
-        metadata[alias] = {
-            "role": _coerce_string(row.get("role")) or "",
-            "strengths": _coerce_string(row.get("strengths")) or "",
-        }
-    return metadata
+
+def load_user_model_metadata(
+    repo_root: Path,
+    aliases: list[AliasEntry],
+) -> tuple[dict[str, str], set[str]]:
+    """Load descriptions and pinned flags from [models.*], keyed by model_id."""
+    path = catalog_path(repo_root)
+    if not path.is_file():
+        return {}, set()
+
+    payload = load_models_file_payload(path)
+    result = _coerce_model_entries(payload.get("models"))
+
+    # Also resolve descriptions for auto-resolve specs by checking resolved aliases
+    raw_models = payload.get("models")
+    if isinstance(raw_models, dict):
+        for raw_key, raw_value in cast("dict[object, object]", raw_models).items():
+            key = _coerce_string(raw_key)
+            if key is None or not isinstance(raw_value, dict):
+                continue
+            table = cast("dict[object, object]", raw_value)
+            if not (_coerce_string(table.get("provider")) and _coerce_string(table.get("include"))):
+                continue
+            # This is an auto-resolve spec — find its resolved alias
+            for alias_entry in aliases:
+                if alias_entry.alias == key:
+                    desc = _coerce_string(table.get("description"))
+                    if desc:
+                        result.descriptions[str(alias_entry.model_id)] = desc
+                    if isinstance(table.get("pinned"), bool) and table["pinned"]:
+                        result.pinned.add(str(alias_entry.model_id))
+                    break
+
+    return result.descriptions, result.pinned
 
 
 def _coerce_string(value: object) -> str | None:

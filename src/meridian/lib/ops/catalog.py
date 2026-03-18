@@ -4,6 +4,10 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, model_serializer
 
+from meridian.lib.catalog.model_aliases import (
+    load_builtin_descriptions,
+    load_user_model_metadata,
+)
 from meridian.lib.catalog.models import (
     AliasEntry,
     DiscoveredModel,
@@ -52,6 +56,8 @@ class CatalogModel(BaseModel):
     capabilities: tuple[str, ...] = ()
     release_date: str | None = None
     cost_tier: str | None = None
+    description: str | None = None
+    pinned: bool = False
 
     def to_wire(self) -> dict[str, object]:
         """Compact JSON projection for model listings."""
@@ -84,6 +90,10 @@ class CatalogModel(BaseModel):
             wire["release_date"] = self.release_date
         if self.cost_tier and self.cost_tier.strip():
             wire["cost_tier"] = self.cost_tier
+        if self.description and self.description.strip():
+            wire["description"] = self.description
+        if self.pinned:
+            wire["pinned"] = True
 
         return wire
 
@@ -102,6 +112,7 @@ class CatalogModel(BaseModel):
             ("Provider", self.provider),
             ("Aliases", alias_names),
             ("Alias details", alias_details),
+            ("Description", self.description),
             ("Capabilities", capabilities),
             ("Released", self.release_date),
             ("Cost", self.cost_tier),
@@ -129,17 +140,16 @@ class ModelsListOutput(BaseModel):
         from meridian.cli.format_helpers import tabular
 
         header = ["MODEL", "HARNESS", "ALIAS", "PROVIDER", "COST", "RELEASED"]
-        rows = [
-            [
+        rows: list[list[str]] = []
+        for model in self.models:
+            rows.append([
                 str(model.model_id),
                 str(model.harness),
                 ",".join(alias.alias for alias in model.aliases),
                 model.provider or "",
                 model.cost_tier or "",
                 model.release_date or "",
-            ]
-            for model in self.models
-        ]
+            ])
         required_indices = {0, 1}
         keep_indices = [
             index
@@ -148,7 +158,23 @@ class ModelsListOutput(BaseModel):
         ]
         filtered_header = [header[index] for index in keep_indices]
         filtered_rows = [[row[index] for index in keep_indices] for row in rows]
-        return tabular([filtered_header, *filtered_rows])
+        table = tabular([filtered_header, *filtered_rows])
+
+        # Add description sub-lines
+        table_lines = table.split("\n")
+        result_lines: list[str] = []
+        # First line is header
+        if table_lines:
+            result_lines.append(table_lines[0])
+        # Remaining lines correspond to models
+        for i, model in enumerate(self.models):
+            line_index = i + 1
+            if line_index < len(table_lines):
+                result_lines.append(table_lines[line_index])
+            if model.description:
+                # Indent description under the model line
+                result_lines.append(f"  {model.description}")
+        return "\n".join(result_lines)
 
 
 class ModelsRefreshOutput(BaseModel):
@@ -178,12 +204,7 @@ def _format_int(value: int | None) -> str | None:
 
 
 def _format_alias_detail(alias: AliasEntry) -> str:
-    details: list[str] = [alias.alias]
-    if alias.role:
-        details.append(f"role={alias.role}")
-    if alias.strengths:
-        details.append(f"strengths={alias.strengths}")
-    return " ".join(details)
+    return alias.alias
 
 
 def _build_catalog_model(
@@ -192,6 +213,8 @@ def _build_catalog_model(
     discovered: DiscoveredModel | None,
     aliases: list[AliasEntry],
     repo_root: Path | None,
+    description: str | None = None,
+    pinned: bool = False,
 ) -> CatalogModel:
     try:
         harness = route_model(model_id, repo_root=repo_root).harness_id
@@ -221,6 +244,8 @@ def _build_catalog_model(
         capabilities=discovered.capabilities if discovered is not None else (),
         release_date=discovered.release_date if discovered is not None else None,
         cost_tier=_cost_tier(cost_input),
+        description=description,
+        pinned=pinned,
     )
 
 def _is_default_visible(
@@ -232,7 +257,7 @@ def _is_default_visible(
 ) -> bool:
     return is_default_visible_model(
         model_id=str(model.model_id),
-        aliased=bool(model.aliases),
+        pinned=model.pinned or bool(model.aliases),
         release_date=model.release_date,
         cost_input=model.cost_input,
         all_model_ids=all_model_ids,
@@ -259,6 +284,11 @@ def models_list_sync(payload: ModelsListInput) -> ModelsListOutput:
     visibility = load_model_visibility(repo_root=root)
     discovered = load_discovered_models()
 
+    # Load descriptions and pinned flags
+    builtin_descs = load_builtin_descriptions()
+    user_descs, pinned_ids = load_user_model_metadata(root, aliases) if root else ({}, set[str]())
+    descriptions = {**builtin_descs, **user_descs}  # user overrides builtins
+
     aliases_by_model_id: dict[str, list[AliasEntry]] = {}
     for alias in aliases:
         aliases_by_model_id.setdefault(str(alias.model_id), []).append(alias)
@@ -272,6 +302,8 @@ def models_list_sync(payload: ModelsListInput) -> ModelsListOutput:
             discovered=discovered_by_model_id.get(model_id),
             aliases=aliases_by_model_id.get(model_id, []),
             repo_root=root,
+            description=descriptions.get(model_id),
+            pinned=model_id in pinned_ids,
         )
         for model_id in sorted(model_ids)
     ]
