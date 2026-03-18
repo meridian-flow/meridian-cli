@@ -156,19 +156,23 @@ def _select_runtime_sources(
     manifest: SourceManifest,
     lock: InstallLock,
 ) -> tuple[tuple[str, ...], SourceManifest]:
+    """Select declared sources for missing runtime items.
+
+    Precedence is always manifest first, lock second:
+    - if a lock entry points to a source that is still declared in the manifest, reuse it
+    - if a lock entry points to a source that is no longer declared, treat it as stale
+    - builtin bootstrap items without declared provenance are rehydrated via meridian-base
+    """
+
     selected_sources: list[str] = []
     unresolved_bootstrap_items: list[str] = []
 
     for item_id in missing_items:
-        locked_item = lock.items.get(item_id)
-        if locked_item is not None:
-            if manifest.find_source(locked_item.source_name) is not None:
-                selected_sources.append(locked_item.source_name)
-                continue
-            unresolved_bootstrap_items.append(item_id)
-            continue
-
-        source_name = _locked_source_owning_item(item_id, lock, manifest=manifest)
+        source_name = _declared_source_name_for_item(
+            item_id,
+            manifest=manifest,
+            lock=lock,
+        )
         if source_name is not None:
             selected_sources.append(source_name)
             continue
@@ -196,16 +200,68 @@ def _select_runtime_sources(
     return tuple(dict.fromkeys(selected_sources)), updated_manifest
 
 
-def _locked_source_owning_item(
+def _declared_source_name_for_item(
     item_id: str,
+    *,
+    manifest: SourceManifest,
     lock: InstallLock,
+) -> str | None:
+    """Return manifest-declared provenance for an installed item, if any."""
+
+    source_name = _declared_source_from_locked_item(
+        item_id,
+        manifest=manifest,
+        lock=lock,
+    )
+    if source_name is not None:
+        return source_name
+    return _declared_source_from_locked_source_record(
+        item_id,
+        manifest=manifest,
+        lock=lock,
+    )
+
+
+def _declared_source_from_locked_item(
+    item_id: str,
+    *,
+    manifest: SourceManifest,
+    lock: InstallLock,
+) -> str | None:
+    locked_item = lock.items.get(item_id)
+    if locked_item is None:
+        return None
+    return _manifest_declared_source_name(
+        locked_item.source_name,
+        manifest=manifest,
+    )
+
+
+def _declared_source_from_locked_source_record(
+    item_id: str,
+    *,
+    manifest: SourceManifest,
+    lock: InstallLock,
+) -> str | None:
+    for source_name, source_record in lock.sources.items():
+        if item_id in source_record.items:
+            declared_source_name = _manifest_declared_source_name(
+                source_name,
+                manifest=manifest,
+            )
+            if declared_source_name is not None:
+                return declared_source_name
+    return None
+
+
+def _manifest_declared_source_name(
+    source_name: str,
     *,
     manifest: SourceManifest,
 ) -> str | None:
-    for source_name, source_record in lock.sources.items():
-        if item_id in source_record.items and manifest.find_source(source_name) is not None:
-            return source_name
-    return None
+    if manifest.find_source(source_name) is None:
+        return None
+    return source_name
 
 
 def _is_bootstrap_item(item_id: str) -> bool:
