@@ -20,13 +20,13 @@ You don't need all of these on every change. A simple internal refactor might ju
 
 ## Model Selection
 
-Different models catch different things. Use this to your advantage:
+Focus areas are the primary review lever — multiple reviewers on the strongest model, each looking at different things (security, design quality, correctness), surfaces more issues than running the same review prompt on different models. Each focus area catches things the others miss because the reviewer is primed to think about different failure modes.
 
-- **Strong reasoning models** (gpt-5.4, opus) — good for deep analysis, security review, subtle correctness issues, and architectural judgment. Use when the stakes are high or the code is complex.
-- **Fast models** (gpt-5.3-codex) — good for quick structural reviews, style consistency, obvious issues. Use when you need a fast pass or the change is low-risk.
-- **Model diversity** — running the same review prompt on two different models surfaces blind spots. Each model family has different strengths and biases. When a review matters, spawn the same focus area on two models and compare what they find.
+- **Strongest available model** — use for focused deep review: security, SOLID, correctness, architectural judgment. Fan out multiple reviewers with different focus areas for high-risk changes.
+- **Fast/cheap model** — use for papercut passes: naming, style, obvious issues. Quick and cheap in parallel with the deep reviews.
+- **Model diversity** — valuable as a tiebreak when reviewers disagree, or for a high-level sanity check from a different perspective.
 
-Don't always reach for the strongest model. A fast reviewer that catches the obvious issues in 30 seconds is more valuable than a deep reviewer that takes 5 minutes to say the same thing. Save depth for where it matters.
+Check your project config (CLAUDE.md, agent profiles) for current model assignments — these shift as model capabilities evolve. A fast reviewer that catches the obvious issues in 30 seconds is more valuable than a deep reviewer that takes 5 minutes to say the same thing. Save depth for where it matters.
 
 ## Synthesizing Findings
 
@@ -46,6 +46,6 @@ Scale review to the risk:
 
 - **Low risk** (internal refactor, well-tested area, small blast radius) — one reviewer, fast model, quick pass.
 - **Medium risk** (new feature, moderate complexity) — two reviewers with different focus areas.
-- **High risk** (security-sensitive, concurrent, cross-cutting, public API changes) — two or three reviewers on strong models, consider model diversity for a second opinion.
+- **High risk** (security-sensitive, concurrent, cross-cutting, public API changes) — two or three reviewers on the strongest model with different focus areas. A fast model handles a papercut pass in parallel.
 
 The goal is confidence that the change is sound, not maximum review coverage. When you have enough signal to act, stop reviewing and move forward.

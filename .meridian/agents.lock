@@ -31,7 +31,7 @@
       "source_name": "meridian-dev-workflow"
     },
     "agent:dev-orchestrator": {
-      "content_hash": "sha256:786d3c0f1905ae2b2589aa1e78caa4ebd91349a33728f1b8855504ed4470d214",
+      "content_hash": "sha256:26ce2f48586e7082feaf5e8aa7a207102be0f5aec2383821fc66fd256e241617",
       "destination_path": ".agents/agents/dev-orchestrator.md",
       "source_item_id": "agent:dev-orchestrator",
       "source_name": "meridian-dev-workflow"
@@ -91,7 +91,7 @@
       "source_name": "meridian-base"
     },
     "skill:__meridian-orchestrate": {
-      "content_hash": "sha256:02b0654c3cfc24d229d03bc5209e69c35edc3d2733f1d4b0fbadcf49fe49acad",
+      "content_hash": "sha256:63cc1e3fcb6137d9b0bdfe302eb946929872fa2eea48eecd5d34488c7432fac5",
       "destination_path": ".agents/skills/__meridian-orchestrate",
       "source_item_id": "skill:__meridian-orchestrate",
       "source_name": "meridian-base"
@@ -103,7 +103,7 @@
       "source_name": "meridian-base"
     },
     "skill:__meridian-spawn-agent": {
-      "content_hash": "sha256:c24b257d5c12a4a213ad9c9191ab0d6ab14627742555d10435030ac902e9dbba",
+      "content_hash": "sha256:fdc003b82e8addb4158f526cc2a1533f5017ce6bc043b971bce00afef0afd548",
       "destination_path": ".agents/skills/__meridian-spawn-agent",
       "source_item_id": "skill:__meridian-spawn-agent",
       "source_name": "meridian-base"
@@ -163,7 +163,7 @@
       "source_name": "meridian-dev-workflow"
     },
     "skill:review-orchestration": {
-      "content_hash": "sha256:57b5e65f91619b9ef82e3acc169554da45a04847a8a6f7298405d6e4bcd6b0e8",
+      "content_hash": "sha256:534f7cf94bd63d848e3613afcdd7a6e3f8300acc3ee014070272496e06a8ac48",
       "destination_path": ".agents/skills/review-orchestration",
       "source_item_id": "skill:review-orchestration",
       "source_name": "meridian-dev-workflow"
@@ -196,7 +196,7 @@
   "sources": {
     "meridian-base": {
       "installed_at": null,
-      "installed_tree_hash": "sha256:af07c3c7eef7aa8cc77c44a75eddc71e30c86b72183f28c046221b50c96a77c6",
+      "installed_tree_hash": "sha256:1c13f332bbc71f9f56d0991813904786f182b5a958b229a288fe674c8b8e761a",
       "items": {
         "agent:__meridian-orchestrator": {
           "path": "agents/__meridian-orchestrator.md"
@@ -237,12 +237,12 @@
       ],
       "requested_ref": "main",
       "resolved_identity": {
-        "commit": "4d27b07b552e68aeff8de788d4ef4c8dc343e3ef"
+        "commit": "0872e99ad2a68dab8f91e7e0401a795744323007"
       }
     },
     "meridian-dev-workflow": {
       "installed_at": null,
-      "installed_tree_hash": "sha256:c350c8be2234a5c6395f2f3c2233dd3e7ae0b533ce477e3ac3da5c37d70264c1",
+      "installed_tree_hash": "sha256:27e051a04d59bebe05f0128d94b2959472d4f807b3c6faf8a7d31fc4ec69bf32",
       "items": {
         "agent:browser-tester": {
           "path": "agents/browser-tester.md"

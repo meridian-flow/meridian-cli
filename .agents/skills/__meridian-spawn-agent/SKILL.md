@@ -5,43 +5,59 @@ description: Multi-agent coordination via the meridian CLI — spawning subagent
 
 # __meridian-spawn-agent
 
-You have the `meridian` CLI for multi-agent coordination. Prefer `meridian spawn` over your harness's built-in agent tools when delegating substantive work. The key reason: **model routing**. Harness-native agents (like Claude Code's Agent tool) are locked to the harness's own model family. `meridian spawn` lets you route each task to the best model — a fast model for implementation, a strong reasoning model for review, a different model family for a second opinion. This is how you get model diversity across an orchestrated workflow.
+You have the `meridian` CLI for multi-agent coordination.
 
-Harness-native tools and agents are fine for quick operations — searching, exploring the codebase, lightweight lookups. The overhead of a full spawn isn't worth it for "find where X is defined." Use your judgment: if model choice matters for the task, use `meridian spawn`. If you just need a quick answer from your own harness, use what's built in.
+`meridian spawn` is your delegation tool. It routes each task to the best model for the job across providers — a fast model for implementation, a strong reasoning model for review, a different model family for a second opinion. This cross-provider routing is what makes meridian agent profiles effective.
+
+Use `meridian spawn` for all delegated work: coding, reviewing, testing, research, investigation. Use harness-native tools (Read, Grep, Glob, Bash) and lightweight agent types (Explore, Plan) for quick lookups you handle yourself.
 
 In agent mode, all CLI output is JSON.
 
 ## Core Loop
 
-Spawns run in **foreground** (blocking) by default — the command blocks until the spawn completes and returns the full result including the report. Run each foreground spawn through your harness's background execution (parallel tool calls, background task APIs, etc. — whatever your harness provides). The harness notifies you individually as each spawn finishes, so you can start processing results immediately rather than waiting for everything:
+Spawns run in **foreground** (blocking) by default — the command blocks until the spawn completes and returns the full result including the report. Use your harness's background execution to avoid blocking yourself:
 
 ```bash
-# Launch via harness background execution — each returns independently when done
-meridian spawn -a reviewer -p "Review auth changes"    # harness background call 1
-meridian spawn -a coder -p "Implement step 2"          # harness background call 2
-# → notified per-spawn as each completes, with full status + report
+# Run via your harness's background feature (e.g., Bash run_in_background, parallel tool calls)
+meridian spawn -a agent -p "task description"
+# → harness notifies you when done, result includes status + full report
 ```
 
-Use `spawn show` to re-inspect a past spawn's details.
+Your harness handles the notification — no need to poll or wait. Use `spawn show` if you need to re-inspect a past spawn's details.
+
+If your harness doesn't support background execution, use `--background` and `spawn wait`:
+
+```bash
+meridian spawn --background -a agent -p "task description"
+# → returns immediately: {"spawn_id": "p107", "status": "running"}
+
+meridian spawn wait p107
+# → blocks until done, returns status + full report
+```
 
 ## Spawning
 
-Use `-a` to spawn with an agent profile. Profiles encode the right model, system prompt, and permissions for the task — so you pick the role, not the model:
+Use `-a` to spawn with an agent profile (encodes model, system prompt, permissions) or `-m` to target a model directly. Both are first-class:
 
 ```bash
-# Spawn by role — the profile handles model selection
+# Agent profile — uses the profile's model, prompt, and permissions
 meridian spawn -a reviewer -p "Review this change"
-meridian spawn -a coder -p "Implement the fix"
+
+# Direct model — when you want a specific model without a profile
+meridian spawn -m MODEL -p "Implement the fix"
+
+# Override a profile's model (e.g. budget constraints, fan-out)
+meridian spawn -a reviewer -m sonnet -p "Quick review"
 
 # With reference files (repeat -f)
-meridian spawn -a coder -p "Implement fix" \
+meridian spawn -a agent -p "Implement fix" \
   -f plans/step.md \
   -f src/module.py
 ```
 
-You can also target a model directly with `-m`, or override a profile's model with `-a ... -m ...`. This is useful for one-off experimentation or budget constraints, but profiles are the default for production work.
+Run `meridian models list` to see available models and aliases. Model and agent preferences belong in your project's agent profiles, `meridian config`, or project docs (CLAUDE.md, AGENTS.md) — not hardcoded into spawn commands.
 
-To create your own agent profiles, see [`resources/creating-agents.md`](resources/creating-agents.md). Run `meridian models list` to see available models and aliases.
+To create your own agent profiles, see [`resources/creating-agents.md`](resources/creating-agents.md).
 
 ## Work Items
 
@@ -59,44 +75,24 @@ For work item lifecycle (creating, switching, updating, completing, and dashboar
 
 ## Parallel Spawns
 
-Launch each as a foreground spawn through your harness's background execution — same pattern as the Core Loop, just more of them. Each completes independently and you're notified as they finish, so you can start synthesizing the first result while others are still running:
+Spawns run in foreground (blocking) by default. To run multiple spawns concurrently, use your harness's built-in background execution:
 
 ```bash
-# Three concurrent spawns — each in its own harness background call
-meridian spawn -a coder -p "Implement the auth module" --desc "Auth implementation"
-meridian spawn -a reviewer -p "Review the data layer changes" --desc "Data layer review"
-meridian spawn -a coder -p "Write migration scripts" --desc "Migrations"
-# → notified individually — start synthesizing without waiting for all three
+# Launch these concurrently using your harness's background/parallel feature
+# (e.g., Claude Code's parallel tool calls, or Bash run_in_background)
+meridian spawn -a agent -p "Step A" --desc "Step A"
+meridian spawn -a agent -p "Step B" --desc "Step B"
+
+# Each returns when its spawn completes — no need for spawn wait.
 ```
 
-### Harnesses without background execution
-
-If your harness can't run commands in the background, use `--background` to get a spawn ID, then `spawn wait` to collect results:
+If your harness doesn't support parallel execution, use `--background` and `spawn wait`:
 
 ```bash
-meridian spawn --background -a agent -p "Step A"
-meridian spawn --background -a agent -p "Step B"
-# Collect spawn_ids from JSON output, then:
+meridian spawn --background -a agent -p "Step A" --desc "Step A"
+meridian spawn --background -a agent -p "Step B" --desc "Step B"
+# Read spawn_ids from JSON results, then wait for both
 meridian spawn wait p108 p109
-```
-
-## Chaining Spawns
-
-When a spawn depends on a prior spawn's output, use `--from` to pass the previous spawn's report and edited files as context. The new spawn sees what was done and which files were changed, so it can pick up where the prior left off:
-
-```bash
-# Step 2 builds on step 1's results
-meridian spawn -a coder -p "Phase 2: add rate limiting to the auth endpoints" \
-  --from p107 \
-  -f $MERIDIAN_WORK_DIR/plan/phase-2.md
-
-# Chain from multiple prior spawns
-meridian spawn -a coder -p "Phase 3: integrate auth with rate limiter" \
-  --from p107 --from p112
-
-# Pass your own session's context to a subagent
-meridian spawn -a designer --from $MERIDIAN_CHAT_ID \
-  -p "Design the migration based on our discussion"
 ```
 
 ## Checking Status

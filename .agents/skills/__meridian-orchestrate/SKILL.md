@@ -45,17 +45,17 @@ Different models have different strengths. General heuristics:
 
 - **Fast/cheap models** — good for straightforward execution, bulk work, simple transforms
 - **Strong reasoning models** — good for complex analysis, architecture decisions, nuanced review
-- **Use model diversity for review** — different model families catch different issues
+- **Focus areas are the primary review lever** — multiple reviewers on the strongest model, each with a different focus (security, design, correctness), surfaces more issues than the same review on different models. A fast model handles quick papercut passes cheaply in parallel.
 
-Run `meridian models list` to see available models, including roles and strengths. Adapt model choices to what's available in your environment.
+Run `meridian models list` to see available models and descriptions. Adapt model choices to what's available in your environment.
 
 ## Review & Rework
 
 Scale review effort to match risk:
 
 - **Low risk** (simple, well-understood changes) — skip review or do a quick self-check
-- **Medium risk** — one reviewer, different model family from implementer
-- **High risk** (complex, critical, or unfamiliar domain) — fan out to multiple reviewers from different model families
+- **Medium risk** — one reviewer on the strongest available model
+- **High risk** (complex, critical, or unfamiliar domain) — fan out multiple reviewers with different focus areas (security, design, correctness). A fast model can handle a papercut pass in parallel.
 
 ### Review-Rework Loop
 

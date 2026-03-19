@@ -5,8 +5,7 @@ Meridian configuration controls defaults for models, agents, and timeouts. All c
 ## Quick Reference
 
 ```bash
-meridian                         # first run bootstraps .meridian/ state automatically
-meridian config init              # explicitly scaffold config.toml when you want it
+meridian config init              # scaffold config.toml with commented defaults
 meridian config show              # show all resolved values with sources
 meridian config get defaults.model  # get one key
 meridian config set defaults.model gpt-5.4  # set one key

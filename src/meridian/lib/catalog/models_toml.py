@@ -38,20 +38,20 @@ def scaffold_models_toml() -> str:
 
     lines = [
         "# Model catalog overrides.",
-        "# Uncomment and edit the sections below to customize aliases, routing, and visibility.",
+        "# Uncomment and edit the sections below to customize models, routing, and visibility.",
         "",
-        "# [aliases]",
-        '# opus = "claude-opus-4-6"          # pinned to specific version',
-        '# gpt = "gpt-5.4"',
+        "# [models]",
+        '# opus = "claude-opus-4-6"            # pinned alias shorthand',
         "",
-        "# [aliases.fast]                      # auto-resolve: picks latest match",
+        "# [models.fast]                        # auto-resolve: picks latest match",
         '# provider = "google"',
         '# include = "flash"',
         '# exclude = ["-lite"]',
+        '# description = "Quick model for simple tasks."',
         "",
-        "# [metadata.opus]",
-        '# role = "default reviewer"',
-        '# strengths = "deep review, architecture"',
+        '# [models."gpt-5.4-mini"]              # key is model ID when no model_id field',
+        '# description = "Quick and cheap for simple tasks."',
+        '# pinned = true                         # always show regardless of filters',
         "",
         "# [harness_patterns]",
         f"# claude = {_toml_literal(DEFAULT_HARNESS_PATTERNS[HarnessId.CLAUDE])}",
@@ -74,25 +74,35 @@ def render_models_toml(payload: dict[str, object]) -> str:
     """Render normalized `.meridian/models.toml` content."""
 
     lines: list[str] = []
-    aliases = payload.get("aliases")
-    if isinstance(aliases, dict) and aliases:
-        lines.append("[aliases]")
-        aliases_dict = cast("dict[str, object]", aliases)
-        for alias in sorted(aliases_dict):
-            lines.append(f"{json.dumps(alias)} = {_toml_literal(aliases_dict[alias])}")
 
-    metadata = payload.get("metadata")
-    if isinstance(metadata, dict) and metadata:
-        metadata_dict = cast("dict[str, object]", metadata)
-        for alias in sorted(metadata_dict):
-            entry = cast("dict[str, object]", metadata_dict[alias])
+    models = payload.get("models")
+    if isinstance(models, dict) and models:
+        # Separate top-level string entries from sub-table entries
+        string_entries: dict[str, str] = {}
+        table_entries: dict[str, dict[str, object]] = {}
+
+        models_dict = cast("dict[str, object]", models)
+        for key in sorted(models_dict):
+            value = models_dict[key]
+            if isinstance(value, str):
+                string_entries[key] = value
+            elif isinstance(value, dict):
+                table_entries[key] = cast("dict[str, object]", value)
+
+        if string_entries:
+            lines.append("[models]")
+            for key in sorted(string_entries):
+                lines.append(f"{json.dumps(key)} = {_toml_literal(string_entries[key])}")
+
+        for key in sorted(table_entries):
+            entry = table_entries[key]
             if not entry:
                 continue
             if lines:
                 lines.append("")
-            lines.append(f"[metadata.{json.dumps(alias)}]")
-            for key in sorted(entry):
-                lines.append(f"{key} = {_toml_literal(entry[key])}")
+            lines.append(f"[models.{json.dumps(key)}]")
+            for field in sorted(entry):
+                lines.append(f"{field} = {_toml_literal(entry[field])}")
 
     harness_patterns = payload.get("harness_patterns")
     if isinstance(harness_patterns, dict) and harness_patterns:

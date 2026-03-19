@@ -53,3 +53,51 @@ def test_models_config_set_get_and_reset_roundtrip(tmp_path: Path) -> None:
         ModelsConfigGetInput(repo_root=repo_root.as_posix(), key="harness_patterns.codex")
     )
     assert get_after_reset.found is False
+
+
+def test_models_config_set_get_models_key(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    models_config_init_sync(ModelsConfigInitInput(repo_root=repo_root.as_posix()))
+
+    # Test models.<name> shorthand
+    set_result = models_config_set_sync(
+        ModelsConfigSetInput(
+            repo_root=repo_root.as_posix(),
+            key="models.opus",
+            value='"claude-opus-4-6"',
+        )
+    )
+    assert set_result.value == "claude-opus-4-6"
+
+    get_result = models_config_get_sync(
+        ModelsConfigGetInput(repo_root=repo_root.as_posix(), key="models.opus")
+    )
+    assert get_result.found is True
+    assert get_result.value == "claude-opus-4-6"
+
+    # Test models.<name>.description
+    set_desc = models_config_set_sync(
+        ModelsConfigSetInput(
+            repo_root=repo_root.as_posix(),
+            key="models.opus.description",
+            value='"Strong at reasoning"',
+        )
+    )
+    assert set_desc.value == "Strong at reasoning"
+
+    get_desc = models_config_get_sync(
+        ModelsConfigGetInput(repo_root=repo_root.as_posix(), key="models.opus.description")
+    )
+    assert get_desc.found is True
+    assert get_desc.value == "Strong at reasoning"
+
+    # Test models.<name>.pinned
+    set_pinned = models_config_set_sync(
+        ModelsConfigSetInput(
+            repo_root=repo_root.as_posix(),
+            key="models.opus.pinned",
+            value="true",
+        )
+    )
+    assert set_pinned.value is True

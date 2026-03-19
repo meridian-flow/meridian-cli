@@ -35,7 +35,7 @@ meridian spawn -a coder --from p1 -p "Phase 2: Update middleware validation" -f 
 # → {"spawn_id": "p3", "model": "gpt-5.3-codex"}
 meridian spawn wait p2 p3
 
-# Fan out reviewers on a different model family
+# Fan out reviewers with different focus areas
 meridian spawn -a reviewer --from p2 -p "Review phase 1 — focus on token expiry edge cases"
 # → {"spawn_id": "p4", "model": "gpt-5.4"}
 meridian spawn show p4 --report

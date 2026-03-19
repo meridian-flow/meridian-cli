@@ -94,7 +94,7 @@ def test_models_list_uses_visibility_rules_and_keeps_aliased_models_visible(
     repo_root.mkdir()
     _write_models_toml(
         repo_root,
-        "[aliases]\n"
+        "[models]\n"
         'gem = "gemini-3.1-pro"\n'
         "\n"
         "[model_visibility]\n"

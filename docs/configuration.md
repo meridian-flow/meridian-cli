@@ -96,17 +96,18 @@ autocompact_pct = 70
 Customize aliases, harness routing, and default list visibility in `.meridian/models.toml`:
 
 ```toml
-[aliases]
-fast = "gpt-5.4"                      # pinned alias
+[models]
+fast = "gpt-5.4"                      # pinned alias shorthand
 
-[aliases.coder]                        # auto-resolve: picks latest match
+[models.coder]                        # auto-resolve: picks latest match
 provider = "openai"
 include = "codex"
 exclude = ["-mini", "-spark", "-max"]
+description = "Optimized for code editing."
 
-[metadata.fast]
-role = "default coder"
-strengths = "fast iteration"
+[models."gpt-5.4-mini"]              # key is model ID when no model_id field
+description = "Quick and cheap for simple tasks."
+pinned = true                         # always show regardless of filters
 
 [harness_patterns]
 codex = ["gpt-*", "o*", "codex*"]
@@ -119,7 +120,7 @@ hide_superseded = true
 max_age_days = 120
 ```
 
-Builtin aliases (`opus`, `sonnet`, `haiku`, `codex`, `gpt`, `gemini`) auto-resolve to the latest model per family from the models.dev catalog. Pin an alias to a specific version by setting it as a string value.
+Builtin aliases (`opus`, `sonnet`, `haiku`, `codex`, `gpt`, `gemini`) auto-resolve to the latest model per family from the models.dev catalog. Pin an alias to a specific version by setting it as a string value under `[models]`. Add `description` to any model entry — descriptions show as sub-lines in `meridian models list`. Set `pinned = true` to keep a model visible regardless of filters.
 
 ### Visibility Defaults
 
@@ -133,7 +134,7 @@ The default model list filters aggressively to show only current, relevant model
 | `max_age_days` | `120` | Hide models older than 120 days |
 | `max_input_cost` | `10.0` | Hide models costing ≥$10/M input tokens |
 
-Aliased models always pass through all visibility filters. Use `--show-superseded` or `--all` to see hidden models.
+Aliased and pinned models always pass through all visibility filters. Use `--show-superseded` or `--all` to see hidden models.
 
 Use `meridian models config init/show/get/set/reset` to manage this file from the CLI.
 

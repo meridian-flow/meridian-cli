@@ -166,8 +166,8 @@ class TestUserAliasSpecs:
     ) -> None:
         _write_models_toml(
             tmp_path,
-            '[aliases]\nopus = "claude-opus-4-5"\n\n'
-            "[aliases.opus_auto]\n"
+            '[models]\nopus = "claude-opus-4-5"\n\n'
+            "[models.opus_auto]\n"
             'provider = "anthropic"\n'
             'include = "opus"\n',
         )
@@ -182,7 +182,7 @@ class TestUserAliasSpecs:
     ) -> None:
         _write_models_toml(
             tmp_path,
-            "[aliases.nope]\n"
+            "[models.nope]\n"
             'provider = "anthropic"\n'
             'include = "nonexistent"\n',
         )
@@ -195,7 +195,7 @@ class TestUserAliasSpecs:
     ) -> None:
         _write_models_toml(
             tmp_path,
-            "[aliases.fast]\n"
+            "[models.fast]\n"
             'provider = "google"\n'
             'include = "flash"\n'
             'exclude = ["-lite"]\n',

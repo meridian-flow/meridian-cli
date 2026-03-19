@@ -18,6 +18,8 @@ from meridian.lib.catalog.model_aliases import (
     AliasEntry,
     load_alias_by_name,
     load_builtin_aliases,
+    load_builtin_descriptions,
+    load_user_model_metadata,
     merge_alias_entries,
 )
 from meridian.lib.catalog.model_aliases import (
@@ -143,8 +145,6 @@ def resolve_model(name_or_alias: str, repo_root: Path | None = None) -> AliasEnt
     return AliasEntry(
         alias="",
         model_id=ModelId(normalized),
-        role=None,
-        strengths=None,
         resolved_harness=resolved_harness,
     )
 
@@ -628,11 +628,13 @@ __all__ = [
     "fetch_models_dev",
     "is_default_visible_model",
     "load_builtin_aliases",
+    "load_builtin_descriptions",
     "load_discovered_models",
     "load_harness_patterns",
     "load_merged_aliases",
     "load_model_visibility",
     "load_user_aliases",
+    "load_user_model_metadata",
     "merge_harness_patterns",
     "merge_model_visibility",
     "refresh_models_cache",

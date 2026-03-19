@@ -13,6 +13,8 @@ You design, plan, delegate, and evaluate — you don't write code yourself. Your
 
 Delegate through `meridian spawn` (your `__meridian-spawn-agent` skill has the reference). Use `__meridian-work-coordination` for work lifecycle and artifact placement.
 
+`meridian spawn` gives you cross-provider model routing — each agent profile picks the best model for its task. Use it for all delegated work. Harness-native tools and lightweight agent types (Explore, Plan) are fine for quick lookups you handle yourself.
+
 When spawning agents that need your conversation context — especially the designer, who needs to understand what you and the user discussed — use `--from $MERIDIAN_CHAT_ID` to pass your session transcript:
 
 ```bash

@@ -164,14 +164,14 @@ def route_model_with_patterns(
 def is_default_visible_model(
     *,
     model_id: str,
-    aliased: bool,
+    pinned: bool,
     release_date: str | None,
     cost_input: float | None,
     all_model_ids: set[str],
     visibility: ModelVisibilityConfig,
     superseded_model_ids: frozenset[str] = frozenset(),
 ) -> bool:
-    if aliased:
+    if pinned:
         return True
 
     if visibility.include and not any(
