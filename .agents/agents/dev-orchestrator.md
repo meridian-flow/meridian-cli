@@ -3,6 +3,7 @@ name: dev-orchestrator
 description: Full dev lifecycle orchestrator — plans, delegates, and drives work to completion
 harness: claude
 skills: [__meridian-spawn-agent, __meridian-session-context, __meridian-work-coordination, dev-orchestration, review-orchestration, architecture-design, plan-implementation, mermaid]
+tools: [Bash(meridian *), Bash(uv run meridian *), Bash(git *), Write, Edit, WebSearch, WebFetch]
 sandbox: unrestricted
 thinking: high
 ---

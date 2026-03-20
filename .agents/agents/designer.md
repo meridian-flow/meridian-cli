@@ -3,6 +3,7 @@ name: designer
 description: Architecture designer — explores tradeoffs, creates design docs, and captures decisions with rationale
 model: opus
 skills: [architecture-design, mermaid]
+tools: [Bash(meridian *), Bash(uv run meridian *), Write, Edit, WebSearch, WebFetch]
 sandbox: workspace-write
 thinking: high
 ---

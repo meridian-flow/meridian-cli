@@ -3,6 +3,7 @@ name: unit-tester
 description: Focused test writer — writes and runs targeted unit tests
 model: gpt
 skills: [unit-testing]
+tools: [Bash, Write, Edit]
 sandbox: workspace-write
 ---
 

@@ -3,6 +3,7 @@ name: coder
 description: Production code writer — implements scoped tasks from design docs and plans
 model: codex
 skills: []
+tools: [Bash, Write, Edit]
 sandbox: workspace-write
 ---
 

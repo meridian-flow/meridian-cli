@@ -196,7 +196,7 @@
   "sources": {
     "meridian-base": {
       "installed_at": null,
-      "installed_tree_hash": "sha256:1c13f332bbc71f9f56d0991813904786f182b5a958b229a288fe674c8b8e761a",
+      "installed_tree_hash": "sha256:c3c4b08c46e6f9d1ce6b0b0967d5a34c8898749b781998e7f2857c372bff0db0",
       "items": {
         "agent:__meridian-orchestrator": {
           "path": "agents/__meridian-orchestrator.md"
@@ -237,12 +237,12 @@
       ],
       "requested_ref": "main",
       "resolved_identity": {
-        "commit": "0872e99ad2a68dab8f91e7e0401a795744323007"
+        "commit": "6edd7e26abb26a143a72a4ee6b3ecc3e047f2e69"
       }
     },
     "meridian-dev-workflow": {
       "installed_at": null,
-      "installed_tree_hash": "sha256:27e051a04d59bebe05f0128d94b2959472d4f807b3c6faf8a7d31fc4ec69bf32",
+      "installed_tree_hash": "sha256:b79d02d426c78e9d0bba282d0b28630fb0e356010ae2492091a47fec6ba435ef",
       "items": {
         "agent:browser-tester": {
           "path": "agents/browser-tester.md"

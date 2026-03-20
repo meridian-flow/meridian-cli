@@ -3,6 +3,7 @@ name: investigator
 description: Bug investigator — briefly investigates flagged issues, quick-fixes or files GH issues
 model: gpt
 skills: [issue-tracking]
+tools: [Bash, Write, Edit, WebSearch, WebFetch]
 sandbox: workspace-write
 thinking: medium
 ---

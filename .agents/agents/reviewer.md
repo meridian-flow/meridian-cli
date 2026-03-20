@@ -3,6 +3,7 @@ name: reviewer
 description: General code reviewer — broad review across all quality dimensions
 model: gpt
 skills: [review]
+tools: [Bash(git diff *), Bash(git log *), Bash(git show *), Bash(git status *), Bash(meridian spawn show *), Bash(uv run meridian spawn show *), Bash(meridian session *), Bash(uv run meridian session *), Bash(meridian work show *), Bash(uv run meridian work show *), Bash(meridian spawn report *), Bash(uv run meridian spawn report *)]
 sandbox: read-only
 thinking: high
 ---

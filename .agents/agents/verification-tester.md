@@ -3,6 +3,7 @@ name: verification-tester
 description: Build verification — runs tests, type checks, and linters, fixes mechanical breakage, reports real issues
 model: gpt
 skills: [verification-testing]
+tools: [Bash, Write, Edit]
 sandbox: workspace-write
 ---
 

@@ -21,6 +21,7 @@ name: reviewer
 description: Code reviewer focused on correctness and simplicity
 model: gpt-5.4
 skills: []
+tools: [Bash(git diff *), Bash(git log *), Bash(git show *)]
 sandbox: read-only
 ---
 
@@ -41,6 +42,7 @@ name: implementer
 description: Task execution agent for implementation work
 model: gpt-5.3-codex
 skills: []
+tools: [Bash, Write, Edit]
 sandbox: workspace-write
 ---
 
@@ -57,7 +59,7 @@ Run tests and type checks after making changes. Commit after each passing step.
 | `model` | string | no | Default model (can be overridden with `-m`) |
 | `skills` | string[] | no | Skills to load for this agent |
 | `sandbox` | string | no | Permission tier: `read-only`, `workspace-write`, `full-access`, `unrestricted` |
-| `allowed_tools` | string[] | no | Explicit tool allowlist |
+| `tools` | string[] | no | Explicit tool allowlist (permission-required tools for Claude/OpenCode `-p` mode) |
 | `mcp_tools` | string[] | no | MCP tools to expose |
 
 ## Body
@@ -91,4 +93,5 @@ Repo-local profiles take precedence over bundled ones with the same name.
 - **One role per profile.** A reviewer shouldn't also be an implementer. Keep agents focused.
 - **Model choice matters.** Strong reasoning models (opus, gpt-5.4) for review and architecture. Fast models (codex, sonnet) for implementation and bulk work.
 - **Permissions scope risk.** Use `read-only` for analysis, `workspace-write` for implementation, `full-access` only when needed.
+- **Tools enable `-p` mode.** Without `tools:`, Claude agents can't use permission-required tools (Bash, Write, Edit, WebSearch, etc.) in non-interactive mode. Only list tools that need permission — Read, Glob, Grep, and Agent are always available.
 - **Skills are optional.** Most task agents don't need skills — they get their instructions from the prompt. Skills are for agents that need to coordinate (orchestrators) or follow specific workflows.

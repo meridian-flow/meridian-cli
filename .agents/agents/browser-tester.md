@@ -3,6 +3,7 @@ name: browser-tester
 description: Browser-based QA — visual verification, user flows, form testing, console errors
 model: opus
 skills: [browser-testing]
+tools: [Bash, Write, mcp__plugin_playwright_playwright__*]
 sandbox: workspace-write
 ---
 

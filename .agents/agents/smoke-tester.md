@@ -3,6 +3,7 @@ name: smoke-tester
 description: External QA tester — end-to-end testing from the user's perspective
 model: codex
 skills: [smoke-testing]
+tools: [Bash, Write]
 sandbox: workspace-write
 ---
 
