@@ -141,6 +141,17 @@ def _detect_primary_session_id(repo_root: Path, started_at_epoch: float) -> str 
     return None
 
 
+def _compose_inline_launch_prompt(*, prompt: str, skill_injection: str | None) -> str:
+    sections: list[str] = []
+    injected = (skill_injection or "").strip()
+    if injected:
+        sections.append(injected)
+    prompt_text = prompt.strip()
+    if prompt_text:
+        sections.append(prompt_text)
+    return "\n\n".join(sections)
+
+
 def _owns_session(repo_root: Path, session_ref: str) -> bool:
     normalized = session_ref.strip()
     if not normalized:
@@ -306,7 +317,11 @@ class CodexAdapter(BaseSubprocessHarness):
         _ = harness_session_id
         if is_resume:
             return PromptPolicy()
-        return PromptPolicy(prompt=prompt, skill_injection=skill_injection)
+        return PromptPolicy(
+            prompt=_compose_inline_launch_prompt(prompt=prompt, skill_injection=skill_injection),
+            # Keep passthrough system-prompt fragments on the inline injection path.
+            skill_injection="",
+        )
 
     def detect_primary_session_id(
         self,

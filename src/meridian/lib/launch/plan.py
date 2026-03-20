@@ -8,7 +8,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.config.settings import MeridianConfig, load_config, resolve_repo_root
-from meridian.lib.core.types import ModelId
+from meridian.lib.core.types import HarnessId, ModelId
 from meridian.lib.harness.adapter import SpawnParams, SubprocessHarness
 from meridian.lib.harness.registry import HarnessRegistry
 from meridian.lib.install.provenance import resolve_runtime_asset_provenance
@@ -250,6 +250,15 @@ def resolve_primary_launch_plan(
     # Resume launches typically suppress prompt and skill injection.
     is_resume = bool(explicit_harness_session_id)
     skill_injection = compose_skill_injections(resolved_skills.loaded_skills) or ""
+    if adapter.id == HarnessId.CODEX and profile is not None and profile.body.strip():
+        skill_injection = "\n\n".join(
+            part
+            for part in (
+                f"# Agent Profile\n\n{profile.body.strip()}",
+                skill_injection.strip(),
+            )
+            if part
+        )
     policy = adapter.filter_launch_content(
         prompt=resolved_prompt,
         skill_injection=skill_injection,
