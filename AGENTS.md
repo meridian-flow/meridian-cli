@@ -43,7 +43,7 @@ NEVER REVERT CHANGES — always assume it's someone else's work.
 **Prefer smoke tests over unit tests.** Too many unit tests is bad when you're constantly refactoring.
 
 - **Smoke tests** (`tests/smoke/`): Organized markdown guides for manually testing CLI behavior. See the `_meridian-dev-smoke-test` skill for methodology. Run `uv run meridian` to test the CLI in its current state.
-- **Unit tests** (~100, focused): Only for logic that's hard to smoke test — signals, concurrency, security/env sanitization, sync engine algorithms, parsing edge cases. Run with `uv run pytest-llm`.
+- **Unit tests** (focused): Only for logic that's hard to smoke test — signals, concurrency, security/env sanitization, sync engine algorithms, parsing edge cases. Run with `uv run pytest-llm`.
 - **Linting**: `uv run ruff check .`
 - **Type checking**: `uv run pyright` (must be 0 errors)
 

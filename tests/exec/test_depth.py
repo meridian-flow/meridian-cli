@@ -242,6 +242,18 @@ def test_recursive_spawn_blocks_before_creating_third_level(
 ) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
+    # Pre-install dummy agent so bootstrap doesn't scan the real submodule tree
+    agents_dir = repo_root / ".agents" / "agents"
+    agents_dir.mkdir(parents=True, exist_ok=True)
+    (agents_dir / "__meridian-subagent.md").write_text(
+        "---\n"
+        "name: __meridian-subagent\n"
+        "description: dummy\n"
+        "model: gpt-5.3-codex\n"
+        "---\n"
+        "Dummy agent for test.\n",
+        encoding="utf-8",
+    )
     script_path = tmp_path / "recursive_harness.py"
     _write_recursive_harness_script(script_path)
 

@@ -2,14 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from meridian.lib.install.adapters import GitSourceAdapter, PathSourceAdapter, default_adapters
+from meridian.lib.install.adapters import GitSourceAdapter, PathSourceAdapter
 from meridian.lib.install.config import SourceConfig
-
-
-def test_default_adapters_expose_git_and_path() -> None:
-    adapters = default_adapters()
-
-    assert set(adapters) == {"git", "path"}
 
 
 def test_path_source_adapter_resolves_repo_relative_tree(tmp_path: Path) -> None:

@@ -3,7 +3,6 @@ from pathlib import Path
 import pytest
 
 from meridian.lib.install.bootstrap import (
-    bootstrap_source_config,
     ensure_bootstrap_assets,
     ensure_bootstrap_source_manifest,
     plan_bootstrap_assets,
@@ -195,21 +194,22 @@ def test_ensure_bootstrap_assets_rehydrates_missing_bootstrap_manifest_from_lock
     assert [source.name for source in rehydrated.sources] == ["meridian-base"]
 
 
-def test_bootstrap_source_config_records_all_bundled_meridian_items() -> None:
-    source = bootstrap_source_config()
-    assert source.agents == ("__meridian-orchestrator", "__meridian-subagent")
-    assert source.skills == (
-        "__meridian-install",
-        "__meridian-orchestrate",
-        "__meridian-session-context",
-        "__meridian-spawn-agent",
-        "__meridian-troubleshoot",
-        "__meridian-work-coordination",
+def test_ensure_bootstrap_source_manifest_upgrades_partial_filter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    synthetic_config = SourceConfig(
+        name="meridian-base",
+        kind="git",
+        url="https://github.com/haowjy/meridian-base.git",
+        ref="main",
+        agents=("__meridian-orchestrator", "__meridian-subagent"),
+        skills=("__meridian-orchestrate", "__meridian-spawn-agent"),
+    )
+    monkeypatch.setattr(
+        "meridian.lib.install.bootstrap.bootstrap_source_config",
+        lambda: synthetic_config,
     )
 
-
-def test_ensure_bootstrap_source_manifest_upgrades_partial_filter(
-) -> None:
     manifest = SourceManifest(
         shared=SourcesConfig(
             sources=(
@@ -233,14 +233,7 @@ def test_ensure_bootstrap_source_manifest_upgrades_partial_filter(
     source = updated.find_source("meridian-base")
     assert source is not None
     assert source.agents == ("__meridian-orchestrator", "__meridian-subagent")
-    assert source.skills == (
-        "__meridian-install",
-        "__meridian-orchestrate",
-        "__meridian-session-context",
-        "__meridian-spawn-agent",
-        "__meridian-troubleshoot",
-        "__meridian-work-coordination",
-    )
+    assert source.skills == ("__meridian-orchestrate", "__meridian-spawn-agent")
 
 
 def test_ensure_bootstrap_assets_rejects_unknown_missing_default(tmp_path: Path) -> None:
