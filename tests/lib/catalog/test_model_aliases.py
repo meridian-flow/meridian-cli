@@ -11,6 +11,7 @@ from meridian.lib.catalog.model_aliases import (
     _coerce_user_alias_specs,
     _resolve_alias_from_models,
     load_builtin_aliases,
+    load_builtin_descriptions,
     load_user_aliases,
 )
 from meridian.lib.catalog.models import DiscoveredModel
@@ -104,23 +105,25 @@ class TestLoadBuiltinAliases:
             _anth("claude-sonnet-4-6", "2026-02-17"),
             _anth("claude-haiku-4-5", "2025-10-15"),
             _model("gpt-5.3-codex", release_date="2026-02-05"),
+            _model("gpt-5.2", release_date="2025-12-11"),
             _model("gpt-5.4", release_date="2026-03-05"),
             _goog("gemini-3.1-pro-preview", "2026-02-19"),
         ]
         aliases = load_builtin_aliases(discovered_models=models)
         by_name = {a.alias: a.model_id for a in aliases}
-        assert len(by_name) == 6
+        assert len(by_name) == 7
         assert by_name["opus"] == "claude-opus-4-6"
         assert by_name["sonnet"] == "claude-sonnet-4-6"
         assert by_name["haiku"] == "claude-haiku-4-5"
         assert by_name["codex"] == "gpt-5.3-codex"
         assert by_name["gpt"] == "gpt-5.4"
+        assert by_name["gpt52"] == "gpt-5.2"
         assert by_name["gemini"] == "gemini-3.1-pro-preview"
 
     def test_with_none_falls_back(self) -> None:
         aliases = load_builtin_aliases(discovered_models=None)
         by_name = {a.alias: a.model_id for a in aliases}
-        assert len(by_name) == 6
+        assert len(by_name) == 7
         for alias, model_id in _FALLBACK_ALIASES.items():
             assert by_name[alias] == model_id
 
@@ -136,7 +139,13 @@ class TestLoadBuiltinAliases:
         by_name = {a.alias: a.model_id for a in aliases}
         assert by_name["opus"] == "claude-opus-4-6"
         assert by_name["gpt"] == _FALLBACK_ALIASES["gpt"]
+        assert by_name["gpt52"] == _FALLBACK_ALIASES["gpt52"]
         assert by_name["codex"] == _FALLBACK_ALIASES["codex"]
+
+
+def test_builtin_descriptions_include_gpt52_reviewer_text() -> None:
+    descriptions = load_builtin_descriptions()
+    assert descriptions["gpt-5.2"] == "Extremely thorough reviewer, but slow."
 
 
 # --- User auto-resolve specs ---

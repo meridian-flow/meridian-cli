@@ -28,6 +28,11 @@ _BUILTIN_ALIAS_SPECS: dict[str, _AliasSpec] = {
     "haiku": _AliasSpec("anthropic", "haiku", ()),
     "codex": _AliasSpec("openai", "codex", ("-mini", "-spark", "-max")),
     "gpt": _AliasSpec("openai", "gpt-", ("-codex", "-pro", "-mini", "-nano", "-chat", "-turbo")),
+    "gpt52": _AliasSpec(
+        "openai",
+        "gpt-5.2",
+        ("-codex", "-pro", "-mini", "-nano", "-chat", "-turbo"),
+    ),
     "gemini": _AliasSpec("google", "pro", ("-customtools",)),
 }
 
@@ -37,6 +42,7 @@ _FALLBACK_ALIASES: dict[str, str] = {
     "haiku": "claude-haiku-4-5",
     "codex": "gpt-5.3-codex",
     "gpt": "gpt-5.4",
+    "gpt52": "gpt-5.2",
     "gemini": "gemini-3.1-pro-preview",
 }
 
@@ -54,7 +60,8 @@ _BUILTIN_DESCRIPTIONS: dict[str, str] = {
         "Strongest generalist with broad reasoning."
         " Best for review, verification, security, and architectural judgment."
     ),
-    "gemini-3.1-pro-preview": "Large context window. Best for multimodal tasks.",
+    "gpt-5.2": "Extremely thorough reviewer, but slow.",
+    "gemini-3.1-pro-preview": "Large context window. Best for multimodal tasks. Okay at frontend design mockups (but prefer opus for true implementation).",
 }
 
 
