@@ -61,7 +61,10 @@ _BUILTIN_DESCRIPTIONS: dict[str, str] = {
         " Best for review, verification, security, and architectural judgment."
     ),
     "gpt-5.2": "Extremely thorough reviewer, but slow.",
-    "gemini-3.1-pro-preview": "Large context window. Best for multimodal tasks. Okay at frontend design mockups (but prefer opus for true implementation).",
+    "gemini-3.1-pro-preview": (
+        "Large context window. Best for multimodal tasks."
+        " Okay at frontend design mockups (but prefer opus for true implementation)."
+    ),
 }
 
 
