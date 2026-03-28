@@ -1,9 +1,9 @@
 ---
 name: reviewer
-description: General code reviewer — broad review across all quality dimensions
+description: General code reviewer — specify a focus area in the prompt (SOLID, security, correctness, testing, design alignment) for deep targeted review, or leave unspecified for broad review.
 model: gpt
 skills: [review]
-tools: [Bash(git diff *), Bash(git log *), Bash(git show *), Bash(git status *), Bash(meridian spawn show *), Bash(uv run meridian spawn show *), Bash(meridian session *), Bash(uv run meridian session *), Bash(meridian work show *), Bash(uv run meridian work show *), Bash(meridian spawn report *), Bash(uv run meridian spawn report *)]
+tools: [Bash(git diff *), Bash(git log *), Bash(git show *), Bash(git status *), Bash(meridian spawn show *), Bash(meridian session *), Bash(meridian work show *), Bash(meridian spawn report *)]
 sandbox: read-only
 thinking: high
 ---

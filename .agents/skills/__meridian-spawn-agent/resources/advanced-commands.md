@@ -76,4 +76,24 @@ Tiers:
 - `workspace-write` — can write within the project directory
 - `full-access` — unrestricted tool access
 
+## Background Flag (manual polling)
+
+If your harness doesn't support background execution or parallel tool calls, you can use `--background` to launch spawns without blocking:
+
+```bash
+meridian spawn --background -a agent -p "task description"
+# → returns immediately: {"spawn_id": "p107", "status": "running"}
+
+meridian spawn wait p107
+# → blocks until done, returns status + full report
+
+# Multiple spawns in parallel
+meridian spawn --background -a agent -p "Step A" --desc "Step A"
+meridian spawn --background -a agent -p "Step B" --desc "Step B"
+# Read spawn_ids from JSON results, then wait for both
+meridian spawn wait p108 p109
+```
+
+Most harnesses (Claude Code, Codex, etc.) have built-in background execution that notifies you per-spawn as each completes. Prefer that over `--background` + `spawn wait`.
+
 For stuck spawns, logs, or low-level state inspection, see `debugging.md`.

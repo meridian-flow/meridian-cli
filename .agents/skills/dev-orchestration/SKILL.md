@@ -61,7 +61,13 @@ Launch testers appropriate to what the phase changed — match testing to what c
 
 Fan out reviewers for the things testing can't catch. Read `review-orchestration` for focus areas and model selection. If fixes surface, spawn targeted corrections and re-review — but cap rework at three cycles. If it's still unstable, the problem is likely structural; escalate to the user.
 
-When coders or reviewers surface out-of-scope findings, don't derail the active phase. Spawn an investigator to handle them in parallel — it'll quick-fix trivial items or file GH issues for the rest.
+Use the investigator in two distinct moments. First, reactively: when a test fails, behavior looks wrong, or a reviewer flags a likely defect, spawn investigator to do brief root-cause analysis and either quick-fix or file/update a GH issue. Second, proactively: keep the active phase focused, then run a dedicated backlog sweep at natural breakpoints (end of phase, after review synthesis). Spawn the sweep with `--from` so investigator can mine the full conversation and touched code for deferred items, TODOs, and tech debt. The proactive sweep runs in the background and should not block the delivery loop.
+
+### Documentation phase
+
+Decision rationale mostly lives in conversations, not code. If nobody extracts it after implementation and review, it disappears when sessions end or get compacted. Spawn the documenter with `--from $MERIDIAN_CHAT_ID` so it can mine decision points and capture them in the FS mirror.
+
+Treat the mirror in `$MERIDIAN_FS_DIR` as a compressed plaintext and Mermaid map of the codebase: brief WHAT, explicit WHY, and how pieces fit together. This is orientation documentation, not API reference prose.
 
 ## Keeping State Visible
 
@@ -70,6 +76,12 @@ The point of tracking artifacts is resumability — a future agent (or you, afte
 Keep design docs, phase plans, and review notes as separate files so each artifact has a clear purpose and future agents can find context quickly. Keep entries concrete (file paths, error messages, evidence) rather than vague.
 
 Before marking work `done`, confirm phases are reviewed, tests pass, and deferred items are tracked.
+
+## Decision Log
+
+Decisions are the hardest context to recover later. Without a record of what was tried and rejected, future agents re-litigate settled questions, waste time, and often repeat the same mistakes. Design docs usually preserve the final WHAT; the decision log preserves the reasoning journey: WHY, alternatives considered, and what changed over time.
+
+Append decisions to `$MERIDIAN_WORK_DIR/decisions.md` as work progresses. Capture pivots, plan changes, and design changes with their rationale while the context is fresh. This log gets archived with `meridian work done`, so the next agent can resume with the same judgment context instead of rebuilding it from scratch.
 
 ## Cross-Workspace Coordination
 

@@ -110,6 +110,14 @@ EOF
 )"
 ```
 
+## Proactive Mining
+
+Focused implementers and reviewers produce better primary work when they are not splitting attention to hunt backlog items. A dedicated mining pass at natural breakpoints keeps both outcomes higher quality: the main phase stays focused, and backlog capture gets a fresh, deliberate pass.
+
+When spawned with `--from`, use the transcript to mine deferred items that are easy to lose: "come back to this" notes, TODOs discussed but not executed, and alternatives rejected for now but worth revisiting later.
+
+Then scan touched files and nearby code for debt markers such as `TODO`, `FIXME`, `HACK`, dead code, hardcoded values, and missing error handling. For each finding, either create a new GH issue or comment on an existing related issue. Triage aggressively: skip trivial noise, avoid duplicates, and only track items that are meaningful beyond the current phase.
+
 ## Workflow Integration
 
 Issue tracking fits naturally into the implementation and review cycles:

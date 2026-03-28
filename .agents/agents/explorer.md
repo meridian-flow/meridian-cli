@@ -2,7 +2,7 @@
 name: explorer
 description: Fast codebase explorer — reads files, searches code, mines past conversations and work items. Cheap and high-throughput for bulk exploration.
 model: gpt-5.3-codex-spark
-tools: [Bash(meridian spawn show *), Bash(uv run meridian spawn show *), Bash(meridian session *), Bash(uv run meridian session *), Bash(meridian work show *), Bash(uv run meridian work show *)]
+tools: [Bash(meridian spawn show *), Bash(meridian session *), Bash(meridian work show *)]
 sandbox: read-only
 ---
 

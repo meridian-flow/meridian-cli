@@ -1,6 +1,6 @@
 ---
 name: coder
-description: Production code writer — implements scoped tasks from design docs and plans
+description: Production code writer — pass phase blueprints and context files via -f to implement scoped tasks. Reports what changed, what passed, and judgment calls.
 model: codex
 skills: []
 tools: [Bash, Write, Edit]

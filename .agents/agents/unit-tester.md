@@ -1,6 +1,6 @@
 ---
 name: unit-tester
-description: Focused test writer — writes and runs targeted unit tests
+description: Focused test writer — tell it what to test (edge cases, regression guards, module contracts) and it writes and runs targeted unit tests.
 model: gpt
 skills: [unit-testing]
 tools: [Bash, Write, Edit]

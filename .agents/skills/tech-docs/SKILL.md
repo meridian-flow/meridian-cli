@@ -27,13 +27,19 @@ $MERIDIAN_FS_DIR/
 
 ## Content: WHAT and WHY, not HOW
 
-The code shows the how. The mirror captures what the code can't easily tell you:
+The code shows the how. The mirror is the readable map that lets humans and agents get oriented quickly: what exists, how pieces connect, and why the system ended up this way. The mirror captures what the code can't easily tell you:
 
 - **Architecture** — component relationships, dependency directions, layer boundaries
 - **Data flows** — how data moves through the system, state transitions, integration points
 - **Decision rationale** — why this approach over alternatives, what constraints drove the design, what tradeoffs were accepted
 
-Decision rationale tends to live in session transcripts and commit messages, not in code. When it's missing, go find it — don't guess and don't skip it. Rationale is the most valuable part of technical docs because it's the hardest to recover later.
+Decision rationale tends to live in session transcripts and commit messages, not in code. That WHY context is what prevents future agents from undoing deliberate decisions that look arbitrary in source alone. When rationale is missing, go find it — don't guess and don't skip it.
+
+## Mining Decisions from Conversations
+
+The richest source of decision rationale is the orchestrator's conversation with the user. Pivots, rejected alternatives, and tradeoff discussions usually happen there first, then only the final choice lands in code.
+
+When spawned with `--from`, use the parent-session transcript directly. Run `meridian session log` and `meridian session search` to find decision points: where direction changed, alternatives were weighed, or constraints were discovered. Extract those moments into the mirror next to the technical explanation so readers get both implementation shape and decision context.
 
 ## Writing style
 
