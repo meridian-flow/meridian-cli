@@ -6,7 +6,6 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
-from meridian.lib.catalog.agent import parse_agent_profile
 from meridian.lib.install.config import (
     SourceConfig,
     SourceManifest,
@@ -26,7 +25,6 @@ from meridian.lib.state.paths import resolve_state_paths
 _BOOTSTRAP_SOURCE_NAME = "meridian-base"
 _BOOTSTRAP_URL = "https://github.com/haowjy/meridian-base.git"
 _BOOTSTRAP_AGENT_NAMES = frozenset({"__meridian-orchestrator", "__meridian-subagent"})
-_BOOTSTRAP_AGENT_LIST = tuple(sorted(_BOOTSTRAP_AGENT_NAMES))
 
 
 class BootstrapPlan(BaseModel):
@@ -39,19 +37,21 @@ class BootstrapPlan(BaseModel):
 
 
 def bootstrap_source_config() -> SourceConfig:
-    """Return the canonical managed source record for bundled Meridian assets."""
+    """Return the canonical managed source record for bundled Meridian assets.
 
-    bundled_tree_root = _bundled_bootstrap_tree_root()
-    agent_names = _bundled_agent_names(bundled_tree_root)
-    skill_names = _bundled_skill_names(bundled_tree_root)
+    Uses ``agents=None, skills=None`` (unfiltered) so that every agent and
+    skill published by the bootstrap repo is installed.  This avoids a
+    dependency on a local ``meridian-base/`` tree which does not exist in
+    pip/uv-installed packages.
+    """
 
     return SourceConfig(
         name=_BOOTSTRAP_SOURCE_NAME,
         kind="git",
         url=_BOOTSTRAP_URL,
         ref="main",
-        agents=agent_names,
-        skills=skill_names,
+        agents=None,
+        skills=None,
     )
 
 
@@ -269,21 +269,6 @@ def _is_bootstrap_item(item_id: str) -> bool:
     return kind == "agent" and name in _BOOTSTRAP_AGENT_NAMES
 
 
-def _bundled_agent_names(bundled_tree_root: Path) -> tuple[str, ...]:
-    agent_names: list[str] = []
-    for agent_path in sorted((bundled_tree_root / "agents").glob("*.md")):
-        profile = parse_agent_profile(agent_path)
-        agent_names.append(profile.name)
-    return tuple(agent_names)
-
-
-def _bundled_skill_names(bundled_tree_root: Path) -> tuple[str, ...]:
-    skill_names: list[str] = []
-    for skill_path in sorted((bundled_tree_root / "skills").glob("*/SKILL.md")):
-        skill_names.append(skill_path.parent.name)
-    return tuple(skill_names)
-
-
 def ensure_bootstrap_source_manifest(
     *,
     manifest: SourceManifest,
@@ -322,5 +307,3 @@ def _agent_profile_path(repo_root: Path, item_id: str) -> Path:
     return repo_root / ".agents" / "agents" / f"{name}.md"
 
 
-def _bundled_bootstrap_tree_root() -> Path:
-    return Path(__file__).resolve().parents[4] / "meridian-base"
