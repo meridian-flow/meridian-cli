@@ -467,9 +467,6 @@ def _env_alias_overrides(repo_root: Path) -> dict[str, object]:
         ("MERIDIAN_HARNESS_MODEL_CLAUDE", ("harness", "claude"), "str"),
         ("MERIDIAN_HARNESS_MODEL_CODEX", ("harness", "codex"), "str"),
         ("MERIDIAN_HARNESS_MODEL_OPENCODE", ("harness", "opencode"), "str"),
-        ("MERIDIAN_MODEL", ("primary", "model"), "str"),
-        ("MERIDIAN_HARNESS", ("primary", "harness"), "str"),
-        ("MERIDIAN_MAX_TURNS", ("primary", "max_turns"), "int"),
         (
             "MERIDIAN_MAX_INPUT_TOKENS",
             ("primary", "max_input_tokens"),
@@ -480,7 +477,6 @@ def _env_alias_overrides(repo_root: Path) -> dict[str, object]:
             ("primary", "max_output_tokens"),
             "int",
         ),
-        ("MERIDIAN_BUDGET", ("primary", "budget"), "float"),
         ("MERIDIAN_AGENT", ("primary", "agent"), "str"),
         ("MERIDIAN_FORMAT", ("output", "format"), "str"),
     )
@@ -706,13 +702,17 @@ class MeridianConfig(BaseSettings):
         return (
             init_settings,
             cast("PydanticBaseSettingsSource", layered_env_source),
-            cast("PydanticBaseSettingsSource", user_toml_source),
             cast("PydanticBaseSettingsSource", project_toml_source),
+            cast("PydanticBaseSettingsSource", user_toml_source),
         )
 
 
 def load_config(repo_root: Path, *, user_config: Path | None = None) -> MeridianConfig:
-    """Load config with precedence: defaults < project < user < environment."""
+    """Load config with precedence: defaults < user < project < environment.
+
+    RuntimeOverrides fields (model, harness, thinking, etc.) are NOT loaded
+    from ENV here — they are read separately via RuntimeOverrides.from_env().
+    """
 
     resolved_repo_root = repo_root.expanduser().resolve()
     resolved_user_config = _resolve_user_config_path(user_config)
