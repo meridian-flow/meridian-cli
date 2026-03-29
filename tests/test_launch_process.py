@@ -187,9 +187,13 @@ def test_run_harness_process_attaches_explicit_work_id(
         harness="codex",
         work_id="named-work",
     )
+    state_root = tmp_path / ".meridian"
+    # Work-item resolution happens at the policy layer (launch_primary)
+    # before run_harness_process is called. The plan carries the resolved id.
+    work_store.ensure_work_item_metadata(state_root, "named-work")
     plan = ResolvedPrimaryLaunchPlan(
         repo_root=repo_root,
-        state_root=tmp_path / ".meridian",
+        state_root=state_root,
         prompt="new prompt",
         request=request,
         config=config,
@@ -207,6 +211,7 @@ def test_run_harness_process_attaches_explicit_work_id(
         command=("true",),
         seed_harness_session_id="session-3",
         command_request=request,
+        resolved_work_id="named-work",
     )
 
     captured: dict[str, str | None] = {}

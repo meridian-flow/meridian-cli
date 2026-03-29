@@ -47,6 +47,7 @@ class ResolvedPrimaryLaunchPlan(BaseModel):
     seed_harness_session_id: str
     command_request: LaunchRequest
     warning: str | None = None
+    resolved_work_id: str | None = None
 
 
 def normalize_system_prompt_passthrough_args(

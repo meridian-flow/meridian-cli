@@ -26,7 +26,6 @@ from meridian.lib.core.spawn_lifecycle import (
 )
 from meridian.lib.core.types import SpawnId
 from meridian.lib.harness.registry import HarnessRegistry
-from meridian.lib.ops.work_attachment import ensure_explicit_work_item
 from meridian.lib.state import spawn_store
 from meridian.lib.state.artifact_store import LocalStore, make_artifact_key
 from meridian.lib.state.atomic import atomic_write_text
@@ -267,9 +266,7 @@ def run_harness_process(
             _update_session_harness_id=update_session_harness_id,
         ) as managed:
             chat_id = managed.chat_id
-            explicit_work_id = (plan.request.work_id or "").strip() or None
-            if explicit_work_id is not None:
-                explicit_work_id = ensure_explicit_work_item(plan.state_root, explicit_work_id)
+            explicit_work_id = plan.resolved_work_id
             preserved_work_id = None
             if explicit_work_id is None and plan.request.continue_chat_id is not None:
                 preserved_work_id = get_session_active_work_id(
