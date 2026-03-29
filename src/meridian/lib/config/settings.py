@@ -5,11 +5,16 @@ import os
 import tomllib
 from contextvars import ContextVar
 from pathlib import Path
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
+from meridian.lib.core.overrides import (
+    KNOWN_APPROVAL_VALUES,
+    KNOWN_SANDBOX_VALUES,
+    KNOWN_THINKING_VALUES,
+)
 from meridian.lib.state.paths import resolve_state_paths
 
 logger = logging.getLogger(__name__)
@@ -285,7 +290,7 @@ def _normalize_primary_table(raw_value: object, *, source: str) -> dict[str, obj
             values[key] = value
             continue
 
-        if key in {"model", "harness", "agent"}:
+        if key in {"model", "harness", "agent", "thinking", "sandbox", "approval"}:
             if not isinstance(value, str):
                 raise ValueError(
                     f"Invalid value for '{source}.{key}': expected str, got "
@@ -303,6 +308,21 @@ def _normalize_primary_table(raw_value: object, *, source: str) -> dict[str, obj
             values[key] = value
             continue
 
+        if key == "autocompact":
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise ValueError(
+                    f"Invalid value for '{source}.autocompact': expected int, got "
+                    f"{type(value).__name__} ({value!r})."
+                )
+            if not (_PRIMARY_AUTOCOMPACT_PCT_MIN <= value <= _PRIMARY_AUTOCOMPACT_PCT_MAX):
+                raise ValueError(
+                    f"Invalid value for '{source}.autocompact': expected int between "
+                    f"{_PRIMARY_AUTOCOMPACT_PCT_MIN} and "
+                    f"{_PRIMARY_AUTOCOMPACT_PCT_MAX}, got {value!r}."
+                )
+            values[key] = value
+            continue
+
         if key == "budget":
             if isinstance(value, bool) or not isinstance(value, int | float):
                 raise ValueError(
@@ -312,7 +332,24 @@ def _normalize_primary_table(raw_value: object, *, source: str) -> dict[str, obj
             values[key] = float(value)
             continue
 
+        if key == "timeout":
+            if isinstance(value, bool) or not isinstance(value, int | float):
+                raise ValueError(
+                    f"Invalid value for '{source}.timeout': expected float, got "
+                    f"{type(value).__name__} ({value!r})."
+                )
+            if float(value) <= 0:
+                raise ValueError(
+                    f"Invalid value for '{source}.timeout': expected float > 0, got {value!r}."
+                )
+            values[key] = float(value)
+            continue
+
         logger.warning("Ignoring unknown Meridian config key '%s.%s'.", source, key)
+
+    # Copy autocompact_pct → autocompact if autocompact is not explicitly set.
+    if values.get("autocompact_pct") is not None and values.get("autocompact") is None:
+        values["autocompact"] = values["autocompact_pct"]
 
     return values
 
@@ -554,6 +591,22 @@ class PrimaryConfig(BaseModel):
     max_output_tokens: int | None = None
     budget: float | None = None
     agent: str | None = None
+    thinking: str | None = None
+    sandbox: str | None = None
+    approval: str | None = None
+    timeout: float | None = None
+    autocompact: int | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _copy_autocompact_pct_to_autocompact(cls, values: Any) -> Any:
+        if not isinstance(values, dict):
+            return values
+        d: dict[str, Any] = cast("dict[str, Any]", values)
+        if d.get("autocompact") is None and d.get("autocompact_pct") is not None:
+            d = dict(d)
+            d["autocompact"] = d["autocompact_pct"]
+        return d
 
     @field_validator("autocompact_pct")
     @classmethod
@@ -563,6 +616,19 @@ class PrimaryConfig(BaseModel):
         if not (_PRIMARY_AUTOCOMPACT_PCT_MIN <= value <= _PRIMARY_AUTOCOMPACT_PCT_MAX):
             raise ValueError(
                 "Invalid value for 'primary.autocompact_pct': expected int between "
+                f"{_PRIMARY_AUTOCOMPACT_PCT_MIN} and "
+                f"{_PRIMARY_AUTOCOMPACT_PCT_MAX}, got {value!r}."
+            )
+        return value
+
+    @field_validator("autocompact")
+    @classmethod
+    def _validate_autocompact(cls, value: int | None) -> int | None:
+        if value is None:
+            return None
+        if not (_PRIMARY_AUTOCOMPACT_PCT_MIN <= value <= _PRIMARY_AUTOCOMPACT_PCT_MAX):
+            raise ValueError(
+                "Invalid value for 'primary.autocompact': expected int between "
                 f"{_PRIMARY_AUTOCOMPACT_PCT_MIN} and "
                 f"{_PRIMARY_AUTOCOMPACT_PCT_MAX}, got {value!r}."
             )
@@ -580,6 +646,56 @@ class PrimaryConfig(BaseModel):
     @classmethod
     def _validate_optional_string_fields(cls, value: str | None) -> str | None:
         return _normalize_optional_string(value, source="primary")
+
+    @field_validator("thinking")
+    @classmethod
+    def _validate_thinking(cls, value: str | None) -> str | None:
+        normalized = _normalize_optional_string(value, source="primary.thinking")
+        if normalized is None:
+            return None
+        if normalized not in KNOWN_THINKING_VALUES:
+            raise ValueError(
+                "Invalid value for 'primary.thinking': expected one of "
+                f"{sorted(KNOWN_THINKING_VALUES)}, got {value!r}."
+            )
+        return normalized
+
+    @field_validator("sandbox")
+    @classmethod
+    def _validate_sandbox(cls, value: str | None) -> str | None:
+        normalized = _normalize_optional_string(value, source="primary.sandbox")
+        if normalized is None:
+            return None
+        if normalized not in KNOWN_SANDBOX_VALUES:
+            raise ValueError(
+                "Invalid value for 'primary.sandbox': expected one of "
+                f"{sorted(KNOWN_SANDBOX_VALUES)}, got {value!r}."
+            )
+        return normalized
+
+    @field_validator("approval")
+    @classmethod
+    def _validate_approval(cls, value: str | None) -> str | None:
+        normalized = _normalize_optional_string(value, source="primary.approval")
+        if normalized is None:
+            return None
+        if normalized not in KNOWN_APPROVAL_VALUES:
+            raise ValueError(
+                "Invalid value for 'primary.approval': expected one of "
+                f"{sorted(KNOWN_APPROVAL_VALUES)}, got {value!r}."
+            )
+        return normalized
+
+    @field_validator("timeout")
+    @classmethod
+    def _validate_timeout(cls, value: float | None) -> float | None:
+        if value is None:
+            return None
+        if isinstance(value, bool) or value <= 0:
+            raise ValueError(
+                f"Invalid value for 'primary.timeout': expected float > 0, got {value!r}."
+            )
+        return value
 
 
 class HarnessConfig(BaseModel):
