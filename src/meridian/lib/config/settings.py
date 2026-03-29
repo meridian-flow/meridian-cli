@@ -550,7 +550,7 @@ class PrimaryConfig(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="ignore")
 
-    autocompact_pct: int = 65
+    autocompact_pct: int | None = None
     model: str | None = None
     harness: str | None = None
     max_turns: int | None = None
@@ -561,7 +561,9 @@ class PrimaryConfig(BaseModel):
 
     @field_validator("autocompact_pct")
     @classmethod
-    def _validate_autocompact_pct(cls, value: int) -> int:
+    def _validate_autocompact_pct(cls, value: int | None) -> int | None:
+        if value is None:
+            return None
         if not (_PRIMARY_AUTOCOMPACT_PCT_MIN <= value <= _PRIMARY_AUTOCOMPACT_PCT_MAX):
             raise ValueError(
                 "Invalid value for 'primary.autocompact_pct': expected int between "

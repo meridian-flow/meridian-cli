@@ -129,6 +129,7 @@ def _spawn_child_env(
     *,
     work_id: str | None = None,
     state_root: Path | None = None,
+    autocompact: int | None = None,
     ctx: RuntimeContext | None = None,
 ) -> dict[str, str]:
     resolved_context = runtime_context(ctx)
@@ -168,6 +169,8 @@ def _spawn_child_env(
     if not resolved_work_id:
         child_env.pop("MERIDIAN_WORK_ID", None)
         child_env.pop("MERIDIAN_WORK_DIR", None)
+    if autocompact is not None:
+        child_env["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"] = str(autocompact)
     return child_env
 
 
@@ -351,6 +354,7 @@ async def _execute_existing_spawn(
     session_skill_paths: tuple[str, ...] = (),
     adhoc_agent_payload: str = "",
     appended_system_prompt: str | None = None,
+    autocompact: int | None = None,
     sink: OutputSink | None = None,
     ctx: RuntimeContext | None = None,
 ) -> int:
@@ -390,6 +394,7 @@ async def _execute_existing_spawn(
         session_agent_path=session_agent_path,
         adhoc_agent_payload=adhoc_agent_payload,
         appended_system_prompt=appended_system_prompt,
+        autocompact=autocompact,
         session=SessionContinuation(
             harness_session_id=continue_harness_session_id,
             continue_fork=continue_fork,
@@ -436,6 +441,7 @@ async def _execute_existing_spawn(
                 str(spawn.spawn_id),
                 work_id=session_context.work_id or spawn_record.work_id,
                 state_root=state_root,
+                autocompact=plan.autocompact,
                 ctx=resolved_context,
             ),
             harness_session_id_observer=session_context.harness_session_id_observer,
@@ -460,6 +466,7 @@ def _build_background_worker_command(
     session_skill_paths: tuple[str, ...],
     adhoc_agent_payload: str = "",
     appended_system_prompt: str | None = None,
+    autocompact: int | None = None,
 ) -> tuple[str, ...]:
     command: list[str] = [
         sys.executable,
@@ -497,6 +504,8 @@ def _build_background_worker_command(
         command.extend(["--session-agent-path", session_agent_path])
     for skill_path in session_skill_paths:
         command.extend(["--session-skill-path", skill_path])
+    if autocompact is not None:
+        command.extend(["--autocompact", str(autocompact)])
     if appended_system_prompt is not None:
         command.extend(["--appended-system-prompt", appended_system_prompt])
     return tuple(command)
@@ -551,6 +560,7 @@ def execute_spawn_background(
         session_skill_paths=prepared.skill_paths,
         adhoc_agent_payload=prepared.adhoc_agent_payload,
         appended_system_prompt=prepared.appended_system_prompt,
+        autocompact=prepared.autocompact,
     )
     log_dir = resolve_spawn_log_dir(runtime.repo_root, context.spawn.spawn_id)
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -563,6 +573,7 @@ def execute_spawn_background(
             spawn_id=spawn_id_text,
             work_id=context.work_id,
             state_root=context.state_root,
+            autocompact=prepared.autocompact,
             ctx=resolved_context,
         )
     )
@@ -702,6 +713,7 @@ def execute_spawn_blocking(
                     str(spawn.spawn_id),
                     work_id=session_context.work_id or context.work_id,
                     state_root=context.state_root,
+                    autocompact=prepared.autocompact,
                     ctx=resolved_context,
                 ),
                 event_observer=event_observer,
@@ -776,6 +788,7 @@ def _build_background_worker_parser() -> argparse.ArgumentParser:
     parser.add_argument("--session-skill-path", action="append", default=[])
     parser.add_argument("--adhoc-agent-payload", default="")
     parser.add_argument("--appended-system-prompt", default=None)
+    parser.add_argument("--autocompact", type=int, default=None)
     return parser
 
 
@@ -813,6 +826,7 @@ def _background_worker_main(
             session_skill_paths=tuple(str(item) for item in parsed.session_skill_path),
             adhoc_agent_payload=str(parsed.adhoc_agent_payload),
             appended_system_prompt=cast("str | None", parsed.appended_system_prompt),
+            autocompact=cast("int | None", parsed.autocompact),
             ctx=resolved_context,
         )
     )

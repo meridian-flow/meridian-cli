@@ -656,7 +656,7 @@ def _scaffold_template() -> str:
         "# -- Primary agent defaults -------------------------------------------------",
         "[primary]",
         "# Context compaction threshold for the primary agent (int 1-100).",
-        f"# autocompact_pct = {primary_defaults.autocompact_pct}",
+        f"# autocompact_pct = {primary_defaults.autocompact_pct or 65}",
         "",
         "# -- Output streaming -------------------------------------------------------",
         "[output]",

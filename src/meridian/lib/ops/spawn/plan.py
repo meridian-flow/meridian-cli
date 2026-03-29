@@ -55,6 +55,7 @@ class PreparedSpawnPlan(BaseModel):
     execution: ExecutionPolicy
     adhoc_agent_payload: str = ""
     appended_system_prompt: str | None = None
+    autocompact: int | None = None
     cli_command: tuple[str, ...]
     warning: str | None = None
     passthrough_args: tuple[str, ...] = ()

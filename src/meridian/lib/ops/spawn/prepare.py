@@ -348,6 +348,7 @@ def build_create_payload(
         cli_command=preview_command,
         passthrough_args=payload.passthrough_args,
         appended_system_prompt=appended_system_prompt,
+        autocompact=profile.autocompact if profile is not None else None,
         session=SessionContinuation(
             harness_session_id=resolved_continue_harness_session_id,
             continue_fork=resolved_continue_fork,

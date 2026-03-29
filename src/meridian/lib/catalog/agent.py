@@ -12,6 +12,9 @@ from meridian.lib.config.settings import resolve_repo_root
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
 
+_AUTOCOMPACT_PCT_MIN = 1
+_AUTOCOMPACT_PCT_MAX = 100
+
 _KNOWN_SANDBOX_VALUES = frozenset(
     {
         "read-only",
@@ -38,6 +41,7 @@ class AgentProfile(BaseModel):
     mcp_tools: tuple[str, ...]
     sandbox: str | None
     thinking: str | None
+    autocompact: int | None = None
     body: str
     path: Path
     raw_content: str
@@ -79,6 +83,7 @@ def parse_agent_profile(path: Path) -> AgentProfile:
     harness_value = frontmatter.get("harness")
     sandbox_value = frontmatter.get("sandbox")
     thinking_value = frontmatter.get("thinking")
+    autocompact_value = frontmatter.get("autocompact")
 
     profile_name = str(name_value).strip() if name_value is not None else path.stem
     sandbox = str(sandbox_value).strip() if sandbox_value is not None else None
@@ -96,6 +101,29 @@ def parse_agent_profile(path: Path) -> AgentProfile:
             thinking,
         )
 
+    autocompact: int | None = None
+    if autocompact_value is not None:
+        try:
+            autocompact = int(str(autocompact_value))
+        except (TypeError, ValueError):
+            logger.warning(
+                "Agent profile '%s' has invalid autocompact '%s': expected int.",
+                profile_name,
+                autocompact_value,
+            )
+            autocompact = None
+        if autocompact is not None and not (
+            _AUTOCOMPACT_PCT_MIN <= autocompact <= _AUTOCOMPACT_PCT_MAX
+        ):
+            logger.warning(
+                "Agent profile '%s' has autocompact %d outside valid range %d-%d.",
+                profile_name,
+                autocompact,
+                _AUTOCOMPACT_PCT_MIN,
+                _AUTOCOMPACT_PCT_MAX,
+            )
+            autocompact = None
+
     return AgentProfile(
         name=profile_name,
         description=str(description_value).strip() if description_value is not None else "",
@@ -106,6 +134,7 @@ def parse_agent_profile(path: Path) -> AgentProfile:
         mcp_tools=_normalize_deduplicated(frontmatter.get("mcp-tools")),
         sandbox=sandbox,
         thinking=thinking,
+        autocompact=autocompact,
         body=body,
         path=path.resolve(),
         raw_content=markdown,
