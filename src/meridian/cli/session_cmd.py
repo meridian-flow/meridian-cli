@@ -111,5 +111,6 @@ def register_session_commands(app: App, emit: Emitter) -> tuple[set[str], dict[s
         app,
         group="session",
         handlers=handlers,
+        emit=emit,
         default_handler=None,
     )

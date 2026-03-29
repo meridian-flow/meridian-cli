@@ -98,5 +98,6 @@ def register_report_commands(app: Any, emit: Emitter) -> tuple[set[str], dict[st
         app,
         group="report",
         handlers=handlers,
+        emit=emit,
         default_handler=partial(_report_create, emit),
     )

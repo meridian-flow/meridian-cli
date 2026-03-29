@@ -9,26 +9,14 @@ from cyclopts import App
 from meridian.cli.registration import register_manifest_cli_group
 from meridian.lib.ops.config import (
     ConfigGetInput,
-    ConfigInitInput,
     ConfigResetInput,
     ConfigSetInput,
-    ConfigShowInput,
     config_get_sync,
-    config_init_sync,
     config_reset_sync,
     config_set_sync,
-    config_show_sync,
 )
 
 Emitter = Callable[[Any], None]
-
-
-def _config_init(emit: Emitter) -> None:
-    emit(config_init_sync(ConfigInitInput()))
-
-
-def _config_show(emit: Emitter) -> None:
-    emit(config_show_sync(ConfigShowInput()))
 
 
 def _config_set(emit: Emitter, key: str, value: str) -> None:
@@ -45,10 +33,9 @@ def _config_reset(emit: Emitter, key: str) -> None:
 
 def register_config_commands(app: App, emit: Emitter) -> tuple[set[str], dict[str, str]]:
     handlers: dict[str, Callable[[], Callable[..., None]]] = {
-        "config.init": lambda: partial(_config_init, emit),
-        "config.show": lambda: partial(_config_show, emit),
+        # config.init and config.show are auto-generated (no required CLI args).
         "config.set": lambda: partial(_config_set, emit),
         "config.get": lambda: partial(_config_get, emit),
         "config.reset": lambda: partial(_config_reset, emit),
     }
-    return register_manifest_cli_group(app, group="config", handlers=handlers)
+    return register_manifest_cli_group(app, group="config", handlers=handlers, emit=emit)

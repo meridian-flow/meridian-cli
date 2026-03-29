@@ -204,5 +204,6 @@ def register_work_commands(app: App, emit: Emitter) -> tuple[set[str], dict[str,
         app,
         group="work",
         handlers=handlers,
+        emit=emit,
         default_handler=partial(_work_dashboard, emit),
     )
