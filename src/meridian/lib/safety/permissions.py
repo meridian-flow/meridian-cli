@@ -19,7 +19,7 @@ class PermissionTier(StrEnum):
     FULL_ACCESS = "full-access"
 
 
-_APPROVAL_MODES = frozenset({"confirm", "auto"})
+_APPROVAL_MODES = frozenset({"default", "confirm", "auto", "yolo"})
 
 
 class PermissionConfig(BaseModel):
@@ -28,7 +28,7 @@ class PermissionConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     tier: PermissionTier | None = None
-    approval: str = "confirm"
+    approval: str = "default"
     # Optional OpenCode permission map JSON derived from explicit allowed_tools.
     # When set, this takes precedence over tier-derived OpenCode permissions.
     opencode_permission_override: str | None = None
@@ -104,7 +104,7 @@ def _parse_approval_value(raw: str) -> str:
 def build_permission_config(
     tier: str | PermissionTier | None,
     *,
-    approval: str = "confirm",
+    approval: str = "default",
 ) -> PermissionConfig:
     """Build and validate a permission configuration."""
 
@@ -143,12 +143,27 @@ def permission_flags_for_harness(
     """Translate one tier into harness-specific CLI flags."""
 
     tier = config.tier
-    if config.approval == "auto":
+    approval = config.approval
+
+    # --- approval-level flags (take precedence over tier) ---
+    if approval == "yolo":
         if harness_id == HarnessId.CLAUDE:
             return ["--dangerously-skip-permissions"]
         if harness_id == HarnessId.CODEX:
             return ["--dangerously-bypass-approvals-and-sandbox"]
         # OpenCode currently has no equivalent global bypass flag.
+    elif approval == "auto":
+        if harness_id == HarnessId.CLAUDE:
+            return ["--permission-mode", "acceptEdits"]
+        if harness_id == HarnessId.CODEX:
+            return ["--full-auto"]
+    elif approval == "confirm":
+        if harness_id == HarnessId.CLAUDE:
+            return ["--permission-mode", "default"]
+        if harness_id == HarnessId.CODEX:
+            return ["--ask-for-approval", "untrusted"]
+    # "default" or None → no approval flags, fall through to tier logic.
+
     if tier is None:
         return []
 
@@ -228,7 +243,7 @@ def resolve_permission_pipeline(
     *,
     sandbox: str | None,
     allowed_tools: tuple[str, ...] = (),
-    approval: str = "confirm",
+    approval: str = "default",
 ) -> tuple[PermissionConfig, TieredPermissionResolver | ExplicitToolsResolver]:
     inferred_tier = permission_tier_from_profile(sandbox)
     config = build_permission_config(inferred_tier, approval=approval)

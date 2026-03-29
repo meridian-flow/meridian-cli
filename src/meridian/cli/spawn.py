@@ -214,7 +214,7 @@ def _spawn_create(
                 stream=stream,
                 background=background,
                 timeout=timeout,
-                approval="auto" if yolo else None,
+                approval="yolo" if yolo else None,
                 passthrough_args=passthrough,
             ),
             sink=current_output_sink(),

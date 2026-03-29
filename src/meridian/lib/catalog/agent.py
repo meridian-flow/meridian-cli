@@ -25,6 +25,7 @@ _KNOWN_SANDBOX_VALUES = frozenset(
     }
 )
 _KNOWN_THINKING_VALUES = frozenset({"low", "medium", "high", "xhigh"})
+_KNOWN_APPROVAL_VALUES = frozenset({"default", "confirm", "auto", "yolo"})
 
 
 class AgentProfile(BaseModel):
@@ -41,6 +42,7 @@ class AgentProfile(BaseModel):
     mcp_tools: tuple[str, ...]
     sandbox: str | None
     thinking: str | None
+    approval: str | None = None
     autocompact: int | None = None
     body: str
     path: Path
@@ -83,6 +85,7 @@ def parse_agent_profile(path: Path) -> AgentProfile:
     harness_value = frontmatter.get("harness")
     sandbox_value = frontmatter.get("sandbox")
     thinking_value = frontmatter.get("thinking")
+    approval_value = frontmatter.get("approval")
     autocompact_value = frontmatter.get("autocompact")
 
     profile_name = str(name_value).strip() if name_value is not None else path.stem
@@ -100,6 +103,15 @@ def parse_agent_profile(path: Path) -> AgentProfile:
             profile_name,
             thinking,
         )
+
+    approval = str(approval_value).strip() if approval_value is not None else None
+    if approval is not None and approval and approval not in _KNOWN_APPROVAL_VALUES:
+        logger.warning(
+            "Agent profile '%s' has unknown approval '%s'.",
+            profile_name,
+            approval,
+        )
+        approval = None
 
     autocompact: int | None = None
     if autocompact_value is not None:
@@ -134,6 +146,7 @@ def parse_agent_profile(path: Path) -> AgentProfile:
         mcp_tools=_normalize_deduplicated(frontmatter.get("mcp-tools")),
         sandbox=sandbox,
         thinking=thinking,
+        approval=approval,
         autocompact=autocompact,
         body=body,
         path=path.resolve(),

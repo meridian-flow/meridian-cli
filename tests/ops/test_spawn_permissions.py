@@ -60,7 +60,7 @@ def test_spawn_dry_run_yolo_uses_bypass_flags(tmp_path: Path) -> None:
             agent="coder",
             repo_root=repo_root.as_posix(),
             dry_run=True,
-            approval="auto",
+            approval="yolo",
         ),
     )
 

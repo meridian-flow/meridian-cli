@@ -779,7 +779,7 @@ def _build_background_worker_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mcp-tool", action="append", default=[])
     parser.add_argument("--allowed-tool", action="append", default=[])
     parser.add_argument("--permission-tier", required=False, default=None)
-    parser.add_argument("--approval", default="confirm")
+    parser.add_argument("--approval", default="default")
     parser.add_argument("--harness-arg", action="append", default=[])
     parser.add_argument("--continue-harness-session-id", default=None)
     parser.add_argument("--continue-fork", action="store_true")

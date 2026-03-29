@@ -291,7 +291,11 @@ def build_create_payload(
     permission_config, resolver = resolve_permission_pipeline(
         sandbox=profile.sandbox if profile is not None else None,
         allowed_tools=profile.tools if profile is not None else (),
-        approval=payload.approval or "confirm",
+        approval=(
+            payload.approval
+            or (profile.approval if profile is not None else None)
+            or "default"
+        ),
     )
 
     appended_system_prompt = None

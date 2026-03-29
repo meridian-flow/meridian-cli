@@ -23,7 +23,7 @@ class LaunchRequest(BaseModel):
     passthrough_args: tuple[str, ...] = ()
     pinned_context: str = ""
     dry_run: bool = False
-    approval: str = "confirm"
+    approval: str = "default"
     continue_harness_session_id: str | None = None
     continue_chat_id: str | None = None
 

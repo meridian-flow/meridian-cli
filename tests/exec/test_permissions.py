@@ -20,10 +20,10 @@ from meridian.lib.safety.permissions import (
 )
 
 
-def test_auto_approval_bypass_and_invalid_approval() -> None:
-    config = build_permission_config("full-access", approval="auto")
+def test_yolo_approval_bypass() -> None:
+    config = build_permission_config("full-access", approval="yolo")
     assert config.tier is PermissionTier.FULL_ACCESS
-    assert config.approval == "auto"
+    assert config.approval == "yolo"
     assert permission_flags_for_harness(HarnessId.CLAUDE, config) == [
         "--dangerously-skip-permissions"
     ]
@@ -31,6 +31,38 @@ def test_auto_approval_bypass_and_invalid_approval() -> None:
         "--dangerously-bypass-approvals-and-sandbox"
     ]
 
+
+def test_auto_approval_reduces_friction() -> None:
+    config = build_permission_config("full-access", approval="auto")
+    assert config.approval == "auto"
+    assert permission_flags_for_harness(HarnessId.CLAUDE, config) == [
+        "--permission-mode",
+        "acceptEdits",
+    ]
+    assert permission_flags_for_harness(HarnessId.CODEX, config) == ["--full-auto"]
+
+
+def test_confirm_approval_forces_ask() -> None:
+    config = build_permission_config(None, approval="confirm")
+    assert config.approval == "confirm"
+    assert permission_flags_for_harness(HarnessId.CLAUDE, config) == [
+        "--permission-mode",
+        "default",
+    ]
+    assert permission_flags_for_harness(HarnessId.CODEX, config) == [
+        "--ask-for-approval",
+        "untrusted",
+    ]
+
+
+def test_default_approval_emits_no_flags() -> None:
+    config = build_permission_config(None, approval="default")
+    assert config.approval == "default"
+    assert permission_flags_for_harness(HarnessId.CLAUDE, config) == []
+    assert permission_flags_for_harness(HarnessId.CODEX, config) == []
+
+
+def test_invalid_approval_raises() -> None:
     with pytest.raises(ValueError, match="Unsupported approval mode"):
         build_permission_config("full-access", approval="sometimes")
 

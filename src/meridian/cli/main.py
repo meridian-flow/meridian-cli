@@ -481,7 +481,7 @@ def _run_primary_launch(
     harness_registry = get_default_harness_registry()
     normalized_continue_ref = continue_ref.strip() if continue_ref is not None else ""
     resume_target = normalized_continue_ref if normalized_continue_ref else None
-    resolved_approval = "auto" if yolo else "confirm"
+    resolved_approval = "yolo" if yolo else "default"
 
     continue_harness_session_id: str | None = None
     continue_chat_id: str | None = None
