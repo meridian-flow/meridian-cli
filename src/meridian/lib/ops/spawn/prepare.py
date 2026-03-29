@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict
 from meridian.lib.catalog.models import load_discovered_models, load_merged_aliases, resolve_model
 from meridian.lib.config.settings import MeridianConfig
 from meridian.lib.core.context import RuntimeContext
+from meridian.lib.core.overrides import RuntimeOverrides, resolve
 from meridian.lib.core.types import ModelId
 from meridian.lib.harness.registry import HarnessRegistry, get_default_harness_registry
 from meridian.lib.install.provenance import resolve_runtime_asset_provenance
@@ -185,11 +186,14 @@ def build_create_payload(
         dry_run=payload.dry_run,
         builtin_default_agent="__meridian-subagent",
     )
+    cli_overrides = RuntimeOverrides.from_spawn_input(payload)
+    env_overrides = RuntimeOverrides.from_env()
+    config_overrides = RuntimeOverrides.from_config(runtime_view.config)
+    pre_resolved = resolve(cli_overrides, env_overrides, config_overrides)
 
     policies = resolve_policies(
         repo_root=runtime_view.repo_root,
-        requested_model=payload.model,
-        requested_harness=payload.harness,
+        overrides=pre_resolved,
         requested_agent=payload.agent,
         config=runtime_view.config,
         harness_registry=runtime_view.harness_registry,
@@ -199,6 +203,8 @@ def build_create_payload(
         skills_readonly=payload.dry_run,
     )
     profile = policies.profile
+    profile_overrides = RuntimeOverrides.from_agent_profile(profile)
+    resolved = resolve(cli_overrides, env_overrides, profile_overrides, config_overrides)
 
     # Merge profile skills with ad-hoc CLI --skills entries, deduplicating.
     merged_skill_names = dedupe_skill_names(
@@ -288,34 +294,22 @@ def build_create_payload(
     warning = merge_warnings(preflight_warning, warning)
     from meridian.lib.harness.adapter import SpawnParams
 
-    resolved_sandbox = (
-        payload.sandbox
-        or (profile.sandbox if profile is not None else None)
-    )
     permission_config, resolver = resolve_permission_pipeline(
-        sandbox=resolved_sandbox,
+        sandbox=resolved.sandbox,
         allowed_tools=profile.tools if profile is not None else (),
-        approval=(
-            payload.approval
-            or (profile.approval if profile is not None else None)
-            or "default"
-        ),
+        approval=resolved.approval or "default",
     )
 
     appended_system_prompt = None
     if prompt_policy.skill_injection_mode == "append-system-prompt":
         appended_system_prompt = compose_skill_injections(resolved_skills.loaded_skills) or None
 
-    resolved_thinking = (
-        payload.thinking
-        or (profile.thinking if profile is not None else None)
-    )
     preview_command = tuple(
         harness.build_command(
             SpawnParams(
                 prompt=composed_prompt,
                 model=ModelId(policies.model) if policies.model else None,
-                thinking=resolved_thinking,
+                thinking=resolved.thinking,
                 skills=resolved_skills.skill_names,
                 agent=agent_for_params,
                 adhoc_agent_payload=adhoc_agent_payload,
@@ -360,11 +354,7 @@ def build_create_payload(
         cli_command=preview_command,
         passthrough_args=payload.passthrough_args,
         appended_system_prompt=appended_system_prompt,
-        autocompact=(
-            payload.autocompact
-            if payload.autocompact is not None
-            else (profile.autocompact if profile is not None else None)
-        ),
+        autocompact=resolved.autocompact,
         session=SessionContinuation(
             harness_session_id=resolved_continue_harness_session_id,
             continue_fork=resolved_continue_fork,

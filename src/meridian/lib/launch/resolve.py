@@ -10,6 +10,7 @@ from meridian.lib.catalog.models import route_model
 from meridian.lib.catalog.skill import SkillRegistry
 from meridian.lib.config.settings import MeridianConfig
 from meridian.lib.core.domain import SkillContent
+from meridian.lib.core.overrides import RuntimeOverrides
 from meridian.lib.core.types import HarnessId, ModelId
 from meridian.lib.harness.adapter import SubprocessHarness
 from meridian.lib.harness.registry import HarnessRegistry
@@ -199,8 +200,7 @@ def resolve_harness(
 def resolve_policies(
     *,
     repo_root: Path,
-    requested_model: str,
-    requested_harness: str | None,
+    overrides: RuntimeOverrides,
     requested_agent: str | None,
     config: MeridianConfig,
     harness_registry: HarnessRegistry,
@@ -216,13 +216,13 @@ def resolve_policies(
         builtin_default=builtin_default_agent,
     )
 
-    resolved_model = requested_model.strip()
+    resolved_model = (overrides.model or "").strip()
     model_independently_specified = bool(resolved_model)
     if not resolved_model and profile is not None and profile.model:
         resolved_model = profile.model.strip()
         model_independently_specified = bool(resolved_model)
 
-    explicit_harness = (requested_harness or "").strip()
+    explicit_harness = (overrides.harness or "").strip()
     profile_harness = ""
     if profile is not None and profile.harness:
         profile_harness = profile.harness.strip()

@@ -8,6 +8,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.config.settings import MeridianConfig, load_config, resolve_repo_root
+from meridian.lib.core.overrides import RuntimeOverrides, resolve
 from meridian.lib.core.types import HarnessId, ModelId
 from meridian.lib.harness.adapter import SpawnParams, SubprocessHarness
 from meridian.lib.harness.registry import HarnessRegistry
@@ -132,11 +133,14 @@ def resolve_primary_launch_plan(
         dry_run=request.dry_run,
         builtin_default_agent="__meridian-orchestrator",
     )
+    cli_overrides = RuntimeOverrides.from_launch_request(request)
+    env_overrides = RuntimeOverrides.from_env()
+    config_overrides = RuntimeOverrides.from_config(resolved_config)
+    pre_resolved = resolve(cli_overrides, env_overrides, config_overrides)
 
     policies: ResolvedPolicies = resolve_policies(
         repo_root=resolved_root,
-        requested_model=request.model,
-        requested_harness=request.harness,
+        overrides=pre_resolved,
         requested_agent=request.agent,
         config=resolved_config,
         harness_registry=harness_registry,
@@ -146,6 +150,8 @@ def resolve_primary_launch_plan(
         skills_readonly=True,
     )
     profile = policies.profile
+    profile_overrides = RuntimeOverrides.from_agent_profile(profile)
+    resolved = resolve(cli_overrides, env_overrides, profile_overrides, config_overrides)
     model = ModelId(policies.model) if policies.model else None
     harness = policies.harness
     adapter = policies.adapter
@@ -212,7 +218,7 @@ def resolve_primary_launch_plan(
         run_params = SpawnParams(
             prompt=resolved_prompt,
             model=model,
-            thinking=profile.thinking if profile is not None else None,
+            thinking=resolved.thinking,
             skills=resolved_skills.skill_names,
             agent=profile_name or None,
             adhoc_agent_payload=adhoc_agent_payload,
@@ -242,9 +248,9 @@ def resolve_primary_launch_plan(
         command_request.passthrough_args
     )
     permission_config, resolver = resolve_permission_pipeline(
-        sandbox=profile.sandbox if profile is not None else None,
+        sandbox=resolved.sandbox,
         allowed_tools=profile.tools if profile is not None else (),
-        approval=request.approval,
+        approval=resolved.approval or "default",
     )
 
     # Let the adapter decide what prompt/skill content to include.
@@ -283,7 +289,7 @@ def resolve_primary_launch_plan(
     run_params = SpawnParams(
         prompt=appended_prompt,
         model=model,
-        thinking=profile.thinking if profile is not None else None,
+        thinking=resolved.thinking,
         skills=resolved_skills.skill_names,
         agent=profile_name or None,
         adhoc_agent_payload=adhoc_agent_payload,
