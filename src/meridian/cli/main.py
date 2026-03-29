@@ -322,12 +322,40 @@ def root(
         int | None,
         Parameter(name="--autocompact", help="Auto-compact threshold in messages."),
     ] = None,
+    thinking: Annotated[
+        str | None,
+        Parameter(name="--thinking", help="Thinking budget: low, medium, high, xhigh."),
+    ] = None,
+    sandbox: Annotated[
+        str | None,
+        Parameter(
+            name="--sandbox",
+            help=(
+                "Sandbox mode: read-only, workspace-write, full-access,"
+                " danger-full-access, unrestricted."
+            ),
+        ),
+    ] = None,
+    approval: Annotated[
+        str | None,
+        Parameter(
+            name="--approval",
+            help="Approval mode: default, confirm, auto, yolo. Overrides agent profile.",
+        ),
+    ] = None,
+    timeout: Annotated[
+        float | None,
+        Parameter(name="--timeout", help="Maximum runtime in minutes."),
+    ] = None,
     dry_run: Annotated[
         bool,
         Parameter(name="--dry-run", help="Preview launch command without starting harness."),
     ] = False,
 ) -> None:
     """Launch or resume the primary harness."""
+
+    if yolo and approval is not None:
+        raise ValueError("Cannot combine --yolo with --approval.")
 
     if _GLOBAL_OPTIONS.get() is None:
         resolved = normalize_output_format(requested=output_format, json_mode=json_mode)
@@ -347,7 +375,11 @@ def root(
         agent=agent,
         work=work,
         yolo=yolo,
+        approval=approval,
         autocompact=autocompact,
+        thinking=thinking,
+        sandbox=sandbox,
+        timeout=timeout,
         dry_run=dry_run,
         passthrough=passthrough,
     )
@@ -465,7 +497,11 @@ def _run_primary_launch(
     agent: str | None,
     work: str,
     yolo: bool,
+    approval: str | None,
     autocompact: int | None,
+    thinking: str | None,
+    sandbox: str | None,
+    timeout: float | None,
     dry_run: bool,
     passthrough: tuple[str, ...],
 ) -> None:
@@ -481,7 +517,7 @@ def _run_primary_launch(
     harness_registry = get_default_harness_registry()
     normalized_continue_ref = continue_ref.strip() if continue_ref is not None else ""
     resume_target = normalized_continue_ref if normalized_continue_ref else None
-    resolved_approval = "yolo" if yolo else "default"
+    resolved_approval = approval if approval is not None else ("yolo" if yolo else "default")
 
     continue_harness_session_id: str | None = None
     continue_chat_id: str | None = None
@@ -522,6 +558,9 @@ def _run_primary_launch(
             pinned_context="",
             dry_run=dry_run,
             approval=resolved_approval,
+            thinking=thinking,
+            sandbox=sandbox,
+            timeout=timeout,
             continue_harness_session_id=continue_harness_session_id,
             continue_chat_id=continue_chat_id,
         ),
@@ -603,12 +642,40 @@ def _register_harness_shortcut_command(harness_name: str) -> None:
             int | None,
             Parameter(name="--autocompact", help="Auto-compact threshold in messages."),
         ] = None,
+        thinking: Annotated[
+            str | None,
+            Parameter(name="--thinking", help="Thinking budget: low, medium, high, xhigh."),
+        ] = None,
+        sandbox: Annotated[
+            str | None,
+            Parameter(
+                name="--sandbox",
+                help=(
+                    "Sandbox mode: read-only, workspace-write, full-access,"
+                    " danger-full-access, unrestricted."
+                ),
+            ),
+        ] = None,
+        approval: Annotated[
+            str | None,
+            Parameter(
+                name="--approval",
+                help="Approval mode: default, confirm, auto, yolo. Overrides agent profile.",
+            ),
+        ] = None,
+        timeout: Annotated[
+            float | None,
+            Parameter(name="--timeout", help="Maximum runtime in minutes."),
+        ] = None,
         dry_run: Annotated[
             bool,
             Parameter(name="--dry-run", help="Preview launch command without starting harness."),
         ] = False,
     ) -> None:
         """Launch or resume the primary harness."""
+
+        if yolo and approval is not None:
+            raise ValueError("Cannot combine --yolo with --approval.")
 
         if _GLOBAL_OPTIONS.get() is None:
             _GLOBAL_OPTIONS.set(
@@ -627,7 +694,11 @@ def _register_harness_shortcut_command(harness_name: str) -> None:
             agent=agent,
             work=work,
             yolo=yolo,
+            approval=approval,
             autocompact=autocompact,
+            thinking=thinking,
+            sandbox=sandbox,
+            timeout=timeout,
             dry_run=dry_run,
             passthrough=passthrough,
         )
@@ -743,6 +814,10 @@ _TOP_LEVEL_VALUE_FLAGS = frozenset(
         "-a",
         "--work",
         "--autocompact",
+        "--thinking",
+        "--sandbox",
+        "--approval",
+        "--timeout",
     }
 )
 _TOP_LEVEL_BOOL_FLAGS = frozenset(

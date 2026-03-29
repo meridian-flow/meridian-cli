@@ -24,6 +24,9 @@ class LaunchRequest(BaseModel):
     pinned_context: str = ""
     dry_run: bool = False
     approval: str = "default"
+    thinking: str | None = None
+    sandbox: str | None = None
+    timeout: float | None = None
     continue_harness_session_id: str | None = None
     continue_chat_id: str | None = None
 

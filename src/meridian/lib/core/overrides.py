@@ -206,12 +206,17 @@ class RuntimeOverrides(BaseModel):
     def from_config(cls, config: MeridianConfig | None) -> RuntimeOverrides:
         if config is None:
             return cls()
+        primary = config.primary
         return cls(
-            model=_normalize_optional_string(config.primary.model),
-            harness=_normalize_optional_string(config.primary.harness),
-            autocompact=config.primary.autocompact_pct,
-            budget=config.primary.budget,
-            max_turns=config.primary.max_turns,
+            model=primary.model,
+            harness=primary.harness,
+            thinking=primary.thinking,
+            sandbox=primary.sandbox,
+            approval=primary.approval,
+            autocompact=primary.autocompact or primary.autocompact_pct,
+            timeout=primary.timeout,
+            budget=primary.budget,
+            max_turns=primary.max_turns,
         )
 
     @classmethod
@@ -231,8 +236,11 @@ class RuntimeOverrides(BaseModel):
         return cls(
             model=_normalize_optional_string(request.model),
             harness=_normalize_optional_string(request.harness),
-            approval=(request.approval if request.approval != "default" else None),
+            thinking=_normalize_optional_string(request.thinking),
+            sandbox=_normalize_optional_string(request.sandbox),
+            approval=request.approval if request.approval != "default" else None,
             autocompact=request.autocompact,
+            timeout=request.timeout,
         )
 
 
