@@ -8,6 +8,11 @@ from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.catalog.skill import split_markdown_frontmatter
 from meridian.lib.config.settings import resolve_repo_root
+from meridian.lib.core.overrides import (
+    KNOWN_APPROVAL_VALUES,
+    KNOWN_SANDBOX_VALUES,
+    KNOWN_THINKING_VALUES,
+)
 
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
@@ -15,17 +20,10 @@ logger.addHandler(logging.NullHandler())
 _AUTOCOMPACT_PCT_MIN = 1
 _AUTOCOMPACT_PCT_MAX = 100
 
-_KNOWN_SANDBOX_VALUES = frozenset(
-    {
-        "read-only",
-        "workspace-write",
-        "full-access",
-        "danger-full-access",
-        "unrestricted",
-    }
-)
-_KNOWN_THINKING_VALUES = frozenset({"low", "medium", "high", "xhigh"})
-_KNOWN_APPROVAL_VALUES = frozenset({"default", "confirm", "auto", "yolo"})
+# Re-export under private names for backward compatibility within this module.
+_KNOWN_SANDBOX_VALUES = KNOWN_SANDBOX_VALUES
+_KNOWN_THINKING_VALUES = KNOWN_THINKING_VALUES
+_KNOWN_APPROVAL_VALUES = KNOWN_APPROVAL_VALUES
 
 
 class AgentProfile(BaseModel):

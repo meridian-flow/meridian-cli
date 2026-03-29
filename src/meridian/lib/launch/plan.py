@@ -136,7 +136,7 @@ def resolve_primary_launch_plan(
     cli_overrides = RuntimeOverrides.from_launch_request(request)
     env_overrides = RuntimeOverrides.from_env()
     config_overrides = RuntimeOverrides.from_config(resolved_config)
-    pre_resolved = resolve(cli_overrides, env_overrides, config_overrides)
+    pre_resolved = resolve(cli_overrides, env_overrides)
 
     policies: ResolvedPolicies = resolve_policies(
         repo_root=resolved_root,

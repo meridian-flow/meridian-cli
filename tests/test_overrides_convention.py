@@ -135,6 +135,30 @@ def test_from_env_round_trip() -> None:
             )
 
 
+def test_from_config_round_trip() -> None:
+    """from_config reads all 9 RuntimeOverrides fields from PrimaryConfig."""
+    from meridian.lib.config.settings import MeridianConfig, PrimaryConfig
+    from meridian.lib.core.overrides import RuntimeOverrides
+
+    primary = PrimaryConfig(
+        model="test-model",
+        harness="claude",
+        thinking="high",
+        sandbox="full-access",
+        approval="auto",
+        autocompact=50,
+        timeout=30.0,
+        budget=5.0,
+        max_turns=10,
+    )
+    config = MeridianConfig(primary=primary)
+    result = RuntimeOverrides.from_config(config)
+    for field_name in RuntimeOverrides.model_fields:
+        assert getattr(result, field_name) is not None, (
+            f"from_config() did not populate '{field_name}'"
+        )
+
+
 def test_resolve_precedence() -> None:
     """resolve() picks first-non-none from ordered layers."""
     from meridian.lib.core.overrides import RuntimeOverrides, resolve

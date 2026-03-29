@@ -6,6 +6,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict
 
+from meridian.lib.core.overrides import KNOWN_APPROVAL_VALUES
 from meridian.lib.core.types import HarnessId
 
 logger = logging.getLogger(__name__)
@@ -19,7 +20,7 @@ class PermissionTier(StrEnum):
     FULL_ACCESS = "full-access"
 
 
-_APPROVAL_MODES = frozenset({"default", "confirm", "auto", "yolo"})
+_APPROVAL_MODES = KNOWN_APPROVAL_VALUES
 
 
 class PermissionConfig(BaseModel):

@@ -189,7 +189,7 @@ def build_create_payload(
     cli_overrides = RuntimeOverrides.from_spawn_input(payload)
     env_overrides = RuntimeOverrides.from_env()
     config_overrides = RuntimeOverrides.from_config(runtime_view.config)
-    pre_resolved = resolve(cli_overrides, env_overrides, config_overrides)
+    pre_resolved = resolve(cli_overrides, env_overrides)
 
     policies = resolve_policies(
         repo_root=runtime_view.repo_root,
@@ -360,7 +360,7 @@ def build_create_payload(
             continue_fork=resolved_continue_fork,
         ),
         execution=ExecutionPolicy(
-            timeout_secs=minutes_to_seconds(payload.timeout),
+            timeout_secs=minutes_to_seconds(resolved.timeout),
             kill_grace_secs=minutes_to_seconds(runtime_view.config.kill_grace_minutes) or 0.0,
             max_retries=runtime_view.config.max_retries,
             retry_backoff_secs=runtime_view.config.retry_backoff_seconds,

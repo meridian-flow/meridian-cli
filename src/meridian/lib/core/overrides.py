@@ -213,7 +213,7 @@ class RuntimeOverrides(BaseModel):
             thinking=primary.thinking,
             sandbox=primary.sandbox,
             approval=primary.approval,
-            autocompact=primary.autocompact or primary.autocompact_pct,
+            autocompact=primary.autocompact,
             timeout=primary.timeout,
             budget=primary.budget,
             max_turns=primary.max_turns,
