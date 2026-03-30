@@ -225,8 +225,6 @@ def _spawn_create(
     if continue_from is not None:
         if context_from:
             raise ValueError("Cannot use --from with --continue")
-        if yolo:
-            raise ValueError("Cannot use --yolo with --continue")
         result = spawn_continue_sync(
             SpawnContinueInput(
                 spawn_id=continue_from,
@@ -238,6 +236,7 @@ def _spawn_create(
                 dry_run=dry_run,
                 timeout=timeout,
                 passthrough_args=passthrough,
+                approval=resolved_approval,
             ),
             sink=current_output_sink(),
         )

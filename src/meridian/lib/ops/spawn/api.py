@@ -644,6 +644,7 @@ def spawn_continue_sync(
         continue_harness=source_harness,
         continue_fork=payload.fork,
         passthrough_args=payload.passthrough_args,
+        approval=payload.approval,
     )
     return _with_command(spawn_create_sync(create_input, ctx=ctx, sink=sink), "spawn.continue")
 
