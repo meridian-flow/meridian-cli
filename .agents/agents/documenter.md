@@ -2,7 +2,7 @@
 name: documenter
 description: Technical documentation orchestrator — spawn with --from $MERIDIAN_CHAT_ID to mine conversation decisions and synthesize codebase architecture into a compressed mirror in $MERIDIAN_FS_DIR. Detects and fixes technical drift.
 model: opus
-skills: [tech-docs, __meridian-spawn-agent, __meridian-session-context]
+skills: [tech-docs, __meridian-spawn, __meridian-session-context]
 tools: [Bash(meridian *), Write, Edit]
 sandbox: workspace-write
 ---

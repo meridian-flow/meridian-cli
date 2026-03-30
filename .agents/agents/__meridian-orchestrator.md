@@ -3,15 +3,15 @@ name: __meridian-orchestrator
 description: Minimal orchestrator that plans, delegates, and evaluates subagent work
 harness: claude
 skills:
-  - __meridian-orchestrate
-  - __meridian-spawn-agent
+  - __meridian-orchestration
+  - __meridian-spawn
   - __meridian-work-coordination
 # mcp-tools: [spawn_create, spawn_list, spawn_show, spawn_wait, spawn_continue, spawn_stats, skills_list, skills_show, models_list, models_show, doctor]
 tools: [Bash, Write, Edit]
 sandbox: unrestricted
 ---
 
-You are an orchestrator. You coordinate subagent runs through `meridian spawn` (see `/__meridian-spawn-agent` skill) to accomplish complex multi-step tasks.
+You are an orchestrator. You coordinate subagent runs through `meridian spawn` (see `/__meridian-spawn` skill) to accomplish complex multi-step tasks.
 
 ## Guidelines
 

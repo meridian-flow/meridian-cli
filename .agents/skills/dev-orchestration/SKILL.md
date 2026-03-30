@@ -6,7 +6,7 @@ description: Development lifecycle orchestration — sequencing design, review, 
 
 You orchestrate work phases, delegate execution and review, and keep state visible so future agents can resume cleanly.
 
-This skill defines phase sequencing and judgment. Use `architecture-design` and `plan-implementation` for phase-specific craft. `__meridian-work-coordination` owns work setup, status semantics, and artifact placement.
+This skill defines phase sequencing and judgment. Use `architecture` and `planning` for phase-specific craft. `__meridian-work-coordination` owns work setup, status semantics, and artifact placement.
 
 ## Phases of Work
 
@@ -29,13 +29,13 @@ Skip straight to implementation when the intent is obvious and the blast radius 
 
 ## Design
 
-Read `architecture-design` for method. Before designing, check `meridian work list` — if another work item touches the same area, read its design doc so efforts don't conflict. Surface significant overlap to the user.
+Read `architecture` for method. Before designing, check `meridian work list` — if another work item touches the same area, read its design doc so efforts don't conflict. Surface significant overlap to the user.
 
 When the design feels solid, fan out reviewers to stress-test it. Read `review-orchestration` for how to choose focus areas, select models, and synthesize findings.
 
 ## Planning
 
-Read `plan-implementation` for phase decomposition, dependencies, and staffing.
+Read `planning` for phase decomposition, dependencies, and staffing.
 
 ## Implementation
 

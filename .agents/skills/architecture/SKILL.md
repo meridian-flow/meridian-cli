@@ -1,5 +1,5 @@
 ---
-name: architecture-design
+name: architecture
 description: Architecture design methodology — problem framing, tradeoff analysis, and visual communication with Mermaid diagrams. Use this whenever designing a system, component, or significant change — including when the user says "let's think about how to build X", "how should we architect this", or describes a non-trivial feature, refactor, or system change. Also activate when entering the design phase of any dev workflow.
 ---
 

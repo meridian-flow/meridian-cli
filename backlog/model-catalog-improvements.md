@@ -27,7 +27,7 @@ Add a skill in `meridian-base/` teaching agents how to manage models, aliases, d
 
 ## 5. Fix review-orchestration model references
 
-`meridian-dev-workflow/skills/review-orchestration/SKILL.md` lists specific model names (gpt-5.4, opus, gpt-5.3-codex) in the Model Selection section. Replace with characteristic-based guidance and point to `meridian models list`. Same pattern as `__meridian-orchestrate` which already does this right.
+`meridian-dev-workflow/skills/review-orchestration/SKILL.md` lists specific model names (gpt-5.4, opus, gpt-5.3-codex) in the Model Selection section. Replace with characteristic-based guidance and point to `meridian models list`. Same pattern as `__meridian-orchestration` which already does this right.
 
 ## ~~6. Fix docs drift~~ (done)
 

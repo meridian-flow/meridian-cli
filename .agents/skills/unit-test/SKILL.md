@@ -1,5 +1,5 @@
 ---
-name: unit-testing
+name: unit-test
 description: Focused unit test writing — targeted tests for specific edge cases, regression guards, and tricky logic. Use when you need to verify particular behaviors in isolation, not when you need broad verification (that's the verifier) or end-to-end testing (that's smoke testing).
 ---
 # Unit Testing

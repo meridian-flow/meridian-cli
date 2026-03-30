@@ -39,7 +39,7 @@ Exclude format: `exclude_items = [{ kind = "agent", name = "..." }]`
 
 When agents are explicitly selected with `agents = [...]`, the engine automatically reads each agent's YAML frontmatter to find `skills: [...]` dependencies. Matching skills from the same source are auto-included — no need to manually list them.
 
-For example, if `__meridian-orchestrator` declares `skills: [__meridian-orchestrate, __meridian-spawn-agent]`, installing just the agent will auto-install both skills.
+For example, if `__meridian-orchestrator` declares `skills: [__meridian-orchestration, __meridian-spawn]`, installing just the agent will auto-install both skills.
 
 ## Renames
 
@@ -68,7 +68,7 @@ meridian sources install https://github.com/org/repo.git  # Full URL
 ```toml
 # Core Meridian agents and skills from the official repo.
 # Selective sync — only the items needed for orchestration.
-# Skill deps (__meridian-orchestrate, __meridian-spawn-agent) are
+# Skill deps (__meridian-orchestration, __meridian-spawn) are
 # auto-resolved from agent frontmatter.
 [[sources]]
 name = "meridian-base"
@@ -76,7 +76,7 @@ kind = "git"
 url = "https://github.com/haowjy/meridian-base.git"
 ref = "main"
 agents = ["__meridian-orchestrator", "__meridian-subagent"]
-skills = ["__meridian-orchestrate", "__meridian-spawn-agent", "__meridian-install"]
+skills = ["__meridian-orchestration", "__meridian-spawn", "__meridian-install"]
 
 # Team-shared agents pinned to a release tag.
 [[sources]]

@@ -2,7 +2,7 @@
 name: investigator
 description: Bug investigator — briefly investigates flagged issues, quick-fixes or files GH issues. Spawn with --from $MERIDIAN_CHAT_ID at phase boundaries for proactive backlog sweeps of conversations and code.
 model: gpt
-skills: [issue-tracking]
+skills: [issues]
 tools: [Bash, Write, Edit, WebSearch, WebFetch]
 sandbox: workspace-write
 thinking: medium
@@ -21,7 +21,7 @@ For each flagged issue, run a brief, focused investigation:
 
 Then choose one path:
 - **Quick fix** — if the fix is small, obvious, and safe, implement it and run relevant checks.
-- **Create/comment issue** — if the work is larger, uncertain, cross-cutting, or out of scope, use your `issue-tracking` skill to open a GH issue or add findings to an existing one.
+- **Create/comment issue** — if the work is larger, uncertain, cross-cutting, or out of scope, use your `issues` skill to open a GH issue or add findings to an existing one.
 - **Close as non-issue** — if evidence shows it is not a bug, document why so it does not get re-raised.
 
 Keep investigations time-bounded. If you cannot fully resolve something quickly, hand off with clear evidence, scope, and next-step recommendation.

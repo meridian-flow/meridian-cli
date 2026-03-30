@@ -1,6 +1,6 @@
 # gh CLI Reference for Issue Tracking
 
-Detailed `gh` CLI usage for the issue-tracking skill. SKILL.md covers the when and why — this file covers the how.
+Detailed `gh` CLI usage for the issues skill. SKILL.md covers the when and why — this file covers the how.
 
 ## Availability Check
 

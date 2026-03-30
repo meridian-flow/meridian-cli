@@ -60,6 +60,8 @@ Run tests and type checks after making changes. Commit after each passing step.
 | `skills` | string[] | no | Skills to load for this agent |
 | `sandbox` | string | no | Permission tier: `read-only`, `workspace-write`, `full-access`, `unrestricted` |
 | `tools` | string[] | no | Explicit tool allowlist (permission-required tools for Claude/OpenCode `-p` mode) |
+| `approval` | string | no | Permission approval mode: `default`, `confirm`, `auto`, `yolo` |
+| `autocompact` | int | no | Autocompact threshold percentage (1–100) |
 | `mcp_tools` | string[] | no | MCP tools to expose |
 
 ## Body

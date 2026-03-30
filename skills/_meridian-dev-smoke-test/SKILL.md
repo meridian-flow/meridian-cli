@@ -1,5 +1,5 @@
 ---
-description: General smoke-testing methodology for the meridian CLI. Use this after
+description: General smoke-test methodology for the meridian CLI. Use this after
   implementing or modifying any CLI command, after refactors touching state,
   launch, or ops layers, before calling a feature done, and when debugging
   user-reported issues. Covers how smoke tests are organized, core CLI testing
@@ -162,7 +162,7 @@ Keep the main smoke-test pass generic. When a change targets one command area, r
 
 ## Self-Healing This Skill
 
-When you discover a new smoke-testing workaround, gotcha, or pattern during testing, update this skill rather than keeping the knowledge in your head:
+When you discover a new smoke-test workaround, gotcha, or pattern during testing, update this skill rather than keeping the knowledge in your head:
 
 1. If it's a general pattern (like the env-var trap or CWD warning), add it to the relevant section above.
 2. If it's feature-specific, add or update the matching file under `resources/`. Create a new resource file if no existing one fits.

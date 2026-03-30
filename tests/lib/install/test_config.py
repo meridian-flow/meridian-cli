@@ -70,7 +70,7 @@ def test_new_format_agents_skills_roundtrip(tmp_path: Path) -> None:
                 url="https://github.com/haowjy/meridian-base.git",
                 ref="main",
                 agents=("__meridian-orchestrator", "__meridian-subagent"),
-                skills=("__meridian-orchestrate",),
+                skills=("__meridian-orchestration",),
             ),
         )
     )

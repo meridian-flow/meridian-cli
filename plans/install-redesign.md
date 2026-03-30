@@ -104,11 +104,11 @@ Separate from the CLI work. The current `meridian-agents` repo should split into
 
 ### `@haowjy/meridian-agents` (core runtime)
 
-Only bootstrap items: `__meridian-orchestrator`, `__meridian-subagent`, `__meridian-orchestrate`, `__meridian-spawn-agent`, `__meridian-managed-install`.
+Only bootstrap items: `__meridian-orchestrator`, `__meridian-subagent`, `__meridian-orchestration`, `__meridian-spawn`, `__meridian-managed-install`.
 
 ### `@haowjy/meridian-dev-workflow` (dev methodology)
 
-Opinionated dev workflow: `coder`, `reviewer`, `reviewer-*`, `verifier`, `investigator`, `researcher`, `documenter`, `smoke-tester`, `unit-tester`, `browser-tester`, plus skills like `dev-workflow`, `design`, `plan-implementation`, `reviewing`, `work-coordination`, `documenting`, `issue-tracking`.
+Opinionated dev workflow: `coder`, `reviewer`, `reviewer-*`, `verifier`, `investigator`, `researcher`, `documenter`, `smoke-tester`, `unit-tester`, `browser-tester`, plus skills like `dev-workflow`, `design`, `planning`, `reviewing`, `work-coordination`, `documenting`, `issues`.
 
 ### Migration
 

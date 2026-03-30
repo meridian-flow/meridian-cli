@@ -1,5 +1,5 @@
 ---
-name: plan-implementation
+name: planning
 description: Break a design into executable implementation phases with focused blueprints, dependency mapping, and agent staffing. Use this after a design doc exists and before spawning coders — whenever you need to decompose a design into phases, write phase specs, or figure out execution order and parallelism. Also activate when entering the planning phase of dev-orchestration.
 ---
 
@@ -149,7 +149,7 @@ Reviewers:
 Choose review lenses based on likely failure modes that tests may miss (security, concurrency, architecture fit, design alignment). Increase reviewer depth as risk increases.
 
 Testing:
-Default to `verification-tester` for behavior-changing phases so tests, typing, and lint are cleared before review. Add `unit-tester`, `smoke-tester`, or `browser-tester` based on what could fail in practice.
+Default to `verifier` for behavior-changing phases so tests, typing, and lint are cleared before review. Add `unit-tester`, `smoke-tester`, or `browser-tester` based on what could fail in practice.
 
 `investigator` is reactive, not pre-staffed. Spawn only when implementation or review surfaces off-scope uncertainty.
 

@@ -1,5 +1,5 @@
 ---
-name: __meridian-orchestrate
+name: __meridian-orchestration
 description: Supervisor workflow for multi-step tasks. Teaches planning, delegation, review cycles, and model selection. Use this whenever you need to break work into subtasks, delegate to specialist agents, coordinate parallel execution, or run review gates. Activate for any task that's too complex or multi-faceted to do in a single pass.
 ---
 
@@ -37,7 +37,7 @@ Each spawn is: **model + prompt + context**. Compose good prompts:
 - Set clear boundaries — one step per spawn, not the whole plan
 - Tell the subagent to verify its own work within the spawn
 
-Use `meridian spawn` for execution. See the `__meridian-spawn-agent` skill for CLI details, including parallel execution patterns.
+Use `meridian spawn` for execution. See the `__meridian-spawn` skill for CLI details, including parallel execution patterns.
 
 ## Model Selection
 

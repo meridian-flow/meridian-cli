@@ -1,5 +1,5 @@
 ---
-name: verification-testing
+name: verification
 description: Build verification — run tests, type checks, and linters, fix mechanical breakage, and report real issues. Use after implementation to get the build green, or when you need to assess whether the codebase is in a clean state. This is the "does it compile and pass" check, not creative testing.
 ---
 # Verification

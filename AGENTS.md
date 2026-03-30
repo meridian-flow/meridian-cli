@@ -34,9 +34,19 @@ No real users, no real user data. No backwards compatibility needed — complete
 
 ## Dev Workflow
 
+Two orchestrators split the dev lifecycle: **dev-orchestrator** handles interactive design and planning with the user (spawns architects, reviewers, planners), then hands off approved plans to **dev-runner** for autonomous execution (code → test → review → fix loops, no human intervention needed).
+
 Use `meridian spawn` to hand off tasks to subagents. Prefer gpt-5.3-codex as the main code implementer, opus as the primary documenter, and gpt-5.4 as the main reviewer. Use reviewers who focus on different aspects (implementation correctness, design quality, extensibility) to ensure plans are properly followed.
 
 NEVER REVERT CHANGES — always assume it's someone else's work.
+
+### Approval Modes
+
+Spawns support 4 approval modes: `default` (harness decides), `confirm` (user approves each tool call), `auto` (auto-approve safe operations), `yolo` (approve everything). Set via `--approval` flag or profile YAML.
+
+### Config Precedence
+
+CLI flags > ENV vars > YAML profile > Project config > User config > harness default.
 
 ### Testing
 

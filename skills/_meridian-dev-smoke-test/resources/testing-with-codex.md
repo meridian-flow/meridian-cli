@@ -55,7 +55,7 @@ Codex's `workspace-write` sandbox uses Linux Landlock to restrict network access
 
 ### Testing Profile Sandbox Mapping
 
-When smoke-testing spawn lifecycle, test profile sandbox values explicitly:
+When smoke-test spawn lifecycle, test profile sandbox values explicitly:
 
 ```bash
 # Dry-run to verify sandbox mapping from an agent profile

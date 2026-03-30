@@ -203,7 +203,7 @@ def test_ensure_bootstrap_source_manifest_upgrades_partial_filter(
         url="https://github.com/haowjy/meridian-base.git",
         ref="main",
         agents=("__meridian-orchestrator", "__meridian-subagent"),
-        skills=("__meridian-orchestrate", "__meridian-spawn-agent"),
+        skills=("__meridian-orchestration", "__meridian-spawn"),
     )
     monkeypatch.setattr(
         "meridian.lib.install.bootstrap.bootstrap_source_config",
@@ -219,7 +219,7 @@ def test_ensure_bootstrap_source_manifest_upgrades_partial_filter(
                     url="https://github.com/haowjy/meridian-base.git",
                     ref="main",
                     agents=("__meridian-subagent",),
-                    skills=("__meridian-orchestrate",),
+                    skills=("__meridian-orchestration",),
                 ),
             )
         )
@@ -233,7 +233,7 @@ def test_ensure_bootstrap_source_manifest_upgrades_partial_filter(
     source = updated.find_source("meridian-base")
     assert source is not None
     assert source.agents == ("__meridian-orchestrator", "__meridian-subagent")
-    assert source.skills == ("__meridian-orchestrate", "__meridian-spawn-agent")
+    assert source.skills == ("__meridian-orchestration", "__meridian-spawn")
 
 
 def test_ensure_bootstrap_assets_rejects_unknown_missing_default(tmp_path: Path) -> None:

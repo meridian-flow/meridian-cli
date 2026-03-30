@@ -1,5 +1,5 @@
 ---
-name: browser-testing
+name: browser-test
 description: Browser-based QA — visual verification, user flows, form testing, accessibility, and console error detection. Use when a change touches frontend behavior and you need to verify it works in a real browser, not just that tests pass.
 ---
 # Browser Testing

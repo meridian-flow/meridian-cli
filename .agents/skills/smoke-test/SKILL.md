@@ -1,5 +1,5 @@
 ---
-name: smoke-testing
+name: smoke-test
 description: End-to-end smoke testing methodology — testing from the user's perspective. CLI invocations, HTTP requests, end-to-end flows, race probes, and interruption recovery. Use when you need to verify that user-facing behavior actually works, not just that tests pass.
 ---
 # Smoke Testing

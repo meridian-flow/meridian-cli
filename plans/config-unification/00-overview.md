@@ -55,9 +55,9 @@ flowchart TD
 
 | Step | Implementer | Reviewers | Testers |
 |------|-------------|-----------|---------|
-| 1 | coder | correctness, design alignment | verification-tester |
-| 2 | coder | correctness (precedence logic) | verification-tester |
-| 3 | coder (stronger model) | design alignment, correctness | verification-tester |
-| 4a | coder | correctness | verification-tester |
-| 4b | coder | correctness | verification-tester |
-| 5 | coder | design alignment | verification-tester |
+| 1 | coder | correctness, design alignment | verifier |
+| 2 | coder | correctness (precedence logic) | verifier |
+| 3 | coder (stronger model) | design alignment, correctness | verifier |
+| 4a | coder | correctness | verifier |
+| 4b | coder | correctness | verifier |
+| 5 | coder | design alignment | verifier |
