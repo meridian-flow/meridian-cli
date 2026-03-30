@@ -294,6 +294,7 @@ def _spawn_create(
                     harness_session_id=resolved_reference.harness_session_id,
                     continue_fork=True,
                     forked_from_chat_id=resolved_reference.source_chat_id,
+                    source_execution_cwd=resolved_reference.source_execution_cwd,
                 ),
                 continue_harness_session_id=resolved_reference.harness_session_id,
                 continue_harness=resolved_reference.harness,

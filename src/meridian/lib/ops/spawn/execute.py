@@ -93,6 +93,7 @@ class BackgroundWorkerParams(BaseModel):
     appended_system_prompt: str | None = None
     autocompact: int | None = None
     forked_from_chat_id: str | None = None
+    source_execution_cwd: str | None = None
     execution_cwd: str | None = None
 
 
@@ -392,6 +393,7 @@ async def _execute_existing_spawn(
     appended_system_prompt: str | None = None,
     autocompact: int | None = None,
     forked_from_chat_id: str | None = None,
+    source_execution_cwd: str | None = None,
     execution_cwd: str | None = None,
     sink: OutputSink | None = None,
     ctx: RuntimeContext | None = None,
@@ -436,6 +438,7 @@ async def _execute_existing_spawn(
         session=SessionContinuation(
             harness_session_id=continue_harness_session_id,
             continue_fork=continue_fork,
+            source_execution_cwd=source_execution_cwd,
         ),
         execution=ExecutionPolicy(
             timeout_secs=minutes_to_seconds(timeout),
@@ -587,6 +590,7 @@ def execute_spawn_background(
             appended_system_prompt=prepared.appended_system_prompt,
             autocompact=prepared.autocompact,
             forked_from_chat_id=payload.forked_from_chat_id,
+            source_execution_cwd=prepared.session.source_execution_cwd,
             execution_cwd=execution_cwd_str,
         )
         _persist_bg_worker_params(log_dir, bg_params)
@@ -911,6 +915,7 @@ def _background_worker_main(
             appended_system_prompt=params.appended_system_prompt,
             autocompact=params.autocompact,
             forked_from_chat_id=params.forked_from_chat_id,
+            source_execution_cwd=params.source_execution_cwd,
             execution_cwd=params.execution_cwd,
             ctx=resolved_context,
         )

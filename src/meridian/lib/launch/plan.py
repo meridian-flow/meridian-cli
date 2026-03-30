@@ -56,6 +56,7 @@ class ResolvedPrimaryLaunchPlan(BaseModel):
     command_request: LaunchRequest
     warning: str | None = None
     resolved_work_id: str | None = None
+    source_execution_cwd: str | None = None
 
 
 def normalize_system_prompt_passthrough_args(
@@ -248,6 +249,7 @@ def resolve_primary_launch_plan(
     continuation_harness_session_id = (
         session_intent.harness_session_id if session_intent.mode != SessionMode.FRESH else None
     )
+    source_execution_cwd = request.session.source_execution_cwd
     continue_fork = session_intent.mode == SessionMode.FORK or request.continue_fork
     seed = adapter.seed_session(
         is_resume=session_intent.mode == SessionMode.RESUME,
@@ -299,6 +301,7 @@ def resolve_primary_launch_plan(
             seed_harness_session_id=seed_harness_session_id,
             command_request=command_request,
             warning=policies.warning,
+            source_execution_cwd=source_execution_cwd,
         )
 
     passthrough_args, passthrough_prompt_fragments = normalize_system_prompt_passthrough_args(
@@ -374,6 +377,7 @@ def resolve_primary_launch_plan(
         seed_harness_session_id=seed_harness_session_id,
         command_request=command_request,
         warning=policies.warning,
+        source_execution_cwd=source_execution_cwd,
     )
 
 

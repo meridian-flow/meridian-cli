@@ -28,6 +28,7 @@ class SessionContinuation(BaseModel):
     harness_session_id: str | None = None
     continue_fork: bool = False
     forked_from_chat_id: str | None = None
+    source_execution_cwd: str | None = None
 
 
 class PreparedSpawnPlan(BaseModel):

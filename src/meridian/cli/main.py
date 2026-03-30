@@ -128,6 +128,7 @@ class _ResolvedSessionTarget(BaseModel):
     source_model: str | None = None
     source_agent: str | None = None
     source_work_id: str | None = None
+    source_execution_cwd: str | None = None
     tracked: bool = False
     warning: str | None = None
 
@@ -560,6 +561,7 @@ def _run_primary_launch(
     continue_fork = False
     continue_warning: str | None = None
     forked_from_chat_id: str | None = None
+    source_execution_cwd: str | None = None
     output_forked_from: str | None = None
     session_mode = SessionMode.FRESH
     explicit_harness = harness.strip() if harness is not None and harness.strip() else None
@@ -616,6 +618,7 @@ def _run_primary_launch(
         continue_warning = resolved_fork.warning
         continue_fork = True
         forked_from_chat_id = resolved_fork.chat_id
+        source_execution_cwd = resolved_fork.source_execution_cwd
         output_forked_from = resolved_fork.chat_id or fork_target
         session_mode = SessionMode.FORK
 
@@ -650,6 +653,7 @@ def _run_primary_launch(
                 harness_session_id=continue_harness_session_id,
                 continue_fork=continue_fork,
                 forked_from_chat_id=forked_from_chat_id,
+                source_execution_cwd=source_execution_cwd,
             ),
             continue_harness_session_id=continue_harness_session_id,
             continue_chat_id=continue_chat_id,
@@ -843,6 +847,7 @@ def _resolve_session_target(
         source_model=resolved.source_model,
         source_agent=resolved.source_agent,
         source_work_id=resolved.source_work_id,
+        source_execution_cwd=resolved.source_execution_cwd,
         tracked=resolved.tracked,
         warning=resolved.warning,
     )

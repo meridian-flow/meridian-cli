@@ -284,6 +284,7 @@ def build_create_payload(
     )
     requested_continue_fork = payload.session.continue_fork or payload.continue_fork
     resolved_forked_from = payload.session.forked_from_chat_id or payload.forked_from_chat_id
+    resolved_source_execution_cwd = payload.session.source_execution_cwd
     requested_harness = (payload.continue_harness or "").strip()
     if payload.continue_source_tracked and requested_harness_session_id is None:
         raise ValueError(_missing_continue_session_error(payload.continue_source_ref))
@@ -399,6 +400,7 @@ def build_create_payload(
             harness_session_id=resolved_continue_harness_session_id,
             continue_fork=resolved_continue_fork,
             forked_from_chat_id=resolved_forked_from,
+            source_execution_cwd=resolved_source_execution_cwd,
         ),
         execution=ExecutionPolicy(
             timeout_secs=minutes_to_seconds(resolved.timeout),
