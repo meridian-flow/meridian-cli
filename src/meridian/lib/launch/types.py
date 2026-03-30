@@ -11,6 +11,11 @@ _CONTINUATION_GUIDANCE = (
     "preserve prior decisions unless evidence has changed, and avoid duplicating "
     "already-completed work."
 )
+_FORK_GUIDANCE = (
+    "You are working in a forked Meridian session - a branch from a prior conversation. "
+    "You have the full context from the original session. The user wants to explore "
+    "a different direction from here. Do not repeat completed work."
+)
 
 
 class SessionMode(StrEnum):
@@ -55,6 +60,7 @@ class LaunchRequest(BaseModel):
     continue_harness_session_id: str | None = None
     # Deprecated: use `session_mode` and `SessionIntent` for new code.
     continue_chat_id: str | None = None
+    continue_fork: bool = False
     forked_from_chat_id: str | None = None
 
     @model_validator(mode="before")
@@ -70,11 +76,6 @@ class LaunchRequest(BaseModel):
         if has_session_mode:
             mode_raw = payload["session_mode"]
             mode = mode_raw if isinstance(mode_raw, SessionMode) else SessionMode(str(mode_raw))
-            if mode == SessionMode.FORK:
-                raise ValueError(
-                    "SessionMode.FORK is not yet implemented. "
-                    "It will be enabled when the fork launch path is complete."
-                )
             payload["fresh"] = mode == SessionMode.FRESH
             return payload
 
@@ -127,6 +128,8 @@ def build_primary_prompt(request: LaunchRequest) -> str:
                 "Start a fresh primary conversation for this space.",
             ]
         )
+    elif request.session_mode == SessionMode.FORK:
+        sections.extend(["", "# Fork Guidance", "", _FORK_GUIDANCE])
     else:
         sections.extend(["", "# Continuation Guidance", "", _CONTINUATION_GUIDANCE])
 

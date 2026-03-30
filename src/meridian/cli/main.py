@@ -87,6 +87,7 @@ class PrimaryLaunchOutput(BaseModel):
     exit_code: int
     command: tuple[str, ...] = ()
     continue_ref: str | None = None
+    forked_from: str | None = None
     resume_command: str | None = None
     warning: str | None = None
 
@@ -107,14 +108,21 @@ class PrimaryLaunchOutput(BaseModel):
         return "\n".join(lines)
 
 
-class _ResolvedContinueTarget(BaseModel):
+class _ResolvedSessionTarget(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     harness_session_id: str | None
     chat_id: str | None = None
     harness: str | None
+    source_model: str | None = None
+    source_agent: str | None = None
+    source_work_id: str | None = None
     tracked: bool = False
     warning: str | None = None
+
+    @property
+    def missing_harness_session_id(self) -> bool:
+        return self.tracked and self.harness_session_id is None
 
 
 def get_global_options() -> GlobalOptions:
@@ -295,6 +303,10 @@ def root(
         str | None,
         Parameter(name="--continue", help="Continue a previous session reference."),
     ] = None,
+    fork_ref: Annotated[
+        str | None,
+        Parameter(name="--fork", help="Fork from a session or spawn reference."),
+    ] = None,
     model: Annotated[
         str,
         Parameter(name="--model", help="Model id or alias for primary harness."),
@@ -370,6 +382,7 @@ def root(
 
     _run_primary_launch(
         continue_ref=continue_ref,
+        fork_ref=fork_ref,
         model=model,
         harness=harness,
         agent=agent,
@@ -492,6 +505,7 @@ def completion_install(
 def _run_primary_launch(
     *,
     continue_ref: str | None,
+    fork_ref: str | None,
     model: str,
     harness: str | None,
     agent: str | None,
@@ -516,21 +530,32 @@ def _run_primary_launch(
     repo_root = Path.cwd().resolve()
     harness_registry = get_default_harness_registry()
     normalized_continue_ref = continue_ref.strip() if continue_ref is not None else ""
+    normalized_fork_ref = fork_ref.strip() if fork_ref is not None else ""
     resume_target = normalized_continue_ref if normalized_continue_ref else None
+    fork_target = normalized_fork_ref if normalized_fork_ref else None
     resolved_approval = approval if approval is not None else ("yolo" if yolo else "default")
+
+    if resume_target is not None and fork_target is not None:
+        raise ValueError("Cannot combine --fork with --continue.")
 
     continue_harness_session_id: str | None = None
     continue_chat_id: str | None = None
     continue_harness: str | None = None
+    continue_fork = False
     continue_warning: str | None = None
+    forked_from_chat_id: str | None = None
+    output_forked_from: str | None = None
     session_mode = SessionMode.FRESH
     explicit_harness = harness.strip() if harness is not None and harness.strip() else None
+    requested_model = model
+    requested_agent = agent
+    requested_work_id = work.strip() or None
     if resume_target is not None:
         if model.strip():
             raise ValueError("Cannot combine --continue with --model.")
         if agent is not None and agent.strip():
             raise ValueError("Cannot combine --continue with --agent.")
-        resolved_continue = _resolve_continue_target(
+        resolved_continue = _resolve_session_target(
             repo_root=repo_root, continue_ref=resume_target
         )
         continue_harness_session_id = resolved_continue.harness_session_id
@@ -544,14 +569,58 @@ def _run_primary_launch(
             )
         continue_warning = resolved_continue.warning
         session_mode = SessionMode.RESUME
+    elif fork_target is not None:
+        resolved_fork = _resolve_session_target(repo_root=repo_root, continue_ref=fork_target)
+        if resolved_fork.missing_harness_session_id:
+            raise ValueError(_missing_fork_session_error(fork_target))
+
+        source_harness = (
+            resolved_fork.harness.strip()
+            if resolved_fork.harness is not None and resolved_fork.harness.strip()
+            else None
+        )
+        if (
+            explicit_harness is not None
+            and source_harness is not None
+            and explicit_harness != source_harness
+        ):
+            raise ValueError(
+                "Cannot fork across harnesses: "
+                f"source is '{source_harness}', target is '{explicit_harness}'."
+            )
+
+        continue_harness_session_id = resolved_fork.harness_session_id
+        continue_harness = explicit_harness or source_harness
+        if continue_harness is None:
+            raise ValueError(
+                f"Session '{resolved_fork.harness_session_id or fork_target}' "
+                "not recognized by any harness. "
+                "Use --harness to specify which harness owns this session."
+            )
+        continue_warning = resolved_fork.warning
+        continue_fork = True
+        forked_from_chat_id = resolved_fork.chat_id
+        output_forked_from = resolved_fork.chat_id or fork_target
+        session_mode = SessionMode.FORK
+
+        if not model.strip() and resolved_fork.source_model is not None:
+            requested_model = resolved_fork.source_model
+        if (agent is None or not agent.strip()) and resolved_fork.source_agent is not None:
+            requested_agent = resolved_fork.source_agent
+        if requested_work_id is None and resolved_fork.source_work_id is not None:
+            requested_work_id = resolved_fork.source_work_id
 
     launch_result = launch_primary(
         repo_root=repo_root,
         request=LaunchRequest(
-            model=model,
-            harness=continue_harness if resume_target is not None else harness,
-            agent=agent,
-            work_id=work.strip() or None,
+            model=requested_model,
+            harness=(
+                continue_harness
+                if (resume_target is not None or fork_target is not None)
+                else harness
+            ),
+            agent=requested_agent,
+            work_id=requested_work_id,
             autocompact=autocompact,
             passthrough_args=passthrough,
             session_mode=session_mode,
@@ -563,6 +632,8 @@ def _run_primary_launch(
             timeout=timeout,
             continue_harness_session_id=continue_harness_session_id,
             continue_chat_id=continue_chat_id,
+            continue_fork=continue_fork,
+            forked_from_chat_id=forked_from_chat_id,
         ),
         harness_registry=harness_registry,
     )
@@ -573,14 +644,27 @@ def _run_primary_launch(
                 "Resume dry-run."
                 if dry_run and resume_target is not None
                 else (
-                    "Launch dry-run."
-                    if dry_run
-                    else ("Session resumed." if resume_target is not None else "Session finished.")
+                    "Fork dry-run."
+                    if dry_run and fork_target is not None
+                    else (
+                        "Launch dry-run."
+                        if dry_run
+                        else (
+                            "Session resumed."
+                            if resume_target is not None
+                            else (
+                                "Session forked."
+                                if fork_target is not None
+                                else "Session finished."
+                            )
+                        )
+                    )
                 )
             ),
             exit_code=launch_result.exit_code,
             command=launch_result.command if dry_run else (),
             continue_ref=launch_result.continue_ref,
+            forked_from=output_forked_from,
             resume_command=(
                 f"meridian --continue {launch_result.continue_ref}"
                 if launch_result.continue_ref is not None
@@ -618,6 +702,10 @@ def _register_harness_shortcut_command(harness_name: str) -> None:
         continue_ref: Annotated[
             str | None,
             Parameter(name="--continue", help="Continue a previous session reference."),
+        ] = None,
+        fork_ref: Annotated[
+            str | None,
+            Parameter(name="--fork", help="Fork from a session or spawn reference."),
         ] = None,
         model: Annotated[
             str,
@@ -689,6 +777,7 @@ def _register_harness_shortcut_command(harness_name: str) -> None:
 
         _run_primary_launch(
             continue_ref=continue_ref,
+            fork_ref=fork_ref,
             model=model,
             harness=harness_name,
             agent=agent,
@@ -710,20 +799,29 @@ for _harness_name in ("claude", "codex", "opencode"):
     _register_harness_shortcut_command(_harness_name)
 
 
-def _resolve_continue_target(
+def _missing_fork_session_error(source_ref: str) -> str:
+    if source_ref.startswith("p") and source_ref[1:].isdigit():
+        return f"Spawn '{source_ref}' has no recorded session — cannot fork."
+    return f"Session '{source_ref}' has no recorded harness session — cannot fork."
+
+
+def _resolve_session_target(
     *,
     repo_root: Path,
     continue_ref: str,
-) -> _ResolvedContinueTarget:
+) -> _ResolvedSessionTarget:
     normalized = continue_ref.strip()
     if not normalized:
         raise ValueError("--continue requires a non-empty session reference.")
 
     resolved = resolve_session_reference(repo_root, normalized)
-    return _ResolvedContinueTarget(
+    return _ResolvedSessionTarget(
         harness_session_id=resolved.harness_session_id,
         chat_id=resolved.source_chat_id,
         harness=resolved.harness,
+        source_model=resolved.source_model,
+        source_agent=resolved.source_agent,
+        source_work_id=resolved.source_work_id,
         tracked=resolved.tracked,
         warning=resolved.warning,
     )
@@ -776,6 +874,7 @@ _TOP_LEVEL_VALUE_FLAGS = frozenset(
         "--format",
         "--config",
         "--continue",
+        "--fork",
         "--model",
         "--harness",
         "--agent",
