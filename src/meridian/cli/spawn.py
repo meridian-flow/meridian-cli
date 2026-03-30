@@ -435,11 +435,11 @@ def _spawn_show(
         Parameter(
             name="--report",
             help=(
-                "Include full spawn report body in output. "
-                "By default only the report path is shown."
+                "Include full spawn report body in output (default: enabled). "
+                "Use --no-report to omit."
             ),
         ),
-    ] = False,
+    ] = True,
 ) -> None:
     emit(
         spawn_show_sync(

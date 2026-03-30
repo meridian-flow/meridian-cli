@@ -23,11 +23,8 @@ meridian spawn -a agent -p "task description"
 # → harness notifies you when done, result includes spawn_id + status
 
 # Read the report when you need it
-meridian spawn show <spawn_id> --report
-# → full status + report text
-
-# Read multiple reports at once
-meridian spawn show p107 p108 p109 --report
+meridian spawn show <spawn_id>
+# → full status + report text --report
 ```
 
 Your harness handles the notification — no need to poll or wait. Always read reports via `spawn show --report`, not from the spawn command's output.
@@ -82,7 +79,8 @@ meridian spawn -a agent -p "Step B" --desc "Step B"
 
 # Each returns spawn_id + status when done.
 # Read reports afterward:
-meridian spawn show <id1> <id2> --report
+meridian spawn show <id1>
+meridian spawn show <id2>
 ```
 
 ## Checking Status
