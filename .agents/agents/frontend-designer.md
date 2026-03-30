@@ -16,7 +16,7 @@ The orchestrator gives you context — requirements, target audience, technical 
 
 ## Scope and output
 
-Write design artifacts to `$MERIDIAN_WORK_DIR/`. Don't write production code — that's the frontend-coder's job. Produce specs clear enough that the coder doesn't have to guess at your intent.
+Your output is design artifacts in `$MERIDIAN_WORK_DIR/` — specs clear enough that the frontend-coder implements without guessing at your intent.
 
 ## Mockups
 
