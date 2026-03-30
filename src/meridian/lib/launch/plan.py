@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict
 from meridian.lib.config.settings import MeridianConfig, load_config, resolve_repo_root
 from meridian.lib.core.overrides import RuntimeOverrides, resolve
 from meridian.lib.core.types import HarnessId, ModelId
-from meridian.lib.harness.adapter import SpawnParams, SubprocessHarness
+from meridian.lib.harness.adapter import PermissionResolver, SpawnParams, SubprocessHarness
 from meridian.lib.harness.registry import HarnessRegistry
 from meridian.lib.install.provenance import resolve_runtime_asset_provenance
 from meridian.lib.safety.permissions import (
@@ -50,6 +50,7 @@ class ResolvedPrimaryLaunchPlan(BaseModel):
     session_metadata: PrimarySessionMetadata
     run_params: SpawnParams
     permission_config: PermissionConfig
+    permission_resolver: PermissionResolver | None = None
     command: tuple[str, ...]
     seed_harness_session_id: str
     command_request: LaunchRequest
@@ -130,6 +131,7 @@ def _build_run_params(
     repo_root: str,
     mcp_tools: tuple[str, ...],
     continue_harness_session_id: str | None,
+    continue_fork: bool = False,
     appended_system_prompt: str | None = None,
     report_output_path: str | None = None,
 ) -> SpawnParams:
@@ -145,6 +147,7 @@ def _build_run_params(
         mcp_tools=mcp_tools,
         interactive=True,
         continue_harness_session_id=continue_harness_session_id,
+        continue_fork=continue_fork,
         appended_system_prompt=appended_system_prompt,
         report_output_path=report_output_path,
     )
@@ -245,6 +248,7 @@ def resolve_primary_launch_plan(
     continuation_harness_session_id = (
         session_intent.harness_session_id if session_intent.mode != SessionMode.FRESH else None
     )
+    continue_fork = session_intent.mode == SessionMode.FORK or request.continue_fork
     seed = adapter.seed_session(
         is_resume=session_intent.mode == SessionMode.RESUME,
         harness_session_id=explicit_harness_session_id,
@@ -259,6 +263,11 @@ def resolve_primary_launch_plan(
 
     override = os.getenv("MERIDIAN_HARNESS_COMMAND", "").strip()
     if override:
+        if continue_fork:
+            raise ValueError(
+                "Cannot use --fork with MERIDIAN_HARNESS_COMMAND override. "
+                "Fork requires native harness adapter support."
+            )
         command = tuple([*shlex.split(override), *command_request.passthrough_args])
         if not command:
             raise ValueError("MERIDIAN_HARNESS_COMMAND resolved to an empty command.")
@@ -273,6 +282,7 @@ def resolve_primary_launch_plan(
             repo_root=resolved_root.as_posix(),
             mcp_tools=profile.mcp_tools if profile is not None else (),
             continue_harness_session_id=continuation_harness_session_id,
+            continue_fork=continue_fork,
         )
         return ResolvedPrimaryLaunchPlan(
             repo_root=resolved_root,
@@ -284,6 +294,7 @@ def resolve_primary_launch_plan(
             session_metadata=session_metadata,
             run_params=run_params,
             permission_config=PermissionConfig(),
+            permission_resolver=None,
             command=command,
             seed_harness_session_id=seed_harness_session_id,
             command_request=command_request,
@@ -343,6 +354,7 @@ def resolve_primary_launch_plan(
         repo_root=resolved_root.as_posix(),
         mcp_tools=profile.mcp_tools if profile is not None else (),
         continue_harness_session_id=continuation_harness_session_id,
+        continue_fork=continue_fork,
         appended_system_prompt=appended_system_prompt,
     )
     command = tuple(adapter.build_command(run_params, resolver))
@@ -357,6 +369,7 @@ def resolve_primary_launch_plan(
         session_metadata=session_metadata,
         run_params=run_params,
         permission_config=permission_config,
+        permission_resolver=resolver,
         command=command,
         seed_harness_session_id=seed_harness_session_id,
         command_request=command_request,

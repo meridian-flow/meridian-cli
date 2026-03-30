@@ -24,7 +24,8 @@ from meridian.lib.core.spawn_lifecycle import (
     has_durable_report_completion,
     resolve_execution_terminal_state,
 )
-from meridian.lib.core.types import SpawnId
+from meridian.lib.core.types import HarnessId, SpawnId
+from meridian.lib.harness.adapter import SpawnParams
 from meridian.lib.harness.registry import HarnessRegistry
 from meridian.lib.state import spawn_store
 from meridian.lib.state.artifact_store import LocalStore, make_artifact_key
@@ -44,6 +45,7 @@ from .heartbeat import threaded_heartbeat_scope
 from .plan import ResolvedPrimaryLaunchPlan
 from .session_ids import extract_latest_session_id
 from .session_scope import session_scope
+from .types import SessionMode
 
 logger = logging.getLogger(__name__)
 _PRIMARY_OUTPUT_FILENAME = "output.jsonl"
@@ -62,6 +64,45 @@ class ProcessOutcome(BaseModel):
     primary_started_epoch: float
     primary_started_local_iso: str | None
     resolved_harness_session_id: str
+
+
+def _resolve_command_and_session(
+    plan: ResolvedPrimaryLaunchPlan,
+) -> tuple[tuple[str, ...], str, SpawnParams]:
+    """Resolve command and effective harness session for this launch run."""
+
+    command = plan.command
+    resolved_harness_session_id = plan.seed_harness_session_id
+    run_params = plan.run_params
+    should_materialize_fork = (
+        plan.request.session_mode == SessionMode.FORK
+        and not plan.request.dry_run
+        and plan.adapter.id == HarnessId.CODEX
+        and bool((run_params.continue_harness_session_id or "").strip())
+    )
+    if not should_materialize_fork:
+        return command, resolved_harness_session_id, run_params
+
+    if plan.permission_resolver is None:
+        raise RuntimeError("Missing permission resolver for fork launch command construction.")
+
+    source_session_id = run_params.continue_harness_session_id or ""
+    fork_session = cast("Callable[[str], str] | None", getattr(plan.adapter, "fork_session", None))
+    if fork_session is None:
+        raise RuntimeError("Harness adapter does not implement fork_session().")
+    forked_session_id = fork_session(source_session_id).strip()
+    if not forked_session_id:
+        raise RuntimeError("Harness adapter returned empty fork session ID.")
+    run_params = run_params.model_copy(
+        update={
+            "continue_harness_session_id": forked_session_id,
+            # Codex forking is materialized before launch command build.
+            "continue_fork": False,
+        }
+    )
+    resolved_harness_session_id = forked_session_id
+    command = tuple(plan.adapter.build_command(run_params, plan.permission_resolver))
+    return command, resolved_harness_session_id, run_params
 
 
 def _copy_primary_pty_output(
@@ -236,23 +277,26 @@ def run_harness_process(
     """Start session, spawn tracking, launch process, wait for exit."""
 
     repo_root = plan.repo_root
-    command = plan.command
+    command, resolved_harness_session_id, run_params = _resolve_command_and_session(plan)
     chat_id: str | None = None
     primary_spawn_id: SpawnId | None = None
     primary_started = 0.0
     primary_started_epoch = 0.0
     primary_started_local_iso: str | None = None
-    resolved_harness_session_id = plan.seed_harness_session_id
     artifacts = LocalStore(root_dir=resolve_state_paths(plan.repo_root).artifacts_dir)
 
+    resume_chat_id = (
+        plan.request.continue_chat_id if plan.request.session_mode == SessionMode.RESUME else None
+    )
     exit_code = 2
     try:
         with session_scope(
             state_root=plan.state_root,
             harness=plan.session_metadata.harness,
-            harness_session_id=plan.seed_harness_session_id,
+            harness_session_id=resolved_harness_session_id,
             model=plan.session_metadata.model,
-            chat_id=plan.request.continue_chat_id,
+            chat_id=resume_chat_id,
+            forked_from_chat_id=plan.request.forked_from_chat_id,
             agent=plan.session_metadata.agent,
             agent_path=plan.session_metadata.agent_path,
             agent_source=plan.session_metadata.agent_source,
@@ -268,10 +312,10 @@ def run_harness_process(
             chat_id = managed.chat_id
             explicit_work_id = plan.resolved_work_id
             preserved_work_id = None
-            if explicit_work_id is None and plan.request.continue_chat_id is not None:
+            if explicit_work_id is None and resume_chat_id is not None:
                 preserved_work_id = get_session_active_work_id(
                     plan.state_root,
-                    plan.request.continue_chat_id,
+                    resume_chat_id,
                 )
             attached_work_id = get_session_active_work_id(plan.state_root, chat_id)
             if attached_work_id is None:
@@ -312,7 +356,7 @@ def run_harness_process(
                         default_autocompact_pct=plan.config.primary.autocompact_pct,
                         spawn_id=primary_spawn_id,
                         adapter=plan.adapter,
-                        run_params=plan.run_params,
+                        run_params=run_params,
                         permission_config=plan.permission_config,
                     )
                     output_log_path = log_dir / _PRIMARY_OUTPUT_FILENAME

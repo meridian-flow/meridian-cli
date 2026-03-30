@@ -8,7 +8,7 @@ import time
 from collections.abc import Callable
 from contextlib import suppress
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import structlog
 from pydantic import BaseModel, ConfigDict
@@ -98,6 +98,30 @@ class SpawnResult(BaseModel):
     stderr_log_path: Path
     budget_breach: BudgetBreach | None = None
     terminated_by_report_watchdog: bool = False
+
+
+def _materialize_forked_session_if_needed(
+    *,
+    harness: Any,
+    run_params: SpawnParams,
+) -> SpawnParams:
+    """Materialize Codex fork state before command construction when requested."""
+
+    if harness.id != HarnessId.CODEX or not run_params.continue_fork:
+        return run_params
+
+    source_session_id = (run_params.continue_harness_session_id or "").strip()
+    if not source_session_id:
+        return run_params
+
+    forked_session_id = harness.fork_session(source_session_id)
+    return run_params.model_copy(
+        update={
+            "continue_harness_session_id": forked_session_id,
+            # Fork has already been materialized for Codex.
+            "continue_fork": False,
+        }
+    )
 
 
 def run_log_dir(repo_root: Path, spawn_id: SpawnId) -> Path:
@@ -547,13 +571,6 @@ async def execute_with_finalization(
     }
     merged_env_overrides = dict(env_overrides or {})
     merged_env_overrides.update(runtime_env_overrides)
-    child_env = build_harness_child_env(
-        base_env=os.environ,
-        adapter=harness,
-        run_params=run_params,
-        permission_config=resolved_permission_config,
-        runtime_env_overrides=merged_env_overrides,
-    )
     spawn_row = spawn_store.get_spawn(state_root, run.spawn_id)
     raw_launch_mode = (
         (spawn_row.launch_mode or "").strip().lower()
@@ -586,6 +603,29 @@ async def execute_with_finalization(
             launch_mode=FOREGROUND_LAUNCH_MODE,
             status="queued",
         )
+    run_params = _materialize_forked_session_if_needed(
+        harness=harness,
+        run_params=run_params,
+    )
+    materialized_session_id = (run_params.continue_harness_session_id or "").strip()
+    if (
+        materialized_session_id
+        and materialized_session_id != (plan.session.harness_session_id or "")
+    ):
+        spawn_store.update_spawn(
+            state_root,
+            run.spawn_id,
+            harness_session_id=materialized_session_id,
+        )
+        if harness_session_id_observer is not None:
+            harness_session_id_observer(materialized_session_id)
+    child_env = build_harness_child_env(
+        base_env=os.environ,
+        adapter=harness,
+        run_params=run_params,
+        permission_config=resolved_permission_config,
+        runtime_env_overrides=merged_env_overrides,
+    )
 
     def _record_worker_started(worker_pid: int) -> None:
         spawn_store.mark_spawn_running(

@@ -100,3 +100,16 @@ def test_build_primary_prompt_uses_fresh_guidance_for_fresh_mode() -> None:
     assert "# Session Mode" in prompt
     assert "Start a fresh primary conversation for this space." in prompt
     assert "# Continuation Guidance" not in prompt
+
+
+def test_build_primary_prompt_uses_fork_guidance_for_fork_mode() -> None:
+    prompt = build_primary_prompt(
+        LaunchRequest(
+            session_mode=SessionMode.FORK,
+            continue_harness_session_id="session-1",
+        )
+    )
+
+    assert "# Fork Guidance" in prompt
+    assert "forked Meridian session" in prompt
+    assert "# Continuation Guidance" not in prompt
