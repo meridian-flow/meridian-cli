@@ -201,7 +201,7 @@ class WorkListItem(BaseModel):
 class WorkListInput(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    active: bool = False
+    done_only: bool = False
     repo_root: str | None = None
 
 
@@ -435,7 +435,9 @@ def work_list_sync(
     _ = ctx
     state_root = resolve_roots(payload.repo_root).state_root
     items = work_store.list_work_items(state_root)
-    if payload.active:
+    if payload.done_only:
+        items = [item for item in items if item.status == "done"]
+    else:
         items = [item for item in items if item.status != "done"]
     return WorkListOutput(
         items=tuple(

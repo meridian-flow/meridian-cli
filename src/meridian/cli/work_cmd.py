@@ -70,12 +70,12 @@ def _work_start(
 
 def _work_list(
     emit: Emitter,
-    active: Annotated[
+    done: Annotated[
         bool,
-        Parameter(name="--active", help='Hide items with status "done".'),
+        Parameter(name="--done", help="Show only done/archived items."),
     ] = False,
 ) -> None:
-    emit(work_list_sync(WorkListInput(active=active)))
+    emit(work_list_sync(WorkListInput(done_only=done)))
 
 
 def _work_show(

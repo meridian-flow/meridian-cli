@@ -18,8 +18,8 @@ meridian work switch descriptive-name    # attach to existing
 
 ```bash
 meridian work                    # dashboard — what's in flight
-meridian work list               # list all work items
-meridian work list --active      # hide done items
+meridian work list               # list active work items
+meridian work list --done        # list done/archived items
 meridian work show auth-refactor # drill into one work item
 ```
 
