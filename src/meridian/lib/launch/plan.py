@@ -118,6 +118,38 @@ def _build_session_metadata(
     )
 
 
+def _build_run_params(
+    *,
+    prompt: str,
+    model: ModelId | None,
+    thinking: str | None,
+    skills: tuple[str, ...],
+    agent: str | None,
+    adhoc_agent_payload: str,
+    extra_args: tuple[str, ...],
+    repo_root: str,
+    mcp_tools: tuple[str, ...],
+    continue_harness_session_id: str | None,
+    appended_system_prompt: str | None = None,
+    report_output_path: str | None = None,
+) -> SpawnParams:
+    return SpawnParams(
+        prompt=prompt,
+        model=model,
+        thinking=thinking,
+        skills=skills,
+        agent=agent,
+        adhoc_agent_payload=adhoc_agent_payload,
+        extra_args=extra_args,
+        repo_root=repo_root,
+        mcp_tools=mcp_tools,
+        interactive=True,
+        continue_harness_session_id=continue_harness_session_id,
+        appended_system_prompt=appended_system_prompt,
+        report_output_path=report_output_path,
+    )
+
+
 def resolve_primary_launch_plan(
     *,
     repo_root: Path,
@@ -230,7 +262,7 @@ def resolve_primary_launch_plan(
         command = tuple([*shlex.split(override), *command_request.passthrough_args])
         if not command:
             raise ValueError("MERIDIAN_HARNESS_COMMAND resolved to an empty command.")
-        run_params = SpawnParams(
+        run_params = _build_run_params(
             prompt=resolved_prompt,
             model=model,
             thinking=resolved.thinking,
@@ -240,7 +272,6 @@ def resolve_primary_launch_plan(
             extra_args=command_request.passthrough_args,
             repo_root=resolved_root.as_posix(),
             mcp_tools=profile.mcp_tools if profile is not None else (),
-            interactive=True,
             continue_harness_session_id=continuation_harness_session_id,
         )
         return ResolvedPrimaryLaunchPlan(
@@ -301,7 +332,7 @@ def resolve_primary_launch_plan(
         appended_prompt = policy.prompt
         appended_system_prompt = None
 
-    run_params = SpawnParams(
+    run_params = _build_run_params(
         prompt=appended_prompt,
         model=model,
         thinking=resolved.thinking,
@@ -311,7 +342,6 @@ def resolve_primary_launch_plan(
         extra_args=passthrough_args,
         repo_root=resolved_root.as_posix(),
         mcp_tools=profile.mcp_tools if profile is not None else (),
-        interactive=True,
         continue_harness_session_id=continuation_harness_session_id,
         appended_system_prompt=appended_system_prompt,
     )
