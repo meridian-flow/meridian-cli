@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Any, ClassVar, cast
 from uuid import uuid4
@@ -56,7 +57,7 @@ def build_claude_adhoc_agent_json(
 
 
 def project_slug(repo_root: Path) -> str:
-    return str(repo_root.resolve()).replace("/", "-")
+    return re.sub(r"[^a-zA-Z0-9]", "-", str(repo_root.resolve()))
 
 
 def _claude_project_dir(repo_root: Path) -> Path:

@@ -8,7 +8,7 @@ from uuid import uuid4
 
 import pytest
 
-from meridian.lib.harness.claude import ClaudeAdapter
+from meridian.lib.harness.claude import ClaudeAdapter, project_slug
 from meridian.lib.harness.codex import CodexAdapter
 from meridian.lib.harness.opencode import OpenCodeAdapter
 from meridian.lib.harness.session_detection import infer_harness_from_untracked_session_ref
@@ -25,7 +25,7 @@ def test_claude_adapter_detects_latest_project_session(
 
     old_session_id = str(uuid4())
     new_session_id = str(uuid4())
-    project_dir = fake_home / ".claude" / "projects" / str(repo_root.resolve()).replace("/", "-")
+    project_dir = fake_home / ".claude" / "projects" / project_slug(repo_root)
     project_dir.mkdir(parents=True)
 
     old_path = project_dir / f"{old_session_id}.jsonl"

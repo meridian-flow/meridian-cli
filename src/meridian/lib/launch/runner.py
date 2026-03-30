@@ -24,6 +24,7 @@ from meridian.lib.harness.adapter import (
     SpawnParams,
     StreamEvent,
 )
+from meridian.lib.harness.claude import project_slug
 from meridian.lib.harness.registry import HarnessRegistry
 from meridian.lib.launch.cwd import resolve_child_execution_cwd
 from meridian.lib.safety.budget import Budget, BudgetBreach, LiveBudgetTracker
@@ -129,6 +130,56 @@ def run_log_dir(repo_root: Path, spawn_id: SpawnId) -> Path:
     """Resolve run artifact directory from a spawn ID."""
 
     return resolve_spawn_log_dir(repo_root, spawn_id)
+
+
+def ensure_claude_session_accessible(
+    source_session_id: str,
+    source_cwd: Path | None,
+    child_cwd: Path,
+) -> None:
+    """Symlink a Claude session file into the child's project dir.
+
+    Claude Code maps sessions to ~/.claude/projects/<encoded-cwd>/.
+    When the child runs from a different CWD than where the session was
+    created, it can't find the session. This creates a symlink so both
+    paths resolve.
+    """
+
+    if source_cwd is None:
+        return
+    if source_cwd.resolve() == child_cwd.resolve():
+        return
+
+    # Validate session ID to prevent path traversal.
+    safe_session_id = Path(source_session_id).name
+    if (
+        safe_session_id != source_session_id
+        or "/" in source_session_id
+        or ".." in source_session_id
+    ):
+        return
+
+    claude_projects = Path.home() / ".claude" / "projects"
+    source_slug = project_slug(source_cwd)
+    child_slug = project_slug(child_cwd)
+
+    source_file = claude_projects / source_slug / f"{safe_session_id}.jsonl"
+    if not source_file.exists():
+        return
+
+    child_project = claude_projects / child_slug
+    child_project.mkdir(parents=True, exist_ok=True)
+    target_file = child_project / f"{safe_session_id}.jsonl"
+    try:
+        os.symlink(source_file, target_file)
+    except FileExistsError:
+        # Verify existing entry points to the correct source.
+        try:
+            if target_file.resolve() != source_file.resolve():
+                target_file.unlink()
+                os.symlink(source_file, target_file)
+        except OSError:
+            pass  # Best effort.
 
 
 def _read_captured_output(path: Path) -> bytes:
@@ -675,6 +726,18 @@ async def execute_with_finalization(
                 run.spawn_id,
                 execution_cwd=str(child_cwd),
             )
+
+            # Symlink source session into child's project dir so Claude can find it.
+            if (
+                harness.id == HarnessId.CLAUDE
+                and plan.session.harness_session_id
+                and plan.session.source_execution_cwd
+            ):
+                ensure_claude_session_accessible(
+                    source_session_id=plan.session.harness_session_id,
+                    source_cwd=Path(plan.session.source_execution_cwd),
+                    child_cwd=child_cwd,
+                )
 
             retries_attempted = 0
 

@@ -43,6 +43,7 @@ from .models import (
     SpawnWrittenFilesInput,
     SpawnWrittenFilesOutput,
 )
+from .plan import SessionContinuation
 from .prepare import build_create_payload, validate_create_input
 from .query import (
     detail_from_row,
@@ -672,6 +673,12 @@ def spawn_continue_sync(
         continue_source_ref=resolved_spawn_id,
         continue_fork=payload.fork,
         forked_from_chat_id=resolved_reference.source_chat_id if payload.fork else None,
+        session=SessionContinuation(
+            harness_session_id=resolved_reference.harness_session_id,
+            continue_fork=payload.fork,
+            forked_from_chat_id=resolved_reference.source_chat_id if payload.fork else None,
+            source_execution_cwd=resolved_reference.source_execution_cwd,
+        ),
         passthrough_args=payload.passthrough_args,
         approval=payload.approval,
     )

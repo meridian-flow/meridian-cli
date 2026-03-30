@@ -43,6 +43,7 @@ from meridian.lib.state.spawn_store import FOREGROUND_LAUNCH_MODE
 from .command import build_launch_env
 from .heartbeat import threaded_heartbeat_scope
 from .plan import ResolvedPrimaryLaunchPlan
+from .runner import ensure_claude_session_accessible
 from .session_ids import extract_latest_session_id
 from .session_scope import session_scope
 from .types import SessionMode
@@ -362,6 +363,18 @@ def run_harness_process(
                         permission_config=plan.permission_config,
                     )
                     output_log_path = log_dir / _PRIMARY_OUTPUT_FILENAME
+
+                    # Symlink source session for primary fork launches.
+                    if (
+                        plan.adapter.id == HarnessId.CLAUDE
+                        and plan.source_execution_cwd
+                        and resolved_harness_session_id
+                    ):
+                        ensure_claude_session_accessible(
+                            source_session_id=resolved_harness_session_id,
+                            source_cwd=Path(plan.source_execution_cwd),
+                            child_cwd=repo_root,
+                        )
 
                     def _record_primary_started(child_pid: int) -> None:
                         atomic_write_text(
