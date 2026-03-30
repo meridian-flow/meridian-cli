@@ -29,6 +29,12 @@ class ResolvedSessionReference:
     tracked: bool
     warning: str | None = None
 
+    @property
+    def missing_harness_session_id(self) -> bool:
+        """True when a tracked reference exists but has no recorded harness session id."""
+
+        return self.tracked and self.harness_session_id is None
+
 
 def _normalize_optional(value: str | None) -> str | None:
     if value is None:

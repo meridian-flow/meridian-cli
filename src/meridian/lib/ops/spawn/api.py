@@ -633,6 +633,11 @@ def spawn_continue_sync(
     resolved_spawn_id, source_spawn, resolved_reference = _source_spawn_for_follow_up(
         payload.spawn_id, repo_root
     )
+    if resolved_reference.missing_harness_session_id:
+        raise ValueError(
+            f"Spawn '{resolved_spawn_id}' has no recorded session — cannot continue/fork."
+        )
+
     derived_prompt = _prompt_for_follow_up(source_spawn, resolved_spawn_id, payload.prompt)
     create_input = SpawnCreateInput(
         prompt=derived_prompt,
@@ -644,6 +649,8 @@ def spawn_continue_sync(
         timeout=payload.timeout,
         continue_harness_session_id=resolved_reference.harness_session_id,
         continue_harness=resolved_reference.harness,
+        continue_source_tracked=resolved_reference.tracked,
+        continue_source_ref=resolved_spawn_id,
         continue_fork=payload.fork,
         passthrough_args=payload.passthrough_args,
         approval=payload.approval,

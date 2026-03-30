@@ -115,6 +115,7 @@ def test_resolve_session_reference_allows_spawn_without_harness_session_id(tmp_p
     assert resolved.harness_session_id is None
     assert resolved.harness == "codex"
     assert resolved.tracked is True
+    assert resolved.missing_harness_session_id is True
 
 
 def test_resolve_session_reference_falls_back_to_untracked_raw_reference(
@@ -140,6 +141,7 @@ def test_resolve_session_reference_falls_back_to_untracked_raw_reference(
     assert resolved.source_skills == ()
     assert resolved.source_work_id is None
     assert resolved.tracked is False
+    assert resolved.missing_harness_session_id is False
     assert (
         resolved.warning
         == "Session 'raw-session-id' is not tracked yet; "

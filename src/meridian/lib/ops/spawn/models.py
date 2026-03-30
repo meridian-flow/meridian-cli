@@ -44,6 +44,8 @@ class SpawnCreateInput(BaseModel):
     passthrough_args: tuple[str, ...] = ()
     continue_harness_session_id: str | None = None
     continue_harness: str | None = None
+    continue_source_tracked: bool = False
+    continue_source_ref: str | None = None
     continue_fork: bool = False
 
 

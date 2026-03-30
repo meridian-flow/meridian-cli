@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from meridian.lib.core.context import RuntimeContext
 from meridian.lib.install.lock import InstallLock, LockedInstalledItem, write_lock
 from meridian.lib.ops.spawn.api import SpawnCreateInput, spawn_create_sync
@@ -156,3 +158,27 @@ def test_spawn_dry_run_includes_agent_and_skill_provenance(tmp_path: Path) -> No
     assert result.skills == ("reviewing",)
     assert result.skill_paths == (skill_path.as_posix(),)
     assert result.skill_sources == {"reviewing": "dev-fixture"}
+
+
+def test_spawn_dry_run_rejects_tracked_continue_without_session_id(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    _write_agent(repo_root / ".agents" / "agents" / "coder.md", sandbox="workspace-write")
+
+    with pytest.raises(ValueError) as exc_info:
+        spawn_create_sync(
+            SpawnCreateInput(
+                prompt="do work",
+                agent="coder",
+                repo_root=repo_root.as_posix(),
+                dry_run=True,
+                continue_harness="codex",
+                continue_source_tracked=True,
+                continue_source_ref="c42",
+            ),
+        )
+
+    assert (
+        str(exc_info.value)
+        == "Session 'c42' has no recorded harness session — cannot continue/fork."
+    )

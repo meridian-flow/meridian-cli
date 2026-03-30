@@ -49,6 +49,21 @@ def merge_warnings(*warnings: str | None) -> str | None:
     return "; ".join(parts)
 
 
+def _missing_continue_session_error(source_ref: str | None) -> str:
+    normalized_source = (source_ref or "").strip()
+    if normalized_source:
+        if normalized_source.startswith("p") and normalized_source[1:].isdigit():
+            return (
+                f"Spawn '{normalized_source}' has no recorded session — "
+                "cannot continue/fork."
+            )
+        return (
+            f"Session '{normalized_source}' has no recorded harness session — "
+            "cannot continue/fork."
+        )
+    return "Source reference has no recorded harness session — cannot continue/fork."
+
+
 class _CreateRuntimeView(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -262,6 +277,8 @@ def build_create_payload(
     )
     requested_harness_session_id = (payload.continue_harness_session_id or "").strip()
     requested_harness = (payload.continue_harness or "").strip()
+    if payload.continue_source_tracked and not requested_harness_session_id:
+        raise ValueError(_missing_continue_session_error(payload.continue_source_ref))
     resolved_continue_harness_session_id: str | None = None
     resolved_continue_fork = False
     continuation_warning: str | None = None
