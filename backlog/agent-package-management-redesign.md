@@ -104,6 +104,22 @@ Skills.sh (Vercel), Skild, SkillsMP, Tessl etc. handle skill installation but no
 
 The gap is real — nobody manages the full `.agents/` directory with deps and merges.
 
+### Orphan Pruning
+
+Discovered during a bulk rename (agents + skills, 15 items). When a skill is renamed in the source, the install system creates the new directory but does NOT remove the old one. `.agents/` accumulates orphans.
+
+Fix: lock-based reconciliation. On update, diff old lock vs new lock. Items in old lock but not new lock → remove from `.agents/`. Same pattern as npm prune, cargo clean, pip-sync.
+
+### Local Submodule Preference
+
+`agents.toml` has meridian-base as `kind = "git"` (fetches from GitHub). But the repo has meridian-base as a local submodule. During dev, you edit the submodule, commit locally, but `sources update` fetches the stale remote. You have to push before sync sees your changes.
+
+Fix: if a git source URL matches a local submodule, prefer the local checkout. Zero config needed — just detect the submodule.
+
+### Rename/Breaking Change Detection
+
+When a skill is renamed, agents that depend on the old name break silently. The dependency graph should surface this: "agent `verifier` depends on `verification-testing` which no longer exists in source — did you mean `verification`?"
+
 ## Next Steps
 
 1. Design the manifest format
@@ -112,3 +128,6 @@ The gap is real — nobody manages the full `.agents/` directory with deps and m
 4. Add `--diff` to show what sync would change
 5. Design and implement merge strategies
 6. Design patch/overlay system for persistent local customizations
+7. Orphan pruning via lock diff
+8. Local submodule detection for git sources
+9. Rename/breaking change warnings
