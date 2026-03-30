@@ -33,26 +33,30 @@ Aggregate cost, token, and duration stats across spawns. Use `--session` to scop
 ## Spawn Show Flags
 
 ```bash
-meridian spawn show SPAWN_ID --no-report     # omit the full report text
-meridian spawn show SPAWN_ID --include-files  # include file metadata
+meridian spawn show SPAWN_ID             # includes full report text by default
+meridian spawn show SPAWN_ID --no-report # omit the full report text
 ```
 
 ## Reports
 
-Reports are returned automatically — both with foreground execution and `spawn wait`. To inspect or search past reports:
+`meridian spawn` and `meridian spawn wait` return status only (no report body).
+Read reports via `meridian spawn show`, and use top-level `report` commands when you need direct report operations:
 
 ```bash
-# View a spawn's report
-meridian spawn report show SPAWN_ID
+# View a spawn's report directly from spawn details
+meridian spawn show SPAWN_ID
 
-# Search across all spawn reports by text
-meridian spawn report search "auth refactor" --limit 10
+# Show a report by spawn id/reference
+meridian report show --spawn SPAWN_ID
+
+# Search across all reports by text
+meridian report search "auth refactor" --limit 10
 
 # Create or update a report externally (e.g., orchestrator annotating a spawn)
-meridian spawn report create "Summary of findings..." --spawn SPAWN_ID
+meridian report create "Summary of findings..." --spawn SPAWN_ID
 
 # Pipe report content from stdin
-echo "Report content" | meridian spawn report create --spawn SPAWN_ID --stdin
+echo "Report content" | meridian report create --spawn SPAWN_ID --stdin
 ```
 
 ## Dry Run
@@ -85,7 +89,7 @@ meridian spawn --background -a agent -p "task description"
 # → returns immediately: {"spawn_id": "p107", "status": "running"}
 
 meridian spawn wait p107
-# → blocks until done, returns status + full report
+# → blocks until done, returns status only
 
 # Multiple spawns in parallel
 meridian spawn --background -a agent -p "Step A" --desc "Step A"

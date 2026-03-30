@@ -6,7 +6,7 @@ from typing import Annotated, Any, cast
 
 from cyclopts import App, Parameter
 
-from meridian.cli.main import agent_mode_enabled, current_output_sink
+from meridian.cli.main import agent_mode_enabled, current_output_sink, get_global_options
 from meridian.cli.registration import register_manifest_cli_group
 from meridian.lib.core.domain import SpawnStatus
 from meridian.lib.ops.reference import resolve_session_reference
@@ -444,16 +444,27 @@ def _spawn_show(
         ),
     ] = True,
 ) -> None:
-    for spawn_id in spawn_ids:
-        emit(
-            spawn_show_sync(
-                SpawnShowInput(
-                    spawn_id=spawn_id,
-                    include_report_body=report,
-                ),
-                sink=current_output_sink(),
-            )
+    sink = current_output_sink()
+    results = tuple(
+        spawn_show_sync(
+            SpawnShowInput(
+                spawn_id=spawn_id,
+                include_report_body=report,
+            ),
+            sink=sink,
         )
+        for spawn_id in spawn_ids
+    )
+
+    if len(results) == 1:
+        emit(results[0])
+        return
+
+    if get_global_options().output.format == "json":
+        emit(list(results))
+        return
+
+    emit("\n\n".join(result.format_text() for result in results))
 
 
 def _spawn_stats(

@@ -24,10 +24,10 @@ meridian spawn -a agent -p "task description"
 
 # Read the report when you need it
 meridian spawn show <spawn_id>
-# → full status + report text --report
+# → full status + report text
 ```
 
-Your harness handles the notification — no need to poll or wait. Always read reports via `spawn show --report`, not from the spawn command's output.
+Your harness handles the notification — no need to poll or wait. Always read reports via `spawn show`, not from the spawn command's output.
 
 ## Spawning
 
@@ -98,7 +98,7 @@ Stuck spawns auto-recover: if a spawn's process dies or goes stale, the next rea
 If a spawn fails, read its report for details:
 
 ```bash
-meridian spawn show SPAWN_ID --report
+meridian spawn show SPAWN_ID
 ```
 
 For deeper investigation, see [`resources/debugging.md`](resources/debugging.md) for log inspection.

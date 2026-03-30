@@ -267,7 +267,7 @@ class SpawnShowInput(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     spawn_id: str
-    include_report_body: bool = False
+    include_report_body: bool = True
     repo_root: str | None = None
 
 
