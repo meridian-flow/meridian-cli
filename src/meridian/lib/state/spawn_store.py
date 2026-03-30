@@ -86,6 +86,7 @@ class SpawnRecord(BaseModel):
     desc: str | None
     work_id: str | None
     harness_session_id: str | None
+    execution_cwd: str | None = None
     launch_mode: str | None
     wrapper_pid: int | None
     worker_pid: int | None
@@ -122,6 +123,7 @@ class SpawnStartEvent(BaseModel):
     desc: str | None = None
     work_id: str | None = None
     harness_session_id: str | None = None
+    execution_cwd: str | None = None
     launch_mode: str | None = None
     worker_pid: int | None = None
     status: SpawnStatus = "running"
@@ -140,6 +142,7 @@ class SpawnUpdateEvent(BaseModel):
     wrapper_pid: int | None = None
     worker_pid: int | None = None
     harness_session_id: str | None = None
+    execution_cwd: str | None = None
     error: str | None = None
     desc: str | None = None
     work_id: str | None = None
@@ -365,6 +368,7 @@ def _empty_record(spawn_id: str) -> SpawnRecord:
         desc=None,
         work_id=None,
         harness_session_id=None,
+        execution_cwd=None,
         launch_mode=None,
         wrapper_pid=None,
         worker_pid=None,
@@ -439,6 +443,11 @@ def _record_from_events(events: list[SpawnEvent]) -> dict[str, SpawnRecord]:
                         if event.harness_session_id is not None
                         else current.harness_session_id
                     ),
+                    "execution_cwd": (
+                        event.execution_cwd
+                        if event.execution_cwd is not None
+                        else current.execution_cwd
+                    ),
                     "launch_mode": (
                         event.launch_mode if event.launch_mode is not None else current.launch_mode
                     ),
@@ -471,6 +480,11 @@ def _record_from_events(events: list[SpawnEvent]) -> dict[str, SpawnRecord]:
                         event.harness_session_id
                         if event.harness_session_id is not None
                         else current.harness_session_id
+                    ),
+                    "execution_cwd": (
+                        event.execution_cwd
+                        if event.execution_cwd is not None
+                        else current.execution_cwd
                     ),
                     "error": event.error if event.error is not None else current.error,
                     "desc": event.desc if event.desc is not None else current.desc,

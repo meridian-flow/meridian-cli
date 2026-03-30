@@ -549,6 +549,7 @@ def _append_cli_flag(*, args: list[str], flag: str, value: object) -> None:
 def build_harness_command(
     *,
     base_command: tuple[str, ...],
+    subcommand: tuple[str, ...] = (),
     prompt_mode: PromptMode,
     run: SpawnParams,
     strategies: StrategyMap,
@@ -599,6 +600,7 @@ def build_harness_command(
     command.extend(permission_flags)
     if mcp_config is not None:
         command.extend(mcp_config.command_args)
+    command.extend(subcommand)
     if prompt_mode is PromptMode.POSITIONAL:
         command.extend(run.extra_args)
         if run.prompt:

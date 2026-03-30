@@ -55,12 +55,12 @@ def build_claude_adhoc_agent_json(
     return json.dumps(payload, separators=(",", ":"), sort_keys=True)
 
 
-def _project_slug(repo_root: Path) -> str:
+def project_slug(repo_root: Path) -> str:
     return str(repo_root.resolve()).replace("/", "-")
 
 
 def _claude_project_dir(repo_root: Path) -> Path:
-    return Path.home() / ".claude" / "projects" / _project_slug(repo_root)
+    return Path.home() / ".claude" / "projects" / project_slug(repo_root)
 
 
 def _read_claude_session_id(path: Path) -> str | None:

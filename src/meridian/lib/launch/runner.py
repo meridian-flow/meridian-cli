@@ -25,6 +25,7 @@ from meridian.lib.harness.adapter import (
     StreamEvent,
 )
 from meridian.lib.harness.registry import HarnessRegistry
+from meridian.lib.launch.cwd import resolve_child_execution_cwd
 from meridian.lib.safety.budget import Budget, BudgetBreach, LiveBudgetTracker
 from meridian.lib.safety.guardrails import GuardrailFailure, run_guardrails
 from meridian.lib.safety.redaction import SecretSpec, redact_secret_bytes
@@ -658,8 +659,13 @@ async def execute_with_finalization(
         try:
             command = tuple(harness.build_command(run_params, resolved_perms))
 
-            if os.environ.get("CLAUDECODE") and harness.id == HarnessId.CLAUDE:
-                child_cwd = log_dir
+            resolved_cwd = resolve_child_execution_cwd(
+                repo_root=execution_cwd,
+                spawn_id=run.spawn_id,
+                harness_id=harness.id.value,
+            )
+            if resolved_cwd != execution_cwd:
+                child_cwd = resolved_cwd
                 child_cwd.mkdir(parents=True, exist_ok=True)
                 command = (*command, "--add-dir", str(execution_cwd))
 

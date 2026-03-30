@@ -327,11 +327,6 @@ class CodexAdapter(BaseSubprocessHarness):
     def build_command(self, run: SpawnParams, perms: PermissionResolver) -> list[str]:
         harness_session_id = (run.continue_harness_session_id or "").strip()
         if run.interactive:
-            base_command = (
-                ("codex", "resume", harness_session_id)
-                if harness_session_id
-                else self.PRIMARY_BASE_COMMAND
-            )
             # Prompt injection here is a compatibility workaround: Codex does
             # not expose a true system prompt channel, so Meridian appends a
             # user-visible guard for fresh sessions only.
@@ -343,12 +338,9 @@ class CodexAdapter(BaseSubprocessHarness):
                 if guarded_prompt != run.prompt
                 else run
             )
+            base_command = self.PRIMARY_BASE_COMMAND
+            subcommand = ("resume", harness_session_id) if harness_session_id else ()
         else:
-            base_command = (
-                ("codex", "exec", "--json", "resume", harness_session_id)
-                if harness_session_id
-                else self.BASE_COMMAND
-            )
             # Codex supports prompt-from-stdin via "-" and this avoids argv length limits.
             command_run = run.model_copy(update={"prompt": "-"})
             # Codex -o writes the agent's final response to a file, giving us a clean
@@ -359,8 +351,11 @@ class CodexAdapter(BaseSubprocessHarness):
                         "extra_args": (*command_run.extra_args, "-o", run.report_output_path),
                     },
                 )
+            base_command = self.BASE_COMMAND
+            subcommand = ("resume", harness_session_id) if harness_session_id else ()
         return build_harness_command(
             base_command=base_command,
+            subcommand=subcommand,
             prompt_mode=self.PROMPT_MODE,
             run=command_run,
             strategies=self.STRATEGIES,

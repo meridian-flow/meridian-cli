@@ -22,6 +22,7 @@ class SessionRecord(BaseModel):
     chat_id: str
     harness: str
     harness_session_id: str
+    execution_cwd: str | None = None
     harness_session_ids: tuple[str, ...]
     model: str
     agent: str
@@ -48,6 +49,7 @@ class SessionStartEvent(BaseModel):
     chat_id: str
     harness: str
     harness_session_id: str
+    execution_cwd: str | None = None
     model: str
     agent: str = ""
     agent_path: str = ""
@@ -112,6 +114,7 @@ def _record_from_start_event(event: SessionStartEvent) -> SessionRecord:
         chat_id=event.chat_id,
         harness=event.harness,
         harness_session_id=event.harness_session_id,
+        execution_cwd=event.execution_cwd,
         harness_session_ids=(event.harness_session_id,),
         model=event.model,
         agent=event.agent,

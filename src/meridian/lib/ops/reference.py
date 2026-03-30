@@ -74,15 +74,17 @@ def _resolve_untracked_reference(repo_root: Path, ref: str) -> ResolvedSessionRe
     )
 
 
-def _resolve_spawn_reference(
-    state_root: Path, ref: str, repo_root: Path
+def _build_tracked_reference(
+    *,
+    harness_session_id: str | None,
+    stored_harness: str | None,
+    source_chat_id: str | None,
+    source_model: str | None,
+    source_agent: str | None,
+    source_skills: tuple[str, ...],
+    source_work_id: str | None,
+    repo_root: Path,
 ) -> ResolvedSessionReference:
-    row = spawn_store.get_spawn(state_root, ref)
-    if row is None:
-        return _resolve_untracked_reference(repo_root, ref)
-
-    harness_session_id = _normalize_optional(row.harness_session_id)
-    stored_harness = _normalize_optional(row.harness)
     registry = get_default_harness_registry()
     verified_harness = (
         infer_harness_from_untracked_session_ref(
@@ -96,12 +98,33 @@ def _resolve_spawn_reference(
     return ResolvedSessionReference(
         harness_session_id=harness_session_id,
         harness=str(verified_harness) if verified_harness is not None else stored_harness,
+        source_chat_id=source_chat_id,
+        source_model=source_model,
+        source_agent=source_agent,
+        source_skills=source_skills,
+        source_work_id=source_work_id,
+        tracked=True,
+    )
+
+
+def _resolve_spawn_reference(
+    state_root: Path, ref: str, repo_root: Path
+) -> ResolvedSessionReference:
+    row = spawn_store.get_spawn(state_root, ref)
+    if row is None:
+        return _resolve_untracked_reference(repo_root, ref)
+
+    harness_session_id = _normalize_optional(row.harness_session_id)
+    stored_harness = _normalize_optional(row.harness)
+    return _build_tracked_reference(
+        harness_session_id=harness_session_id,
+        stored_harness=stored_harness,
         source_chat_id=_normalize_optional(row.chat_id),
         source_model=_normalize_optional(row.model),
         source_agent=_normalize_optional(row.agent),
         source_skills=row.skills,
         source_work_id=_normalize_optional(row.work_id),
-        tracked=True,
+        repo_root=repo_root,
     )
 
 
@@ -115,25 +138,15 @@ def _resolve_chat_reference(
     session = records[0]
     harness_session_id = _latest_harness_session_id(session)
     stored_harness = _normalize_optional(session.harness)
-    registry = get_default_harness_registry()
-    verified_harness = (
-        infer_harness_from_untracked_session_ref(
-            repo_root,
-            harness_session_id,
-            registry=registry,
-        )
-        if harness_session_id is not None
-        else None
-    )
-    return ResolvedSessionReference(
+    return _build_tracked_reference(
         harness_session_id=harness_session_id,
-        harness=str(verified_harness) if verified_harness is not None else stored_harness,
+        stored_harness=stored_harness,
         source_chat_id=session.chat_id,
         source_model=_normalize_optional(session.model),
         source_agent=_normalize_optional(session.agent),
         source_skills=session.skills,
         source_work_id=_normalize_optional(session.active_work_id),
-        tracked=True,
+        repo_root=repo_root,
     )
 
 
@@ -147,21 +160,15 @@ def _resolve_harness_session_reference(
     stored_harness_session_id = _normalize_optional(session.harness_session_id)
     harness_session_id = stored_harness_session_id or ref
     stored_harness = _normalize_optional(session.harness)
-    registry = get_default_harness_registry()
-    verified_harness = infer_harness_from_untracked_session_ref(
-        repo_root,
-        harness_session_id,
-        registry=registry,
-    )
-    return ResolvedSessionReference(
+    return _build_tracked_reference(
         harness_session_id=harness_session_id,
-        harness=str(verified_harness) if verified_harness is not None else stored_harness,
+        stored_harness=stored_harness,
         source_chat_id=session.chat_id,
         source_model=_normalize_optional(session.model),
         source_agent=_normalize_optional(session.agent),
         source_skills=session.skills,
         source_work_id=_normalize_optional(session.active_work_id),
-        tracked=True,
+        repo_root=repo_root,
     )
 
 

@@ -49,17 +49,7 @@ _BACKGROUND_SUBMIT_MESSAGE = "Background spawn submitted."
 _BACKGROUND_PID_FILENAME = "background.pid"
 _BACKGROUND_STDOUT_FILENAME = "background-launcher.stdout.log"
 _BACKGROUND_STDERR_FILENAME = "background-launcher.stderr.log"
-
-
-def _parse_csv_skills(raw: str) -> tuple[str, ...]:
-    trimmed = raw.strip()
-    if not trimmed:
-        return ()
-
-    parts = [part.strip() for part in trimmed.split(",")]
-    if any(not part for part in parts):
-        raise ValueError("Invalid value for '--skills': expected comma-separated non-empty names.")
-    return tuple(parts)
+_BG_WORKER_PARAMS_FILENAME = "bg-worker-params.json"
 
 
 class _SpawnContext(BaseModel):
@@ -78,6 +68,30 @@ class _SessionExecutionContext(BaseModel):
     work_id: str | None = None
     resolved_agent_name: str | None
     harness_session_id_observer: Callable[[str], None]
+
+
+class BackgroundWorkerParams(BaseModel):
+    """Parameters for background worker execution, persisted to disk."""
+
+    model_config = ConfigDict(frozen=True)
+
+    timeout: float | None = None
+    skills: tuple[str, ...] = ()
+    agent_name: str | None = None
+    mcp_tools: tuple[str, ...] = ()
+    permission_tier: str | None = None
+    approval: str = "default"
+    allowed_tools: tuple[str, ...] = ()
+    passthrough_args: tuple[str, ...] = ()
+    continue_harness_session_id: str | None = None
+    continue_fork: bool = False
+    session_agent: str = ""
+    session_agent_path: str = ""
+    session_skill_paths: tuple[str, ...] = ()
+    adhoc_agent_payload: str = ""
+    appended_system_prompt: str | None = None
+    autocompact: int | None = None
+    forked_from_chat_id: str | None = None
 
 
 def _optional_spawn_id(spawn_id: str | None) -> SpawnId | None:
@@ -292,6 +306,18 @@ def _write_params_json(
     atomic_write_text(prompt_path, prepared.prompt)
 
 
+def _persist_bg_worker_params(log_dir: Path, params: BackgroundWorkerParams) -> None:
+    """Write background worker params to the spawn log directory."""
+    params_path = log_dir / _BG_WORKER_PARAMS_FILENAME
+    atomic_write_text(params_path, params.model_dump_json(indent=2) + "\n")
+
+
+def _load_bg_worker_params(log_dir: Path) -> BackgroundWorkerParams:
+    """Load background worker params from the spawn log directory."""
+    params_path = log_dir / _BG_WORKER_PARAMS_FILENAME
+    return BackgroundWorkerParams.model_validate_json(params_path.read_text(encoding="utf-8"))
+
+
 @contextmanager
 def _session_execution_context(
     *,
@@ -458,24 +484,8 @@ def _build_background_worker_command(
     *,
     spawn_id: str,
     repo_root: Path,
-    timeout: float | None,
-    skills: tuple[str, ...],
-    agent_name: str | None,
-    mcp_tools: tuple[str, ...],
-    permission_config: PermissionConfig,
-    allowed_tools: tuple[str, ...],
-    passthrough_args: tuple[str, ...],
-    continue_harness_session_id: str | None,
-    continue_fork: bool,
-    session_agent: str,
-    session_agent_path: str,
-    session_skill_paths: tuple[str, ...],
-    adhoc_agent_payload: str = "",
-    appended_system_prompt: str | None = None,
-    autocompact: int | None = None,
-    forked_from_chat_id: str | None = None,
 ) -> tuple[str, ...]:
-    command: list[str] = [
+    return (
         sys.executable,
         "-m",
         "meridian.lib.ops.spawn.execute",
@@ -483,41 +493,7 @@ def _build_background_worker_command(
         spawn_id,
         "--repo-root",
         repo_root.as_posix(),
-    ]
-    if permission_config.tier is not None:
-        command.extend(["--permission-tier", permission_config.tier.value])
-    command.extend(["--approval", permission_config.approval])
-    if timeout is not None:
-        command.extend(["--timeout", str(timeout)])
-    if agent_name is not None:
-        command.extend(["--agent", agent_name])
-    if skills:
-        command.extend(["--skills", ",".join(skills)])
-    for tool in mcp_tools:
-        command.extend(["--mcp-tool", tool])
-    for tool in allowed_tools:
-        command.extend(["--allowed-tool", tool])
-    for passthrough_arg in passthrough_args:
-        command.extend(["--harness-arg", passthrough_arg])
-    if adhoc_agent_payload.strip():
-        command.extend(["--adhoc-agent-payload", adhoc_agent_payload])
-    if continue_harness_session_id is not None and continue_harness_session_id.strip():
-        command.extend(["--continue-harness-session-id", continue_harness_session_id.strip()])
-    if continue_fork:
-        command.append("--continue-fork")
-    if session_agent:
-        command.extend(["--session-agent", session_agent])
-    if session_agent_path:
-        command.extend(["--session-agent-path", session_agent_path])
-    for skill_path in session_skill_paths:
-        command.extend(["--session-skill-path", skill_path])
-    if autocompact is not None:
-        command.extend(["--autocompact", str(autocompact)])
-    if forked_from_chat_id is not None and forked_from_chat_id.strip():
-        command.extend(["--forked-from-chat-id", forked_from_chat_id.strip()])
-    if appended_system_prompt is not None:
-        command.extend(["--appended-system-prompt", appended_system_prompt])
-    return tuple(command)
+    )
 
 
 def execute_spawn_background(
@@ -541,6 +517,8 @@ def execute_spawn_background(
         ctx=resolved_context,
     )
     spawn_id_text = str(context.spawn.spawn_id)
+    log_dir = resolve_spawn_log_dir(runtime.repo_root, context.spawn.spawn_id)
+    log_dir.mkdir(parents=True, exist_ok=True)
     try:
         _write_params_json(
             runtime.repo_root,
@@ -553,28 +531,63 @@ def execute_spawn_background(
     except Exception:
         logger.warning("Failed to write params.json", spawn_id=spawn_id_text, exc_info=True)
 
+    try:
+        bg_params = BackgroundWorkerParams(
+            timeout=payload.timeout,
+            skills=prepared.skills,
+            agent_name=prepared.agent_name,
+            mcp_tools=prepared.mcp_tools,
+            permission_tier=(
+                prepared.execution.permission_config.tier.value
+                if prepared.execution.permission_config.tier is not None
+                else None
+            ),
+            approval=prepared.execution.permission_config.approval,
+            allowed_tools=prepared.execution.allowed_tools,
+            passthrough_args=prepared.passthrough_args,
+            continue_harness_session_id=prepared.session.harness_session_id,
+            continue_fork=prepared.session.continue_fork,
+            session_agent=prepared.session_agent,
+            session_agent_path=prepared.session_agent_path,
+            session_skill_paths=prepared.skill_paths,
+            adhoc_agent_payload=prepared.adhoc_agent_payload,
+            appended_system_prompt=prepared.appended_system_prompt,
+            autocompact=prepared.autocompact,
+            forked_from_chat_id=payload.forked_from_chat_id,
+        )
+        _persist_bg_worker_params(log_dir, bg_params)
+    except Exception as exc:
+        spawn_store.finalize_spawn(
+            context.state_root,
+            context.spawn.spawn_id,
+            status="failed",
+            exit_code=1,
+            error=str(exc),
+        )
+        logger.exception(
+            "Failed to persist background worker params.",
+            spawn_id=spawn_id_text,
+        )
+        return SpawnActionOutput(
+            command="spawn.create",
+            status="failed",
+            spawn_id=spawn_id_text,
+            message=f"Failed to launch background spawn: {exc}",
+            error="background_launch_failed",
+            model=prepared.model,
+            harness_id=prepared.harness_id,
+            warning=prepared.warning,
+            agent=prepared.agent_name,
+            reference_files=prepared.reference_files,
+            template_vars=prepared.template_vars,
+            context_from_resolved=prepared.context_from_resolved,
+            exit_code=1,
+        )
+
     launch_command = _build_background_worker_command(
         spawn_id=spawn_id_text,
         repo_root=runtime.repo_root,
-        timeout=payload.timeout,
-        skills=prepared.skills,
-        agent_name=prepared.agent_name,
-        mcp_tools=prepared.mcp_tools,
-        permission_config=prepared.execution.permission_config,
-        allowed_tools=prepared.execution.allowed_tools,
-        passthrough_args=prepared.passthrough_args,
-        continue_harness_session_id=prepared.session.harness_session_id,
-        continue_fork=prepared.session.continue_fork,
-        session_agent=prepared.session_agent,
-        session_agent_path=prepared.session_agent_path,
-        session_skill_paths=prepared.skill_paths,
-        adhoc_agent_payload=prepared.adhoc_agent_payload,
-        appended_system_prompt=prepared.appended_system_prompt,
-        autocompact=prepared.autocompact,
-        forked_from_chat_id=payload.forked_from_chat_id,
     )
-    log_dir = resolve_spawn_log_dir(runtime.repo_root, context.spawn.spawn_id)
-    log_dir.mkdir(parents=True, exist_ok=True)
     stdout_path = log_dir / _BACKGROUND_STDOUT_FILENAME
     stderr_path = log_dir / _BACKGROUND_STDERR_FILENAME
 
@@ -786,23 +799,6 @@ def _build_background_worker_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m meridian.lib.ops.spawn.execute")
     parser.add_argument("--spawn-id", required=True)
     parser.add_argument("--repo-root", required=True)
-    parser.add_argument("--timeout", type=float, default=None)
-    parser.add_argument("--skills", default="")
-    parser.add_argument("--agent", default=None)
-    parser.add_argument("--mcp-tool", action="append", default=[])
-    parser.add_argument("--allowed-tool", action="append", default=[])
-    parser.add_argument("--permission-tier", required=False, default=None)
-    parser.add_argument("--approval", default="default")
-    parser.add_argument("--harness-arg", action="append", default=[])
-    parser.add_argument("--continue-harness-session-id", default=None)
-    parser.add_argument("--continue-fork", action="store_true")
-    parser.add_argument("--session-agent", default="")
-    parser.add_argument("--session-agent-path", default="")
-    parser.add_argument("--session-skill-path", action="append", default=[])
-    parser.add_argument("--adhoc-agent-payload", default="")
-    parser.add_argument("--appended-system-prompt", default=None)
-    parser.add_argument("--autocompact", type=int, default=None)
-    parser.add_argument("--forked-from-chat-id", default=None)
     return parser
 
 
@@ -815,33 +811,55 @@ def _background_worker_main(
     parser = _build_background_worker_parser()
     parsed = parser.parse_args(list(argv) if argv is not None else None)
 
-    allowed_tools = tuple(str(item) for item in parsed.allowed_tool)
+    repo_root = Path(parsed.repo_root).expanduser().resolve()
+    spawn_id = SpawnId(parsed.spawn_id)
+    state_root = resolve_state_paths(repo_root).root_dir
+    log_dir = resolve_spawn_log_dir(repo_root, spawn_id)
+    try:
+        params = _load_bg_worker_params(log_dir)
+    except Exception as exc:
+        error = f"Failed to load background worker params: {exc}"
+        spawn_store.finalize_spawn(
+            state_root,
+            spawn_id,
+            status="failed",
+            exit_code=1,
+            error=error,
+        )
+        logger.error(
+            "Failed to load background worker params.",
+            spawn_id=str(spawn_id),
+            log_dir=log_dir.as_posix(),
+            exc_info=True,
+        )
+        return 1
+
     permission_config, permission_resolver = resolve_permission_pipeline(
-        sandbox=cast("str | None", parsed.permission_tier),
-        allowed_tools=allowed_tools,
-        approval=str(parsed.approval),
+        sandbox=params.permission_tier,
+        allowed_tools=params.allowed_tools,
+        approval=params.approval,
     )
     return asyncio.run(
         _execute_existing_spawn(
-            spawn_id=SpawnId(parsed.spawn_id),
-            repo_root=Path(parsed.repo_root).expanduser().resolve(),
-            timeout=parsed.timeout,
-            skills=_parse_csv_skills(str(parsed.skills)),
-            agent_name=cast("str | None", parsed.agent),
-            mcp_tools=tuple(str(item) for item in parsed.mcp_tool),
+            spawn_id=spawn_id,
+            repo_root=repo_root,
+            timeout=params.timeout,
+            skills=params.skills,
+            agent_name=params.agent_name,
+            mcp_tools=params.mcp_tools,
             permission_config=permission_config,
             permission_resolver=permission_resolver,
-            allowed_tools=allowed_tools,
-            passthrough_args=tuple(str(item) for item in parsed.harness_arg),
-            continue_harness_session_id=cast("str | None", parsed.continue_harness_session_id),
-            continue_fork=bool(parsed.continue_fork),
-            session_agent=str(parsed.session_agent),
-            session_agent_path=str(parsed.session_agent_path),
-            session_skill_paths=tuple(str(item) for item in parsed.session_skill_path),
-            adhoc_agent_payload=str(parsed.adhoc_agent_payload),
-            appended_system_prompt=cast("str | None", parsed.appended_system_prompt),
-            autocompact=cast("int | None", parsed.autocompact),
-            forked_from_chat_id=cast("str | None", parsed.forked_from_chat_id),
+            allowed_tools=params.allowed_tools,
+            passthrough_args=params.passthrough_args,
+            continue_harness_session_id=params.continue_harness_session_id,
+            continue_fork=params.continue_fork,
+            session_agent=params.session_agent,
+            session_agent_path=params.session_agent_path,
+            session_skill_paths=params.session_skill_paths,
+            adhoc_agent_payload=params.adhoc_agent_payload,
+            appended_system_prompt=params.appended_system_prompt,
+            autocompact=params.autocompact,
+            forked_from_chat_id=params.forked_from_chat_id,
             ctx=resolved_context,
         )
     )
