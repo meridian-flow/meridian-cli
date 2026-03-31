@@ -21,15 +21,18 @@ def _seed_session(
     harness_session_id: str,
     extra_harness_session_ids: tuple[str, ...] = (),
     work_id: str | None = None,
+    harness: str = "codex",
+    execution_cwd: str | None = None,
 ) -> str:
     resolved_chat_id = session_store.start_session(
         state_root,
-        harness="codex",
+        harness=harness,
         harness_session_id=harness_session_id,
         model="gpt-5.4",
         chat_id=chat_id,
         agent="coder",
         skills=("skill-a", "skill-b"),
+        execution_cwd=execution_cwd,
     )
     if work_id is not None:
         session_store.update_session_work_id(state_root, resolved_chat_id, work_id)
@@ -45,6 +48,9 @@ def _seed_spawn(
     spawn_id: str,
     chat_id: str,
     harness_session_id: str | None,
+    harness: str = "codex",
+    kind: str = "child",
+    execution_cwd: str | None = None,
 ) -> None:
     spawn_store.start_spawn(
         state_root,
@@ -53,10 +59,12 @@ def _seed_spawn(
         model="gpt-5.3-codex",
         agent="coder",
         skills=("skill-c",),
-        harness="codex",
+        harness=harness,
+        kind=kind,
         prompt="seed prompt",
         work_id="w-spawn",
         harness_session_id=harness_session_id,
+        execution_cwd=execution_cwd,
     )
 
 
@@ -104,6 +112,47 @@ def test_resolve_session_reference_for_spawn_id_reads_spawn_metadata(tmp_path: P
     assert resolved.warning is None
 
 
+def test_resolve_session_reference_for_spawn_uses_execution_cwd_when_recorded(
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    state_root = _state_root(repo_root)
+    execution_cwd = str(tmp_path / "custom-cwd")
+    _seed_spawn(
+        state_root,
+        spawn_id="p9",
+        chat_id="c9",
+        harness_session_id="spawn-session-9",
+        execution_cwd=execution_cwd,
+    )
+
+    resolved = resolve_session_reference(repo_root, "p9")
+
+    assert resolved.source_execution_cwd == execution_cwd
+
+
+def test_resolve_session_reference_for_legacy_claude_spawn_infers_log_dir(
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    state_root = _state_root(repo_root)
+    _seed_spawn(
+        state_root,
+        spawn_id="p10",
+        chat_id="c10",
+        harness_session_id="claude-session-10",
+        harness="claude",
+        kind="child",
+        execution_cwd=None,
+    )
+
+    resolved = resolve_session_reference(repo_root, "p10")
+
+    assert resolved.source_execution_cwd == str(resolve_state_paths(repo_root).spawns_dir / "p10")
+
+
 def test_resolve_session_reference_allows_spawn_without_harness_session_id(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
@@ -116,6 +165,27 @@ def test_resolve_session_reference_allows_spawn_without_harness_session_id(tmp_p
     assert resolved.harness == "codex"
     assert resolved.tracked is True
     assert resolved.missing_harness_session_id is True
+
+
+def test_resolve_session_reference_for_chat_uses_recorded_execution_cwd(
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    state_root = _state_root(repo_root)
+    execution_cwd = str(tmp_path / "chat-cwd")
+    chat_id = _seed_session(
+        state_root,
+        chat_id="c42",
+        harness_session_id="session-42",
+        work_id="w-chat",
+        harness="claude",
+        execution_cwd=execution_cwd,
+    )
+
+    resolved = resolve_session_reference(repo_root, chat_id)
+
+    assert resolved.source_execution_cwd == execution_cwd
 
 
 def test_resolve_session_reference_falls_back_to_untracked_raw_reference(
@@ -140,6 +210,7 @@ def test_resolve_session_reference_falls_back_to_untracked_raw_reference(
     assert resolved.source_agent is None
     assert resolved.source_skills == ()
     assert resolved.source_work_id is None
+    assert resolved.source_execution_cwd is None
     assert resolved.tracked is False
     assert resolved.missing_harness_session_id is False
     assert (

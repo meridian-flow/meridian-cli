@@ -9,7 +9,7 @@ from pathlib import Path
 from meridian.lib.harness.registry import get_default_harness_registry
 from meridian.lib.harness.session_detection import infer_harness_from_untracked_session_ref
 from meridian.lib.state import session_store, spawn_store
-from meridian.lib.state.paths import resolve_state_paths
+from meridian.lib.state.paths import resolve_spawn_log_dir, resolve_state_paths
 
 _SPAWN_REF_RE = re.compile(r"^p\d+$")
 _CHAT_REF_RE = re.compile(r"^c\d+$")
@@ -119,6 +119,12 @@ def _resolve_spawn_reference(
 
     harness_session_id = _normalize_optional(row.harness_session_id)
     stored_harness = _normalize_optional(row.harness)
+    source_execution_cwd = row.execution_cwd
+    if source_execution_cwd is None and row.harness == "claude" and row.kind == "child":
+        # Legacy Claude child spawns executed from the spawn log directory.
+        source_execution_cwd = str(resolve_spawn_log_dir(repo_root, ref))
+    elif source_execution_cwd is None:
+        source_execution_cwd = str(repo_root)
     return _build_tracked_reference(
         harness_session_id=harness_session_id,
         stored_harness=stored_harness,
@@ -127,7 +133,7 @@ def _resolve_spawn_reference(
         source_agent=_normalize_optional(row.agent),
         source_skills=row.skills,
         source_work_id=_normalize_optional(row.work_id),
-        source_execution_cwd=row.execution_cwd,
+        source_execution_cwd=source_execution_cwd,
         repo_root=repo_root,
     )
 
@@ -150,7 +156,7 @@ def _resolve_chat_reference(
         source_agent=_normalize_optional(session.agent),
         source_skills=session.skills,
         source_work_id=_normalize_optional(session.active_work_id),
-        source_execution_cwd=session.execution_cwd,
+        source_execution_cwd=session.execution_cwd or str(repo_root),
         repo_root=repo_root,
     )
 
@@ -173,7 +179,7 @@ def _resolve_harness_session_reference(
         source_agent=_normalize_optional(session.agent),
         source_skills=session.skills,
         source_work_id=_normalize_optional(session.active_work_id),
-        source_execution_cwd=session.execution_cwd,
+        source_execution_cwd=session.execution_cwd or str(repo_root),
         repo_root=repo_root,
     )
 
