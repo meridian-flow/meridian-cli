@@ -9,91 +9,62 @@ def _jsonl(*events: dict[str, object]) -> str:
     return "\n".join(json.dumps(event) for event in events)
 
 
-def test_extract_assistant_messages_claude_nested_message() -> None:
+def test_extract_assistant_messages_parses_structured_harness_events() -> None:
     output = _extract_assistant_messages(
         _jsonl(
             {
                 "type": "assistant",
                 "message": {"content": [{"type": "text", "text": "nested message"}]},
-            }
-        )
-    )
-    assert output == ["nested message"]
-
-
-def test_extract_assistant_messages_claude_top_level_content() -> None:
-    output = _extract_assistant_messages(
-        _jsonl(
+            },
             {
                 "type": "assistant",
                 "content": [{"type": "text", "text": "assistant fallback"}],
-            }
-        )
-    )
-    assert output == ["assistant fallback"]
-
-
-def test_extract_assistant_messages_opencode_string_message() -> None:
-    output = _extract_assistant_messages(_jsonl({"type": "assistant", "message": "first message"}))
-    assert output == ["first message"]
-
-
-def test_extract_assistant_messages_codex_exec_item() -> None:
-    output = _extract_assistant_messages(
-        _jsonl(
+            },
+            {"type": "assistant", "message": "assistant fallback"},
             {
                 "type": "item.completed",
-                "item": {"type": "agent_message", "text": "first"},
-            }
+                "item": {"type": "agent_message", "text": "codex message"},
+            },
+            {
+                "type": "progress",
+                "data": {
+                    "message": {
+                        "type": "assistant",
+                        "message": {"content": [{"type": "text", "text": "wrapped"}]},
+                    }
+                },
+            },
+            {"type": "rate_limit_event", "message": "ignored"},
         )
     )
-    assert output == ["first"]
+
+    assert output == ["nested message", "assistant fallback", "codex message", "wrapped"]
 
 
-def test_extract_assistant_messages_generic_fallback_shapes() -> None:
+def test_extract_assistant_messages_parses_unstructured_assistant_fallbacks() -> None:
     output = _extract_assistant_messages(
         _jsonl(
             {"role": "assistant", "content": "generic fallback"},
             {"type": "assistant", "text": "json assistant message"},
         )
     )
+
     assert output == ["generic fallback", "json assistant message"]
 
 
-def test_extract_assistant_messages_deduplicates_adjacent_messages() -> None:
-    output = _extract_assistant_messages(
-        _jsonl(
-            {"type": "assistant", "message": "same"},
-            {"type": "assistant", "message": "same"},
-            {"type": "assistant", "message": "different"},
-        )
+def test_extract_assistant_messages_returns_empty_for_empty_or_whitespace_input() -> None:
+    assert _extract_assistant_messages("") == []
+    assert _extract_assistant_messages("\n \n\t\n") == []
+
+
+def test_extract_assistant_messages_skips_malformed_or_non_assistant_payloads() -> None:
+    raw = "\n".join(
+        [
+            "{not-json}",
+            json.dumps({"type": "item.completed", "item": {"type": "tool_call", "text": "x"}}),
+            json.dumps({"type": "progress", "message": "ignored"}),
+            json.dumps({"type": "assistant", "message": "kept"}),
+        ]
     )
-    assert output == ["same", "different"]
 
-
-def test_extract_assistant_messages_skips_progress_and_rate_limit_events() -> None:
-    output = _extract_assistant_messages(
-        _jsonl(
-            {"type": "progress", "message": "ignored progress"},
-            {"type": "rate_limit_event", "message": "ignored rate limit"},
-            {"type": "assistant", "message": "kept"},
-        )
-    )
-    assert output == ["kept"]
-
-
-def test_extract_assistant_messages_unwraps_progress_nested_message() -> None:
-    output = _extract_assistant_messages(
-        _jsonl(
-            {
-                "type": "progress",
-                "data": {
-                    "message": {
-                        "type": "assistant",
-                        "message": {"content": [{"type": "text", "text": "wrapped assistant"}]},
-                    }
-                },
-            }
-        )
-    )
-    assert output == ["wrapped assistant"]
+    assert _extract_assistant_messages(raw) == ["kept"]

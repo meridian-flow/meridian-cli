@@ -18,6 +18,7 @@ def _seed_spawn(
     spawn_id: str,
     harness_session_id: str | None,
     prompt: str = "seed prompt",
+    execution_cwd: str | None = None,
 ) -> None:
     spawn_store.start_spawn(
         state_root,
@@ -30,6 +31,7 @@ def _seed_spawn(
         prompt=prompt,
         work_id="w-spawn",
         harness_session_id=harness_session_id,
+        execution_cwd=execution_cwd,
     )
 
 
@@ -50,21 +52,24 @@ def test_spawn_continue_errors_when_source_spawn_lacks_harness_session_id(
             )
         )
     except ValueError as exc:
-        assert (
-            str(exc) == "Spawn 'p11' has no recorded session — cannot continue/fork."
-        )
+        assert str(exc) == "Spawn 'p11' has no recorded session — cannot continue/fork."
     else:  # pragma: no cover - defensive assertion
         raise AssertionError("Expected continue from missing harness session to fail.")
 
 
-def test_spawn_continue_passes_valid_resume_session_to_spawn_create(
+def test_spawn_continue_passes_resume_details_in_legacy_and_session_dto_fields(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
     state_root = _state_root(repo_root)
-    _seed_spawn(state_root, spawn_id="p21", harness_session_id="session-21")
+    _seed_spawn(
+        state_root,
+        spawn_id="p21",
+        harness_session_id="session-21",
+        execution_cwd="/tmp/source-cwd",
+    )
 
     captured_input: SpawnCreateInput | None = None
 
@@ -93,9 +98,16 @@ def test_spawn_continue_passes_valid_resume_session_to_spawn_create(
     assert result.status == "dry-run"
     assert result.command == "spawn.continue"
     assert captured_input is not None
+
+    # Legacy continuation fields remain populated for compatibility.
     assert captured_input.continue_harness_session_id == "session-21"
     assert captured_input.continue_harness == "codex"
     assert captured_input.continue_source_tracked is True
     assert captured_input.continue_source_ref == "p21"
     assert captured_input.continue_fork is True
-    assert captured_input.forked_from_chat_id == "c-seed"
+
+    # Session DTO carries the canonical continuation payload.
+    assert captured_input.session.harness_session_id == "session-21"
+    assert captured_input.session.continue_fork is True
+    assert captured_input.session.forked_from_chat_id == "c-seed"
+    assert captured_input.session.source_execution_cwd == "/tmp/source-cwd"

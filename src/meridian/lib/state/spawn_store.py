@@ -45,13 +45,6 @@ def next_spawn_id(state_root: Path) -> SpawnId:
     return SpawnId(f"p{starts + 1}")
 
 
-def next_chat_id(state_root: Path) -> str:
-    """Return the next session/chat ID (`c1`, `c2`, ...) for a state root."""
-
-    starts = _count_start_events(state_root / "sessions.jsonl")
-    return f"c{starts + 1}"
-
-
 LaunchMode = Literal["background", "foreground"]
 BACKGROUND_LAUNCH_MODE: LaunchMode = "background"
 FOREGROUND_LAUNCH_MODE: LaunchMode = "foreground"

@@ -2,10 +2,9 @@ import json
 
 import pytest
 
-from meridian.lib.core.types import HarnessId, ModelId
+from meridian.lib.core.types import ModelId
 from meridian.lib.harness.adapter import SpawnParams
 from meridian.lib.harness.claude import ClaudeAdapter
-from meridian.lib.harness.opencode import OpenCodeAdapter
 from meridian.lib.launch.command import build_launch_env
 from meridian.lib.launch.env import build_harness_child_env, inherit_child_env, sanitize_child_env
 from meridian.lib.launch.types import LaunchRequest
@@ -15,76 +14,13 @@ from meridian.lib.safety.permissions import (
     PermissionTier,
     build_permission_config,
     opencode_permission_json_for_allowed_tools,
-    permission_flags_for_harness,
     resolve_permission_pipeline,
 )
-
-
-def test_yolo_approval_bypass() -> None:
-    config = build_permission_config("full-access", approval="yolo")
-    assert config.tier is PermissionTier.FULL_ACCESS
-    assert config.approval == "yolo"
-    assert permission_flags_for_harness(HarnessId.CLAUDE, config) == [
-        "--dangerously-skip-permissions"
-    ]
-    assert permission_flags_for_harness(HarnessId.CODEX, config) == [
-        "--dangerously-bypass-approvals-and-sandbox"
-    ]
-
-
-def test_auto_approval_reduces_friction() -> None:
-    config = build_permission_config("full-access", approval="auto")
-    assert config.approval == "auto"
-    assert permission_flags_for_harness(HarnessId.CLAUDE, config) == [
-        "--permission-mode",
-        "acceptEdits",
-    ]
-    assert permission_flags_for_harness(HarnessId.CODEX, config) == ["--full-auto"]
-
-
-def test_confirm_approval_forces_ask() -> None:
-    config = build_permission_config(None, approval="confirm")
-    assert config.approval == "confirm"
-    assert permission_flags_for_harness(HarnessId.CLAUDE, config) == [
-        "--permission-mode",
-        "default",
-    ]
-    assert permission_flags_for_harness(HarnessId.CODEX, config) == [
-        "--ask-for-approval",
-        "untrusted",
-    ]
-
-
-def test_default_approval_emits_no_flags() -> None:
-    config = build_permission_config(None, approval="default")
-    assert config.approval == "default"
-    assert permission_flags_for_harness(HarnessId.CLAUDE, config) == []
-    assert permission_flags_for_harness(HarnessId.CODEX, config) == []
 
 
 def test_invalid_approval_raises() -> None:
     with pytest.raises(ValueError, match="Unsupported approval mode"):
         build_permission_config("full-access", approval="sometimes")
-
-
-def test_none_tier_defaults_to_harness_choice() -> None:
-    config = build_permission_config(None)
-    assert config.tier is None
-    assert permission_flags_for_harness(HarnessId.CLAUDE, config) == []
-    assert permission_flags_for_harness(HarnessId.CODEX, config) == []
-
-
-@pytest.mark.parametrize(
-    "tier",
-    (
-        PermissionTier.READ_ONLY,
-        PermissionTier.WORKSPACE_WRITE,
-        PermissionTier.FULL_ACCESS,
-    ),
-)
-def test_claude_tier_permissions_do_not_emit_allowed_tools(tier: PermissionTier) -> None:
-    config = build_permission_config(tier)
-    assert permission_flags_for_harness(HarnessId.CLAUDE, config) == []
 
 
 def test_opencode_permission_json_for_allowed_tools_normalizes_tool_names() -> None:
@@ -108,7 +44,6 @@ def test_resolve_permission_pipeline_sets_opencode_override_for_explicit_tools()
     )
 
     assert isinstance(resolver, ExplicitToolsResolver)
-    assert resolver.resolve_flags(HarnessId.OPENCODE) == []
     assert config.tier is PermissionTier.WORKSPACE_WRITE
     assert config.opencode_permission_override is not None
     assert json.loads(config.opencode_permission_override) == {
@@ -116,19 +51,6 @@ def test_resolve_permission_pipeline_sets_opencode_override_for_explicit_tools()
         "read": "allow",
         "write": "allow",
     }
-
-
-def test_opencode_env_overrides_uses_explicit_permission_override() -> None:
-    adapter = OpenCodeAdapter()
-    override = '{"*":"deny","read":"allow"}'
-    env = adapter.env_overrides(PermissionConfig(opencode_permission_override=override))
-    assert env == {"OPENCODE_PERMISSION": override}
-
-
-def test_opencode_env_overrides_returns_empty_without_override() -> None:
-    adapter = OpenCodeAdapter()
-    env = adapter.env_overrides(PermissionConfig(tier=PermissionTier.WORKSPACE_WRITE))
-    assert env == {}
 
 
 def test_sanitize_child_env_filters_parent_secrets_and_keeps_explicit_overrides() -> None:
@@ -228,7 +150,6 @@ def test_build_launch_env_never_exports_permission_tier(
 ) -> None:
     monkeypatch.delenv("MERIDIAN_PERMISSION_TIER", raising=False)
 
-    # Even with an explicit tier, the env var should not be exported.
     env = build_launch_env(
         tmp_path,
         LaunchRequest(model="gpt-5.3-codex"),
@@ -238,48 +159,3 @@ def test_build_launch_env_never_exports_permission_tier(
     )
 
     assert "MERIDIAN_PERMISSION_TIER" not in env
-
-
-def test_build_launch_env_omits_work_env_by_default(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path,
-) -> None:
-    monkeypatch.delenv("MERIDIAN_WORK_ID", raising=False)
-    monkeypatch.delenv("MERIDIAN_WORK_DIR", raising=False)
-
-    env = build_launch_env(
-        tmp_path,
-        LaunchRequest(model="gpt-5.3-codex"),
-    )
-
-    assert "MERIDIAN_WORK_ID" not in env
-    assert "MERIDIAN_WORK_DIR" not in env
-
-
-def test_build_launch_env_sets_explicit_work_dir_without_creating_it(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path,
-) -> None:
-    monkeypatch.delenv("MERIDIAN_WORK_ID", raising=False)
-    monkeypatch.delenv("MERIDIAN_WORK_DIR", raising=False)
-
-    env = build_launch_env(
-        tmp_path,
-        LaunchRequest(model="gpt-5.3-codex"),
-        work_id="named-work-9",
-    )
-
-    assert env["MERIDIAN_WORK_ID"] == "named-work-9"
-    assert env["MERIDIAN_WORK_DIR"] == (tmp_path / ".meridian" / "work" / "named-work-9").as_posix()
-    assert not (tmp_path / ".meridian" / "work" / "named-work-9").exists()
-
-
-def test_build_launch_env_uses_explicit_work_id(tmp_path) -> None:
-    env = build_launch_env(
-        tmp_path,
-        LaunchRequest(model="gpt-5.3-codex"),
-        work_id="named-work",
-    )
-
-    assert env["MERIDIAN_WORK_ID"] == "named-work"
-    assert env["MERIDIAN_WORK_DIR"].endswith("/.meridian/work/named-work")

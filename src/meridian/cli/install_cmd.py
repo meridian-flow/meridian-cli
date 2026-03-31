@@ -11,6 +11,7 @@ from typing import Annotated, Any, Literal
 
 from cyclopts import Parameter
 
+from meridian.cli.utils import parse_csv_list
 from meridian.lib.config.settings import resolve_repo_root
 from meridian.lib.install.config import (
     SourceConfig,
@@ -532,18 +533,6 @@ def _derive_source_name(source: str, selector: SourceSelector) -> str:
     return derived
 
 
-def _parse_csv_list(raw: str | None, *, field_name: str) -> tuple[str, ...] | None:
-    if raw is None:
-        return None
-
-    parts = [part.strip() for part in raw.split(",")]
-    if any(not part for part in parts):
-        raise ValueError(
-            f"Invalid value for '{field_name}': expected comma-separated non-empty names."
-        )
-    return tuple(parts)
-
-
 def _parse_rename_args(rename_args: tuple[str, ...]) -> dict[str, str]:
     rename_map: dict[str, str] = {}
     for raw in rename_args:
@@ -569,8 +558,8 @@ def _build_source_config(
     selector = _classify_source(source, repo_root=repo_root)
     source_name = name.strip() if name is not None else _derive_source_name(source, selector)
     rename_map = _normalize_rename_map(_parse_rename_args(rename))
-    agent_names = _parse_csv_list(agents, field_name="agents")
-    skill_names = _parse_csv_list(skills, field_name="skills")
+    agent_names = parse_csv_list(agents, field_name="agents", none_for_empty=True)
+    skill_names = parse_csv_list(skills, field_name="skills", none_for_empty=True)
 
     if selector == "path":
         return SourceConfig(

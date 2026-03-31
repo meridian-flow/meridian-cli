@@ -57,10 +57,13 @@ _WAIT_HEARTBEAT_INTERVAL_SECS = 5.0
 
 
 def _forked_from_output(payload: SpawnCreateInput) -> str | None:
-    if not payload.continue_fork:
+    continue_fork = payload.session.continue_fork or payload.continue_fork
+    if not continue_fork:
         return None
 
-    source_chat_id = (payload.forked_from_chat_id or "").strip()
+    source_chat_id = (
+        payload.session.forked_from_chat_id or payload.forked_from_chat_id or ""
+    ).strip()
     if source_chat_id:
         return source_chat_id
     source_ref = (payload.continue_source_ref or "").strip()

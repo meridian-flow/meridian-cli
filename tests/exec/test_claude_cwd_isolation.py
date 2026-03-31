@@ -64,34 +64,6 @@ class ClaudeLikeAdapter(BaseSubprocessHarness):
         return extract_session_id_from_artifacts(artifacts, spawn_id)
 
 
-class NonClaudeAdapter(BaseSubprocessHarness):
-    """Adapter with a non-claude id — CWD isolation should NOT trigger."""
-
-    def __init__(self, *, command: tuple[str, ...]) -> None:
-        self._command = command
-
-    @property
-    def id(self) -> HarnessId:
-        return HarnessId.CODEX
-
-    @property
-    def capabilities(self) -> HarnessCapabilities:
-        return HarnessCapabilities()
-
-    def build_command(self, run: SpawnParams, perms: PermissionResolver) -> list[str]:
-        return list(self._command)
-
-    def env_overrides(self, config: PermissionConfig) -> dict[str, str]:
-        _ = config
-        return {}
-
-    def extract_usage(self, artifacts: HarnessArtifactStore, spawn_id: SpawnId) -> TokenUsage:
-        return extract_usage_from_artifacts(artifacts, spawn_id)
-
-    def extract_session_id(self, artifacts: HarnessArtifactStore, spawn_id: SpawnId) -> str | None:
-        return extract_session_id_from_artifacts(artifacts, spawn_id)
-
-
 def _write_cwd_reporter_script(path: Path, output_path: Path) -> None:
     """Write a script that records its CWD and argv to a JSON file."""
     path.write_text(
@@ -126,13 +98,16 @@ def _build_plan(run: Spawn, harness_id: HarnessId) -> PreparedSpawnPlan:
     )
 
 
-@pytest.mark.asyncio
-async def test_claude_harness_uses_log_dir_cwd_when_claudecode_set(
+async def _run_and_read_report(
+    *,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """When CLAUDECODE is set and harness is claude, child CWD should be log_dir."""
-    monkeypatch.setenv("CLAUDECODE", "1")
+    claudecode_enabled: bool,
+) -> dict[str, object]:
+    if claudecode_enabled:
+        monkeypatch.setenv("CLAUDECODE", "1")
+    else:
+        monkeypatch.delenv("CLAUDECODE", raising=False)
 
     spawn_id = SpawnId("r1")
     run = Spawn(spawn_id=spawn_id, prompt="test", model=ModelId("test-model"), status="queued")
@@ -157,134 +132,38 @@ async def test_claude_harness_uses_log_dir_cwd_when_claudecode_set(
         harness_id=adapter.id,
         cwd=tmp_path,
     )
-
     assert exit_code == 0
-    report = json.loads(cwd_report.read_text(encoding="utf-8"))
-    expected_log_dir = str(resolve_spawn_log_dir(tmp_path, spawn_id))
-    assert report["cwd"] == expected_log_dir, (
-        f"Child CWD should be log_dir when CLAUDECODE is set, "
-        f"got {report['cwd']!r}, expected {expected_log_dir!r}"
-    )
+    return json.loads(cwd_report.read_text(encoding="utf-8"))
 
 
 @pytest.mark.asyncio
-async def test_claude_harness_adds_add_dir_flag_when_claudecode_set(
+async def test_claude_harness_flips_to_log_dir_with_add_dir_under_claudecode(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """When CWD isolation is active, --add-dir <project-root> should be in argv."""
-    monkeypatch.setenv("CLAUDECODE", "1")
-
-    spawn_id = SpawnId("r1")
-    run = Spawn(spawn_id=spawn_id, prompt="test", model=ModelId("test-model"), status="queued")
-    state_root = resolve_state_paths(tmp_path).root_dir
-    artifacts = LocalStore(root_dir=tmp_path / ".artifacts")
-
-    cwd_report = tmp_path / "cwd-report.json"
-    script = tmp_path / "reporter.py"
-    _write_cwd_reporter_script(script, cwd_report)
-
-    adapter = ClaudeLikeAdapter(command=(sys.executable, str(script)))
-    registry = HarnessRegistry()
-    registry.register(adapter)
-
-    await execute_with_finalization(
-        run,
-        plan=_build_plan(run, adapter.id),
-        repo_root=tmp_path,
-        state_root=state_root,
-        artifacts=artifacts,
-        registry=registry,
-        harness_id=adapter.id,
-        cwd=tmp_path,
+    report = await _run_and_read_report(
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+        claudecode_enabled=True,
     )
 
-    report = json.loads(cwd_report.read_text(encoding="utf-8"))
-    # The script receives the full command as argv. The runner appends
-    # --add-dir <project-root> to the command when CWD isolation is active.
-    # Since our adapter's build_command just returns the script command,
-    # argv should contain --add-dir and the project root.
-    assert "--add-dir" in report["argv"], "Command should include --add-dir flag"
+    expected_log_dir = str(resolve_spawn_log_dir(tmp_path, SpawnId("r1")))
+    assert report["cwd"] == expected_log_dir
+    assert "--add-dir" in report["argv"]
     add_dir_idx = report["argv"].index("--add-dir")
-    assert report["argv"][add_dir_idx + 1] == str(tmp_path), (
-        f"--add-dir should point to project root {tmp_path}"
-    )
+    assert report["argv"][add_dir_idx + 1] == str(tmp_path)
 
 
 @pytest.mark.asyncio
-async def test_claude_harness_uses_project_cwd_when_claudecode_not_set(
+async def test_claude_harness_keeps_project_cwd_without_claudecode(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """When CLAUDECODE is NOT set, child CWD should be the project root (no isolation)."""
-    monkeypatch.delenv("CLAUDECODE", raising=False)
-
-    spawn_id = SpawnId("r1")
-    run = Spawn(spawn_id=spawn_id, prompt="test", model=ModelId("test-model"), status="queued")
-    state_root = resolve_state_paths(tmp_path).root_dir
-    artifacts = LocalStore(root_dir=tmp_path / ".artifacts")
-
-    cwd_report = tmp_path / "cwd-report.json"
-    script = tmp_path / "reporter.py"
-    _write_cwd_reporter_script(script, cwd_report)
-
-    adapter = ClaudeLikeAdapter(command=(sys.executable, str(script)))
-    registry = HarnessRegistry()
-    registry.register(adapter)
-
-    await execute_with_finalization(
-        run,
-        plan=_build_plan(run, adapter.id),
-        repo_root=tmp_path,
-        state_root=state_root,
-        artifacts=artifacts,
-        registry=registry,
-        harness_id=adapter.id,
-        cwd=tmp_path,
+    report = await _run_and_read_report(
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+        claudecode_enabled=False,
     )
 
-    report = json.loads(cwd_report.read_text(encoding="utf-8"))
-    assert report["cwd"] == str(tmp_path), (
-        f"Child CWD should be project root when CLAUDECODE is not set, got {report['cwd']!r}"
-    )
-    assert "--add-dir" not in report["argv"], (
-        "--add-dir should not be added when CWD isolation is inactive"
-    )
-
-
-@pytest.mark.asyncio
-async def test_non_claude_harness_uses_project_cwd_even_when_claudecode_set(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Non-claude harnesses should never get CWD isolation, even inside Claude Code."""
-    monkeypatch.setenv("CLAUDECODE", "1")
-
-    spawn_id = SpawnId("r1")
-    run = Spawn(spawn_id=spawn_id, prompt="test", model=ModelId("test-model"), status="queued")
-    state_root = resolve_state_paths(tmp_path).root_dir
-    artifacts = LocalStore(root_dir=tmp_path / ".artifacts")
-
-    cwd_report = tmp_path / "cwd-report.json"
-    script = tmp_path / "reporter.py"
-    _write_cwd_reporter_script(script, cwd_report)
-
-    adapter = NonClaudeAdapter(command=(sys.executable, str(script)))
-    registry = HarnessRegistry()
-    registry.register(adapter)
-
-    await execute_with_finalization(
-        run,
-        plan=_build_plan(run, adapter.id),
-        repo_root=tmp_path,
-        state_root=state_root,
-        artifacts=artifacts,
-        registry=registry,
-        harness_id=adapter.id,
-        cwd=tmp_path,
-    )
-
-    report = json.loads(cwd_report.read_text(encoding="utf-8"))
-    assert report["cwd"] == str(tmp_path), (
-        f"Non-claude harness CWD should always be project root, got {report['cwd']!r}"
-    )
+    assert report["cwd"] == str(tmp_path)
+    assert "--add-dir" not in report["argv"]

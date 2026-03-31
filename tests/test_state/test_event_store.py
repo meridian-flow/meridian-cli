@@ -1,16 +1,10 @@
 import json
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel
 
-from meridian.lib.state.event_store import (
-    append_event,
-    lock_file,
-    read_events,
-    utc_now_iso,
-)
+from meridian.lib.state.event_store import append_event, lock_file, read_events
 
 
 class _ReadEvent(BaseModel):
@@ -32,14 +26,6 @@ def _write_lines(path: Path, lines: list[str]) -> None:
     path.write_text("".join(lines), encoding="utf-8")
 
 
-def test_utc_now_iso_returns_z_and_no_microseconds() -> None:
-    iso = utc_now_iso()
-
-    assert iso.endswith("Z")
-    parsed = datetime.fromisoformat(iso.replace("Z", "+00:00"))
-    assert parsed.microsecond == 0
-
-
 def test_read_events_skips_truncated_trailing_line(tmp_path: Path) -> None:
     data_path = tmp_path / "events.jsonl"
     _write_lines(
@@ -56,28 +42,13 @@ def test_read_events_skips_truncated_trailing_line(tmp_path: Path) -> None:
     assert [row.id for row in rows] == [1, 2]
 
 
-def test_read_events_skips_malformed_json_in_middle(tmp_path: Path) -> None:
+def test_read_events_skips_malformed_json_and_validation_errors(tmp_path: Path) -> None:
     data_path = tmp_path / "events.jsonl"
     _write_lines(
         data_path,
         [
             '{"id":1,"kind":"start"}\n',
             "{not-valid-json}\n",
-            '{"id":2,"kind":"done"}\n',
-        ],
-    )
-
-    rows = read_events(data_path, _parse_read_event)
-
-    assert [row.id for row in rows] == [1, 2]
-
-
-def test_read_events_skips_validation_errors_from_parser(tmp_path: Path) -> None:
-    data_path = tmp_path / "events.jsonl"
-    _write_lines(
-        data_path,
-        [
-            '{"id":1,"kind":"start"}\n',
             '{"id":"bad","kind":"update"}\n',
             '{"id":2,"kind":"done"}\n',
         ],
@@ -88,24 +59,13 @@ def test_read_events_skips_validation_errors_from_parser(tmp_path: Path) -> None
     assert [row.id for row in rows] == [1, 2]
 
 
-def test_read_events_returns_empty_for_empty_file(tmp_path: Path) -> None:
-    data_path = tmp_path / "events.jsonl"
-    data_path.write_text("", encoding="utf-8")
+def test_read_events_returns_empty_for_missing_or_blank_files(tmp_path: Path) -> None:
+    missing_path = tmp_path / "missing.jsonl"
+    assert read_events(missing_path, _parse_read_event) == []
 
-    assert read_events(data_path, _parse_read_event) == []
-
-
-def test_read_events_returns_empty_for_blank_lines_only(tmp_path: Path) -> None:
-    data_path = tmp_path / "events.jsonl"
-    data_path.write_text("\n  \n\t\n", encoding="utf-8")
-
-    assert read_events(data_path, _parse_read_event) == []
-
-
-def test_read_events_returns_empty_when_file_missing(tmp_path: Path) -> None:
-    data_path = tmp_path / "missing.jsonl"
-
-    assert read_events(data_path, _parse_read_event) == []
+    blank_path = tmp_path / "blank.jsonl"
+    blank_path.write_text("\n  \n\t\n", encoding="utf-8")
+    assert read_events(blank_path, _parse_read_event) == []
 
 
 def test_read_events_handles_many_lines(tmp_path: Path) -> None:
@@ -122,34 +82,18 @@ def test_read_events_handles_many_lines(tmp_path: Path) -> None:
     assert rows[-1].id == 149
 
 
-def test_append_event_writes_single_compact_sorted_jsonl_line(tmp_path: Path) -> None:
-    data_path = tmp_path / "events.jsonl"
-    lock_path = tmp_path / "events.lock"
+def test_append_event_serialization_sorts_keys_and_toggles_none_fields(tmp_path: Path) -> None:
+    include_path = tmp_path / "include.jsonl"
+    include_lock = tmp_path / "include.lock"
+    omit_path = tmp_path / "omit.jsonl"
+    omit_lock = tmp_path / "omit.lock"
     event = _AppendEvent(z_key="z", a_key="a", optional=None)
 
-    append_event(data_path, lock_path, event, store_name="test", exclude_none=False)
+    append_event(include_path, include_lock, event, store_name="test", exclude_none=False)
+    append_event(omit_path, omit_lock, event, store_name="test", exclude_none=True)
 
-    assert data_path.read_text(encoding="utf-8") == '{"a_key":"a","optional":null,"z_key":"z"}\n'
-
-
-def test_append_event_exclude_none_true_omits_none_fields(tmp_path: Path) -> None:
-    data_path = tmp_path / "events.jsonl"
-    lock_path = tmp_path / "events.lock"
-    event = _AppendEvent(z_key="z", a_key="a", optional=None)
-
-    append_event(data_path, lock_path, event, store_name="test", exclude_none=True)
-
-    assert data_path.read_text(encoding="utf-8") == '{"a_key":"a","z_key":"z"}\n'
-
-
-def test_append_event_exclude_none_false_includes_none_fields(tmp_path: Path) -> None:
-    data_path = tmp_path / "events.jsonl"
-    lock_path = tmp_path / "events.lock"
-    event = _AppendEvent(z_key="z", a_key="a", optional=None)
-
-    append_event(data_path, lock_path, event, store_name="test", exclude_none=False)
-
-    assert '"optional":null' in data_path.read_text(encoding="utf-8")
+    assert include_path.read_text(encoding="utf-8") == '{"a_key":"a","optional":null,"z_key":"z"}\n'
+    assert omit_path.read_text(encoding="utf-8") == '{"a_key":"a","z_key":"z"}\n'
 
 
 def test_append_event_multiple_appends_create_multiple_lines(tmp_path: Path) -> None:

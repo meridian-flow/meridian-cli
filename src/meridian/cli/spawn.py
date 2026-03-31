@@ -8,6 +8,7 @@ from cyclopts import App, Parameter
 
 from meridian.cli.main import agent_mode_enabled, current_output_sink, get_global_options
 from meridian.cli.registration import register_manifest_cli_group
+from meridian.cli.utils import missing_fork_session_error, parse_csv_list
 from meridian.lib.core.domain import SpawnStatus
 from meridian.lib.ops.reference import resolve_session_reference
 from meridian.lib.ops.runtime import resolve_runtime_root_and_config
@@ -46,27 +47,6 @@ def _spawn_create_exit_code(result: SpawnActionOutput) -> int:
     if result.status in {"succeeded", "running", "dry-run"}:
         return 0
     return 1
-
-
-def _parse_csv_list(raw: str | None, *, field_name: str) -> tuple[str, ...]:
-    if raw is None:
-        return ()
-    trimmed = raw.strip()
-    if not trimmed:
-        return ()
-
-    parts = [part.strip() for part in trimmed.split(",")]
-    if any(not part for part in parts):
-        raise ValueError(
-            f"Invalid value for '{field_name}': expected comma-separated non-empty names."
-        )
-    return tuple(parts)
-
-
-def _missing_fork_session_error(source_ref: str) -> str:
-    if source_ref.startswith("p") and source_ref[1:].isdigit():
-        return f"Spawn '{source_ref}' has no recorded session — cannot continue/fork."
-    return f"Session '{source_ref}' has no recorded harness session — cannot continue/fork."
 
 
 def _spawn_create(
@@ -230,7 +210,7 @@ def _spawn_create(
             "Cannot use --yolo with --approval (--yolo is shorthand for --approval yolo)."
         )
     resolved_approval = approval if approval is not None else ("yolo" if yolo else None)
-    parsed_skills = _parse_csv_list(skills, field_name="skills")
+    parsed_skills = parse_csv_list(skills, field_name="skills")
     resolved_continue_from = (continue_from or "").strip() or None
     resolved_fork_from = (fork_from or "").strip() or None
 
@@ -244,7 +224,7 @@ def _spawn_create(
         repo_root, _ = resolve_runtime_root_and_config(None)
         resolved_reference = resolve_session_reference(repo_root, resolved_fork_from)
         if resolved_reference.missing_harness_session_id:
-            raise ValueError(_missing_fork_session_error(resolved_fork_from))
+            raise ValueError(missing_fork_session_error(resolved_fork_from))
 
         requested_harness = (harness or "").strip() or None
         source_harness = (resolved_reference.harness or "").strip() or None

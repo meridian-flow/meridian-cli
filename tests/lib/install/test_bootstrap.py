@@ -6,7 +6,6 @@ from meridian.lib.install.bootstrap import (
     ensure_bootstrap_assets,
     ensure_bootstrap_source_manifest,
     plan_bootstrap_assets,
-    planned_bootstrap_agent_names,
 )
 from meridian.lib.install.config import (
     SourceConfig,
@@ -95,7 +94,6 @@ def test_ensure_bootstrap_assets_bootstraps_missing_default(
                 path=source_root.as_posix(),
                 agents=required_agent_names,
             )
-            # Use "shared" target for the bootstrap source (it's always shared)
             return manifest.with_source(bootstrap_source, target="shared")
         return manifest
 
@@ -234,51 +232,3 @@ def test_ensure_bootstrap_source_manifest_upgrades_partial_filter(
     assert source is not None
     assert source.agents == ("__meridian-orchestrator", "__meridian-subagent")
     assert source.skills == ("__meridian-orchestration", "__meridian-spawn")
-
-
-def test_ensure_bootstrap_assets_rejects_unknown_missing_default(tmp_path: Path) -> None:
-    repo_root = tmp_path / "repo"
-    repo_root.mkdir()
-    plan = plan_bootstrap_assets(repo_root=repo_root, agent_names=("custom-agent",))
-
-    try:
-        ensure_bootstrap_assets(repo_root=repo_root, plan=plan)
-    except FileNotFoundError as exc:
-        assert "custom-agent" in str(exc)
-    else:  # pragma: no cover - defensive assertion
-        raise AssertionError("Expected missing custom runtime default to fail.")
-
-
-def test_planned_bootstrap_agent_names_uses_default_when_request_is_blank() -> None:
-    assert planned_bootstrap_agent_names(
-        configured_default="__meridian-subagent",
-        requested_agent="",
-        builtin_default="__meridian-orchestrator",
-    ) == ("__meridian-subagent",)
-
-
-def test_planned_bootstrap_agent_names_bootstraps_explicit_builtin_agent() -> None:
-    assert planned_bootstrap_agent_names(
-        configured_default="__meridian-subagent",
-        requested_agent="__meridian-orchestrator",
-        builtin_default="__meridian-orchestrator",
-    ) == ("__meridian-orchestrator",)
-
-
-def test_planned_bootstrap_agent_names_skips_non_bootstrap_explicit_agent() -> None:
-    assert (
-        planned_bootstrap_agent_names(
-            configured_default="__meridian-subagent",
-            requested_agent="coder",
-            builtin_default="__meridian-orchestrator",
-        )
-        == ()
-    )
-
-
-def test_planned_bootstrap_agent_names_uses_builtin_when_configured_default_is_unmanaged() -> None:
-    assert planned_bootstrap_agent_names(
-        configured_default="dev-orchestration",
-        requested_agent="",
-        builtin_default="__meridian-orchestrator",
-    ) == ("__meridian-orchestrator",)

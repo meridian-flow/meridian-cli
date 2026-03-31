@@ -8,20 +8,6 @@ from contextlib import contextmanager
 
 
 @contextmanager
-def _env_override(name: str, value: str) -> Iterator[None]:
-    """Temporarily set an environment variable."""
-    old = os.environ.get(name)
-    os.environ[name] = value
-    try:
-        yield
-    finally:
-        if old is None:
-            os.environ.pop(name, None)
-        else:
-            os.environ[name] = old
-
-
-@contextmanager
 def _env_overrides(overrides: dict[str, str]) -> Iterator[None]:
     """Temporarily set multiple environment variables."""
     old_values: dict[str, str | None] = {}
@@ -38,7 +24,6 @@ def _env_overrides(overrides: dict[str, str]) -> Iterator[None]:
                 os.environ[name] = old_values[name]  # type: ignore[assignment]
 
 
-# Map field names to valid test values
 _TEST_VALUES: dict[str, str] = {
     "model": "test-model",
     "harness": "claude",
@@ -50,79 +35,28 @@ _TEST_VALUES: dict[str, str] = {
 }
 
 
-def test_every_field_has_env_var() -> None:
-    """Every RuntimeOverrides field is readable from MERIDIAN_<UPPER_SNAKE> env."""
-    from meridian.lib.core.overrides import RuntimeOverrides
-
-    for field_name in RuntimeOverrides.model_fields:
-        env_name = f"MERIDIAN_{field_name.upper()}"
-        test_value = _TEST_VALUES[field_name]
-        with _env_override(env_name, test_value):
-            result = RuntimeOverrides.from_env()
-            assert getattr(result, field_name) is not None, (
-                f"RuntimeOverrides.from_env() did not read {env_name} for field '{field_name}'"
-            )
-
-
-def test_every_field_has_config_key() -> None:
-    """Every RuntimeOverrides field is extractable from PrimaryConfig."""
-    from meridian.lib.config.settings import PrimaryConfig
-    from meridian.lib.core.overrides import RuntimeOverrides
-
-    config_fields = set(PrimaryConfig.model_fields.keys())
-
-    for field_name in RuntimeOverrides.model_fields:
-        assert field_name in config_fields, (
-            f"RuntimeOverrides field '{field_name}' has no matching PrimaryConfig field. "
-            f"Add it to PrimaryConfig or document the exclusion."
-        )
-
-
-def test_every_field_has_spawn_cli_flag() -> None:
-    """Every RuntimeOverrides field is settable via SpawnCreateInput."""
-    from meridian.lib.core.overrides import RuntimeOverrides
-    from meridian.lib.ops.spawn.models import SpawnCreateInput
-
-    input_fields = set(SpawnCreateInput.model_fields.keys())
-
-    for field_name in RuntimeOverrides.model_fields:
-        assert field_name in input_fields, (
-            f"RuntimeOverrides field '{field_name}' has no matching SpawnCreateInput field. "
-            f"Add it or document the exclusion in SPAWN_EXCLUDED."
-        )
-
-
-def test_every_field_has_primary_cli_flag() -> None:
-    """Every RuntimeOverrides field with a consumer has a LaunchRequest field."""
+def test_runtime_overrides_fields_are_exposed_across_env_config_and_cli_layers() -> None:
+    from meridian.lib.config.settings import MeridianConfig, PrimaryConfig
     from meridian.lib.core.overrides import RuntimeOverrides
     from meridian.lib.launch.types import LaunchRequest
+    from meridian.lib.ops.spawn.models import SpawnCreateInput
 
-    request_fields = set(LaunchRequest.model_fields.keys())
+    runtime_fields = set(RuntimeOverrides.model_fields.keys())
+    config_fields = set(PrimaryConfig.model_fields.keys())
+    launch_fields = set(LaunchRequest.model_fields.keys())
+    spawn_fields = set(SpawnCreateInput.model_fields.keys())
 
-    for field_name in RuntimeOverrides.model_fields:
-        assert field_name in request_fields, (
-            f"RuntimeOverrides field '{field_name}' has no matching LaunchRequest field. "
-            f"Add it or document the exclusion in PRIMARY_EXCLUDED."
-        )
-
-
-def test_from_env_round_trip() -> None:
-    """from_env reads all fields correctly."""
-    from meridian.lib.core.overrides import RuntimeOverrides
+    for field_name in runtime_fields:
+        assert field_name in config_fields
+        assert field_name in launch_fields
+        assert field_name in spawn_fields
 
     env_values = {f"MERIDIAN_{k.upper()}": v for k, v in _TEST_VALUES.items()}
     with _env_overrides(env_values):
-        result = RuntimeOverrides.from_env()
-        for field_name in RuntimeOverrides.model_fields:
-            assert getattr(result, field_name) is not None, (
-                f"from_env() did not populate '{field_name}'"
-            )
+        from_env = RuntimeOverrides.from_env()
 
-
-def test_from_config_round_trip() -> None:
-    """from_config reads all RuntimeOverrides fields from PrimaryConfig."""
-    from meridian.lib.config.settings import MeridianConfig, PrimaryConfig
-    from meridian.lib.core.overrides import RuntimeOverrides
+    for field_name in runtime_fields:
+        assert getattr(from_env, field_name) is not None
 
     primary = PrimaryConfig(
         model="test-model",
@@ -133,16 +67,12 @@ def test_from_config_round_trip() -> None:
         autocompact=50,
         timeout=30.0,
     )
-    config = MeridianConfig(primary=primary)
-    result = RuntimeOverrides.from_config(config)
-    for field_name in RuntimeOverrides.model_fields:
-        assert getattr(result, field_name) is not None, (
-            f"from_config() did not populate '{field_name}'"
-        )
+    from_config = RuntimeOverrides.from_config(MeridianConfig(primary=primary))
+    for field_name in runtime_fields:
+        assert getattr(from_config, field_name) is not None
 
 
 def test_resolve_precedence() -> None:
-    """resolve() picks first-non-none from ordered layers."""
     from meridian.lib.core.overrides import RuntimeOverrides, resolve
 
     cli = RuntimeOverrides(model="cli-model")

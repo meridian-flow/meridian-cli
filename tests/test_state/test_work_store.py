@@ -24,49 +24,32 @@ def test_slugify_normalizes_and_truncates() -> None:
     assert slugify("a" * 80) == "a" * 64
 
 
-def test_rename_work_item_rejects_spaces(tmp_path: Path) -> None:
-    """Rename requires a valid slug, not a label with spaces."""
+def test_rename_work_item_rejects_invalid_name_collision_and_missing_source(tmp_path: Path) -> None:
     state_root = _state_root(tmp_path)
 
     create_work_item(state_root, "my feature")
+    create_work_item(state_root, "beta")
 
     with pytest.raises(ValueError, match="Invalid work item name"):
         rename_work_item(state_root, "my-feature", "Better Name")
 
-
-def test_rename_work_item_rejects_collision(tmp_path: Path) -> None:
-    """Rename errors if the target name already exists."""
-    state_root = _state_root(tmp_path)
-
-    create_work_item(state_root, "alpha")
-    create_work_item(state_root, "beta")
-
     with pytest.raises(ValueError, match="already exists"):
-        rename_work_item(state_root, "alpha", "beta")
-
-
-def test_rename_work_item_missing_raises_value_error(tmp_path: Path) -> None:
-    state_root = _state_root(tmp_path)
+        rename_work_item(state_root, "my-feature", "beta")
 
     with pytest.raises(ValueError, match="not found"):
         rename_work_item(state_root, "nonexistent", "new-name")
 
 
-def test_create_work_item_writes_metadata_without_creating_scratch_dir(tmp_path: Path) -> None:
+def test_work_item_archive_and_reopen_preserves_metadata(tmp_path: Path) -> None:
     state_root = _state_root(tmp_path)
 
     item = create_work_item(state_root, "My feature")
 
     assert get_work_item(state_root, item.name) is not None
     assert (state_root / "work-items" / f"{item.name}.json").exists()
-    assert not (state_root / "work" / item.name).exists()
-
-
-def test_archive_and_reopen_work_item_move_scratch_dir(tmp_path: Path) -> None:
-    state_root = _state_root(tmp_path)
-
-    item = create_work_item(state_root, "My feature")
     active_dir = state_root / "work" / item.name
+    assert not active_dir.exists()
+
     active_dir.mkdir(parents=True, exist_ok=True)
     (active_dir / "notes.md").write_text("hello", encoding="utf-8")
 

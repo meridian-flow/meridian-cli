@@ -42,7 +42,7 @@ def _patch_codex_policies(monkeypatch, repo_root: Path):
     )
 
 
-def test_build_create_payload_materializes_codex_fork_session(monkeypatch, tmp_path: Path) -> None:
+def test_fork_materializes_only_for_non_dry_run(monkeypatch, tmp_path: Path) -> None:
     codex_adapter, runtime = _patch_codex_policies(monkeypatch, tmp_path)
     calls: list[str] = []
     monkeypatch.setattr(
@@ -62,22 +62,7 @@ def test_build_create_payload_materializes_codex_fork_session(monkeypatch, tmp_p
         ),
         runtime=runtime,
     )
-
-    assert calls == ["source-session"]
-    assert prepared.session.harness_session_id == "forked-session"
-    assert prepared.session.continue_fork is False
-
-
-def test_build_create_payload_skips_codex_fork_on_dry_run(monkeypatch, tmp_path: Path) -> None:
-    codex_adapter, runtime = _patch_codex_policies(monkeypatch, tmp_path)
-    calls: list[str] = []
-    monkeypatch.setattr(
-        codex_adapter,
-        "fork_session",
-        lambda source_session_id: calls.append(source_session_id) or "forked-session",
-    )
-
-    prepared = build_create_payload(
+    dry_run_prepared = build_create_payload(
         SpawnCreateInput(
             prompt="fork prompt",
             repo_root=tmp_path.as_posix(),
@@ -89,6 +74,8 @@ def test_build_create_payload_skips_codex_fork_on_dry_run(monkeypatch, tmp_path:
         runtime=runtime,
     )
 
-    assert calls == []
-    assert prepared.session.harness_session_id == "source-session"
-    assert prepared.session.continue_fork is True
+    assert calls == ["source-session"]
+    assert prepared.session.harness_session_id == "forked-session"
+    assert prepared.session.continue_fork is False
+    assert dry_run_prepared.session.harness_session_id == "source-session"
+    assert dry_run_prepared.session.continue_fork is True

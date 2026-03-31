@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import structlog
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from meridian.lib.core.context import RuntimeContext
 from meridian.lib.core.domain import Spawn, SpawnStatus
@@ -84,16 +84,13 @@ class BackgroundWorkerParams(BaseModel):
     approval: str = "default"
     allowed_tools: tuple[str, ...] = ()
     passthrough_args: tuple[str, ...] = ()
-    continue_harness_session_id: str | None = None
-    continue_fork: bool = False
+    session: SessionContinuation = Field(default_factory=SessionContinuation)
     session_agent: str = ""
     session_agent_path: str = ""
     session_skill_paths: tuple[str, ...] = ()
     adhoc_agent_payload: str = ""
     appended_system_prompt: str | None = None
     autocompact: int | None = None
-    forked_from_chat_id: str | None = None
-    source_execution_cwd: str | None = None
     execution_cwd: str | None = None
 
 
@@ -280,7 +277,6 @@ def _write_params_json(
     *,
     desc: str = "",
     work_id: str | None = None,
-    forked_from_chat_id: str | None = None,
 ) -> None:
     """Write resolved execution params to the spawn directory."""
     params_path = resolve_spawn_log_dir(repo_root, spawn_id) / "params.json"
@@ -305,7 +301,7 @@ def _write_params_json(
         "bootstrap_missing_items": list(prepared.bootstrap_missing_items),
         "continue_session": prepared.session.harness_session_id,
         "continue_fork": prepared.session.continue_fork,
-        "forked_from_chat_id": forked_from_chat_id,
+        "forked_from_chat_id": prepared.session.forked_from_chat_id,
     }
     atomic_write_text(params_path, json.dumps(params_payload, indent=2) + "\n")
     atomic_write_text(prompt_path, prepared.prompt)
@@ -384,16 +380,13 @@ async def _execute_existing_spawn(
     permission_resolver: PermissionResolver,
     allowed_tools: tuple[str, ...] = (),
     passthrough_args: tuple[str, ...] = (),
-    continue_harness_session_id: str | None = None,
-    continue_fork: bool = False,
+    session: SessionContinuation | None = None,
     session_agent: str = "",
     session_agent_path: str = "",
     session_skill_paths: tuple[str, ...] = (),
     adhoc_agent_payload: str = "",
     appended_system_prompt: str | None = None,
     autocompact: int | None = None,
-    forked_from_chat_id: str | None = None,
-    source_execution_cwd: str | None = None,
     execution_cwd: str | None = None,
     sink: OutputSink | None = None,
     ctx: RuntimeContext | None = None,
@@ -414,6 +407,7 @@ async def _execute_existing_spawn(
         model=ModelId(spawn_record.model),
         status=spawn_status,
     )
+    resolved_session = session or SessionContinuation()
 
     plan = PreparedSpawnPlan(
         model=spawn_record.model,
@@ -435,11 +429,7 @@ async def _execute_existing_spawn(
         adhoc_agent_payload=adhoc_agent_payload,
         appended_system_prompt=appended_system_prompt,
         autocompact=autocompact,
-        session=SessionContinuation(
-            harness_session_id=continue_harness_session_id,
-            continue_fork=continue_fork,
-            source_execution_cwd=source_execution_cwd,
-        ),
+        session=resolved_session,
         execution=ExecutionPolicy(
             timeout_secs=minutes_to_seconds(timeout),
             kill_grace_secs=minutes_to_seconds(runtime.config.kill_grace_minutes) or 0.0,
@@ -477,7 +467,7 @@ async def _execute_existing_spawn(
         bootstrap_missing_items=spawn_record.bootstrap_missing_items,
         run_agent_name=agent_name,
         inherited_work_id=spawn_record.work_id,
-        forked_from_chat_id=forked_from_chat_id,
+        forked_from_chat_id=resolved_session.forked_from_chat_id,
         execution_cwd=resolved_execution_cwd,
     ) as session_context:
         resolved_plan = plan.model_copy(update={"agent_name": session_context.resolved_agent_name})
@@ -562,7 +552,6 @@ def execute_spawn_background(
             prepared,
             desc=payload.desc,
             work_id=context.work_id,
-            forked_from_chat_id=payload.forked_from_chat_id,
         )
     except Exception:
         logger.warning("Failed to write params.json", spawn_id=spawn_id_text, exc_info=True)
@@ -581,16 +570,13 @@ def execute_spawn_background(
             approval=prepared.execution.permission_config.approval,
             allowed_tools=prepared.execution.allowed_tools,
             passthrough_args=prepared.passthrough_args,
-            continue_harness_session_id=prepared.session.harness_session_id,
-            continue_fork=prepared.session.continue_fork,
+            session=prepared.session,
             session_agent=prepared.session_agent,
             session_agent_path=prepared.session_agent_path,
             session_skill_paths=prepared.skill_paths,
             adhoc_agent_payload=prepared.adhoc_agent_payload,
             appended_system_prompt=prepared.appended_system_prompt,
             autocompact=prepared.autocompact,
-            forked_from_chat_id=payload.forked_from_chat_id,
-            source_execution_cwd=prepared.session.source_execution_cwd,
             execution_cwd=execution_cwd_str,
         )
         _persist_bg_worker_params(log_dir, bg_params)
@@ -751,7 +737,6 @@ def execute_spawn_blocking(
             prepared,
             desc=payload.desc,
             work_id=context.work_id,
-            forked_from_chat_id=payload.forked_from_chat_id,
         )
     except Exception:
         logger.warning("Failed to write params.json", spawn_id=str(spawn.spawn_id), exc_info=True)
@@ -775,7 +760,7 @@ def execute_spawn_blocking(
         bootstrap_missing_items=prepared.bootstrap_missing_items,
         run_agent_name=prepared.agent_name,
         inherited_work_id=context.work_id,
-        forked_from_chat_id=payload.forked_from_chat_id,
+        forked_from_chat_id=prepared.session.forked_from_chat_id,
         execution_cwd=execution_cwd_str,
     ) as session_context:
         resolved_plan = prepared.model_copy(
@@ -906,16 +891,13 @@ def _background_worker_main(
             permission_resolver=permission_resolver,
             allowed_tools=params.allowed_tools,
             passthrough_args=params.passthrough_args,
-            continue_harness_session_id=params.continue_harness_session_id,
-            continue_fork=params.continue_fork,
+            session=params.session,
             session_agent=params.session_agent,
             session_agent_path=params.session_agent_path,
             session_skill_paths=params.session_skill_paths,
             adhoc_agent_payload=params.adhoc_agent_payload,
             appended_system_prompt=params.appended_system_prompt,
             autocompact=params.autocompact,
-            forked_from_chat_id=params.forked_from_chat_id,
-            source_execution_cwd=params.source_execution_cwd,
             execution_cwd=params.execution_cwd,
             ctx=resolved_context,
         )

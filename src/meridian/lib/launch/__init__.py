@@ -6,7 +6,6 @@ from meridian.lib.harness.registry import HarnessRegistry
 from meridian.lib.ops.work_attachment import ensure_explicit_work_item
 
 from .command import (
-    build_harness_command,
     build_launch_env,
     normalize_system_prompt_passthrough_args,
 )
@@ -93,7 +92,6 @@ __all__ = [
     "ResolvedSkills",
     "SessionIntent",
     "SessionMode",
-    "build_harness_command",
     "build_launch_env",
     "build_primary_prompt",
     "launch_primary",

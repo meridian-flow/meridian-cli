@@ -3,36 +3,14 @@
 import os
 from pathlib import Path
 
-from meridian.lib.config.settings import MeridianConfig
 from meridian.lib.core.context import RuntimeContext
 from meridian.lib.harness.adapter import SpawnParams, SubprocessHarness
-from meridian.lib.harness.registry import HarnessRegistry
 from meridian.lib.safety.permissions import PermissionConfig
 from meridian.lib.state.paths import resolve_state_paths
 
 from .env import build_harness_child_env, inherit_child_env
-from .plan import normalize_system_prompt_passthrough_args, resolve_primary_launch_plan
+from .plan import normalize_system_prompt_passthrough_args
 from .types import LaunchRequest
-
-
-def build_harness_command(
-    *,
-    repo_root: Path,
-    request: LaunchRequest,
-    prompt: str,
-    harness_registry: HarnessRegistry,
-    chat_id: str = "",
-    config: MeridianConfig | None = None,
-) -> tuple[str, ...]:
-    _ = chat_id
-    plan = resolve_primary_launch_plan(
-        repo_root=repo_root,
-        request=request,
-        harness_registry=harness_registry,
-        prompt=prompt,
-        config=config,
-    )
-    return plan.command
 
 
 def build_launch_env(
@@ -94,7 +72,6 @@ def build_launch_env(
 
 
 __all__ = [
-    "build_harness_command",
     "build_launch_env",
     "normalize_system_prompt_passthrough_args",
 ]

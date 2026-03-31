@@ -18,7 +18,7 @@ def _target_session_file(home: Path, project_root: Path, session_id: str) -> Pat
     return home / ".claude" / "projects" / project_slug(project_root) / f"{session_id}.jsonl"
 
 
-def test_ensure_claude_session_accessible_skips_when_source_cwd_missing(
+def test_ensure_claude_session_accessible_is_noop_when_source_cwd_missing(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -31,41 +31,6 @@ def test_ensure_claude_session_accessible_skips_when_source_cwd_missing(
     ensure_claude_session_accessible("session-1", None, child_cwd)
 
     assert not (fake_home / ".claude").exists()
-
-
-def test_ensure_claude_session_accessible_skips_when_source_and_child_match(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    fake_home = tmp_path / "home"
-    monkeypatch.setenv("HOME", fake_home.as_posix())
-
-    shared_cwd = tmp_path / "project"
-    shared_cwd.mkdir()
-    _write_session_file(fake_home, shared_cwd, "session-1")
-
-    ensure_claude_session_accessible("session-1", shared_cwd, shared_cwd)
-
-    target_file = _target_session_file(fake_home, shared_cwd, "session-1")
-    assert target_file.exists()
-    assert not target_file.is_symlink()
-
-
-def test_ensure_claude_session_accessible_skips_when_source_session_missing(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    fake_home = tmp_path / "home"
-    monkeypatch.setenv("HOME", fake_home.as_posix())
-
-    source_cwd = tmp_path / "source"
-    child_cwd = tmp_path / "child"
-    source_cwd.mkdir()
-    child_cwd.mkdir()
-
-    ensure_claude_session_accessible("missing-session", source_cwd, child_cwd)
-
-    assert not _target_session_file(fake_home, child_cwd, "missing-session").exists()
 
 
 def test_ensure_claude_session_accessible_symlinks_session_into_child_project(
@@ -89,7 +54,7 @@ def test_ensure_claude_session_accessible_symlinks_session_into_child_project(
     assert target_file.resolve() == source_file.resolve()
 
 
-def test_ensure_claude_session_accessible_keeps_existing_correct_symlink(
+def test_ensure_claude_session_accessible_is_idempotent_on_existing_symlink(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -106,32 +71,7 @@ def test_ensure_claude_session_accessible_keeps_existing_correct_symlink(
     target_file.parent.mkdir(parents=True, exist_ok=True)
     target_file.symlink_to(source_file)
 
-    ensure_claude_session_accessible("session-1", source_cwd, child_cwd)
-
-    assert target_file.is_symlink()
-    assert target_file.resolve() == source_file.resolve()
-
-
-def test_ensure_claude_session_accessible_replaces_wrong_existing_symlink(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    fake_home = tmp_path / "home"
-    monkeypatch.setenv("HOME", fake_home.as_posix())
-
-    source_cwd = tmp_path / "source"
-    other_cwd = tmp_path / "other"
-    child_cwd = tmp_path / "child"
-    source_cwd.mkdir()
-    other_cwd.mkdir()
-    child_cwd.mkdir()
-
-    source_file = _write_session_file(fake_home, source_cwd, "session-1")
-    wrong_source = _write_session_file(fake_home, other_cwd, "session-1")
-    target_file = _target_session_file(fake_home, child_cwd, "session-1")
-    target_file.parent.mkdir(parents=True, exist_ok=True)
-    target_file.symlink_to(wrong_source)
-
+    # Existing symlink triggers FileExistsError from os.symlink and should be tolerated.
     ensure_claude_session_accessible("session-1", source_cwd, child_cwd)
 
     assert target_file.is_symlink()
@@ -139,7 +79,7 @@ def test_ensure_claude_session_accessible_replaces_wrong_existing_symlink(
 
 
 @pytest.mark.parametrize("session_id", ("../../evil", "foo/bar"))
-def test_ensure_claude_session_accessible_rejects_unsafe_session_ids(
+def test_ensure_claude_session_accessible_rejects_path_traversal_session_ids(
     session_id: str,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

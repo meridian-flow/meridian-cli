@@ -32,49 +32,7 @@ def _discover(tree: Path) -> tuple[DiscoveredItem, ...]:
     return discover_items(tree)
 
 
-def test_resolve_skill_deps_finds_intra_source_skills(tmp_path: Path) -> None:
-    tree = tmp_path / "source"
-    _write_agent(tree, "orchestrator", skills=["orchestrate", "spawn-agent"])
-    _write_skill(tree, "orchestrate")
-    _write_skill(tree, "spawn-agent")
-
-    discovered = _discover(tree)
-    result = resolve_skill_deps(
-        tree_path=tree,
-        agent_names={"orchestrator"},
-        discovered_items=discovered,
-    )
-    assert result == {"orchestrate", "spawn-agent"}
-
-
-def test_resolve_skill_deps_warns_on_missing_skill(tmp_path: Path) -> None:
-    tree = tmp_path / "source"
-    _write_agent(tree, "orchestrator", skills=["missing-skill"])
-
-    discovered = _discover(tree)
-    result = resolve_skill_deps(
-        tree_path=tree,
-        agent_names={"orchestrator"},
-        discovered_items=discovered,
-    )
-    assert result == set()
-
-
-def test_resolve_skill_deps_ignores_agents_without_skill_field(tmp_path: Path) -> None:
-    tree = tmp_path / "source"
-    _write_agent(tree, "simple-agent")
-    _write_skill(tree, "some-skill")
-
-    discovered = _discover(tree)
-    result = resolve_skill_deps(
-        tree_path=tree,
-        agent_names={"simple-agent"},
-        discovered_items=discovered,
-    )
-    assert result == set()
-
-
-def test_resolve_skill_deps_handles_multiple_agents(tmp_path: Path) -> None:
+def test_resolve_skill_deps_happy_path_collects_unique_skills_across_agents(tmp_path: Path) -> None:
     tree = tmp_path / "source"
     _write_agent(tree, "agent-a", skills=["shared-skill", "skill-a"])
     _write_agent(tree, "agent-b", skills=["shared-skill", "skill-b"])
@@ -88,4 +46,21 @@ def test_resolve_skill_deps_handles_multiple_agents(tmp_path: Path) -> None:
         agent_names={"agent-a", "agent-b"},
         discovered_items=discovered,
     )
+
     assert result == {"shared-skill", "skill-a", "skill-b"}
+
+
+def test_resolve_skill_deps_ignores_missing_or_unresolvable_skill_refs(tmp_path: Path) -> None:
+    tree = tmp_path / "source"
+    _write_agent(tree, "orchestrator", skills=["missing-skill"])
+    _write_agent(tree, "simple-agent")
+    _write_skill(tree, "present-but-unused")
+
+    discovered = _discover(tree)
+    result = resolve_skill_deps(
+        tree_path=tree,
+        agent_names={"orchestrator", "simple-agent"},
+        discovered_items=discovered,
+    )
+
+    assert result == set()

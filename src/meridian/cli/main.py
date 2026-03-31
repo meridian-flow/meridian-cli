@@ -26,6 +26,7 @@ from meridian.cli.output import (
 from meridian.cli.output import emit as emit_output
 from meridian.cli.report_cmd import register_report_commands
 from meridian.cli.session_cmd import register_session_commands
+from meridian.cli.utils import missing_fork_session_error
 from meridian.lib.core.sink import OutputSink
 from meridian.lib.core.util import FormatContext
 from meridian.lib.harness.registry import get_default_harness_registry
@@ -590,7 +591,7 @@ def _run_primary_launch(
     elif fork_target is not None:
         resolved_fork = _resolve_session_target(repo_root=repo_root, continue_ref=fork_target)
         if resolved_fork.missing_harness_session_id:
-            raise ValueError(_missing_fork_session_error(fork_target))
+            raise ValueError(missing_fork_session_error(fork_target))
 
         source_harness = (
             resolved_fork.harness.strip()
@@ -822,13 +823,6 @@ def _register_harness_shortcut_command(harness_name: str) -> None:
 
 for _harness_name in ("claude", "codex", "opencode"):
     _register_harness_shortcut_command(_harness_name)
-
-
-def _missing_fork_session_error(source_ref: str) -> str:
-    if source_ref.startswith("p") and source_ref[1:].isdigit():
-        return f"Spawn '{source_ref}' has no recorded session — cannot fork."
-    return f"Session '{source_ref}' has no recorded harness session — cannot fork."
-
 
 def _resolve_session_target(
     *,
