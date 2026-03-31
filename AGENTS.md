@@ -36,7 +36,7 @@ No real users, no real user data. No backwards compatibility needed — complete
 
 Two orchestrators split the dev lifecycle: **dev-orchestrator** handles interactive design and planning with the user (spawns architects, reviewers, planners), then hands off approved plans to **dev-runner** for autonomous execution (code → test → review → fix loops, no human intervention needed).
 
-Use `meridian spawn` (not `uv run meridian spawn`) to hand off tasks to subagents. `uv run meridian` runs from local source, so other agents editing meridian's own code in the same repo can leave it in a half-written state — use it only for smoke-testing local dev changes. The installed `meridian` binary is stable and isolated from in-progress source edits. Prefer gpt-5.3-codex as the main code implementer, opus as the primary documenter, and gpt-5.4 as the main reviewer. Use reviewers who focus on different aspects (implementation correctness, design quality, extensibility) to ensure plans are properly followed.
+Use `meridian spawn` (not `uv run meridian spawn`) to hand off tasks to subagents. `uv run meridian` runs from local source, so other agents editing meridian's own code in the same repo can leave it in a half-written state — use it only for smoke-testing local dev changes. The installed `meridian` binary is stable and isolated from in-progress source edits. Prefer gpt-5.3-codex as the main code implementer and opus as the primary documenter. For reviews, fan out across the strongest models — gpt-5.4, gpt-5.2, and opus — with different focus areas on each. Don't send all reviewers to the same model.
 
 NEVER REVERT CHANGES — always assume it's someone else's work.
 
@@ -99,8 +99,4 @@ Commit after each step that passes tests. Don't accumulate changes across multip
 
 ## Related Repos
 
-- **mars-agents** (`../mars-agents/`): Standalone agent package manager for `.agents/`. Rust CLI, binary name `mars`. Replaces meridian's `sources`/`agents.toml`/`agents.lock` with a proper package manager — dependency resolution, merge strategies, provenance tracking, user overrides. See `backlog/agent-package-management-redesign.md` for background. Repo: `haowjy/mars-agents`.
-
-## Current Focus
-
-See `backlog/` for open items. Keep `plans/` limited to current implementation plans only.
+- **mars-agents** (`../mars-agents/`): Standalone agent package manager for `.agents/`. Rust CLI, binary name `mars`. Replaces meridian's `sources`/`agents.toml`/`agents.lock` with a proper package manager — dependency resolution, merge strategies, provenance tracking, user overrides. Design spec in `.meridian/work/agent-package-management/design/`. Repo: `haowjy/mars-agents`.

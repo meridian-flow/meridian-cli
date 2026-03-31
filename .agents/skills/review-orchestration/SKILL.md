@@ -20,13 +20,18 @@ You don't need all of these on every change. A simple internal refactor might ju
 
 ## Model Selection
 
-Focus areas are the primary review lever — multiple reviewers on the strongest model, each looking at different things (security, design quality, correctness), surfaces more issues than running the same review prompt on different models. Each focus area catches things the others miss because the reviewer is primed to think about different failure modes.
+Fan out reviewers across different models, not just different focus areas. Different models have different blind spots — one model catches a concurrency issue another misses, one flags an abstraction leak the other accepts. Using the same model for every reviewer gives you N copies of the same perspective.
 
-- **Strongest available model** — use for focused deep review: security, SOLID, correctness, architectural judgment. Fan out multiple reviewers with different focus areas for high-risk changes.
-- **Fast/cheap model** — use for papercut passes: naming, style, obvious issues. Quick and cheap in parallel with the deep reviews.
-- **Model diversity** — valuable as a tiebreak when reviewers disagree, or for a high-level sanity check from a different perspective.
+When fanning out reviewers, distribute across the strongest available models using `-m` to override the reviewer profile's default. Check your project config (CLAUDE.md, agent profiles) for which models to use — these shift as capabilities evolve. Each reviewer gets a different model and a different focus area.
 
-Check your project config (CLAUDE.md, agent profiles) for current model assignments — these shift as model capabilities evolve. A fast reviewer that catches the obvious issues in 30 seconds is more valuable than a deep reviewer that takes 5 minutes to say the same thing. Save depth for where it matters.
+```bash
+# Fan out with model diversity
+meridian spawn -a reviewer -m opus -p "Review for design quality and SOLID..." -f ...
+meridian spawn -a reviewer -m gpt -p "Review for correctness and edge cases..." -f ...
+meridian spawn -a reviewer -m gpt52 -p "Review for security and trust boundaries..." -f ...
+```
+
+For low-risk changes where one reviewer is enough, pick the strongest model for the focus area that matters most. Model diversity pays off on substantive reviews where you need confidence — don't waste it on papercut passes.
 
 ## Review Agents
 
@@ -45,7 +50,7 @@ If a reviewer found something valid, fix it. Agents are cheap — spawning a cod
 
 When reviewers disagree, you have context they don't — you've been managing the work, you know the design intent, you know what's coming in the next phase. Make a call and record it in `$MERIDIAN_WORK_DIR/decisions.md`. If the outcome changes approved architecture direction, update the relevant docs in `$MERIDIAN_WORK_DIR/design/` too. If you're genuinely uncertain, escalate to the user.
 
-Cap review rounds at two for design and three for implementation. If it's still not converging, the issue is structural — more review won't fix it.
+Keep iterating while reviewers are surfacing real issues. Each round should fix what the previous round found, then re-review the affected parts. Stop when reviewers come back clean — not after an arbitrary number of rounds. If reviews aren't converging after several rounds — the same issues keep recurring or fixes introduce new problems — that's a signal the design has a structural problem. Use your judgment: investigate the root cause if you can, or escalate to the user with a clear description of what's not converging and why.
 
 ## Calibrating Effort
 
