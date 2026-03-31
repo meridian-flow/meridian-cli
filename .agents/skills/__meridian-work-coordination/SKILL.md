@@ -48,4 +48,4 @@ Rule of thumb: if it helps *this* work item, use `$MERIDIAN_WORK_DIR`. If it hel
 
 ## Commit Work Artifacts
 
-Commit work artifacts to git after creating or updating them — design docs, plans, status, decisions, any file in `$MERIDIAN_WORK_DIR` or `$MERIDIAN_FS_DIR` that a future agent would need. These artifacts are the resumability contract: if they're not in git, a future agent (or you, after compaction or a crash) can't pick up where things left off. Don't batch artifact commits until the end — commit as you go so progress is never lost.
+Agent sessions are ephemeral — compaction, crashes, and context limits erase conversation state. Work artifacts in `$MERIDIAN_WORK_DIR` and `$MERIDIAN_FS_DIR` are the only thing that survives. Commit them to git after creating or updating them so a future agent can resume from artifacts alone. Don't batch until the end — commit as you go so progress is never lost to a mid-session failure.
