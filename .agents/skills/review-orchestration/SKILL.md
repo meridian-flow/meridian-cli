@@ -38,7 +38,7 @@ For low-risk changes where one reviewer is enough, pick the strongest model for 
 Different agents serve different review purposes — pick the right one for what you need:
 
 - **reviewer** — adversarial code analysis. Specify a focus area in the prompt (security, SOLID, correctness, design alignment) for depth, or leave broad. Read-only — finds problems, doesn't fix them. Pass artifacts via `-f` and session context via `--from`.
-- **refactorer** — structural improvement. Identifies and executes SOLID fixes, renames, extractions, dependency cleanup. Spawn after implementation phases or when reviewers flag structural debt. Reduces entropy so future agents work more effectively.
+- **refactor-reviewer** — structural review. Identifies refactoring opportunities — tangled dependencies, mixed concerns, poor naming, coupling. Read-only — reports findings with specific recommended moves, doesn't execute them. Spawn a coder to act on findings worth fixing.
 - **verifier** — build health gate. Runs tests, type checks, lints. Fixes mechanical breakage (import typos, missing annotations), reports substantive failures back.
 - **investigator** — root-cause triage. Spawn when a test fails unexpectedly or a reviewer flags something that needs deeper analysis. Quick-fixes if small, files GH issues if larger, confirms non-issue if not real.
 
@@ -46,7 +46,7 @@ A typical review round might fan out a reviewer with a correctness focus, a revi
 
 ## Synthesizing Findings
 
-If a reviewer found something valid, fix it. Agents are cheap — spawning a coder or refactorer to fix a style issue costs seconds, not hours. Don't create a backlog of deferred paper cuts that never get addressed. The only findings to skip are ones the reviewer got wrong (misunderstood the intent, flagged something that's actually correct).
+If a reviewer found something valid, fix it. Agents are cheap — spawning a coder or refactor-reviewer to fix a style issue costs seconds, not hours. Don't create a backlog of deferred paper cuts that never get addressed. The only findings to skip are ones the reviewer got wrong (misunderstood the intent, flagged something that's actually correct).
 
 When reviewers disagree, you have context they don't — you've been managing the work, you know the design intent, you know what's coming in the next phase. Make a call and record it in `$MERIDIAN_WORK_DIR/decisions.md`. If the outcome changes approved architecture direction, update the relevant docs in `$MERIDIAN_WORK_DIR/design/` too. If you're genuinely uncertain, escalate to the user.
 

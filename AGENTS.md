@@ -40,6 +40,14 @@ Use `meridian spawn` (not `uv run meridian spawn`) to hand off tasks to subagent
 
 NEVER REVERT CHANGES — always assume it's someone else's work.
 
+### Editing Agents & Skills
+
+The source of truth is the submodules (`meridian-base/`, `meridian-dev-workflow/`). Never edit `.agents/` directly — it gets overwritten on sync. To make changes:
+
+1. Edit in the submodule (e.g. `meridian-dev-workflow/agents/reviewer.md`)
+2. Commit and push the submodule
+3. Run `meridian sources update --force` to sync into `.agents/`
+
 ### Approval Modes
 
 Spawns support 4 approval modes: `default` (harness decides), `confirm` (user approves each tool call), `auto` (auto-approve safe operations), `yolo` (approve everything). Set via `--approval` flag or profile YAML.

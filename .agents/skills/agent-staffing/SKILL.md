@@ -23,12 +23,13 @@ One coder per phase — multiple coders on the same files create merge conflicts
 
 ## Refactorer
 
-Use `refactorer` as structural support for the delivery pipeline:
-- Run after implementation phases to pay down structural debt while context is fresh.
-- Spawn when reviewers flag SOLID violations, tangled dependencies, or abstraction drift.
-- Use proactively before major new work in messy areas to reduce entropy first.
+The `refactor-reviewer` is a structural reviewer, not an executor. It identifies refactoring opportunities — tangled dependencies, mixed concerns, poor naming, coupling — and reports specific recommended moves. Use it to get a structural health assessment:
 
-Treat refactoring as infrastructure work that makes every other agent more effective — cleaner boundaries, lower coordination overhead, and more consistent patterns for coders/reviewers/testers.
+- After implementation phases, to spot structural debt before it compounds.
+- When reviewers flag SOLID violations or abstraction drift, to get a deeper structural analysis.
+- Proactively before major new work in messy areas, to understand what cleanup would help.
+
+The refactor-reviewer reports findings with recommended moves. Spawn a coder to execute the ones worth acting on.
 
 ## Reviewers
 

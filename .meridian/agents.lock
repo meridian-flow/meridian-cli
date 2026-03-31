@@ -84,10 +84,10 @@
       "source_item_id": "agent:planner",
       "source_name": "meridian-dev-workflow"
     },
-    "agent:refactorer": {
-      "content_hash": "sha256:4df898fd06064b703c2f8800a4e927bebccdbfbb9cdfd7a3f94b92aed92e4c66",
-      "destination_path": ".agents/agents/refactorer.md",
-      "source_item_id": "agent:refactorer",
+    "agent:refactor-reviewer": {
+      "content_hash": "sha256:899c7eb7b57c2c9ff8d300218578afcf2e41c222b54c248b354b6fd5c1bb6ea4",
+      "destination_path": ".agents/agents/refactor-reviewer.md",
+      "source_item_id": "agent:refactor-reviewer",
       "source_name": "meridian-dev-workflow"
     },
     "agent:researcher": {
@@ -157,7 +157,7 @@
       "source_name": "meridian-base"
     },
     "skill:agent-staffing": {
-      "content_hash": "sha256:574a56eaf0333579828cd58dc8c76c9d7cf02e40748a8af870dbb98ed22f4111",
+      "content_hash": "sha256:e852152980c004d5e6541c5acf97b3a58ff65b1e11bce1616773ebf5a583af03",
       "destination_path": ".agents/skills/agent-staffing",
       "source_item_id": "skill:agent-staffing",
       "source_name": "meridian-dev-workflow"
@@ -223,7 +223,7 @@
       "source_name": "meridian-dev-workflow"
     },
     "skill:review-orchestration": {
-      "content_hash": "sha256:7f155290e47b4fdb147a762bf88b3fd0d7d9c9b9f8abc4bc1291320a47f8813e",
+      "content_hash": "sha256:12a22655a5820d8bc3bde1be541a6176894d64453486bfd19a552e8bed0618e4",
       "destination_path": ".agents/skills/review-orchestration",
       "source_item_id": "skill:review-orchestration",
       "source_name": "meridian-dev-workflow"
@@ -302,7 +302,7 @@
     },
     "meridian-dev-workflow": {
       "installed_at": null,
-      "installed_tree_hash": "sha256:08447a8aba99ff33dba1a3c15a6dcbedcf475d2983ac58fb49880bed90dc4c19",
+      "installed_tree_hash": "sha256:63df6dfe90f0574c751820ac2e5c1bdac257de598f44f0a681b1d6913148788a",
       "items": {
         "agent:architect": {
           "path": "agents/architect.md"
@@ -340,8 +340,8 @@
         "agent:planner": {
           "path": "agents/planner.md"
         },
-        "agent:refactorer": {
-          "path": "agents/refactorer.md"
+        "agent:refactor-reviewer": {
+          "path": "agents/refactor-reviewer.md"
         },
         "agent:researcher": {
           "path": "agents/researcher.md"
@@ -422,7 +422,7 @@
         "agent:impl-orchestrator",
         "agent:investigator",
         "agent:planner",
-        "agent:refactorer",
+        "agent:refactor-reviewer",
         "agent:researcher",
         "agent:reviewer",
         "agent:smoke-tester",
