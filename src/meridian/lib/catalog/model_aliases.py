@@ -48,13 +48,13 @@ _FALLBACK_ALIASES: dict[str, str] = {
 
 _BUILTIN_DESCRIPTIONS: dict[str, str] = {
     "claude-opus-4-6": (
-        "Creative planner with strong vision."
-        " Best for frontend, UI, architecture, and design exploration."
-        " Pair with a GPT reviewer for final verification."
+        "Strong long-term vision and best orchestrator. Creative but can hallucinate or over-engineer."
+        " Best for orchestration, frontend implementation, architecture, and design exploration."
+        " Not recommended for backend implementation or precise technical review."
     ),
     "gpt-5.3-codex": (
-        "Default implementer. Fast, token-efficient, and detail-oriented."
-        " Best when given a clear task. Excels at backend and general coding."
+        "Default backend implementer. Fast, token-efficient, and faithful to instructions."
+        " Best when given a clear task. Weak at frontend and UI work."
     ),
     "gpt-5.4": (
         "Strongest generalist with broad reasoning."
