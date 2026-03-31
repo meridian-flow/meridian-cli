@@ -74,7 +74,7 @@ For developing a package locally while the production config points at git:
 mars override meridian-base --path ./meridian-base
 ```
 
-Lock file keeps the git version for reproducibility. Override is local-only, not committed. Other contributors get the git version.
+This edits `agents.local.toml` (gitignored). Lock file keeps the git version for reproducibility. Override is local-only, not committed. Other contributors get the git version.
 
 ## CLI Semantics
 
@@ -189,11 +189,13 @@ Tracks every managed file with provenance and integrity:
 [agents."dev-orchestrator.md"]
 source = "meridian-dev-workflow"
 version = "2.1.0"
+commit = "a1b2c3d4e5f6..."
 checksum = "sha256:abc123..."
 
 [skills."__meridian-spawn"]
 source = "meridian-base"
 version = "0.5.2"
+commit = "9f8e7d6c5b4a..."
 checksum = "sha256:def456..."
 ```
 
@@ -201,7 +203,7 @@ checksum = "sha256:def456..."
 
 Lives in the package repo root. Named after the tool, following convention (`Cargo.toml`, `go.mod`, `package.json`). **Optional** — mars works without it by discovering items from filesystem convention (`agents/*.md`, `skills/*/SKILL.md`). Design for the case where nobody has a manifest.
 
-When present, `mars.toml` adds: declared dependencies on other packages, explicit `provides` list (prevents syncing stray files), package metadata (version, description). When absent, mars discovers everything in `agents/` and `skills/` directories, has no transitive dependency information, and uses the git tag as the version.
+When present, `mars.toml` adds: declared dependencies on other packages, package metadata (version, description). When absent, mars discovers everything in `agents/` and `skills/` directories, has no transitive dependency information, and uses the git tag as the version.
 
 ```toml
 [package]

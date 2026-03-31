@@ -20,7 +20,7 @@ Must resolve before implementation begins.
 
 Three-way merge is the differentiating feature and the Rust language justification. Without it, v1 offers the same binary keep/overwrite behavior as current `meridian sources`. If merge is v1.5, then v1 is a lateral move — a rewrite in Rust that does what the Python code already does. The phasing reviewer called this "blocking."
 
-**Resolution**: Move three-way merge from v1.5 to v1. Offset by cutting `doctor`, `repair`, and rename detection to v1.5. Rerere can stay in v1.5 — it solves a rare case (same conflict recurring). The merge itself is the core value.
+**Resolution**: Move three-way merge from v1.5 to v1. Offset by cutting `doctor`, `repair`, and rename detection to v1.5. Rerere is deferred — it solves a rare case (same conflict recurring). The merge itself is the core value.
 
 ### 3. Name Collision Policy Is Missing
 
@@ -28,7 +28,7 @@ Three-way merge is the differentiating feature and the Rust language justificati
 
 Two sources provide `agents/coder.md` — what happens? The spec mentions "provenance tracking" but never specifies: detection timing (at `add` or `sync`?), resolution mechanism, cross-source precedence, or transitive collisions. The existing meridian code errors hard on destination collisions with interactive rename-or-skip. Mars has none of this.
 
-**Resolution**: Detect at resolution time (before any files are written). Error with clear message: "Source A and Source B both provide agents/coder — resolve by adding `exclude_items` to one source or renaming." No silent overwrite, no implicit precedence. This is a v1 requirement because it's a data-safety issue.
+**Resolution**: Detect at resolution time (before any files are written). Error with clear message: "Source A and Source B both provide agents/coder — resolve by adding `exclude` to one source or renaming." No silent overwrite, no implicit precedence. This is a v1 requirement because it's a data-safety issue.
 
 ### 4. Cherry-Picking / Per-Source Filtering
 
@@ -111,7 +111,7 @@ The design should explicitly state why mars is a separate binary rather than par
 
 Hard-coding `agents/` and `skills/` as the only two installable kinds blocks future content types (MCP server configs, Cursor rules, tool definitions, prompts). The manifest, lock, and filesystem layout all assume exactly two kinds.
 
-**Action**: Use an `ItemKind` enum (as the architecture doc proposes). V1 ships with `Agent` and `Skill` only. Adding a new kind = add an enum variant + discovery logic + destination pattern. Match exhaustiveness catches missing cases. The manifest uses typed fields (`provides.agents`, `provides.skills`) not a generic map — type safety now, easy extension later.
+**Action**: Use an `ItemKind` enum (as the architecture doc proposes). V1 ships with `Agent` and `Skill` only. Adding a new kind = add an enum variant + discovery logic + destination pattern. Match exhaustiveness catches missing cases.
 
 ### 13. URL-as-Identity Limits Registry
 
@@ -129,7 +129,7 @@ Hard-coding `agents/` and `skills/` as the only two installable kinds blocks fut
 
 **Source**: Edge Cases (p570)
 
-**Decision**: Manifest is optional. Filesystem convention (`agents/*.md`, `skills/*/SKILL.md`) is the primary discovery mode — design for the case where nobody has a `mars.toml`. Manifest adds value when present (declared deps, explicit provides, metadata) but is never required. Spec updated.
+**Decision**: Manifest is optional. Filesystem convention (`agents/*.md`, `skills/*/SKILL.md`) is the primary discovery mode — design for the case where nobody has a `mars.toml`. Manifest adds value when present (declared deps, metadata) but is never required. Spec updated.
 
 ---
 

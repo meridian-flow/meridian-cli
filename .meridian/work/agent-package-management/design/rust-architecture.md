@@ -18,7 +18,6 @@ mars-agents/
     resolve/          # dependency resolution + version constraints
     sync/             # the core pipeline: diff → plan → apply
     merge/            # three-way merge + conflict markers
-    rerere/           # recorded conflict resolution database
     hash/             # checksum computation
     discover/         # filesystem discovery of agents/skills in source trees
     validate/         # agent→skill dependency validation
@@ -48,7 +47,6 @@ flowchart TD
     RES["resolve/"]
     SYNC["sync/"]
     MRG["merge/"]
-    RER["rerere/"]
     HSH["hash/"]
     DIS["discover/"]
     VAL["validate/"]
@@ -66,7 +64,6 @@ flowchart TD
     SYNC --> SRC
     SYNC --> RES
     SYNC --> MRG
-    SYNC --> RER
     SYNC --> HSH
     SYNC --> DIS
     SYNC --> FS
@@ -74,7 +71,6 @@ flowchart TD
     RES --> MAN
     RES --> SRC
 
-    MRG --> RER
     MRG --> HSH
 
     SRC --> FS
@@ -113,13 +109,10 @@ cli/
   remove.rs           # mars remove
   sync.rs             # mars sync
   init.rs             # mars init
-  doctor.rs           # mars doctor
-  repair.rs           # mars repair
+  list.rs             # mars list (installed items grouped by source)
   resolve_cmd.rs      # mars resolve (conflict resolution)
-  why.rs              # mars why
-  outdated.rs         # mars outdated / update / upgrade
+  why.rs              # mars why (trace which source provides an item)
   override_cmd.rs     # mars override
-  rerere_cmd.rs       # mars rerere
   output.rs           # shared formatting (tables, diffs, colors)
 ```
 
@@ -140,10 +133,16 @@ pub enum SourceEntry {
     Git {
         url: String,
         version: Option<String>,    // semver constraint or ref
+        include: Option<Vec<String>>,   // only install these items (e.g., ["agents/coder", "skills/web-search"])
+        exclude: Option<Vec<String>>,   // skip these items (e.g., ["agents/deprecated-agent"])
+        rename: Option<IndexMap<String, String>>,  // rename items on install (e.g., "agents/coder" → "agents/cool-coder")
     },
     #[serde(rename = "path")]
     Path {
         path: PathBuf,
+        include: Option<Vec<String>>,
+        exclude: Option<Vec<String>>,
+        rename: Option<IndexMap<String, String>>,
     },
 }
 
@@ -167,8 +166,7 @@ pub struct OverrideEntry {
 /// Global settings
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Settings {
-    #[serde(default = "default_true")]
-    pub rerere: bool,
+    // extensible — add fields as needed (e.g., cache dir, color mode)
 }
 ```
 
@@ -190,7 +188,7 @@ pub struct EffectiveSource {
 
 ### `manifest/` — Package Manifest (`mars.toml`)
 
-Parsed from each source's repository root. Declares what the package provides and its dependencies.
+Parsed from each source's repository root. **Optional** — mars works without it by discovering items from filesystem convention (`agents/*.md`, `skills/*/SKILL.md`). When present, `mars.toml` adds declared dependencies on other packages and package metadata. What a package provides is always discovered from the filesystem, never declared in the manifest.
 
 ```rust
 /// Per-package manifest (mars.toml in package repo root)
@@ -199,8 +197,6 @@ pub struct Manifest {
     pub package: PackageInfo,
     #[serde(default)]
     pub dependencies: IndexMap<String, DepSpec>,
-    #[serde(default)]
-    pub provides: ProvidesSpec,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -213,20 +209,12 @@ pub struct PackageInfo {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DepSpec {
     pub url: String,
-    pub version: String,    // semver constraint
-}
-
-/// What items this package provides — typed by item kind
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct ProvidesSpec {
-    #[serde(default)]
-    pub agents: Vec<String>,
-    #[serde(default)]
-    pub skills: Vec<String>,
+    pub version: String,              // semver constraint
+    pub items: Option<Vec<String>>,   // cherry-pick specific items from this dependency
 }
 ```
 
-**Extensibility note**: `ProvidesSpec` uses named fields per item kind (`agents`, `skills`) rather than a generic `HashMap<String, Vec<String>>`. This gives type safety for v1 while remaining easy to extend — adding a new kind means adding a field + updating the discovery/validation logic. The manifest format uses `[provides]` with explicit lists rather than auto-discovery as the default because explicitness prevents syncing stray files.
+**Design note**: There is no `[provides]` section. Discovery is filesystem-only — the `discover/` module scans for `agents/*.md` and `skills/*/SKILL.md` in the source tree. This means sources without a `mars.toml` work identically to those with one (minus transitive dependency information). The manifest's sole purpose is declaring dependencies and metadata.
 
 ### `lock/` — Lock File (`agents.lock`)
 
@@ -294,10 +282,6 @@ pub trait SourceFetcher {
     /// Fetch/update source content to cache, return path to source tree
     fn fetch(&self, resolved: &ResolvedRef, cache: &CacheDir)
         -> Result<PathBuf>;
-
-    /// List available versions (for outdated/upgrade)
-    fn list_versions(&self, spec: &SourceSpec, cache: &CacheDir)
-        -> Result<Vec<semver::Version>>;
 }
 
 /// A resolved source reference — pinned to a specific version/commit
@@ -343,19 +327,19 @@ pub struct ResolvedGraph {
 pub struct ResolvedNode {
     pub source_name: String,
     pub resolved_ref: ResolvedRef,
-    pub manifest: Manifest,
+    pub manifest: Option<Manifest>, // None if source has no mars.toml
     pub deps: Vec<String>,         // source names this depends on
 }
 ```
 
 **Algorithm**:
 1. Start with user's declared sources from `EffectiveConfig`
-2. Fetch each source → read `mars.toml` → discover transitive deps
+2. Fetch each source → read `mars.toml` if present → discover transitive deps (sources without a manifest have no transitive deps)
 3. For each dependency URL seen, intersect all version constraints from different dependents
 4. If intersection is empty → error with clear chain showing who requires what
 5. Resolve each constraint to the minimum version satisfying it (Go-style MVS)
 6. Topological sort the final graph
-7. Return `ResolvedGraph` — ordered list of sources with concrete versions and manifests
+7. Return `ResolvedGraph` — ordered list of sources with concrete versions and optional manifests
 
 ```rust
 pub fn resolve(
@@ -382,22 +366,25 @@ pub fn sync(ctx: &SyncContext) -> Result<SyncReport> {
     // 2. Fetch sources + resolve deps
     let graph = resolve::resolve(&config, &ctx.fetchers, &ctx.cache, Some(&lock))?;
 
-    // 3. Discover items in each resolved source
-    let target = discover::target_state(&graph)?;
+    // 3. Discover items in each resolved source, apply include/exclude/rename
+    let target = target::build(&graph, &config)?;
 
-    // 4. Validate dependency graph (agent→skill refs)
+    // 4. Detect collisions (two sources → same ItemId)
+    target::check_collisions(&target)?;
+
+    // 5. Validate dependency graph (agent→skill refs)
     let warnings = validate::check_deps(&target)?;
 
-    // 5. Diff current state against target
+    // 6. Diff current state against target
     let diff = diff::compute(&ctx.root, &lock, &target)?;
 
-    // 6. Plan actions from diff
+    // 7. Plan actions from diff
     let plan = plan::create(&diff, &ctx.options)?;
 
-    // 7. Apply plan (or dry-run)
+    // 8. Apply plan (or dry-run)
     let applied = apply::execute(&ctx.root, &plan, &ctx.options)?;
 
-    // 8. Write updated lock
+    // 9. Write updated lock
     if !ctx.options.dry_run {
         let new_lock = lock::build(&graph, &applied)?;
         lock::write(&ctx.root, &new_lock)?;
@@ -409,7 +396,7 @@ pub fn sync(ctx: &SyncContext) -> Result<SyncReport> {
 
 #### Sub-modules within `sync/`:
 
-**`sync/target.rs`** — Desired target state computed from the resolved graph:
+**`sync/target.rs`** — Desired target state computed from the resolved graph. Applies per-source `include`/`exclude` filtering and `rename` mapping, then checks for collisions.
 ```rust
 /// What .agents/ should look like after sync
 pub struct TargetState {
@@ -420,10 +407,27 @@ pub struct TargetItem {
     pub id: ItemId,
     pub source_name: String,
     pub source_path: PathBuf,    // path to content in fetched source tree
-    pub dest_path: PathBuf,      // relative path under .agents/
+    pub dest_path: PathBuf,      // relative path under .agents/ (reflects rename if any)
     pub source_hash: String,     // sha256 of source content
 }
+
+/// Build target state: discover items per source, apply include/exclude/rename
+pub fn build(graph: &ResolvedGraph, config: &EffectiveConfig) -> Result<TargetState>;
+
+/// Check for collisions — two sources producing the same ItemId
+pub fn check_collisions(target: &TargetState) -> Result<()>;
 ```
+
+**Include/exclude filtering**: After discovering items in a source tree, filter them against the source's `include` (whitelist — only these items) and `exclude` (blacklist — skip these items). If both are set, `include` is applied first, then `exclude` removes from that set.
+
+**Rename support**: If a source has `rename` entries (e.g., `"agents/coder" = "agents/cool-coder"`), the destination path is changed but content is copied as-is — no frontmatter modification. The lock key uses the original source item ID; the `dest_path` reflects the renamed path. This preserves the agent's frontmatter `name:` field so cross-references in other agents still work.
+
+**Collision detection**: When building `TargetState`, if two sources produce the same `ItemId` after filtering and renaming, error immediately with a clear message:
+```
+error: agents/coder is provided by both `meridian-base` and `cool-agents`
+  hint: use `exclude` on one source, or `rename` to install under a different filename
+```
+No silent precedence, no implicit ordering. This runs before any files are written.
 
 **`sync/diff.rs`** — Compares current disk state + lock against target:
 ```rust
@@ -509,38 +513,13 @@ pub struct MergeLabels {
 
 **Base content storage**: The cache stores the exact content mars installed last time, keyed by `(source_name, item_id, version)`. This is the "base" for three-way merge — without it, we can only do two-way diff. The lock file's checksum lets us verify the cache hasn't drifted.
 
-### `rerere/` — Recorded Resolution
-
-Stores conflict resolutions keyed by conflict hash. On future syncs, if the same conflict pattern appears, auto-applies the recorded resolution.
-
-```rust
-pub struct RerereDb {
-    root: PathBuf,   // .agents/.mars/rerere/
-}
-
-impl RerereDb {
-    /// Record a resolution: conflicted content → resolved content
-    pub fn record(&self, conflict_hash: &str, resolution: &[u8]) -> Result<()>;
-
-    /// Look up a recorded resolution for a conflict hash
-    pub fn lookup(&self, conflict_hash: &str) -> Result<Option<Vec<u8>>>;
-
-    /// Forget a specific resolution
-    pub fn forget(&self, file_path: &str) -> Result<()>;
-
-    /// List all recorded resolutions
-    pub fn list(&self) -> Result<Vec<RerereEntry>>;
-}
-```
-
-**Conflict hash**: SHA-256 of the conflict markers block (the `<<<<<<<` ... `>>>>>>>` content). Same conflict = same hash = same resolution applies.
-
 ### `discover/` — Source Tree Discovery
 
-Scans a fetched source tree for installable items. Reads `mars.toml` manifest first; falls back to filesystem convention (`agents/*.md`, `skills/*/SKILL.md`).
+Scans a fetched source tree for installable items. Discovery is always filesystem-based — it walks the source tree looking for `agents/*.md` and `skills/*/SKILL.md`. The manifest is not consulted for what a package provides.
 
 ```rust
-pub fn discover_source(tree_path: &Path, manifest: &Manifest) -> Result<Vec<DiscoveredItem>>;
+/// Discover all installable items in a source tree by filesystem convention
+pub fn discover_source(tree_path: &Path) -> Result<Vec<DiscoveredItem>>;
 
 pub struct DiscoveredItem {
     pub id: ItemId,
@@ -548,7 +527,7 @@ pub struct DiscoveredItem {
 }
 ```
 
-If the manifest declares `[provides]`, discovery validates that every declared item actually exists on disk. If a manifest declares `agents = ["coder"]` but `agents/coder.md` doesn't exist, that's an error.
+**Convention**: `agents/*.md` files become `ItemKind::Agent` items. `skills/*/SKILL.md` directories (identified by the presence of `SKILL.md`) become `ItemKind::Skill` items. Everything else is ignored. This means a source tree without a `mars.toml` is fully functional — discovery doesn't depend on the manifest at all.
 
 ### `validate/` — Dependency Validation
 
@@ -612,8 +591,8 @@ impl FileLock {
 flowchart LR
     A["Config<br/>agents.toml"] --> B["Fetch<br/>git/path sources"]
     B --> C["Resolve<br/>dep graph + versions"]
-    C --> D["Discover<br/>items in source trees"]
-    D --> E["Target State<br/>desired .agents/"]
+    C --> D["Discover + Filter<br/>include/exclude/rename"]
+    D --> E["Target State<br/>collision check"]
     E --> F["Diff<br/>vs disk + lock"]
     F --> G["Plan<br/>actions list"]
     G --> H["Apply<br/>write files"]
@@ -622,7 +601,7 @@ flowchart LR
 
 Each arrow is a function call that takes the previous output and produces the next input. The pipeline is testable at every boundary — you can unit test `diff::compute` by constructing a `TargetState` and `LockFile` in memory without touching disk.
 
-**Pure core, effectful shell**: Steps 1-2 have I/O (reading files, cloning git repos). Steps 3-7 are pure transforms on data structures. Step 8 has I/O (writing files). This concentration of effects at the edges makes the core logic easy to test.
+**Pure core, effectful shell**: Steps 1-2 have I/O (reading files, cloning git repos). Steps 3-8 are pure transforms on data structures. Step 9 has I/O (writing files). This concentration of effects at the edges makes the core logic easy to test.
 
 ## Error Handling
 
@@ -647,6 +626,9 @@ pub enum MarsError {
 
     #[error("merge conflict in {path}")]
     Conflict { path: String },
+
+    #[error("{item} is provided by both `{source_a}` and `{source_b}`")]
+    Collision { item: String, source_a: String, source_b: String },
 
     #[error("validation: {0}")]
     Validation(#[from] ValidationError),
@@ -733,6 +715,7 @@ $ mars sync
 Pure logic modules are directly unit-testable with in-memory data structures — no filesystem, no git:
 
 - **`resolve/`**: Construct `EffectiveConfig` + mock manifests → assert topological order, version selection, constraint intersection failures
+- **`sync/target.rs`**: Construct resolved graph + config with include/exclude/rename → assert correct `TargetState`, collision detection errors
 - **`sync/diff.rs`**: Construct `TargetState` + `LockFile` + mock hashes → assert correct `DiffEntry` variants
 - **`sync/plan.rs`**: Construct `SyncDiff` + options → assert correct `PlannedAction` sequence
 - **`config/`**: Parse TOML strings → assert `Config` structs
@@ -751,10 +734,12 @@ Tests that exercise the full pipeline with real filesystems. Each test creates a
 - Version constraint resolution with transitive deps
 - Conflict detection and merge with local modifications
 - Orphan pruning after renames
+- Name collision detection between sources
+- Include/exclude filtering and rename mapping
 
 **Path integration tests**: Create local directories as sources. Simpler but covers the path adapter.
 
-**Merge integration tests**: Set up base → local edit → upstream edit scenarios. Assert correct merge output, conflict markers, rerere recording and replay.
+**Merge integration tests**: Set up base → local edit → upstream edit scenarios. Assert correct merge output and conflict markers.
 
 Test fixtures: Committed to the repo as source trees under `tests/fixtures/`. Integration tests copy these to temp dirs, initialize git repos from them, and run sync.
 
@@ -802,9 +787,8 @@ A package can move between git hosts. The item's identity is its kind and name �
 
 `ItemKind` is an enum (`Agent | Skill`). Adding a new kind (e.g., `Prompt`, `Tool`) means:
 1. Add a variant to `ItemKind`
-2. Add a field to `ProvidesSpec` in the manifest
-3. Add discovery logic for the new kind's filesystem convention
-4. Add a destination path pattern in `sync/apply.rs`
+2. Add discovery logic for the new kind's filesystem convention in `discover/`
+3. Add a destination path pattern in `sync/apply.rs`
 
 The type system ensures every code path handles the new kind — match exhaustiveness catches missing cases.
 
