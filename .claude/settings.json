@@ -4,9 +4,6 @@
         "Bash",
         "WebSearch",
         "WebFetch"
-      ],
-      "additionalDirectories": [
-        "/home/jimyao/gitrepos/meridian-collab"
       ]
     }
   }

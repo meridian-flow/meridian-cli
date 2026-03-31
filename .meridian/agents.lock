@@ -151,7 +151,7 @@
       "source_name": "meridian-base"
     },
     "skill:__meridian-work-coordination": {
-      "content_hash": "sha256:f0e6ced561bc5492c52b0273d4cadf88cc0e7cd5f5b65deb14d342cb3f6812de",
+      "content_hash": "sha256:1c7a38a45a9ba87b0649da3ed2d2380555e370f5d2baa6f4a8c533c195544671",
       "destination_path": ".agents/skills/__meridian-work-coordination",
       "source_item_id": "skill:__meridian-work-coordination",
       "source_name": "meridian-base"
@@ -256,7 +256,7 @@
   "sources": {
     "meridian-base": {
       "installed_at": null,
-      "installed_tree_hash": "sha256:43c459ae8fd42d99a37486db71eef90518868081fc0cd2b694a6e0bada07e28c",
+      "installed_tree_hash": "sha256:521829fd782b58ce0653173a66cd008cc019148323abd373196016cd6e2fe424",
       "items": {
         "agent:__meridian-orchestrator": {
           "path": "agents/__meridian-orchestrator.md"
@@ -297,7 +297,7 @@
       ],
       "requested_ref": "main",
       "resolved_identity": {
-        "commit": "d05098ff6a805aad4b9fd0b8344fd9f1545e1635"
+        "commit": "cf2e977d68bdaf6cc8238e3312e42e99df4aa913"
       }
     },
     "meridian-dev-workflow": {
