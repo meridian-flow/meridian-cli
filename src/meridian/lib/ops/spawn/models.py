@@ -45,7 +45,7 @@ class SpawnCreateInput(BaseModel):
     sandbox: str | None = None
     harness: str | None = None
     passthrough_args: tuple[str, ...] = ()
-    session: SessionContinuation = Field(default_factory=SessionContinuation)
+    session: SessionContinuation = SessionContinuation()
 
 
 class SpawnActionOutput(BaseModel):
