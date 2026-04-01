@@ -458,9 +458,13 @@ installed_checksum = "sha256:def456..."
 
 ## v2: Security, Scripts, and Polish
 
+### Patches / Persistent Customizations
+
+Save local modifications as patches that are automatically reapplied after every sync. Solves "I always change `model: sonnet` on this agent" without conflict markers on every update. Cleanly separates "what upstream provides" from "what I customized."
+
 ### Rerere (Reuse Recorded Resolution)
 
-Record conflict resolutions and auto-apply on future syncs. Deferred because the same-conflict-recurring pattern is rare in practice.
+Record conflict resolutions and auto-apply on future syncs. For the rare case where the same conflict recurs.
 
 ### Semantic Frontmatter-Aware Merge
 
