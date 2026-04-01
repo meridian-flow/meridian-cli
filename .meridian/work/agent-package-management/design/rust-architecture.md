@@ -111,8 +111,13 @@ cli/
   init.rs             # mars init
   list.rs             # mars list (installed items grouped by source)
   resolve_cmd.rs      # mars resolve (conflict resolution)
+  rename.rs           # mars rename (rename managed items)
+  update.rs           # mars update (update sources within constraints)
+  outdated.rs         # mars outdated (show available updates)
   why.rs              # mars why (trace which source provides an item)
-  override_cmd.rs     # mars override
+  override_cmd.rs     # mars override (edits agents.local.toml for dev overrides)
+  doctor.rs           # mars doctor (validate state consistency)
+  repair.rs           # mars repair (rebuild state from lock + sources)
   output.rs           # shared formatting (tables, diffs, colors)
 ```
 
@@ -133,14 +138,16 @@ pub enum SourceEntry {
     Git {
         url: String,
         version: Option<String>,    // semver constraint or ref
-        include: Option<Vec<String>>,   // only install these items (e.g., ["agents/coder", "skills/web-search"])
-        exclude: Option<Vec<String>>,   // skip these items (e.g., ["agents/deprecated-agent"])
+        agents: Option<Vec<String>>,    // intent-based: install these agents + their skill deps
+        skills: Option<Vec<String>>,    // intent-based: install these skills explicitly
+        exclude: Option<Vec<String>>,   // install everything except these
         rename: Option<IndexMap<String, String>>,  // rename items on install (e.g., "agents/coder" → "agents/cool-coder")
     },
     #[serde(rename = "path")]
     Path {
         path: PathBuf,
-        include: Option<Vec<String>>,
+        agents: Option<Vec<String>>,
+        skills: Option<Vec<String>>,
         exclude: Option<Vec<String>>,
         rename: Option<IndexMap<String, String>>,
     },
@@ -245,7 +252,8 @@ pub struct LockedItem {
     pub source: String,            // source name
     pub kind: ItemKind,            // agent | skill
     pub version: Option<String>,   // from source's manifest
-    pub checksum: String,          // sha256 of installed content
+    pub source_checksum: String,   // sha256 of source content (pre-rewrite)
+    pub installed_checksum: String, // sha256 of what mars wrote to disk (post-rewrite, if any)
     pub dest_path: String,         // relative path under .agents/
 }
 
@@ -352,82 +360,122 @@ pub fn resolve(
 
 **Locked version preference**: When a lock file exists, the resolver prefers the locked commit/version if it still satisfies the constraint. This gives reproducible builds — `mars sync` with unchanged config produces no changes.
 
+**Maximize versions mode**: `mars update` needs a "maximize versions" mode in the resolver — instead of preferring locked/minimum versions, it finds the newest versions satisfying all constraints across all sources simultaneously. This is a flag on the `resolve()` call, not a separate code path.
+
+**Multi-version support**: When version constraints from different dependents are truly incompatible (empty intersection), the resolver can install the same source at different versions — each dependent gets the version it needs. This avoids forcing users to manually reconcile constraints across unrelated packages. The different versions install as separate items, with auto-rename to distinguish them.
+
 ### `sync/` — The Core Pipeline
 
 This is the heart of mars. The sync pipeline is a sequence of transforms, each producing an intermediate value consumed by the next. Side effects are concentrated in the final `apply` step.
 
 ```rust
-/// The complete sync pipeline
+/// The complete sync pipeline — 15 steps matching the feature spec
 pub fn sync(ctx: &SyncContext) -> Result<SyncReport> {
-    // 1. Load config + lock
+    // 1. Acquire sync lock (held start-to-end)
+    let _lock_guard = fs::FileLock::acquire(&ctx.root.join(".mars/sync.lock"))?;
+
+    // 2. Read agents.toml (merged with agents.local.toml if present)
     let config = config::load(&ctx.root)?;
     let lock = lock::load(&ctx.root)?;
 
-    // 2. Fetch sources + resolve deps
+    // 3. Fetch/update source content (git clone/pull or local copy) — abort on any failure
+    // 4. Read manifests from each source (if present; filesystem discovery otherwise)
+    // 5. Resolve dependency graph (topological sort with version constraints)
     let graph = resolve::resolve(&config, &ctx.fetchers, &ctx.cache, Some(&lock))?;
 
-    // 3. Discover items in each resolved source, apply include/exclude/rename
-    let target = target::build(&graph, &config)?;
+    // 6. Build target state: apply intent-based filtering (agents/skills/exclude),
+    //    resolve skill deps from frontmatter
+    let mut target = target::build(&graph, &config)?;
 
-    // 4. Detect collisions (two sources → same ItemId)
-    target::check_collisions(&target)?;
+    // 7. Detect collisions on destination paths — auto-rename with {name}__{owner}_{repo}
+    let renames = target::check_collisions(&mut target, &graph, &config)?;
 
-    // 5. Validate dependency graph (agent→skill refs)
+    // 8. Rewrite frontmatter skill references for renamed transitive deps
+    if !renames.is_empty() {
+        target::rewrite_skill_refs(&mut target, &renames, &graph)?;
+    }
+
+    // 9. Validate: warn if any skills: [X] reference doesn't resolve
     let warnings = validate::check_deps(&target)?;
 
-    // 6. Diff current state against target
+    // 10. Diff current .agents/ against target state (using dual checksums from lock)
     let diff = diff::compute(&ctx.root, &lock, &target)?;
 
-    // 7. Plan actions from diff
-    let plan = plan::create(&diff, &ctx.options)?;
+    // 11. Apply changes:
+    //     - New files: copy in (atomic write)
+    //     - Unchanged files: skip
+    //     - Clean updates (no local mods): overwrite
+    //     - Conflicting updates (local mods + upstream): three-way merge via git2::merge_file()
+    let applied = apply::execute(&ctx.root, &diff, &ctx.options)?;
 
-    // 8. Apply plan (or dry-run)
-    let applied = apply::execute(&ctx.root, &plan, &ctx.options)?;
+    // 12. Prune orphans: items in old lock but not new lock get removed
+    let pruned = apply::prune_orphans(&ctx.root, &lock, &target)?;
 
-    // 9. Write updated lock
+    // 13. Write new agents.lock (atomic write)
     if !ctx.options.dry_run {
-        let new_lock = lock::build(&graph, &applied)?;
+        let new_lock = lock::build(&graph, &applied, &pruned)?;
         lock::write(&ctx.root, &new_lock)?;
     }
 
-    Ok(SyncReport { applied, warnings })
+    // 14. Release sync lock (implicit via _lock_guard drop)
+    // 15. Report: installed, updated, conflicted, pruned
+
+    Ok(SyncReport { applied, pruned, warnings })
 }
 ```
 
 #### Sub-modules within `sync/`:
 
-**`sync/target.rs`** — Desired target state computed from the resolved graph. Applies per-source `include`/`exclude` filtering and `rename` mapping, then checks for collisions.
+**`sync/target.rs`** — Desired target state computed from the resolved graph. Applies per-source intent-based filtering (`agents`/`skills`/`exclude`) and `rename` mapping, resolves skill deps from agent frontmatter, then detects and auto-renames collisions.
 ```rust
 /// What .agents/ should look like after sync
 pub struct TargetState {
-    pub items: IndexMap<ItemId, TargetItem>,
+    pub items: IndexMap<String, TargetItem>,  // keyed by dest_path
 }
 
 pub struct TargetItem {
     pub id: ItemId,
     pub source_name: String,
+    pub source_url: Option<String>, // source URL for auto-rename {owner}_{repo} extraction
     pub source_path: PathBuf,    // path to content in fetched source tree
     pub dest_path: PathBuf,      // relative path under .agents/ (reflects rename if any)
     pub source_hash: String,     // sha256 of source content
 }
 
-/// Build target state: discover items per source, apply include/exclude/rename
+/// Build target state: discover items per source, apply agents/skills/exclude filtering,
+/// resolve skill deps from frontmatter
 pub fn build(graph: &ResolvedGraph, config: &EffectiveConfig) -> Result<TargetState>;
 
-/// Check for collisions — two sources producing the same ItemId
-pub fn check_collisions(target: &TargetState) -> Result<()>;
+/// Detect collisions on destination paths and auto-rename both with {name}__{owner}_{repo}.
+/// Uses source_url from ResolvedGraph nodes for {owner}_{repo} extraction.
+pub fn check_collisions(
+    target: &mut TargetState,
+    graph: &ResolvedGraph,
+    config: &EffectiveConfig,
+) -> Result<Vec<RenameAction>>;
 ```
 
-**Include/exclude filtering**: After discovering items in a source tree, filter them against the source's `include` (whitelist — only these items) and `exclude` (blacklist — skip these items). If both are set, `include` is applied first, then `exclude` removes from that set.
+**Intent-based filtering**: After discovering items in a source tree, filter them using the source's filtering mode (pick one per source):
+- **`agents`/`skills`**: Intent-based — install the named agents and skills, plus auto-resolve skill deps from agent frontmatter. New deps are auto-included on future syncs.
+- **`exclude`**: Install everything except the listed items.
+- **Neither**: Install everything (default).
 
-**Rename support**: If a source has `rename` entries (e.g., `"agents/coder" = "agents/cool-coder"`), the destination path is changed but content is copied as-is — no frontmatter modification. The lock key uses the original source item ID; the `dest_path` reflects the renamed path. This preserves the agent's frontmatter `name:` field so cross-references in other agents still work.
+Using `agents`/`skills` and `exclude` on the same source is a config error.
 
-**Collision detection**: When building `TargetState`, if two sources produce the same `ItemId` after filtering and renaming, error immediately with a clear message:
+**Rename support**: If a source has `rename` entries (e.g., `"agents/coder" = "agents/cool-coder"`), the destination path is changed but content is copied as-is. The lock key uses the original source item ID; the `dest_path` reflects the renamed path. This preserves the agent's frontmatter `name:` field so cross-references in other agents still work. The one exception is transitive dependency collisions — when a collision forces a rename AND affected agents have frontmatter `skills:` references to the renamed skill, mars rewrites those references to point at the correct renamed version (see "Collision detection" below).
+
+**Collision detection**: When two sources produce items with the same destination path, mars auto-renames **both** using `{name}__{owner}_{repo}` (name-first for autocomplete grouping). The `source_url` on each `TargetItem` provides the `{owner}_{repo}` segment.
+
 ```
-error: agents/coder is provided by both `meridian-base` and `cool-agents`
-  hint: use `exclude` on one source, or `rename` to install under a different filename
+warning: agents/coder is provided by both `meridian-base` and `cool-agents`
+  auto-renamed to:
+    agents/coder__haowjy_meridian-base.md
+    agents/coder__someone_cool-agents.md
 ```
-No silent precedence, no implicit ordering. This runs before any files are written.
+
+No implicit precedence — both get renamed. Users can override with `mars rename` for custom names, or `exclude` to skip one entirely. Explicit renames (via `mars rename`) take precedence over auto-renames; if an explicit rename causes a new collision, mars errors rather than silently re-auto-renaming.
+
+For **transitive dependency collisions** (e.g., two sources depend on different implementations of the same skill), mars auto-renames both skills AND rewrites the `skills:` frontmatter references in affected agents to point at the correct renamed version. Mars uses the manifest dependency chain to determine which agents get which renamed skill reference. This is the one case where mars modifies file content beyond simple copying.
 
 **`sync/diff.rs`** — Compares current disk state + lock against target:
 ```rust
@@ -487,7 +535,7 @@ pub struct ActionOutcome {
 
 ### `merge/` — Three-Way Merge
 
-Wraps the `threeway_merge` crate. Inputs: base (what mars installed last time, from cache), local (current file on disk), theirs (new source content). Output: merged content or content with conflict markers.
+Wraps `git2::merge_file()` — libgit2's built-in three-way merge with conflict markers (`git2` is already a dependency for git operations, no extra crate needed). Inputs: base (what mars installed last time, from cache), local (current file on disk), theirs (new source content). Output: merged content or content with conflict markers.
 
 ```rust
 pub struct MergeResult {
@@ -583,25 +631,28 @@ impl FileLock {
 
 **Atomic write pattern**: `write(tmp) → fsync(tmp) → rename(tmp, dest)`. The rename is atomic on POSIX. On Windows, use `ReplaceFile`. Temp files are in the same directory as the destination (same filesystem guarantees atomic rename).
 
-**Advisory lock**: `flock` on `.agents/.mars/mars.lock`. Prevents concurrent `mars sync` from corrupting state. The lock is held for the duration of the apply phase, not the entire pipeline — fetching and resolution can happen without the lock.
+**Advisory lock**: `flock` on `.agents/.mars/sync.lock`. Prevents concurrent `mars sync` from corrupting state. The lock is held start-to-end — acquired before fetching and held through completion. Concurrent `mars sync` processes block until the lock is released.
 
 ## The Sync Pipeline as Data Flow
 
 ```mermaid
 flowchart LR
-    A["Config<br/>agents.toml"] --> B["Fetch<br/>git/path sources"]
-    B --> C["Resolve<br/>dep graph + versions"]
-    C --> D["Discover + Filter<br/>include/exclude/rename"]
-    D --> E["Target State<br/>collision check"]
-    E --> F["Diff<br/>vs disk + lock"]
-    F --> G["Plan<br/>actions list"]
-    G --> H["Apply<br/>write files"]
-    H --> I["Lock<br/>write agents.lock"]
+    A["1. Lock<br/>acquire sync.lock"] --> B["2. Config<br/>agents.toml + local"]
+    B --> C["3. Fetch<br/>git/path sources"]
+    C --> D["4-5. Resolve<br/>manifests + dep graph"]
+    D --> E["6. Target State<br/>agents/skills/exclude"]
+    E --> F["7-8. Collisions<br/>auto-rename + rewrite"]
+    F --> G["9. Validate<br/>skill refs"]
+    G --> H["10. Diff<br/>dual checksums"]
+    H --> I["11. Apply<br/>merge/overwrite"]
+    I --> J["12. Prune<br/>orphans"]
+    J --> K["13. Lock<br/>write agents.lock"]
+    K --> L["14-15. Release<br/>+ report"]
 ```
 
 Each arrow is a function call that takes the previous output and produces the next input. The pipeline is testable at every boundary — you can unit test `diff::compute` by constructing a `TargetState` and `LockFile` in memory without touching disk.
 
-**Pure core, effectful shell**: Steps 1-2 have I/O (reading files, cloning git repos). Steps 3-8 are pure transforms on data structures. Step 9 has I/O (writing files). This concentration of effects at the edges makes the core logic easy to test.
+**Pure core, effectful shell**: Steps 1-3 have I/O (locking, reading files, cloning git repos). Steps 4-10 are pure transforms on data structures. Steps 11-13 have I/O (writing files, pruning). This concentration of effects at the edges makes the core logic easy to test.
 
 ## Error Handling
 
@@ -679,6 +730,7 @@ pub fn run(args: SyncArgs) -> Result<i32> {
         options: SyncOptions {
             force: args.force,
             dry_run: args.diff,
+            frozen: args.frozen,
         },
     };
 
@@ -715,7 +767,7 @@ $ mars sync
 Pure logic modules are directly unit-testable with in-memory data structures — no filesystem, no git:
 
 - **`resolve/`**: Construct `EffectiveConfig` + mock manifests → assert topological order, version selection, constraint intersection failures
-- **`sync/target.rs`**: Construct resolved graph + config with include/exclude/rename → assert correct `TargetState`, collision detection errors
+- **`sync/target.rs`**: Construct resolved graph + config with agents/skills/exclude/rename → assert correct `TargetState`, auto-rename behavior
 - **`sync/diff.rs`**: Construct `TargetState` + `LockFile` + mock hashes → assert correct `DiffEntry` variants
 - **`sync/plan.rs`**: Construct `SyncDiff` + options → assert correct `PlannedAction` sequence
 - **`config/`**: Parse TOML strings → assert `Config` structs
@@ -734,8 +786,8 @@ Tests that exercise the full pipeline with real filesystems. Each test creates a
 - Version constraint resolution with transitive deps
 - Conflict detection and merge with local modifications
 - Orphan pruning after renames
-- Name collision detection between sources
-- Include/exclude filtering and rename mapping
+- Name collision detection and auto-rename between sources
+- Intent-based filtering (agents/skills/exclude) and rename mapping
 
 **Path integration tests**: Create local directories as sources. Simpler but covers the path adapter.
 
@@ -825,7 +877,6 @@ toml = "0.8"
 serde_yaml = "0.9"
 git2 = "0.19"
 sha2 = "0.10"
-threeway-merge = "0.2"
 semver = { version = "1", features = ["serde"] }
 indexmap = { version = "2", features = ["serde"] }
 thiserror = "2"
