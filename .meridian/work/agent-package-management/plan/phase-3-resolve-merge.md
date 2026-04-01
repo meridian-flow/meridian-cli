@@ -59,6 +59,9 @@ pub fn resolve(
 **Minimum version selection** (Go-style MVS):
 - When no locked version exists, select the **minimum** version satisfying all constraints. Not the latest. This is conservative and reproducible — the same constraint always resolves to the same version on any machine. Users who want latest use `@latest` explicitly.
 
+**Maximize versions mode** (for `mars upgrade`):
+- The resolver needs an alternate mode where it finds the **newest** compatible versions across all upgrade targets simultaneously. `mars upgrade` passes the set of sources to upgrade; the resolver finds the maximum version for each that still satisfies all cross-source constraints. This is the inverse of MVS — used only when the user explicitly asks to upgrade.
+
 **Transitive dependency discovery**:
 - Sources without `mars.toml`: no transitive deps. They contribute items but don't pull in other sources.
 - Sources with `mars.toml`: read `[dependencies]` section. Each dep is a new source to fetch and resolve.

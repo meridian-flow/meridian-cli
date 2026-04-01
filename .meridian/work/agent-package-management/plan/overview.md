@@ -66,7 +66,7 @@ Total: ~4,150 lines of Rust (excluding tests).
 4. **`git2` (libgit2) for all git ops.** No shelling out to `git`.
 5. **TOML for lock file.** Matches config convention, clean diffs.
 6. **Atomic writes via tmp+fsync+rename.** Crash-safe by default.
-7. **Advisory flock during apply only.** Fetching and resolution don't need the lock.
+7. **Advisory flock from start to end.** The sync lock is held for the entire pipeline (acquire → release after lock write) to prevent TOCTOU races between concurrent syncs.
 8. **Dual checksums in lock (source + installed).** Prevents mars-managed rewrites from triggering false conflicts.
 9. **Three-way merge in v1.** Core differentiator — not deferred.
 

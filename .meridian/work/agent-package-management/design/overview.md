@@ -78,7 +78,7 @@ For developing a package locally while the production config points at git:
 mars override meridian-base --path ./meridian-base
 ```
 
-This edits `agents.local.toml` (gitignored). Lock file keeps the git version for reproducibility. Override is local-only, not committed. Other contributors get the git version.
+This is a convenience command that edits `agents.local.toml` (gitignored) — equivalent to hand-editing the `[overrides]` section. Lock file keeps the git version for reproducibility. Override is local-only, not committed. Other contributors get the git version.
 
 ## CLI Semantics
 
@@ -125,7 +125,6 @@ Base for three-way diff = what mars installed last time (checksum + cached conte
   agents.lock              # generated — provenance, checksums, ownership
   .mars/
     cache/                 # content-addressed source cache
-    rerere/                # recorded conflict resolutions
   agents/
     dev-orchestrator.md    # managed (from meridian-dev-workflow)
     my-custom-agent.md     # user-authored, mars doesn't touch
@@ -193,13 +192,15 @@ Tracks every managed file with provenance and integrity:
 source = "meridian-dev-workflow"
 version = "2.1.0"
 commit = "a1b2c3d4e5f6..."
-checksum = "sha256:abc123..."
+source_checksum = "sha256:abc123..."
+installed_checksum = "sha256:abc123..."
 
 [skills."__meridian-spawn"]
 source = "meridian-base"
 version = "0.5.2"
 commit = "9f8e7d6c5b4a..."
-checksum = "sha256:def456..."
+source_checksum = "sha256:def456..."
+installed_checksum = "sha256:def456..."
 ```
 
 ### Manifest: `mars.toml` (Per Source/Package, Optional)
@@ -246,7 +247,7 @@ What the repo provides is discovered from the filesystem (`agents/*.md`, `skills
 - **`clap`** — CLI framework
 - **`serde`** + **`toml`** — config/lock/manifest parsing
 - **`serde_yaml`** — agent frontmatter parsing (for dependency validation)
-- **`threeway_merge`** — three-way merge with git conflict markers
+- Three-way merge via **`git2::merge_file()`** (libgit2's built-in merge, no extra crate needed)
 - **`git2`** — libgit2 bindings for git operations (clone, fetch, tag listing)
 - **`sha2`** — checksum computation
 

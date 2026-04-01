@@ -37,6 +37,7 @@ pub struct SyncContext {
 pub struct SyncOptions {
     pub force: bool,       // --force: overwrite local modifications
     pub dry_run: bool,     // --diff: compute plan but don't apply
+    pub frozen: bool,      // --frozen: install exactly from lock, error if stale
 }
 
 pub struct SyncReport {
@@ -72,7 +73,7 @@ pub fn sync(ctx: &SyncContext) -> Result<SyncReport>;
 ```rust
 /// What .agents/ should look like after sync
 pub struct TargetState {
-    pub items: IndexMap<ItemId, TargetItem>,
+    pub items: IndexMap<String, TargetItem>,  // keyed by dest_path (not ItemId — two renamed items with same identity need distinct keys)
 }
 
 pub struct TargetItem {
@@ -88,7 +89,10 @@ pub struct TargetItem {
 ///
 /// For each source in topological order:
 /// 1. discover_source(tree_path) → list of items
-/// 2. Apply filter mode (Include/Exclude/All) from EffectiveConfig
+/// 2. Apply filter mode from EffectiveConfig:
+///    - agents/skills (intent-based): install named items + transitive skill deps
+///    - exclude: install everything except listed items
+///    - all (default): install everything from the source
 /// 3. Apply rename mappings
 /// 4. For Include mode with agents: parse agent frontmatter to discover
 ///    transitive skill deps, add those skills to the include set
@@ -333,7 +337,6 @@ Content-addressed by installed checksum. Written after every install/overwrite. 
 
 ## Constraints
 
-- The sync lock (flock) is held ONLY during apply + lock write. Fetching and resolution happen outside the lock.
 - If any apply action fails, abort and do NOT write the lock. Partial state is acceptable (atomic writes mean individual files are consistent), but the lock must reflect what actually happened.
 - Base content cache (`.mars/cache/bases/`) is best-effort. Missing cache = degrade to two-way diff, not crash.
 - Dry run must produce the exact same plan as a real run — same diff, same actions, just not executed.

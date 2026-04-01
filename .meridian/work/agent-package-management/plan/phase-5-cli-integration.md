@@ -64,6 +64,8 @@ pub enum Command {
     Rename(rename::RenameArgs),
     /// List managed items
     List(list::ListArgs),
+    /// Upgrade sources to newest compatible versions
+    Upgrade(upgrade::UpgradeArgs),
     /// Explain why an item is installed
     Why(why::WhyArgs),
     /// Set a dev override for a source
@@ -119,7 +121,7 @@ pub struct AddArgs {
 Pipeline:
 1. Parse source specifier: detect git URL vs local path vs GitHub shorthand (`owner/repo`).
 2. Auto-init if `.agents/` doesn't exist.
-3. Load existing config, add new source entry.
+3. Load existing config, add or update source entry (**upsert** — if source already exists, update its version constraint and filters rather than erroring).
 4. Save config (atomic write).
 5. Run full sync.
 6. Report what was installed.
@@ -139,6 +141,10 @@ pub struct SyncArgs {
     /// Dry run — show what would change
     #[arg(long)]
     pub diff: bool,
+
+    /// Install exactly from lock file, error if stale
+    #[arg(long)]
+    pub frozen: bool,
 }
 ```
 
@@ -227,6 +233,21 @@ pub struct OverrideArgs {
 ```
 
 Write override to `agents.local.toml`. Run sync.
+
+### `src/cli/upgrade.rs` — `mars upgrade`
+
+```rust
+pub struct UpgradeArgs {
+    /// Sources to upgrade (default: all)
+    pub sources: Vec<String>,
+}
+```
+
+1. If sources specified, upgrade only those. Otherwise, upgrade all.
+2. Use resolver in maximize-versions mode to find newest compatible versions across all targets simultaneously.
+3. Update version constraints in config.
+4. Run full sync.
+5. Report version changes.
 
 ### `src/cli/output.rs` — Shared Formatting
 

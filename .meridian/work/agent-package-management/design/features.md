@@ -357,13 +357,15 @@ Tracks every managed file with provenance and integrity. Each item has exactly o
 source = "meridian-dev-workflow"
 version = "2.1.0"
 commit = "a1b2c3d4e5f6..."
-checksum = "sha256:abc123..."
+source_checksum = "sha256:abc123..."
+installed_checksum = "sha256:abc123..."
 
 [skills."__meridian-spawn"]
 source = "meridian-base"
 version = "0.5.2"
 commit = "f6e5d4c3b2a1..."
-checksum = "sha256:def456..."
+source_checksum = "sha256:def456..."
+installed_checksum = "sha256:def456..."
 ```
 
 ## v1.5 and Later
@@ -387,11 +389,10 @@ Rebuild `.agents/` from lock file. Re-fetch sources, re-install to match lock. R
 
 Diff old lock vs new lock. If a name disappears from a source, check if dependents still reference it. Surface: "agent `verifier` depends on `verification-testing` which no longer exists — did you mean `verification`?"
 
-### `mars outdated` / `mars update` / `mars upgrade`
+### `mars outdated` / `mars update`
 
 - `mars outdated` — show sources with newer versions available
 - `mars update` — update within current version constraints
-- `mars upgrade` — bump version constraints to latest
 
 ### Rerere (Reuse Recorded Resolution)
 
@@ -414,7 +415,7 @@ Understand YAML frontmatter in agent profiles. Resolve frontmatter field conflic
 Skills can contain scripts alongside SKILL.md. Mars needs a trust model:
 - First install: prompt user to approve scripts from new sources
 - Allowlist by source in `agents.toml`
-- `mars sync --dry-run` shows what scripts would be installed
+- `mars sync --diff` shows what scripts would be installed
 - Checksum verification on scripts (detect tampering)
 
 ### Source Trust Policy
