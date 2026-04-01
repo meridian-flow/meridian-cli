@@ -8,6 +8,45 @@ No partial mutations. No "upgrade A now, fix B later." The resolver sees the who
 
 This is the architectural backbone — the sync pipeline (resolve → validate → diff → plan → apply) is the single path every mutation flows through.
 
+## Output Modes
+
+Two output modes for every command:
+
+### Normal (default)
+
+Human-readable, concise. Quiet when nothing interesting happened, detailed only when something needs attention. Designed for minimal token consumption — AI agents calling mars shouldn't burn context on verbose output.
+
+```bash
+$ mars sync
+✓ 2 sources, 11 items, 0 conflicts
+
+$ mars sync
+✓ meridian-base@0.8.0 (3 updated)
+⚠ agents/coder renamed → agents/coder__haowjy_meridian-base
+✗ 1 conflict in agents/reviewer.md — run mars resolve
+
+$ mars update
+✓ meridian-base 0.8.0 → 0.9.1
+
+$ mars list
+meridian-base        agents/coder.md          v0.8.0  ok
+meridian-base        skills/code-review/      v0.8.0  modified
+```
+
+### `--json`
+
+Machine-readable JSON for CI pipelines, scripting, and programmatic consumption. Every command supports it.
+
+```bash
+$ mars sync --json
+{"ok":true,"sources":2,"items":11,"updated":3,"conflicts":0}
+
+$ mars list --json
+[{"source":"meridian-base","item":"agents/coder.md","version":"0.8.0","status":"ok"},...]
+```
+
+Exit codes are consistent across both modes: 0 = success, 1 = conflicts remain, 2 = resolution error, 3 = I/O error.
+
 ## v1: Core Package Management
 
 V1 commands: `init`, `add`, `sync`, `sync --force`, `sync --diff`, `sync --frozen`, `remove`, `resolve`, `rename`, `update`, `outdated`, `list`, `why`, `doctor`, `repair`.
