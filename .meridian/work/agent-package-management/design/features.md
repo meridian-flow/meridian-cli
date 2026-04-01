@@ -10,7 +10,7 @@ This is the architectural backbone — the sync pipeline (resolve → validate �
 
 ## v1: Core Package Management
 
-V1 commands: `init`, `add`, `sync`, `sync --force`, `sync --diff`, `sync --frozen`, `remove`, `resolve`, `rename`, `update`, `list`, `why`, `doctor`, `repair`.
+V1 commands: `init`, `add`, `sync`, `sync --force`, `sync --diff`, `sync --frozen`, `remove`, `resolve`, `rename`, `update`, `outdated`, `list`, `why`, `doctor`, `repair`.
 
 ### `mars init`
 
@@ -147,6 +147,22 @@ error: cannot update — version constraints conflict:
 To go past current constraints (e.g., jump to a new major version), use `mars add source@newversion` which upserts the constraint in config.
 
 `mars update` also attempts to resolve transitive dependency conflicts first — if updating source A requires updating its transitive dep B, mars tries to find a compatible B version before erroring.
+
+### `mars outdated`
+
+Show which sources have newer versions available — both within current constraints and beyond.
+
+```bash
+$ mars outdated
+SOURCE              LOCKED    CONSTRAINT      UPDATEABLE  LATEST
+meridian-base       v0.8.0    >=0.5.0, <1.0   v0.9.1      v1.2.0
+cool-agents         v1.3.0    ^1.0            v1.3.0      v2.0.0
+dev-workflow        v2.1.0    ^2.0            v2.1.0      v2.1.0
+
+1 source can be updated (mars update), 2 have newer major versions (mars add source@newversion)
+```
+
+Informational only — doesn't change anything. Shows what `mars update` would do vs what requires a constraint change via `mars add`.
 
 ### `mars list`
 
@@ -401,29 +417,15 @@ source_checksum = "sha256:def456..."
 installed_checksum = "sha256:def456..."
 ```
 
-## v1.5 and Later
-
-Features deferred from v1. Ordered roughly by expected value.
-
-### `mars outdated`
-
-Show which sources have newer versions available beyond current constraints. Informational only — suggests `mars add source@newversion` for each.
+## v2: Security, Scripts, and Polish
 
 ### Rerere (Reuse Recorded Resolution)
 
-Record conflict resolutions and auto-apply on future syncs. Stored in `.agents/.mars/rerere/`. Deferred because the same-conflict-recurring pattern is rare in practice.
-
-```bash
-mars rerere list              # show recorded resolutions
-mars rerere forget <file>     # clear resolution for a file
-mars rerere off               # disable auto-resolution
-```
+Record conflict resolutions and auto-apply on future syncs. Deferred because the same-conflict-recurring pattern is rare in practice.
 
 ### Semantic Frontmatter-Aware Merge
 
-Understand YAML frontmatter in agent profiles. Resolve frontmatter field conflicts at field granularity rather than line-level. Enhancement over raw three-way merge.
-
-## v2: Security & Scripts
+Resolve frontmatter field conflicts at field granularity rather than line-level. Enhancement over raw three-way merge.
 
 ### Script Management
 
