@@ -18,6 +18,8 @@ class PermissionTier(StrEnum):
     READ_ONLY = "read-only"
     WORKSPACE_WRITE = "workspace-write"
     FULL_ACCESS = "full-access"
+    DANGER_FULL_ACCESS = "danger-full-access"
+    UNRESTRICTED = "unrestricted"
 
 
 _APPROVAL_MODES = KNOWN_APPROVAL_VALUES
@@ -55,22 +57,16 @@ def permission_tier_from_profile(
     agent_sandbox: str | None,
     *,
     warning_logger: logging.Logger | None = None,
-) -> str | None:
+) -> PermissionTier | None:
     if agent_sandbox is None:
         return None
     normalized = agent_sandbox.strip().lower()
     if not normalized:
         return None
-    mapping = {
-        "read-only": "read-only",
-        "workspace-write": "workspace-write",
-        "full-access": "full-access",
-        "danger-full-access": "full-access",
-        "unrestricted": "full-access",
-    }
-    resolved = mapping.get(normalized)
-    if resolved is not None:
-        return resolved
+    try:
+        return _parse_permission_tier_value(normalized)
+    except ValueError:
+        pass
 
     sink = warning_logger or logger
     sink.warning(
@@ -181,13 +177,7 @@ def permission_flags_for_harness(
         return []
 
     if harness_id == HarnessId.CODEX:
-        if tier is PermissionTier.READ_ONLY:
-            return ["--sandbox", "read-only"]
-        if tier is PermissionTier.WORKSPACE_WRITE:
-            return ["--sandbox", "workspace-write"]
-        if tier is PermissionTier.FULL_ACCESS:
-            return ["--sandbox", "danger-full-access"]
-        raise ValueError(f"Unsupported Codex permission tier: {tier!r}")
+        return ["--sandbox", tier.value]
 
     # OpenCode permission controls vary by backend provider; keep default behavior for
     # safe tiers until a stable CLI surface is available.

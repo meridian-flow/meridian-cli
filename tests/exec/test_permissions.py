@@ -100,6 +100,24 @@ def test_disallowed_tools_resolver_codex_warns_and_falls_back(
     assert "Codex does not support disallowed-tools" in caplog.text
 
 
+@pytest.mark.parametrize(
+    ("sandbox", "expected_tier"),
+    (
+        ("full-access", PermissionTier.FULL_ACCESS),
+        ("danger-full-access", PermissionTier.DANGER_FULL_ACCESS),
+        ("unrestricted", PermissionTier.UNRESTRICTED),
+    ),
+)
+def test_codex_uses_exact_sandbox_tier_from_profile(
+    sandbox: str,
+    expected_tier: PermissionTier,
+) -> None:
+    config, resolver = resolve_permission_pipeline(sandbox=sandbox)
+
+    assert config.tier is expected_tier
+    assert resolver.resolve_flags(HarnessId.CODEX) == ["--sandbox", sandbox]
+
+
 def test_allowed_tools_take_precedence_over_disallowed_tools(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
