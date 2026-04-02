@@ -55,7 +55,7 @@ that agents use to coordinate other agents.
 ## Install
 
 ```bash
-uv tool install meridian-channel
+uv tool install meridian-channel   # installs both meridian and mars
 ```
 
 Verify:
@@ -63,6 +63,31 @@ Verify:
 ```bash
 meridian --version
 meridian doctor
+```
+
+## Set Up a Project
+
+```bash
+cd your-project
+meridian mars init
+meridian mars add @haowjy/meridian-base
+meridian mars sync
+```
+
+Optional dev workflow package:
+
+```bash
+meridian mars add @haowjy/meridian-dev-workflow
+meridian mars sync
+```
+
+### Alternative: manual setup (without mars)
+
+```bash
+mkdir -p .agents/agents .agents/skills
+git clone https://github.com/haowjy/meridian-base /tmp/meridian-base
+cp -r /tmp/meridian-base/agents/. .agents/agents/
+cp -r /tmp/meridian-base/skills/. .agents/skills/
 ```
 
 <details>
@@ -110,9 +135,8 @@ as suited as the primary harness.
 
 ### Claude Code integration
 
-Meridian installs agents and skills into `.agents/`. Claude Code discovers
-them from `.claude/`. Symlink them so Claude Code sees everything meridian
-installs:
+Meridian reads agents from `.agents/`. Claude Code discovers them from
+`.claude/`. Symlink them so Claude Code sees everything synced into `.agents/`:
 
 ```bash
 mkdir -p .claude
@@ -159,17 +183,20 @@ meridian spawn show p1
 5. State persists across sessions. A future agent (or the same one after
    compaction) can search past reports, read session history, and resume.
 
-## Agent & Skill Sources
+## Agent & Skill Packages
 
 Meridian discovers agent profiles from `.agents/agents/` and skills from
-`.agents/skills/`. Write your own, or install from external sources:
+`.agents/skills/`. Write your own, or add external packages with mars:
 
 ### [meridian-base](https://github.com/haowjy/meridian-base) — Core coordination
 
 The orchestrator and subagent profiles, plus skills for spawning, work
-coordination, session context, and troubleshooting. Meridian auto-bootstraps
-the essential runtime agents from here — you don't need to install it
-manually unless you want the full skill set.
+coordination, session context, and troubleshooting:
+
+```bash
+meridian mars add @haowjy/meridian-base
+meridian mars sync
+```
 
 ### [meridian-dev-workflow](https://github.com/haowjy/meridian-dev-workflow) — Dev team
 
@@ -178,11 +205,11 @@ researcher, documenter — plus workflow skills for design, planning,
 implementation, review, testing, and documentation:
 
 ```bash
-meridian sources install @haowjy/meridian-dev-workflow
+meridian mars add @haowjy/meridian-dev-workflow
+meridian mars sync
 ```
 
-Browse their READMEs for full agent/skill catalogs. Check what's installed
-with `meridian sources list`.
+Browse their READMEs for full agent/skill catalogs.
 
 ## Architecture
 
@@ -245,7 +272,7 @@ graph TB
 | `meridian config set KEY VALUE` | Set a config value |
 | `meridian models config show` | Show `.meridian/models.toml` policy overrides |
 | `meridian models list` | Inspect the model catalog |
-| `meridian sources list` | Show installed agents, skills, and their sources |
+| `meridian mars sync` | Sync package definitions into `.agents/` |
 | `meridian doctor` | Run diagnostics |
 | `meridian serve` | Start the MCP server |
 
@@ -257,9 +284,6 @@ on disk, it doesn't exist.
 ```
 .meridian/
   .gitignore            # Tracks shared repo state, ignores machine-local state
-  agents.toml           # Shared source manifest
-  agents.local.toml     # Optional local-only source overrides
-  agents.lock           # Realized install snapshot
   spawns.jsonl          # Spawn event log
   sessions.jsonl        # Session event log
   spawns/

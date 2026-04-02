@@ -21,7 +21,7 @@ test -d "$SMOKE_REPO/.git" && echo "PASS: agent-mode repo ready" || echo "FAIL: 
 MERIDIAN_DEPTH=1 uv run meridian --help > /tmp/meridian-agent-help.txt && \
 uv run python - <<'PY'
 text = open("/tmp/meridian-agent-help.txt").read()
-for visible in ("spawn", "work", "sources", "models"):
+for visible in ("spawn", "work", "models"):
     assert visible in text
 for hidden in ("config", "doctor", "init", "session", "completion", "serve", "claude", "codex", "opencode"):
     assert hidden not in text
@@ -35,7 +35,7 @@ PY
 MERIDIAN_DEPTH=1 uv run meridian --human --help > /tmp/meridian-agent-human-help.txt && \
 uv run python - <<'PY'
 text = open("/tmp/meridian-agent-human-help.txt").read()
-for visible in ("config", "doctor", "init", "session", "sources", "spawn", "work", "claude", "codex", "opencode", "serve"):
+for visible in ("config", "doctor", "init", "session", "spawn", "work", "claude", "codex", "opencode", "serve"):
     assert visible in text
 print("PASS: --human restored full help")
 PY

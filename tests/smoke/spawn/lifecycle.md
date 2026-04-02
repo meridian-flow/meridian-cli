@@ -7,19 +7,17 @@ Validate the normal background flow: create, wait, show, attach a report, and in
 ```bash
 export REPO_ROOT=/abs/path/to/meridian-channel
 export SMOKE_REPO="$(mktemp -d /tmp/meridian-lifecycle.XXXXXX)"
-export SMOKE_SOURCE="$(mktemp -d /tmp/meridian-lifecycle-source.XXXXXX)"
 git -C "$SMOKE_REPO" init --quiet
 for var in $(env | awk -F= '/^MERIDIAN_/ {print $1}'); do unset "$var"; done
 export MERIDIAN_REPO_ROOT="$SMOKE_REPO"
 export MERIDIAN_STATE_ROOT="$SMOKE_REPO/.meridian"
-mkdir -p "$SMOKE_SOURCE/agents"
-cat > "$SMOKE_SOURCE/agents/reviewer.md" <<'EOF'
+mkdir -p "$SMOKE_REPO/.agents/agents"
+cat > "$SMOKE_REPO/.agents/agents/reviewer.md" <<'EOF'
 # Reviewer
 
 You are a tiny smoke-test reviewer. Reply with one short sentence.
 EOF
 cd "$REPO_ROOT"
-uv run meridian sources install "$SMOKE_SOURCE" --name lifecycle-smoke >/tmp/meridian-lifecycle-install.txt 2>&1 && \
 uv run meridian spawn -h >/dev/null 2>&1 && echo "PASS: lifecycle setup complete" || echo "FAIL: lifecycle setup failed"
 ```
 

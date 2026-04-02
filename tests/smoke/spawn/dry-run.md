@@ -7,20 +7,18 @@ These checks validate prompt assembly and argument handling without invoking a r
 ```bash
 export REPO_ROOT=/abs/path/to/meridian-channel
 export SMOKE_REPO="$(mktemp -d /tmp/meridian-dryrun.XXXXXX)"
-export SMOKE_SOURCE="$(mktemp -d /tmp/meridian-dryrun-source.XXXXXX)"
 git -C "$SMOKE_REPO" init --quiet
 for var in $(env | awk -F= '/^MERIDIAN_/ {print $1}'); do unset "$var"; done
 export MERIDIAN_REPO_ROOT="$SMOKE_REPO"
 export MERIDIAN_STATE_ROOT="$SMOKE_REPO/.meridian"
-mkdir -p "$SMOKE_SOURCE/agents"
-cat > "$SMOKE_SOURCE/agents/reviewer.md" <<'EOF'
+mkdir -p "$SMOKE_REPO/.agents/agents"
+cat > "$SMOKE_REPO/.agents/agents/reviewer.md" <<'EOF'
 # Reviewer
 
 Dry-run smoke reviewer.
 EOF
 cd "$REPO_ROOT"
 printf '# smoke ref\n' > /tmp/meridian-dryrun-ref.md
-uv run meridian sources install "$SMOKE_SOURCE" --name dryrun-smoke >/tmp/meridian-dryrun-install.txt 2>&1 && \
 test -f /tmp/meridian-dryrun-ref.md && echo "PASS: dry-run setup complete" || echo "FAIL: dry-run setup failed"
 ```
 

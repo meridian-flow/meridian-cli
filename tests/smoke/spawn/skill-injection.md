@@ -10,29 +10,30 @@ Validate that skills are correctly injected into spawn prompts across harness ty
 ```bash
 export REPO_ROOT=/abs/path/to/meridian-channel
 export SMOKE_REPO="$(mktemp -d /tmp/meridian-skill-inject.XXXXXX)"
-export SMOKE_SOURCE="$(mktemp -d /tmp/meridian-skill-source.XXXXXX)"
 git -C "$SMOKE_REPO" init --quiet
 for var in $(env | awk -F= '/^MERIDIAN_/ {print $1}'); do unset "$var"; done
 export MERIDIAN_REPO_ROOT="$SMOKE_REPO"
 export MERIDIAN_STATE_ROOT="$SMOKE_REPO/.meridian"
-mkdir -p "$SMOKE_SOURCE/agents" "$SMOKE_SOURCE/skills/meridian-orchestrate" "$SMOKE_SOURCE/skills/meridian-spawn-agent"
-cat > "$SMOKE_SOURCE/agents/reviewer.md" <<'EOF'
+mkdir -p \
+  "$SMOKE_REPO/.agents/agents" \
+  "$SMOKE_REPO/.agents/skills/meridian-orchestrate" \
+  "$SMOKE_REPO/.agents/skills/meridian-spawn-agent"
+cat > "$SMOKE_REPO/.agents/agents/reviewer.md" <<'EOF'
 # Reviewer
 
 Skill smoke reviewer.
 EOF
-cat > "$SMOKE_SOURCE/skills/meridian-orchestrate/SKILL.md" <<'EOF'
+cat > "$SMOKE_REPO/.agents/skills/meridian-orchestrate/SKILL.md" <<'EOF'
 # Meridian Orchestrate
 
 Orchestrate the work as a supervisor.
 EOF
-cat > "$SMOKE_SOURCE/skills/meridian-spawn-agent/SKILL.md" <<'EOF'
+cat > "$SMOKE_REPO/.agents/skills/meridian-spawn-agent/SKILL.md" <<'EOF'
 # Meridian Spawn Agent
 
 Spawn another agent when useful.
 EOF
 cd "$REPO_ROOT"
-uv run meridian sources install "$SMOKE_SOURCE" --name skill-smoke >/tmp/meridian-skill-install.txt 2>&1 && \
 test -d "$SMOKE_REPO/.git" && echo "PASS: skill-injection repo ready" || echo "FAIL: skill-injection repo setup failed"
 ```
 

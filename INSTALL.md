@@ -57,26 +57,32 @@ meridian config init
 
 This creates `.meridian/` with baseline config.
 
-## Step 3: Install Agent & Skill Sources
+## Step 3: Install Agent & Skill Packages
 
 Ask the user: `Would you like to install the dev workflow agents and skills? This gives you a full dev team — coder, reviewers, testers, researcher, documenter — with structured workflow skills.`
 
-If yes:
+Initialize mars config in the project:
 
 ```bash
-meridian sources install @haowjy/meridian-dev-workflow
+meridian mars init
 ```
 
-If they only want the core coordination primitives (without the dev team):
+If yes, add the dev workflow package:
 
 ```bash
-meridian sources install @haowjy/meridian-base
+meridian mars add @haowjy/meridian-dev-workflow
 ```
 
-Verify what's installed:
+If they only want the core coordination primitives (without the dev team), add base only:
 
 ```bash
-meridian sources list
+meridian mars add @haowjy/meridian-base
+```
+
+Sync packages into `.agents/`:
+
+```bash
+meridian mars sync
 ```
 
 ## Step 4: Claude Code Symlinks (Optional)
@@ -120,10 +126,11 @@ Run:
 
 ```bash
 meridian doctor
-meridian sources list
+meridian mars sync
 meridian models list
 ```
 
 Notes:
 - `meridian models list` may require provider API keys.
+- `meridian mars sync` should complete without package resolution errors.
 - Report any failed checks and propose next concrete fix steps.

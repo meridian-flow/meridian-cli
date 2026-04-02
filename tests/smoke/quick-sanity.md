@@ -7,21 +7,15 @@ Run these first. They cover the critical command surface in about five minutes a
 ```bash
 export REPO_ROOT=/abs/path/to/meridian-channel
 export SMOKE_REPO="$(mktemp -d /tmp/meridian-quick.XXXXXX)"
-export SMOKE_SOURCE="$(mktemp -d /tmp/meridian-quick-source.XXXXXX)"
 git -C "$SMOKE_REPO" init --quiet
 for var in $(env | awk -F= '/^MERIDIAN_/ {print $1}'); do unset "$var"; done
 export MERIDIAN_REPO_ROOT="$SMOKE_REPO"
 export MERIDIAN_STATE_ROOT="$SMOKE_REPO/.meridian"
-mkdir -p "$SMOKE_SOURCE/agents" "$SMOKE_SOURCE/skills/demo"
-cat > "$SMOKE_SOURCE/agents/reviewer.md" <<'EOF'
+mkdir -p "$SMOKE_REPO/.agents/agents"
+cat > "$SMOKE_REPO/.agents/agents/reviewer.md" <<'EOF'
 # Reviewer
 
 Quick sanity reviewer.
-EOF
-cat > "$SMOKE_SOURCE/skills/demo/SKILL.md" <<'EOF'
-# Demo Skill
-
-Quick sanity skill.
 EOF
 cd "$REPO_ROOT"
 test -d "$SMOKE_REPO/.git" && echo "PASS: quick-sanity repo ready" || echo "FAIL: quick-sanity repo setup failed"
@@ -32,7 +26,6 @@ test -d "$SMOKE_REPO/.git" && echo "PASS: quick-sanity repo ready" || echo "FAIL
 ```bash
 HELP_TEXT="$(uv run meridian --help 2>&1)" && \
 printf '%s\n' "$HELP_TEXT" | grep -q 'spawn' && \
-printf '%s\n' "$HELP_TEXT" | grep -q 'sources' && \
 printf '%s\n' "$HELP_TEXT" | grep -q 'models' && \
 printf '%s\n' "$HELP_TEXT" | grep -q 'work' && \
 echo "PASS: help exposes core commands" || echo "FAIL: help is missing core commands"
@@ -74,16 +67,7 @@ echo "PASS: --show-superseded shows >= default count ($SUPERSEDED_COUNT >= $DEFA
 echo "FAIL: --show-superseded ($SUPERSEDED_COUNT) should show >= default ($DEFAULT_COUNT)"
 ```
 
-### QS-5. Sources list [CRITICAL]
-
-```bash
-uv run meridian sources install "$SMOKE_SOURCE" --name quick-sanity >/tmp/meridian-qs-install.txt 2>&1 && \
-uv run meridian --json sources list >/tmp/meridian-qs-sources.txt && \
-grep -q 'quick-sanity' /tmp/meridian-qs-sources.txt && \
-echo "PASS: managed install and sources list returned repo-local entries" || echo "FAIL: managed install or sources list output was unexpected"
-```
-
-### QS-6. Doctor [CRITICAL]
+### QS-5. Doctor [CRITICAL]
 
 ```bash
 uv run meridian doctor >/tmp/meridian-qs-doctor.txt && \
@@ -92,7 +76,7 @@ grep -q '^repo_root:' /tmp/meridian-qs-doctor.txt && \
 echo "PASS: doctor returned health data" || echo "FAIL: doctor output was unexpected"
 ```
 
-### QS-7. Spawn dry-run [CRITICAL]
+### QS-6. Spawn dry-run [CRITICAL]
 
 ```bash
 uv run meridian --json spawn -a reviewer -p "quick sanity prompt" --dry-run > /tmp/meridian-qs-dryrun.json && \
@@ -106,7 +90,7 @@ print("PASS: spawn dry-run produced a composed prompt")
 PY
 ```
 
-### QS-8. Unknown command [IMPORTANT]
+### QS-7. Unknown command [IMPORTANT]
 
 ```bash
 if uv run meridian nonexistent >/tmp/meridian-qs-unknown.out 2>&1; then
@@ -118,7 +102,7 @@ else
 fi
 ```
 
-### QS-9. Spawn list [IMPORTANT]
+### QS-8. Spawn list [IMPORTANT]
 
 ```bash
 uv run meridian --json spawn list >/tmp/meridian-qs-spawn-list.txt && \

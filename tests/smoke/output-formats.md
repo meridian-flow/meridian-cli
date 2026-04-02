@@ -7,19 +7,17 @@ These checks keep the CLI output contract honest across the supported presentati
 ```bash
 export REPO_ROOT=/abs/path/to/meridian-channel
 export SMOKE_REPO="$(mktemp -d /tmp/meridian-formats.XXXXXX)"
-export SMOKE_SOURCE="$(mktemp -d /tmp/meridian-formats-source.XXXXXX)"
 git -C "$SMOKE_REPO" init --quiet
 for var in $(env | awk -F= '/^MERIDIAN_/ {print $1}'); do unset "$var"; done
 export MERIDIAN_REPO_ROOT="$SMOKE_REPO"
 export MERIDIAN_STATE_ROOT="$SMOKE_REPO/.meridian"
-mkdir -p "$SMOKE_SOURCE/agents"
-cat > "$SMOKE_SOURCE/agents/reviewer.md" <<'EOF'
+mkdir -p "$SMOKE_REPO/.agents/agents"
+cat > "$SMOKE_REPO/.agents/agents/reviewer.md" <<'EOF'
 # Reviewer
 
 Format smoke reviewer.
 EOF
 cd "$REPO_ROOT"
-uv run meridian sources install "$SMOKE_SOURCE" --name format-smoke >/tmp/meridian-formats-install.txt 2>&1 && \
 test -d "$SMOKE_REPO/.git" && echo "PASS: output-format repo ready" || echo "FAIL: output-format repo setup failed"
 ```
 

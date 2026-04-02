@@ -11,7 +11,7 @@ No real users, no real user data. No backwards compatibility needed — complete
 ### Design Principles
 
 1. **Separate Policy from Mechanism** *(Raymond, Rule of Separation)*: Harness adapters are mechanism (how to launch Claude/Codex/OpenCode). CLI commands are policy (what to do, which model, what output). Policy changes fast; mechanism stays stable. Keep them apart.
-2. **Extend, Don't Modify** *(Open/Closed)*: New harness = one adapter file + registration. New sync source = one config entry. New CLI command = one module. If a feature requires editing 10 files, the abstraction is wrong.
+2. **Extend, Don't Modify** *(Open/Closed)*: New harness = one adapter file + registration. New package source = one mars config entry. New CLI command = one module. If a feature requires editing 10 files, the abstraction is wrong.
 3. **Knowledge in Data, Not Code** *(Raymond, Rule of Representation)*: Agent capabilities live in YAML profiles, not procedural code. State lives in JSONL events, not in-memory objects. This keeps the system inspectable and harness-agnostic.
 4. **Crash-Only Design** *(Candea & Fox)*: Every write is atomic (tmp+rename). Every read tolerates truncation. There is no "graceful shutdown" — if meridian is killed mid-spawn, the next `meridian status` detects and reports the orphaned state. Recovery IS startup.
 5. **Progressive Disclosure** *(clig.dev, Lengstorf)*: `meridian spawn "do the thing"` works with smart defaults. Power users override with `--model`, `--harness`, `--skills`. Don't force all-or-nothing configuration.
@@ -29,7 +29,7 @@ No real users, no real user data. No backwards compatibility needed — complete
 - **State Root**: `.meridian/` (flat layout, no nesting). JSONL event stores, per-spawn artifact dirs, shared filesystem.
 - **Harness Adapters**: `src/meridian/lib/harness/` — per-harness command building, output extraction, materialization. Adding a harness = one adapter file + registration.
 - **State Layer**: `src/meridian/lib/state/` — path resolution, spawn store, session store. Atomic writes via tmp+rename, `fcntl.flock` for concurrency.
-- **Sync**: `src/meridian/lib/sync/` — external skill/agent synchronization from local paths or git repos.
+- **Package Sync**: `meridian mars ...` — package resolution and `.agents/` materialization are delegated to mars.
 - **Profiles & Skills**: Agent profiles (YAML markdown) define capabilities, model, and skills. Skills load fresh on launch/resume (survives compaction).
 
 ## Dev Workflow
@@ -42,11 +42,25 @@ NEVER REVERT CHANGES — always assume it's someone else's work.
 
 ### Editing Agents & Skills
 
-The source of truth is the submodules (`meridian-base/`, `meridian-dev-workflow/`). Never edit `.agents/` directly — it gets overwritten on sync. To make changes:
+`meridian-base/` and `meridian-dev-workflow/` are source repos used for package development and publishing. Meridian runtime loads from `.agents/` after mars materializes it.
 
-1. Edit in the submodule (e.g. `meridian-dev-workflow/agents/reviewer.md`)
-2. Commit and push the submodule
-3. Run `meridian sources update --force` to sync into `.agents/`
+Canonical workflow:
+
+1. Edit in the source repo/submodule (e.g. `meridian-dev-workflow/agents/reviewer.md`)
+2. Commit and push the source repo change
+3. Update package refs if needed with `meridian mars add ...`
+4. Run `meridian mars sync` to regenerate `.agents/`
+
+Guardrail: direct `.agents/` edits are for one-off local testing only and are expected to be overwritten by `meridian mars sync`.
+
+### Upgrading from Legacy Sources State
+
+Legacy meridian-managed source files are no longer used and are safe to delete:
+
+- `.meridian/agents.toml`
+- `.meridian/agents.local.toml`
+- `.meridian/agents.lock`
+- `.meridian/cache/agents/`
 
 ### Approval Modes
 
@@ -107,4 +121,4 @@ Commit after each step that passes tests. Don't accumulate changes across multip
 
 ## Related Repos
 
-- **mars-agents** (`../mars-agents/`): Standalone agent package manager for `.agents/`. Rust CLI, binary name `mars`. Replaces meridian's `sources`/`agents.toml`/`agents.lock` with a proper package manager — dependency resolution, merge strategies, provenance tracking, user overrides. Design spec in `.meridian/work/agent-package-management/design/`. Repo: `haowjy/mars-agents`.
+- **mars-agents** (`../mars-agents/`): Standalone agent package manager for `.agents/`. Rust CLI, binary name `mars`. Meridian invokes it via `meridian mars ...` for project package setup and sync. Design spec in `.meridian/work/agent-package-management/design/`. Repo: `haowjy/mars-agents`.

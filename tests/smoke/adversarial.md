@@ -7,19 +7,17 @@ These checks are intentionally noisy. Try odd inputs, race conditions, state tam
 ```bash
 export REPO_ROOT=/abs/path/to/meridian-channel
 export SMOKE_REPO="$(mktemp -d /tmp/meridian-adversarial.XXXXXX)"
-export SMOKE_SOURCE="$(mktemp -d /tmp/meridian-adversarial-source.XXXXXX)"
 git -C "$SMOKE_REPO" init --quiet
 for var in $(env | awk -F= '/^MERIDIAN_/ {print $1}'); do unset "$var"; done
 export MERIDIAN_REPO_ROOT="$SMOKE_REPO"
 export MERIDIAN_STATE_ROOT="$SMOKE_REPO/.meridian"
-mkdir -p "$SMOKE_SOURCE/agents"
-cat > "$SMOKE_SOURCE/agents/reviewer.md" <<'EOF'
+mkdir -p "$SMOKE_REPO/.agents/agents"
+cat > "$SMOKE_REPO/.agents/agents/reviewer.md" <<'EOF'
 # Reviewer
 
 Adversarial smoke reviewer.
 EOF
 cd "$REPO_ROOT"
-uv run meridian sources install "$SMOKE_SOURCE" --name adversarial-smoke >/tmp/meridian-adversarial-install.txt 2>&1 && \
 test -d "$SMOKE_REPO/.git" && echo "PASS: adversarial repo ready" || echo "FAIL: adversarial repo setup failed"
 ```
 
@@ -105,7 +103,6 @@ Add at least three extra experiments that are not listed above. Good targets:
 - mixed `--json` and `--format` flags
 - long file paths and missing reference files
 - repeated `spawn wait` on the same id
-- rapid `sources install` and `sources uninstall` loops in a scratch repo
 
 Reference implementation:
 
@@ -114,10 +111,8 @@ uv run meridian --json --format json models list >/tmp/meridian-adv-mixed-format
 if uv run meridian --json spawn -a reviewer -p "missing ref" -f /tmp/no-such-ref-file.md --dry-run >/tmp/meridian-adv-missing-ref.out 2>&1; then
   :
 fi
-uv run meridian sources install "$SMOKE_SOURCE" --name loop-source >/tmp/meridian-adv-loop-install1.txt 2>&1
-uv run meridian sources uninstall --source loop-source >/tmp/meridian-adv-loop-remove1.txt 2>&1
-uv run meridian sources install "$SMOKE_SOURCE" --name loop-source >/tmp/meridian-adv-loop-install2.txt 2>&1
-uv run meridian sources uninstall --source loop-source >/tmp/meridian-adv-loop-remove2.txt 2>&1
+uv run meridian --json spawn list >/tmp/meridian-adv-spawn-list-1.out 2>&1
+uv run meridian --json spawn list >/tmp/meridian-adv-spawn-list-2.out 2>&1
 
 uv run python - <<'PY'
 import json
@@ -125,6 +120,8 @@ from pathlib import Path
 
 json.loads(Path("/tmp/meridian-adv-mixed-format.out").read_text(encoding="utf-8"))
 assert "Traceback" not in Path("/tmp/meridian-adv-missing-ref.out").read_text(encoding="utf-8")
+json.loads(Path("/tmp/meridian-adv-spawn-list-1.out").read_text(encoding="utf-8"))
+json.loads(Path("/tmp/meridian-adv-spawn-list-2.out").read_text(encoding="utf-8"))
 print("PASS: extra adversarial ideas executed")
 PY
 ```

@@ -26,9 +26,6 @@ meridian models config show
     agents/
     skills/
   .meridian/
-    agents.toml
-    agents.local.toml
-    agents.lock
     config.toml
     models.toml
     fs/

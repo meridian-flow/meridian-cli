@@ -7,24 +7,22 @@ These checks validate the standalone `--fork <ref>` flow on both root and spawn 
 ```bash
 export REPO_ROOT=/abs/path/to/meridian-channel
 export SMOKE_REPO="$(mktemp -d /tmp/meridian-fork.XXXXXX)"
-export SMOKE_SOURCE="$(mktemp -d /tmp/meridian-fork-source.XXXXXX)"
 git -C "$SMOKE_REPO" init --quiet
 for var in $(env | awk -F= '/^MERIDIAN_/ {print $1}'); do unset "$var"; done
 export MERIDIAN_REPO_ROOT="$SMOKE_REPO"
 export MERIDIAN_STATE_ROOT="$SMOKE_REPO/.meridian"
-mkdir -p "$SMOKE_SOURCE/agents"
-cat > "$SMOKE_SOURCE/agents/reviewer.md" <<'EOF'
+mkdir -p "$SMOKE_REPO/.agents/agents"
+cat > "$SMOKE_REPO/.agents/agents/reviewer.md" <<'EOF'
 # Reviewer
 
 Fork smoke reviewer. Keep answers short.
 EOF
-cat > "$SMOKE_SOURCE/agents/architect.md" <<'EOF'
+cat > "$SMOKE_REPO/.agents/agents/architect.md" <<'EOF'
 # Architect
 
 Fork smoke architect. Keep answers short.
 EOF
 cd "$REPO_ROOT"
-uv run meridian sources install "$SMOKE_SOURCE" --name fork-smoke >/tmp/meridian-fork-install.txt 2>&1 && \
 uv run meridian --json spawn -a reviewer -p "Seed session for fork smoke tests." > /tmp/meridian-fork-source-create.json && \
 SOURCE_SPAWN_ID="$(uv run python - <<'PY'
 import json
