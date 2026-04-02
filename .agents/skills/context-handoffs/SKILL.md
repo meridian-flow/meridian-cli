@@ -62,9 +62,3 @@ meridian spawn -a coder \
   -p "Implement token refresh, building on phase 1's token validation"
 ```
 
-## Common Mistakes
-
-- **Passing everything "to be safe."** More context is not better context. Irrelevant files dilute attention and burn tokens. Curate aggressively.
-- **Relying on `--from` for critical specs.** Session history can be compacted or hard to parse. If the agent *must* have it, put it in a file.
-- **Forgetting the overview.** Specific files without orientation leave the agent knowing *what* to build but not *why* or how it fits. Include the design doc or a summary.
-- **No context at all.** Trusting the agent to "figure it out" from the codebase. Agents explore well but can't read your mind about intent, constraints, or prior decisions.

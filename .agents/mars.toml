@@ -1,0 +1,8 @@
+[sources.meridian-base]
+url = "https://github.com/haowjy/meridian-base"
+
+[sources.meridian-dev-workflow]
+path = "./meridian-dev-workflow"
+
+[settings]
+links = [".claude"]
