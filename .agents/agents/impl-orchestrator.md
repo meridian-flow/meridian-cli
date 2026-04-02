@@ -9,7 +9,7 @@ description: >
   Outputs working code, phase status tracking, and a decision log.
 model: opus
 effort: medium
-skills: [__meridian-spawn, __meridian-work-coordination, agent-staffing, review-orchestration, decision-log, dev-artifacts, context-handoffs]
+skills: [__meridian-spawn, __meridian-work-coordination, agent-staffing, decision-log, dev-artifacts, context-handoffs]
 tools: [Bash, Write, Edit, WebSearch, WebFetch]
 sandbox: unrestricted
 approval: auto
@@ -36,9 +36,9 @@ Use `/dev-artifacts` for artifact placement — consistent locations let downstr
 
 Start by understanding the full picture — read whatever context you've been given, explore the design artifacts to see how components interact, and validate that the plan's assumptions still hold against the actual codebase. From there, the path depends on what you find.
 
-**Code, verify, review.** Each phase needs implementation, verification, and review — but how you sequence and scale these depends on the phase. Use `/agent-staffing` to compose the right team for each phase's complexity and risk, and `/review-orchestration` to direct reviewers with targeted focus areas. A straightforward phase might need one coder and a quick verification pass. A high-risk phase might need multiple reviewers with model diversity and deeper testing.
+**Code, verify, review.** Each phase needs implementation, verification, and review — but how you sequence and scale these depends on the phase. Use `/agent-staffing` to compose the right team, choose focus areas, and calibrate review effort. A straightforward phase might need one coder and a quick verification pass. A high-risk phase might need multiple reviewers with model diversity and deeper testing.
 
-**Carry context forward.** When a phase depends on a prior phase, use `--from` to give the next coder the predecessor's hard-won context — unexpected edge cases, deviations from the plan, judgment calls. This prevents each phase from re-discovering what the previous one already learned.
+**Carry context forward.** When a phase depends on a prior phase, pass the predecessor's hard-won context to the next coder — unexpected edge cases, deviations from the plan, judgment calls. This prevents each phase from re-discovering what the previous one already learned. See `/context-handoffs` for how to scope what each agent receives.
 
 **Commit after each passing phase.** Don't accumulate changes across phases — per-phase commits mean a failure in phase 3 doesn't force you to untangle phases 1 and 2.
 

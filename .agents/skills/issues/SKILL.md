@@ -1,6 +1,6 @@
 ---
 name: issues
-description: Mirror local tracking artifacts to GitHub Issues for team visibility. Use this whenever you find bugs, unexpected behavior, deferred decisions, or backlog items during implementation, investigation, or review — anything worth tracking beyond the current work item. Also use when the orchestrator asks you to file an issue or when you've investigated a problem and determined it needs a GH issue rather than a quick fix.
+description: Mirror local tracking artifacts to GitHub Issues for team visibility. Use this whenever you find bugs, unexpected behavior, deferred decisions, or backlog items during implementation, investigation, or review — anything worth tracking beyond the current work item. Also use when asked to file an issue or when you've investigated a problem and determined it needs a GH issue rather than a quick fix.
 ---
 
 # Issue Tracking
@@ -40,38 +40,17 @@ Create an issue when you find something worth tracking that you can't or shouldn
 
 ## When NOT to Create a GitHub Issue
 
-**CRITICAL review findings** — Fix these immediately. They don't belong in a backlog.
+**Critical review findings** — Fix these immediately. They don't belong in a backlog.
 
 **Things you're fixing in this phase** — If it's part of your current work, just fix it. Don't create tracking overhead for work in progress.
 
 **Decisions already made** — If a decision is already made and implemented, there's nothing to track. The decision is done.
 
-## Labels
+## Labels and Issue Format
 
-Use labels consistently so the team can filter by category. Keep every issue tagged with what it is and which work item found it.
+Use labels consistently so the team can filter by category — tag every issue with what it is and which work item found it (`work:<slug>`). Every issue body should answer three questions: where was this found, what is it, and what should be done about it.
 
-| Label | Purpose |
-|-------|---------|
-| `bug` | Bug found during implementation |
-| `unexpected` | Surprising behavior worth investigating |
-| `backlog` | Needed but out of current scope |
-| `deferred` | Explicitly deferred from current work |
-| `review-finding` | From code review, not blocking |
-| `decision-needed` | Needs a decision before work can proceed |
-| `work:<slug>` | Links issue to its originating meridian work item |
-| `tech-debt` | Code quality, cleanup, refactoring needs |
-| `enhancement` | New feature or improvement to existing functionality |
-| `design` | Needs design discussion before implementation |
-| `blocked` | Waiting on external dependency or another issue |
-| `good-first-task` | Well-scoped, good for a single spawn |
-
-These are defaults. Create project-specific labels when none of the above fit — just keep them descriptive and consistent within the repo.
-
-See [`resources/gh-commands.md`](resources/gh-commands.md) for the full label taxonomy with colors, issue body template, and all `gh` CLI commands.
-
-## Issue Body Structure
-
-Every issue should answer three questions: where was this found, what is it, and what should be done about it. Use the template in [`resources/gh-commands.md`](resources/gh-commands.md) — it covers context, description, evidence, and suggested action.
+See [`resources/gh-commands.md`](resources/gh-commands.md) for the full label taxonomy with colors, the issue body template, and all `gh` CLI commands.
 
 ## Quick Example
 
@@ -114,7 +93,7 @@ EOF
 
 Focused implementers and reviewers produce better primary work when they are not splitting attention to hunt backlog items. A dedicated mining pass at natural breakpoints keeps both outcomes higher quality: the main phase stays focused, and backlog capture gets a fresh, deliberate pass.
 
-When spawned with `--from`, use the transcript to mine deferred items that are easy to lose: "come back to this" notes, TODOs discussed but not executed, and alternatives rejected for now but worth revisiting later.
+If you have access to conversation history, use it to mine deferred items that are easy to lose: "come back to this" notes, TODOs discussed but not executed, and alternatives rejected for now but worth revisiting later.
 
 Then scan touched files and nearby code for debt markers such as `TODO`, `FIXME`, `HACK`, dead code, hardcoded values, and missing error handling. For each finding, either create a new GH issue or comment on an existing related issue. Triage aggressively: skip trivial noise, avoid duplicates, and only track items that are meaningful beyond the current phase.
 

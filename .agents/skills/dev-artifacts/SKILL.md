@@ -8,13 +8,7 @@ All work artifacts live under `$MERIDIAN_WORK_DIR/`. This convention defines wha
 
 ## The Directories
 
-**`design/`** — The target system state. Model how the system *should* look after implementation, including existing parts the work interacts with.
-
-- **Single Responsibility**: One concept per document. When a doc covers two concerns, split it.
-- **Unbounded depth**: `design/overview.md` for simple changes. `design/auth/token-validation/refresh-flow.md` for complex subsystems. Depth matches complexity — no artificial ceiling.
-- **Linked, not siloed**: Documents reference related docs with relative paths. An agent reading any doc can follow links to build context without reading everything.
-- **Small, focused files**: One doc, one concept, fully understood. Include enough inline context to be self-contained; link out for depth.
-- **Target state, not history**: design/ describes what the system should become, not how it evolved to get there.
+**`design/`** — The target system state. Model how the system *should* look after implementation, including existing parts the work interacts with. Design docs follow the structure and writing conventions in `/tech-docs` — one concept per doc, linked, hierarchically organized. Describes what the system should become, not how it evolved to get there.
 
 **`plan/`** — The delta from current codebase to designed state. Each phase file is scoped, ordered, and verifiable against design/. Plan says *what changes*; design says *what it should look like*.
 

@@ -14,7 +14,6 @@ from meridian.lib.core.context import RuntimeContext
 from meridian.lib.core.overrides import RuntimeOverrides, resolve
 from meridian.lib.core.types import HarnessId, ModelId
 from meridian.lib.harness.registry import HarnessRegistry, get_default_harness_registry
-from meridian.lib.install.provenance import resolve_runtime_asset_provenance
 from meridian.lib.launch.prompt import (
     compose_run_prompt_text,
     compose_skill_injections,
@@ -22,7 +21,6 @@ from meridian.lib.launch.prompt import (
 )
 from meridian.lib.launch.reference import load_reference_files, parse_template_assignments
 from meridian.lib.launch.resolve import (
-    ensure_bootstrap_ready,
     resolve_policies,
     resolve_profile_path,
     resolve_skill_paths,
@@ -196,13 +194,6 @@ def build_create_payload(
             config=runtime_bundle.config,
             harness_registry=runtime_bundle.harness_registry,
         )
-    bootstrap_plan = ensure_bootstrap_ready(
-        repo_root=runtime_view.repo_root,
-        configured_default_agent=runtime_view.config.default_agent,
-        requested_agent=payload.agent,
-        dry_run=payload.dry_run,
-        builtin_default_agent="__meridian-subagent",
-    )
     cli_overrides = RuntimeOverrides.from_spawn_input(payload)
     env_overrides = RuntimeOverrides.from_env()
     config_overrides = RuntimeOverrides.from_config(runtime_view.config)
@@ -364,11 +355,6 @@ def build_create_payload(
     )
     session_agent_path = resolve_profile_path(profile)
     session_skill_paths = resolve_skill_paths(resolved_skills.loaded_skills)
-    runtime_provenance = resolve_runtime_asset_provenance(
-        repo_root=runtime_view.repo_root,
-        agent_path=session_agent_path,
-        skill_paths=session_skill_paths,
-    )
 
     return PreparedSpawnPlan(
         model=policies.model,
@@ -377,10 +363,6 @@ def build_create_payload(
         prompt=composed_prompt,
         skills=resolved_skills.skill_names,
         agent_path=session_agent_path,
-        agent_source=runtime_provenance.agent_source,
-        skill_sources=runtime_provenance.skill_sources,
-        bootstrap_required_items=bootstrap_plan.required_items,
-        bootstrap_missing_items=bootstrap_plan.missing_items,
         reference_files=tuple(str(reference.path) for reference in loaded_references),
         template_vars=parsed_template_vars,
         context_from_resolved=context_from_resolved,

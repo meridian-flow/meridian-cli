@@ -14,12 +14,6 @@ from meridian.lib.core.overrides import RuntimeOverrides
 from meridian.lib.core.types import HarnessId, ModelId
 from meridian.lib.harness.adapter import SubprocessHarness
 from meridian.lib.harness.registry import HarnessRegistry
-from meridian.lib.install.bootstrap import (
-    BootstrapPlan,
-    ensure_bootstrap_assets,
-    plan_bootstrap_assets,
-    planned_bootstrap_agent_names,
-)
 from meridian.lib.launch.default_agent_policy import (
     resolve_agent_profile_with_builtin_fallback,
 )
@@ -75,33 +69,6 @@ class ResolvedPolicies:
     adapter: SubprocessHarness
     resolved_skills: ResolvedSkills
     warning: str | None = None
-
-
-def ensure_bootstrap_ready(
-    *,
-    repo_root: Path,
-    configured_default_agent: str,
-    requested_agent: str | None,
-    dry_run: bool,
-    builtin_default_agent: str,
-) -> BootstrapPlan:
-    """Plan and auto-install bootstrap assets. Raises FileNotFoundError for dry-run."""
-
-    agent_names = planned_bootstrap_agent_names(
-        configured_default=configured_default_agent,
-        requested_agent=requested_agent,
-        builtin_default=builtin_default_agent,
-    )
-    plan = plan_bootstrap_assets(repo_root=repo_root, agent_names=agent_names)
-    if plan.missing_items:
-        if dry_run:
-            joined = ", ".join(sorted(plan.missing_items))
-            raise FileNotFoundError(
-                "Required runtime agents are missing locally for dry-run and will not be "
-                f"auto-installed: {joined}. Install their source first or rerun without --dry-run."
-            )
-        ensure_bootstrap_assets(repo_root=repo_root, plan=plan)
-    return plan
 
 
 def resolve_skills_from_profile(
@@ -292,10 +259,11 @@ def resolve_policies(
         resolved_skills=resolved_skills,
         warning=profile_warning,
     )
+
+
 __all__ = [
     "ResolvedPolicies",
     "ResolvedSkills",
-    "ensure_bootstrap_ready",
     "load_agent_profile_with_fallback",
     "resolve_harness",
     "resolve_policies",

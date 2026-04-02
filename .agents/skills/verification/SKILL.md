@@ -41,4 +41,4 @@ For these, report clearly: what failed, what it likely means, and what informati
 
 ## Reporting
 
-Structure your report as: what you ran, what passed, what you fixed (and how), and what's still failing (and why). The orchestrator needs to know whether the build is green and, if not, what's blocking it.
+Structure your report as: what you ran, what passed, what you fixed (and how), and what's still failing (and why). The reader needs to know whether the build is green and, if not, what's blocking it.

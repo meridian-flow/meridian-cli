@@ -4,5 +4,9 @@ url = "https://github.com/haowjy/meridian-base"
 [sources.meridian-dev-workflow]
 path = "./meridian-dev-workflow"
 
+[sources.anthropic-skills]
+url = "https://github.com/anthropics/skills"
+skills = ["frontend-design"]
+
 [settings]
 links = [".claude"]

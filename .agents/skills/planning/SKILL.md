@@ -13,7 +13,7 @@ See `/dev-artifacts` for where blueprints, status tracking, and decision logs go
 
 ## Phase Decomposition
 
-Break the design into phases. Each phase becomes a unit of work assigned to a single coder agent in a single session — small enough to be completable, large enough to be meaningful.
+Break the design into phases. Each phase becomes a unit of work — small enough to be completable, large enough to be meaningful. See `/agent-staffing` for how to staff each phase.
 
 A good phase is:
 

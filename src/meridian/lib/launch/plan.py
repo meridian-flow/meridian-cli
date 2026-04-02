@@ -12,7 +12,6 @@ from meridian.lib.core.overrides import RuntimeOverrides, resolve
 from meridian.lib.core.types import HarnessId, ModelId
 from meridian.lib.harness.adapter import PermissionResolver, SpawnParams, SubprocessHarness
 from meridian.lib.harness.registry import HarnessRegistry
-from meridian.lib.install.provenance import resolve_runtime_asset_provenance
 from meridian.lib.safety.permissions import (
     PermissionConfig,
     resolve_permission_pipeline,
@@ -22,7 +21,6 @@ from meridian.lib.state.paths import resolve_state_paths
 from .prompt import compose_skill_injections
 from .resolve import (
     ResolvedPolicies,
-    ensure_bootstrap_ready,
     resolve_policies,
     resolve_profile_path,
     resolve_skill_paths,
@@ -97,26 +95,18 @@ def _build_session_metadata(
     *,
     profile_name: str,
     profile_path: str,
-    profile_source: str | None,
     harness_id: str,
     model_id: str,
     skills: tuple[str, ...],
     skill_paths: tuple[str, ...],
-    skill_sources: dict[str, str],
-    bootstrap_required_items: tuple[str, ...],
-    bootstrap_missing_items: tuple[str, ...],
 ) -> PrimarySessionMetadata:
     return PrimarySessionMetadata(
         harness=harness_id,
         model=model_id,
         agent=profile_name,
         agent_path=profile_path,
-        agent_source=profile_source,
         skills=skills,
         skill_paths=skill_paths,
-        skill_sources=skill_sources,
-        bootstrap_required_items=bootstrap_required_items,
-        bootstrap_missing_items=bootstrap_missing_items,
     )
 
 
@@ -168,13 +158,6 @@ def resolve_primary_launch_plan(
     resolved_config = config if config is not None else load_config(resolved_root)
     state_root = resolve_state_paths(resolved_root).root_dir
     resolved_prompt = prompt if prompt is not None else build_primary_prompt(request)
-    bootstrap_plan = ensure_bootstrap_ready(
-        repo_root=resolved_root,
-        configured_default_agent=resolved_config.primary_agent,
-        requested_agent=request.agent,
-        dry_run=request.dry_run,
-        builtin_default_agent="__meridian-orchestrator",
-    )
     cli_overrides = RuntimeOverrides.from_launch_request(request)
     env_overrides = RuntimeOverrides.from_env()
     config_overrides = RuntimeOverrides.from_config(resolved_config)
@@ -217,22 +200,13 @@ def resolve_primary_launch_plan(
     profile_name = profile.name if profile is not None else ""
     profile_path = resolve_profile_path(profile)
     skill_paths = resolve_skill_paths(resolved_skills.loaded_skills)
-    runtime_provenance = resolve_runtime_asset_provenance(
-        repo_root=resolved_root,
-        agent_path=profile_path,
-        skill_paths=skill_paths,
-    )
     session_metadata = _build_session_metadata(
         profile_name=profile_name,
         profile_path=profile_path,
-        profile_source=runtime_provenance.agent_source,
         harness_id=str(harness),
         model_id=policies.model,
         skills=resolved_skills.skill_names,
         skill_paths=skill_paths,
-        skill_sources=runtime_provenance.skill_sources,
-        bootstrap_required_items=bootstrap_plan.required_items,
-        bootstrap_missing_items=bootstrap_plan.missing_items,
     )
 
     resolved_harness_session_id = (request.session.harness_session_id or "").strip() or None

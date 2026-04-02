@@ -8,7 +8,7 @@ You write focused unit tests. Most tests you write are disposable — they verif
 
 ## What to Test
 
-The orchestrator's prompt tells you what to focus on. Good targets for unit tests:
+Your prompt tells you what to focus on. Good targets for unit tests:
 
 - **Tricky logic.** Parsing, state machines, boundary calculations — anything where the code is complex enough that reading it doesn't make correctness obvious.
 - **Bug fixes.** When a bug is found and fixed, write a test that would have caught it. This is the highest-value test you can write.

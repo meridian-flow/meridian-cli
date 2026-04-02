@@ -56,7 +56,6 @@ Run 'meridian spawn -h' for full usage.
 Commands:
   spawn    Create and manage subagent runs (includes report subgroup)
   work     Work item dashboard and coordination
-  sources  Manage installed agent sources
   models   Model catalog
 
 Output:
@@ -447,7 +446,6 @@ work_app = App(
     ),
     help_formatter="plain",
 )
-sources_app = App(name="sources", help="Manage installed agent sources.", help_formatter="plain")
 models_app = App(name="models", help="Model catalog commands", help_formatter="plain")
 models_config_app = App(
     name="config",
@@ -462,7 +460,6 @@ app.command(spawn_app, name="spawn")
 spawn_app.command(report_app, name="report")
 app.command(session_app, name="session")
 app.command(work_app, name="work")
-app.command(sources_app, name="sources")
 app.command(models_app, name="models")
 models_app.command(models_config_app, name="config")
 app.command(config_app, name="config")
@@ -853,7 +850,6 @@ def init_alias() -> None:
 
 
 def _register_group_commands() -> None:
-    from meridian.cli.install_cmd import register_sources_commands
     from meridian.cli.spawn import register_spawn_commands
     from meridian.cli.work_cmd import register_work_commands
 
@@ -865,7 +861,6 @@ def _register_group_commands() -> None:
     register_models_config_commands(models_config_app, emit)
     register_config_commands(config_app, emit)
     register_doctor_command(app, emit)
-    register_sources_commands(sources_app, emit)
 
 
 def _operation_error_message(exc: Exception) -> str:
