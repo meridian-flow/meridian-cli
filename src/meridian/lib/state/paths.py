@@ -43,6 +43,8 @@ _REQUIRED_GITIGNORE_LINES = (
 _DEPRECATED_GITIGNORE_LINES = (
     "!work-items/",
     "!work-items/**",
+    "!agents.toml",
+    "!agents.lock",
 )
 
 

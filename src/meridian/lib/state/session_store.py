@@ -7,7 +7,7 @@ import uuid
 from pathlib import Path
 from typing import Any, BinaryIO, Literal, NamedTuple, cast
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from meridian.lib.state.atomic import atomic_write_text
 from meridian.lib.state.event_store import append_event, lock_file, read_events, utc_now_iso
@@ -27,12 +27,8 @@ class SessionRecord(BaseModel):
     model: str
     agent: str
     agent_path: str
-    agent_source: str | None
     skills: tuple[str, ...]
     skill_paths: tuple[str, ...]
-    skill_sources: dict[str, str] = Field(default_factory=dict)
-    bootstrap_required_items: tuple[str, ...]
-    bootstrap_missing_items: tuple[str, ...]
     params: tuple[str, ...]
     started_at: str
     stopped_at: str | None
@@ -53,12 +49,8 @@ class SessionStartEvent(BaseModel):
     model: str
     agent: str = ""
     agent_path: str = ""
-    agent_source: str | None = None
     skills: tuple[str, ...] = ()
     skill_paths: tuple[str, ...] = ()
-    skill_sources: dict[str, str] = Field(default_factory=dict)
-    bootstrap_required_items: tuple[str, ...] = ()
-    bootstrap_missing_items: tuple[str, ...] = ()
     params: tuple[str, ...] = ()
     session_instance_id: str = ""
     started_at: str
@@ -119,12 +111,8 @@ def _record_from_start_event(event: SessionStartEvent) -> SessionRecord:
         model=event.model,
         agent=event.agent,
         agent_path=event.agent_path,
-        agent_source=event.agent_source,
         skills=event.skills,
         skill_paths=event.skill_paths,
-        skill_sources=event.skill_sources,
-        bootstrap_required_items=event.bootstrap_required_items,
-        bootstrap_missing_items=event.bootstrap_missing_items,
         params=event.params,
         started_at=event.started_at,
         stopped_at=None,
@@ -329,12 +317,8 @@ def start_session(
     params: tuple[str, ...] = (),
     agent: str = "",
     agent_path: str = "",
-    agent_source: str | None = None,
     skills: tuple[str, ...] = (),
     skill_paths: tuple[str, ...] = (),
-    skill_sources: dict[str, str] | None = None,
-    bootstrap_required_items: tuple[str, ...] = (),
-    bootstrap_missing_items: tuple[str, ...] = (),
     forked_from_chat_id: str | None = None,
     execution_cwd: str | None = None,
 ) -> str:
@@ -358,12 +342,8 @@ def start_session(
             model=model,
             agent=agent,
             agent_path=agent_path,
-            agent_source=agent_source,
             skills=skills,
             skill_paths=skill_paths,
-            skill_sources=skill_sources or {},
-            bootstrap_required_items=bootstrap_required_items,
-            bootstrap_missing_items=bootstrap_missing_items,
             params=params,
             session_instance_id=session_instance_id,
             started_at=started_at,

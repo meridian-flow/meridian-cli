@@ -63,12 +63,8 @@ class SpawnActionOutput(BaseModel):
     warning: str | None = None
     agent: str | None = None
     agent_path: str | None = None
-    agent_source: str | None = None
     skills: tuple[str, ...] = ()
     skill_paths: tuple[str, ...] = ()
-    skill_sources: dict[str, str] = Field(default_factory=_empty_template_vars)
-    bootstrap_required_items: tuple[str, ...] = ()
-    bootstrap_missing_items: tuple[str, ...] = ()
     reference_files: tuple[str, ...] = ()
     template_vars: dict[str, str] = Field(default_factory=_empty_template_vars)
     context_from_resolved: tuple[str, ...] = ()
@@ -108,18 +104,10 @@ class SpawnActionOutput(BaseModel):
                 wire["agent"] = self.agent
             if self.agent_path is not None:
                 wire["agent_path"] = self.agent_path
-            if self.agent_source is not None:
-                wire["agent_source"] = self.agent_source
             if self.skills:
                 wire["skills"] = list(self.skills)
             if self.skill_paths:
                 wire["skill_paths"] = list(self.skill_paths)
-            if self.skill_sources:
-                wire["skill_sources"] = dict(self.skill_sources)
-            if self.bootstrap_required_items:
-                wire["bootstrap_required_items"] = list(self.bootstrap_required_items)
-            if self.bootstrap_missing_items:
-                wire["bootstrap_missing_items"] = list(self.bootstrap_missing_items)
             if self.reference_files:
                 wire["reference_files"] = list(self.reference_files)
             if self.template_vars:

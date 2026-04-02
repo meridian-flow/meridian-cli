@@ -103,12 +103,8 @@ class PrimarySessionMetadata(BaseModel):
     model: str
     agent: str
     agent_path: str
-    agent_source: str | None = None
     skills: tuple[str, ...]
     skill_paths: tuple[str, ...]
-    skill_sources: dict[str, str] = Field(default_factory=dict)
-    bootstrap_required_items: tuple[str, ...] = ()
-    bootstrap_missing_items: tuple[str, ...] = ()
 
 
 def build_primary_prompt(request: LaunchRequest) -> str:

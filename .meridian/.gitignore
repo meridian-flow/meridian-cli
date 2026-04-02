@@ -13,6 +13,5 @@
 !fs/**
 !work/
 !work/**
-# Added by Meridian to keep required project state tracked
 !work-archive/
 !work-archive/**

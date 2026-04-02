@@ -1,6 +1,6 @@
 """Prepared spawn planning DTOs."""
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.harness.adapter import PermissionResolver
 from meridian.lib.safety.permissions import PermissionConfig
@@ -48,10 +48,6 @@ class PreparedSpawnPlan(BaseModel):
     skills: tuple[str, ...]
     skill_paths: tuple[str, ...]
     agent_path: str = ""
-    agent_source: str | None = None
-    skill_sources: dict[str, str] = Field(default_factory=dict)
-    bootstrap_required_items: tuple[str, ...] = ()
-    bootstrap_missing_items: tuple[str, ...] = ()
     reference_files: tuple[str, ...]
     template_vars: dict[str, str]
     context_from_resolved: tuple[str, ...] = ()

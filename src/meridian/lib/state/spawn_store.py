@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from meridian.lib.core.domain import SpawnStatus
 from meridian.lib.core.spawn_lifecycle import (
@@ -69,12 +69,8 @@ class SpawnRecord(BaseModel):
     model: str | None
     agent: str | None
     agent_path: str | None
-    agent_source: str | None
     skills: tuple[str, ...]
     skill_paths: tuple[str, ...]
-    skill_sources: dict[str, str] = Field(default_factory=dict)
-    bootstrap_required_items: tuple[str, ...]
-    bootstrap_missing_items: tuple[str, ...]
     harness: str | None
     kind: str
     desc: str | None
@@ -107,12 +103,8 @@ class SpawnStartEvent(BaseModel):
     model: str | None = None
     agent: str | None = None
     agent_path: str | None = None
-    agent_source: str | None = None
     skills: tuple[str, ...] = ()
     skill_paths: tuple[str, ...] = ()
-    skill_sources: dict[str, str] = Field(default_factory=dict)
-    bootstrap_required_items: tuple[str, ...] = ()
-    bootstrap_missing_items: tuple[str, ...] = ()
     harness: str | None = None
     kind: str | None = None
     desc: str | None = None
@@ -184,12 +176,8 @@ def start_spawn(
     model: str,
     agent: str,
     agent_path: str | None = None,
-    agent_source: str | None = None,
     skills: tuple[str, ...] = (),
     skill_paths: tuple[str, ...] = (),
-    skill_sources: dict[str, str] | None = None,
-    bootstrap_required_items: tuple[str, ...] = (),
-    bootstrap_missing_items: tuple[str, ...] = (),
     harness: str,
     kind: str = "child",
     prompt: str,
@@ -219,12 +207,8 @@ def start_spawn(
             model=model,
             agent=agent,
             agent_path=agent_path,
-            agent_source=agent_source,
             skills=skills,
             skill_paths=skill_paths,
-            skill_sources=skill_sources or {},
-            bootstrap_required_items=bootstrap_required_items,
-            bootstrap_missing_items=bootstrap_missing_items,
             harness=harness,
             kind=kind,
             desc=desc,
@@ -359,12 +343,8 @@ def _empty_record(spawn_id: str) -> SpawnRecord:
         model=None,
         agent=None,
         agent_path=None,
-        agent_source=None,
         skills=(),
         skill_paths=(),
-        skill_sources={},
-        bootstrap_required_items=(),
-        bootstrap_missing_items=(),
         harness=None,
         kind="child",
         desc=None,
@@ -415,26 +395,8 @@ def _record_from_events(events: list[SpawnEvent]) -> dict[str, SpawnRecord]:
                     "agent_path": (
                         event.agent_path if event.agent_path is not None else current.agent_path
                     ),
-                    "agent_source": (
-                        event.agent_source
-                        if event.agent_source is not None
-                        else current.agent_source
-                    ),
                     "skills": event.skills if event.skills else current.skills,
                     "skill_paths": event.skill_paths if event.skill_paths else current.skill_paths,
-                    "skill_sources": (
-                        event.skill_sources if event.skill_sources else current.skill_sources
-                    ),
-                    "bootstrap_required_items": (
-                        event.bootstrap_required_items
-                        if event.bootstrap_required_items
-                        else current.bootstrap_required_items
-                    ),
-                    "bootstrap_missing_items": (
-                        event.bootstrap_missing_items
-                        if event.bootstrap_missing_items
-                        else current.bootstrap_missing_items
-                    ),
                     "harness": event.harness if event.harness is not None else current.harness,
                     "kind": event.kind if event.kind is not None else current.kind,
                     "desc": event.desc if event.desc is not None else current.desc,

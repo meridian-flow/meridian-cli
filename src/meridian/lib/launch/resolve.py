@@ -57,7 +57,6 @@ class ResolvedSkills(BaseModel):
 
     skill_names: tuple[str, ...]
     loaded_skills: tuple[SkillContent, ...]
-    skill_sources: dict[str, Path]
     missing_skills: tuple[str, ...]
 
 
@@ -96,13 +95,9 @@ def resolve_skills_from_profile(
         skill_name for skill_name in profile_skills if skill_name in available_skill_names
     )
     loaded_skills = load_skill_contents(registry, resolved_skill_names)
-    skill_sources = {
-        skill.name: Path(skill.path).expanduser().resolve().parent for skill in loaded_skills
-    }
     return ResolvedSkills(
         skill_names=tuple(skill.name for skill in loaded_skills),
         loaded_skills=loaded_skills,
-        skill_sources=skill_sources,
         missing_skills=missing_skills,
     )
 
