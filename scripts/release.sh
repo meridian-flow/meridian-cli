@@ -31,7 +31,7 @@ die() {
 }
 
 require_clean_tree() {
-  if [[ -n "$(git -C "$ROOT_DIR" status --short)" ]]; then
+  if [[ -n "$(git -C "$ROOT_DIR" status --short --ignore-submodules)" ]]; then
     die "working tree is not clean; commit or stash changes first"
   fi
 }
