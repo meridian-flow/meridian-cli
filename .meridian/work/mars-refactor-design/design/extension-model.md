@@ -1,10 +1,10 @@
 # Extension Model (Phase B)
 
-Design the extension points for capability packages: permissions, tools, MCP server registrations, hooks, and generalized item kinds.
+Design the extension points for capability packages, soul files, harness-specific variants, managed target sync, model catalog integration, and generalized item kinds.
 
 See [overview](overview.md) for context. This design depends on [pipeline decomposition](pipeline-decomposition.md) Phase A being complete — specifically A1 (typed phases) for the new pipeline insertion point, and A2 (first-class LocalPackage) for local packages to discover new item kinds automatically.
 
-## B1: Generalized Item Kinds
+## B1: Generalized Item Kinds + Soul Files
 
 ### Problem
 
@@ -17,7 +17,7 @@ pub enum ItemKind {
 }
 ```
 
-Discovery hardcodes `agents/*.md` and `skills/*/SKILL.md` scan patterns. Adding a new kind (permissions, tools, MCP configs) requires modifying discovery, target building, diff, plan, apply, lock, and link — the same "8 file change" problem the prior extensibility analysis identified for new source types.
+Discovery hardcodes `agents/*.md` and `skills/*/SKILL.md` scan patterns. Adding a new kind (permissions, tools, MCP configs, soul files) requires modifying discovery, target building, diff, plan, apply, lock, and link — the same "8 file change" problem the prior extensibility analysis identified for new source types.
 
 ### Design
 
@@ -32,12 +32,34 @@ Keep `ItemKind` as a closed enum but extend it with new variants. A trait-based 
 pub enum ItemKind {
     Agent,
     Skill,
+    Soul,        // NEW: per-model system prompt addons
     Permission,
     Tool,
     McpServer,
     Hook,
 }
 ```
+
+### Soul Files
+
+Soul files are per-model system prompt addons that live in `.agents/soul/<alias>.md`. They are generic instructions injected whenever a specific model alias runs — not tied to any particular agent or skill.
+
+**Package schema**: Soul files are markdown files in `soul/`:
+
+```
+soul/
+  opus.md          # injected when model alias "opus" is used
+  sonnet.md        # injected when model alias "sonnet" is used
+  codex.md         # injected when "codex" harness models run
+```
+
+**Discovery convention**: `soul/*.md` — flat files, same as agents.
+
+**Materialization**: Content copy (same as agents/skills). Soul files are copied to `.agents/soul/` and symlinked/synced to managed targets. The consuming harness (meridian) reads them at spawn time by matching the resolved model alias.
+
+**Naming convention**: The filename (without `.md`) matches the model alias from `[models]` in mars.toml. This is a convention, not enforced by mars — mars just syncs the files. The consuming system matches `soul/<alias>.md` to the active model alias at runtime.
+
+**Why a new ItemKind, not just a directory convention?** Soul files need to participate in the standard pipeline: they should be lockable, filterable (`include_kinds = ["soul"]`), and visible in `mars list`. Making them a proper ItemKind gives them all of this for free via the discovery convention registry.
 
 ### Per-Kind Discovery
 
@@ -74,6 +96,11 @@ pub fn conventions() -> Vec<DiscoveryConvention> {
             pattern: DiscoveryPattern::MarkerDirs { marker: "SKILL.md" },
         },
         DiscoveryConvention {
+            kind: ItemKind::Soul,
+            dir_name: "soul",
+            pattern: DiscoveryPattern::FlatFiles { extension: "md" },
+        },
+        DiscoveryConvention {
             kind: ItemKind::Permission,
             dir_name: "permissions",
             pattern: DiscoveryPattern::FlatFiles { extension: "toml" },
@@ -101,12 +128,12 @@ pub fn conventions() -> Vec<DiscoveryConvention> {
 
 ### Per-Kind Materialization
 
-Content items (agents, skills) are materialized by copying files to the managed root. Capability items are materialized differently — they generate config fragments that merge into runtime-specific config files.
+Content items (agents, skills, soul files) are materialized by copying files to the managed root. Capability items are materialized differently — they generate config fragments that merge into runtime-specific config files.
 
 ```rust
 /// How an item kind is materialized into the managed root.
 pub enum MaterializationStrategy {
-    /// Copy source content directly (agents, skills, hooks).
+    /// Copy source content directly (agents, skills, soul files, hooks).
     ContentCopy,
     /// Parse source and generate config fragments (permissions, tools, MCP).
     ConfigFragment { format: FragmentFormat },
@@ -122,7 +149,7 @@ pub enum FragmentFormat {
 impl ItemKind {
     pub fn materialization(&self) -> MaterializationStrategy {
         match self {
-            Self::Agent | Self::Skill | Self::Hook => MaterializationStrategy::ContentCopy,
+            Self::Agent | Self::Skill | Self::Soul | Self::Hook => MaterializationStrategy::ContentCopy,
             Self::Permission | Self::Tool | Self::McpServer => MaterializationStrategy::ConfigFragment {
                 format: FragmentFormat::Toml,
             },
@@ -141,6 +168,7 @@ impl ItemKind {
         match self {
             Self::Agent => "agents",
             Self::Skill => "skills",
+            Self::Soul => "soul",
             Self::Permission => "permissions",
             Self::Tool => "tools",
             Self::McpServer => "mcp",
@@ -155,15 +183,15 @@ impl ItemKind {
 The lock file already stores `kind` as a lowercase string. New kinds serialize naturally:
 
 ```toml
-[items."permissions/sandbox-policy.toml"]
+[items."soul/opus.md"]
 source = "base"
-kind = "permission"
+kind = "soul"
 source_checksum = "sha256:..."
 installed_checksum = "sha256:..."
-dest_path = "permissions/sandbox-policy.toml"
+dest_path = "soul/opus.md"
 ```
 
-Old mars versions encountering unknown kinds in the lock will fail to deserialize the `ItemKind` enum. This is acceptable — upgrading mars is expected when packages use new features. Add a clear error message:
+Old mars versions encountering unknown kinds in the lock will fail to deserialize the `ItemKind` enum. This is acceptable — upgrading mars is expected when packages use new features:
 
 ```rust
 // In ItemKind deserialization
@@ -189,23 +217,274 @@ pub struct FilterConfig {
 }
 ```
 
-This allows consumers to install only specific kinds from a source:
-
-```toml
-[dependencies.base]
-url = "https://github.com/org/base"
-include_kinds = ["agent", "skill"]  # skip permissions, tools, MCP
-```
-
-**Filter precedence**: Kind filters apply first, then item-level filters apply within the surviving kinds. Example: `include_kinds = ["agent", "permission"]` + `only_agents = true` → error (contradictory: `only_agents` implies "agents only" but `include_kinds` includes permissions). Conflicting filters fail at config validation time with a clear error rather than silently resolving with surprising behavior.
+**Filter precedence**: Kind filters apply first, then item-level filters apply within the surviving kinds. Conflicting filters (`only_agents = true` + `include_kinds = ["permission"]`) fail at config validation time with a clear error.
 
 ---
 
-## B2: Permission Sync
+## B2: Harness-Specific Variants
 
 ### Problem
 
-Packages can install agent and skill content, but can't declare what runtime permissions those assets expect. Users manually configure approval modes, sandbox tiers, and tool allowlists.
+Different harnesses have different capabilities. An agent profile optimized for Claude Code may not work well with Cursor or Codex. Currently, packages ship one version and consumers manually maintain harness-specific copies.
+
+### Design
+
+Packages can ship harness-specific variants alongside the default version. Variant resolution happens at sync time based on the active link targets.
+
+**Package layout convention**:
+
+```
+agents/
+  coder.md                    # default version
+  coder.claude.md             # Claude Code variant
+  coder.cursor.md             # Cursor variant
+skills/
+  planning/
+    SKILL.md                  # default
+    SKILL.claude.md           # Claude Code variant
+soul/
+  opus.md                     # default (soul files can have variants too)
+  opus.claude.md              # Claude-specific soul addon
+```
+
+**Naming convention**: `<name>.<harness>.<ext>` for flat files, `<MARKER>.<harness>.<ext>` for marker dirs. The harness identifier matches link target names (e.g., `.claude` → `claude`, `.cursor` → `cursor`).
+
+**Discovery changes**: Discovery finds all variants and attaches them to the base item:
+
+```rust
+/// A discovered item with optional harness-specific variants.
+pub struct DiscoveredItem {
+    pub id: ItemId,
+    pub source_path: PathBuf,
+    /// Harness-specific variants: harness_name → source_path.
+    pub variants: IndexMap<String, PathBuf>,
+}
+```
+
+**Resolution in target building**: During `build_target()`, the active link targets determine which variants are relevant. For each item:
+
+1. If a variant exists for an active link target's harness → use the variant for that target
+2. If no variant exists → use the default version
+3. Variants for inactive harnesses are ignored (not installed)
+
+**TargetItem extension**:
+
+```rust
+pub struct TargetItem {
+    pub id: ItemId,
+    pub origin: SourceOrigin,
+    pub source_id: SourceId,
+    pub source_path: PathBuf,          // default version
+    pub dest_path: DestPath,
+    pub source_hash: ContentHash,
+    pub is_flat_skill: bool,
+    pub rewritten_content: Option<String>,
+    pub materialization: Materialization,
+    /// Harness-specific variant paths (harness_name → source_path).
+    /// Empty if no variants exist. Used during managed target sync.
+    pub variants: IndexMap<String, VariantSource>,
+}
+
+pub struct VariantSource {
+    pub source_path: PathBuf,
+    pub source_hash: ContentHash,
+}
+```
+
+**Managed root gets the default version**. `.agents/` always contains the default (non-variant) content. Variants are resolved and applied only to managed targets during target sync (B3).
+
+**Lock tracking**: Variants are tracked in the lock alongside the base item:
+
+```toml
+[items."agents/coder.md"]
+source = "base"
+kind = "agent"
+source_checksum = "sha256:abc..."
+installed_checksum = "sha256:abc..."
+dest_path = "agents/coder.md"
+
+[items."agents/coder.md".variants]
+claude = "sha256:def..."
+cursor = "sha256:ghi..."
+```
+
+This keeps variant checksums in the lock for change detection without creating separate lock entries for each variant. The variant content lives in the source; only the hash is tracked.
+
+**What's NOT designed here**: Variant-specific filtering (e.g., "only install the claude variant of this agent"). The initial implementation installs all available variants and resolves at target sync time. If filtering is needed, it can be added to `FilterConfig` later.
+
+---
+
+## B3: Managed Target Sync (Link Reframing)
+
+### Problem
+
+`mars link` currently means "create symlinks from `.claude/agents/` → `.agents/agents/`". This is limiting because:
+
+1. Symlinks break tools that don't follow them
+2. No mechanism to push harness-specific variant content to targets
+3. No mechanism to merge capability configs (permissions, MCP, tools) into target-specific config files
+4. Can't handle soul files or other new item kinds that targets need
+
+### Reframing
+
+**'Link' no longer means symlink.** It means "mars owns and manages this target directory." `.agents/` is the centralized source of truth. Most harnesses read from `.agents/` directly. Managed targets (like `.claude/`) exist for tools that insist on their own directory. Mars keeps managed targets in sync with `.agents/` plus any harness-specific content.
+
+### Design
+
+**ManagedTarget** replaces the current link concept:
+
+```rust
+/// A directory that mars manages — keeps in sync with .agents/ plus harness-specific content.
+pub struct ManagedTarget {
+    /// Target directory name (e.g. ".claude").
+    pub name: String,
+    /// Harness identifier for variant resolution (derived from name, e.g. "claude").
+    pub harness_id: String,
+    /// How content items are synced to this target.
+    pub content_strategy: ContentStrategy,
+    /// Runtime adapter for capability materialization.
+    pub adapter: Box<dyn RuntimeAdapter>,
+}
+
+/// How content (agents, skills, soul files) reaches a managed target.
+pub enum ContentStrategy {
+    /// Symlink subdirectories (current behavior — fast, but some tools don't follow).
+    Symlink,
+    /// Copy content, resolving harness-specific variants.
+    /// Used when the target needs variant content or the tool doesn't follow symlinks.
+    Copy,
+    /// Mirror: copy + keep in sync on every `mars sync`.
+    /// For targets that need variant-resolved content AND ongoing sync.
+    Mirror,
+}
+```
+
+**Default behavior**: `ContentStrategy::Mirror` for all managed targets. This is the simplest correct behavior — every `mars sync` ensures managed targets match `.agents/` with variants resolved. Symlink mode is available as an optimization for targets that don't need variants and where the tool follows symlinks.
+
+**Sync flow for managed targets**:
+
+```
+mars sync
+  → Phase A pipeline (load → resolve → discover → target → diff → plan → apply → lock)
+  → For each managed target:
+      1. Content sync: copy items from .agents/ to target, substituting variants where available
+      2. Capability materialization: merge config fragments into target-specific configs
+      3. Reconcile: detect conflicts, handle force/skip semantics
+```
+
+**Configuration**:
+
+```toml
+[settings]
+managed_root = ".agents"
+
+# Managed targets — mars keeps these in sync with .agents/
+[[settings.targets]]
+name = ".claude"
+# content_strategy = "mirror"  # default, can be omitted
+# harness_id = "claude"        # derived from name by stripping leading dot
+
+[[settings.targets]]
+name = ".cursor"
+```
+
+Backwards compatibility: the existing `links = [".claude"]` syntax is supported and equivalent to `[[settings.targets]] name = ".claude"` with default settings.
+
+**Content sync algorithm** for a managed target:
+
+```rust
+fn sync_target_content(
+    managed_root: &Path,
+    target: &ManagedTarget,
+    items: &[TargetItem],
+    strategy: &ContentStrategy,
+) -> Result<Vec<ReconcileOutcome>, MarsError> {
+    let mut outcomes = Vec::new();
+    
+    for item in items {
+        let source = match item.variants.get(&target.harness_id) {
+            // Harness-specific variant exists — use it instead of default
+            Some(variant) => &variant.source_path,
+            // No variant — use the default from managed root
+            None => &item.dest_path.resolve(managed_root),
+        };
+        
+        let dest = item.dest_path.resolve(&target.path);
+        let outcome = reconcile_one(&dest, desired_state_from(source, &item.materialization), false)?;
+        outcomes.push(outcome);
+    }
+    
+    outcomes
+}
+```
+
+**Orphan cleanup**: When items are removed from `.agents/`, the corresponding files in managed targets are also removed. The reconcile layer handles this by comparing the target directory against the expected item set.
+
+**First-run adoption**: The current `merge_and_link` behavior for adopting existing target directories is preserved. On first `mars sync` when a managed target has existing content (not yet managed by mars), mars scans for conflicts, offers to merge unique files into `.agents/`, and then takes ownership of the target directory.
+
+### Relationship to A4 (Shared Reconciliation)
+
+Managed target sync uses the same reconciliation primitives from A4:
+
+- **Layer 1 (atomic fs ops)**: `atomic_write_file`, `atomic_install_dir`, `safe_remove` — used for content copy
+- **Layer 2 (item-level reconciliation)**: `reconcile_one`, `scan_destination` — used for per-item sync to targets
+
+The current link-specific `merge_and_link` algorithm becomes the "first-run adoption" path, not the steady-state sync path. Steady-state managed target sync is item-level reconciliation, same as sync apply.
+
+---
+
+## B4: Model Catalog Integration
+
+### Problem
+
+Model alias → harness + model resolution is needed for agent spawning. This is being implemented independently (issue #7) but must integrate cleanly with the mars pipeline and config schema.
+
+### Current State (Already Implemented)
+
+The `[models]` section already exists in `Config`:
+
+```rust
+pub struct Config {
+    // ...
+    pub models: IndexMap<String, ModelAlias>,
+}
+```
+
+`models.rs` already implements:
+- `ModelAlias` struct with `harness`, `model`, `description`
+- `ModelsCache` with `CachedModel` entries (cost, limits, capabilities)
+- `fetch_models()` to pull from models.dev API
+- `read_cache()` / `write_cache()` for `.agents/models-cache.json`
+- `resolve_alias()` for alias lookup
+
+### Design: Integration Points
+
+**No changes to Phase A pipeline.** The model catalog is orthogonal to the sync pipeline — it's not an item kind, not discovered from sources, and not diffed/planned/applied. It's a separate artifact that mars manages.
+
+**Cache location**: `.agents/models-cache.json` — already implemented. This is a mars-managed artifact in the managed root, not a synced item.
+
+**Refresh lifecycle**: `mars models refresh` fetches live data from models.dev and writes the cache. Meridian triggers this when the cache TTL is stale. Mars doesn't auto-refresh during `mars sync` — the cache is a separate concern.
+
+**Config-level integration**: The `[models]` section in mars.toml defines project-specific model aliases. These are read during `load_config()` and available in `LoadedConfig`. Soul files (B1) reference model aliases by filename convention — `soul/opus.md` matches the `opus` alias.
+
+**Package-provided model aliases**: Packages can ship `[models]` entries in their manifest. During resolution, package-provided aliases are merged into the consumer's model config with consumer aliases taking precedence (same shadow semantics as local packages shadowing dependencies).
+
+```toml
+# In a package's mars.toml
+[models]
+opus = { harness = "claude", model = "claude-opus-4-6", description = "Best for complex reasoning" }
+sonnet = { harness = "claude", model = "claude-sonnet-4-6", description = "Fast and capable" }
+```
+
+**What mars does NOT do**: Mars doesn't route models at runtime. It provides the alias table and cache. Meridian reads these at spawn time.
+
+---
+
+## B5: Permission Sync
+
+### Problem
+
+Packages can install agent and skill content, but can't declare what runtime permissions those assets expect.
 
 ### Package Schema
 
@@ -218,77 +497,38 @@ Permission policies are declared as TOML files in `permissions/`:
 name = "sandbox-policy"
 description = "Restrictive sandbox for untrusted agents"
 
-# Approval mode: "default", "confirm", "auto", "yolo"
 approval_mode = "auto"
-
-# Sandbox tier for spawned processes
 sandbox_tier = "restricted"
-
-# Tool allowlist (if empty, all tools allowed)
 allowed_tools = ["Read", "Grep", "Glob", "WebSearch"]
-
-# Tool denylist (takes precedence over allowlist)
 denied_tools = ["Bash"]
-
-# Which agents this policy applies to (glob patterns)
 applies_to = ["untrusted-*", "third-party/*"]
 ```
 
 ### Materialization
 
-Permission policies are config fragments. During the new `materialize_capabilities` phase (inserted after `apply_plan` in the pipeline), permission TOML files are:
+Permission policies are config fragments. During the `materialize_capabilities` phase (B3's managed target sync), permission TOML files are:
 
-1. **Copied to managed root** as-is (`.agents/permissions/sandbox-policy.toml`) — this is the authoritative source
-2. **Merged into runtime configs** per link target — each runtime adapter translates the policy into runtime-specific format
-
-For Claude Code (`.claude/`):
-
-```rust
-fn materialize_permissions_claude(
-    policies: &[PermissionPolicy],
-    claude_dir: &Path,
-) -> Result<(), MarsError> {
-    // Read existing settings.json
-    let settings_path = claude_dir.join("settings.json");
-    let mut settings = load_or_default_json(&settings_path)?;
-    
-    // Merge permission policies into settings
-    for policy in policies {
-        if let Some(approval) = &policy.approval_mode {
-            // Add to managed permissions section
-            settings["managed_permissions"][&policy.name]["approval"] = approval.into();
-        }
-        // ... tools, sandbox, etc.
-    }
-    
-    // Atomic write
-    atomic_write_json(&settings_path, &settings)?;
-    Ok(())
-}
-```
+1. **Copied to managed root** as-is (`.agents/permissions/sandbox-policy.toml`)
+2. **Merged into runtime configs** per managed target — each runtime adapter translates the policy into runtime-specific format
 
 ### Conflict Resolution
 
 When multiple packages provide conflicting permission policies:
 - **Most restrictive wins** for security-relevant fields (sandbox tier, denied tools)
 - **Last-declared wins** for preference fields (approval mode)
-- Conflicts are reported as diagnostics, not errors — the consumer can override via `mars.local.toml`
+- Conflicts are reported as diagnostics
 
 ### Consumer Override
 
 ```toml
 # mars.local.toml
 [permission_overrides]
-"sandbox-policy".approval_mode = "yolo"  # I trust this agent locally
+"sandbox-policy".approval_mode = "yolo"
 ```
 
 ---
 
-## B3: Tool Distribution
-
-### Problem
-
-Skills and agents are only part of the execution contract. Tool definitions are configured separately, making packages incomplete and harder to share.
+## B6: Tool Distribution
 
 ### Package Schema
 
@@ -296,204 +536,96 @@ Tool definitions live in `tools/`:
 
 ```toml
 # tools/code-search.toml
-
 [tool]
 name = "code-search"
-description = "Semantic code search across the repository"
+description = "Semantic code search"
+type = "mcp"
 
-# Tool type determines materialization
-type = "mcp"  # or "builtin", "script"
-
-# MCP-backed tool
 [tool.mcp]
-server = "code-search-server"  # references an MCP server from mcp/ dir
+server = "code-search-server"
 method = "search"
-
-# Alternative: script-backed tool
-# [tool.script]
-# command = "scripts/search.sh"
-# args = ["--format", "json"]
 ```
 
 ### Materialization
 
-Tool definitions are materialized into runtime-specific config:
-
-For Claude Code: tools map to MCP tool registrations or settings entries.
-For other runtimes: the runtime adapter translates to that runtime's tool format.
-
-The managed root stores the canonical tool definition (`tools/code-search.toml`). Link targets get runtime-specific materializations.
-
-### Relationship to MCP
-
-Tools can reference MCP servers declared in the same package. The tool definition is the user-facing spec; the MCP server is the implementation. Mars validates that referenced MCP servers exist in the resolved package set.
+Tool definitions are materialized into runtime-specific config per managed target. The managed root stores the canonical definition. Runtime adapters translate to each target's format.
 
 ---
 
-## B4: MCP Integration
-
-### Problem
-
-MCP server registrations are manually configured per runtime. Packages that provide MCP-backed capabilities can't declare the server requirements.
+## B7: MCP Integration
 
 ### Package Schema
 
-MCP server declarations live in `mcp/`:
+MCP server declarations in `mcp/`:
 
 ```toml
 # mcp/code-search-server.toml
-
 [server]
 name = "code-search-server"
-description = "Provides semantic code search capabilities"
-
-# How to start the server
 command = "npx"
 args = ["-y", "@company/code-search-mcp"]
-
-# Environment variables (names only — values come from consumer)
 env_keys = ["OPENAI_API_KEY"]
-
-# Optional: required resources/capabilities
-capabilities = ["search", "index"]
 ```
 
 ### Materialization
 
-MCP server configs are merged into runtime-specific MCP configuration:
-
-For Claude Code (`.claude/settings.json`):
-
-```json
-{
-  "mcpServers": {
-    "code-search-server": {
-      "command": "npx",
-      "args": ["-y", "@company/code-search-mcp"],
-      "env": {}
-    }
-  }
-}
-```
-
-The runtime adapter handles the translation. Mars stores the canonical config and each runtime gets its format.
-
-### Environment Variables
-
-MCP servers often need API keys or configuration values. Mars does NOT store secrets. Instead:
-
-1. Package declares required env keys (`env_keys = ["OPENAI_API_KEY"]`)
-2. Mars validates that required keys are documented
-3. Consumer provides values through their environment or runtime config
-4. Mars emits a diagnostic if a required key is undocumented in the consumer's setup
-
-### Server Lifecycle
-
-Mars doesn't manage MCP server processes — it only manages the configuration that tells runtimes how to start them. Server lifecycle is the runtime's responsibility.
+Merged into runtime-specific MCP configuration per managed target. Mars does NOT store secrets — it documents required env keys and validates they're declared.
 
 ---
 
-## B5: Hook Distribution
-
-### Problem
-
-Lifecycle hooks and event-based automation are configured manually. Packages can't ship hooks as part of the package.
+## B8: Hook Distribution
 
 ### Package Schema
 
-Hooks live in `hooks/` as directories:
+Hooks in `hooks/` as directories:
 
 ```
-hooks/
-  pre-commit-check/
-    hook.toml       # hook metadata
-    run.sh          # the script
-```
-
-```toml
-# hooks/pre-commit-check/hook.toml
-
-[hook]
-name = "pre-commit-check"
-description = "Validate agent configs before commit"
-
-# Lifecycle event this hook attaches to
-event = "pre-commit"
-
-# Entry point (relative to hook directory)
-command = "run.sh"
-
-# Priority (lower = earlier, default = 100)
-priority = 50
-```
-
-### Materialization
-
-Hooks are content items (copied to managed root) + config fragments (registered in runtime hook config).
-
-For Claude Code (`.claude/settings.json` hooks section):
-
-```json
-{
-  "hooks": {
-    "pre-commit": [
-      {
-        "command": ".agents/hooks/pre-commit-check/run.sh",
-        "source": "base"
-      }
-    ]
-  }
-}
+hooks/pre-commit-check/
+  hook.toml
+  run.sh
 ```
 
 ### Security
 
-Hook scripts are executable code. Mars should:
-1. **Not auto-enable hooks** — require explicit consumer opt-in
-2. **Track hook checksums** in the lock file
-3. **Warn on hook changes** during sync (like tool allowlist changes)
+Hook scripts require explicit consumer opt-in:
 
 ```toml
-# mars.toml — consumer explicitly enables hooks
 [settings]
-enable_hooks = ["pre-commit-check"]  # only run hooks I've approved
+enable_hooks = ["pre-commit-check"]
 ```
 
 ---
 
 ## Runtime Adapter Architecture
 
-### Problem
-
-Each link target (`.claude/`, `.cursor/`, etc.) needs different materialization for capability items. Currently, link just creates symlinks for agents/ and skills/ subdirectories.
-
 ### Design
 
-Runtime adapters handle per-runtime materialization:
+Runtime adapters handle per-target materialization. With the link reframing, adapters now have two responsibilities:
+
+1. **Content sync**: Copy/sync items from `.agents/` to the managed target, resolving variants
+2. **Capability materialization**: Merge config fragments into target-specific config files
 
 ```rust
-/// A capability bundle ready for materialization into a runtime config.
-pub struct CapabilitySet {
-    pub permissions: Vec<PermissionPolicy>,
-    pub tools: Vec<ToolDefinition>,
-    pub mcp_servers: Vec<McpServerConfig>,
-    pub hooks: Vec<HookDefinition>,
-}
-
-/// A runtime adapter knows how to materialize capabilities for a specific tool.
-///
-/// Single method avoids ISP violation — adapters that don't support a capability
-/// kind simply skip those items. The CapabilitySet is the aggregate of all
-/// capability items for this runtime, and the adapter handles them in one pass.
-/// This also solves the coordination problem: when permissions and MCP servers
-/// both write to settings.json, the adapter handles the merge atomically.
+/// A runtime adapter knows how to manage a specific target directory.
 pub trait RuntimeAdapter {
-    /// Which tool directory this adapter handles (e.g. ".claude").
+    /// Which target directory this adapter handles (e.g. ".claude").
     fn target_name(&self) -> &str;
     
-    /// Materialize all capabilities into this runtime's config directory.
+    /// Harness identifier for variant resolution (e.g. "claude").
+    fn harness_id(&self) -> &str;
+    
+    /// Sync content items to the target directory.
+    /// Resolves harness-specific variants where available.
+    fn sync_content(
+        &self,
+        managed_root: &Path,
+        target_dir: &Path,
+        items: &[TargetItem],
+    ) -> Result<Vec<ReconcileOutcome>, MarsError>;
+    
+    /// Materialize all capabilities into this target's config.
     /// Returns diagnostics for unsupported capabilities or conflicts.
-    fn materialize(
+    fn materialize_capabilities(
         &self,
         capabilities: &CapabilitySet,
         target_dir: &Path,
@@ -501,81 +633,64 @@ pub trait RuntimeAdapter {
 }
 ```
 
-The single `materialize` method receives the full `CapabilitySet`, which solves two problems flagged in review:
-1. **ISP**: Adapters don't need to implement separate methods for each capability type — they iterate over what they support and emit diagnostics for what they don't
-2. **Config file coordination**: When permissions, MCP, and tools all write to `settings.json`, the adapter reads the file once, merges all capability types, and writes atomically
+**Built-in adapters**: `ClaudeAdapter`, `CursorAdapter`, `GenericAdapter` (fallback).
 
-**Built-in adapters**: `ClaudeAdapter`, `CursorAdapter`, `GenericAdapter` (fallback — just symlinks content, emits "unsupported capability" diagnostics for everything else).
+### Why the adapter gained `sync_content`
 
-**Registration**: Adapters are selected by link target name in `mars.toml`:
+With the link reframing, content sync to targets is no longer "just create symlinks." Each target may need:
+- Variant-resolved content (coder.claude.md instead of coder.md)
+- Soul files copied/synced
+- Different content strategies (symlink vs copy vs mirror)
 
-```toml
-[settings]
-links = [".claude", ".cursor"]
-# Mars auto-detects the adapter from the link target name
+The adapter encapsulates all target-specific logic. The generic adapter provides sensible defaults (copy everything, skip capabilities).
+
+### Capability Set
+
+```rust
+/// A capability bundle ready for materialization into a target config.
+pub struct CapabilitySet {
+    pub permissions: Vec<PermissionPolicy>,
+    pub tools: Vec<ToolDefinition>,
+    pub mcp_servers: Vec<McpServerConfig>,
+    pub hooks: Vec<HookDefinition>,
+    pub model_aliases: IndexMap<String, ModelAlias>,  // from [models] config
+}
 ```
 
-### Why Trait, Not Enum?
-
-Unlike `ItemKind` and `SourceSpec` (which are closed enums), runtime adapters benefit from a trait because:
-1. The set of supported runtimes grows independently of Mars's release cycle
-2. Each adapter is self-contained — no shared exhaustive match needed
-3. Future: adapters could be loaded from package-provided Wasm modules (far future, not designed here)
-
-For now, the trait is implemented by 2-3 built-in structs. The trait boundary exists to keep adapter logic self-contained, not for dynamic dispatch.
+Model aliases are included in the CapabilitySet so runtime adapters can reference them when materializing configs that need model information.
 
 ### Integration with Pipeline
 
-Capability materialization runs as a new phase after `apply_plan`:
+Managed target sync runs as a phase after `apply_plan`:
 
 ```rust
 pub fn execute(ctx: &MarsContext, request: &SyncRequest) -> Result<SyncReport, MarsError> {
     // ... existing phases ...
-    let applied = apply_plan(ctx, &planned, request)?;
+    let applied = apply_plan(ctx, planned, request)?;
     
-    // New phase: materialize capabilities into runtime configs
-    let materialized = materialize_capabilities(ctx, &applied)?;
+    // New phase: sync managed targets (content + capabilities)
+    let synced = sync_managed_targets(ctx, applied, request)?;
     
-    let report = finalize(ctx, &materialized, request)?;
+    let report = finalize(ctx, synced, request)?;
     Ok(report)
 }
 ```
 
-Content items (agents, skills) are still handled by `apply_plan` — they're copied/symlinked to the managed root. Capability items (permissions, tools, MCP, hooks) are parsed from the managed root and materialized into runtime configs by the appropriate adapter.
-
 ### Failure Semantics and Crash Safety
 
-Capability materialization happens **after** content apply and **before** lock write. This ordering is deliberate:
+Managed target sync happens **after** content apply and **before** lock write:
 
-1. **Content is applied first** — agents/skills are in the managed root
-2. **Capabilities are materialized** — runtime configs are updated
+1. **Content is applied first** — `.agents/` is in a consistent state
+2. **Managed targets are synced** — content + capabilities written to targets
 3. **Lock is written** — records what was installed
 
-If capability materialization fails:
-- **Content is already applied** — this is fine, the managed root is in a consistent state
-- **Lock is NOT written** — the next `mars sync` will re-run the full pipeline, detecting that content is up-to-date (skip) and re-attempting capability materialization
-- **Runtime configs may be partially updated** — each adapter must handle its own atomicity (read config → merge → atomic write). If an adapter crashes mid-write, the next sync repairs it.
+If target sync fails:
+- `.agents/` is already correct — this is fine
+- Lock is NOT written — next `mars sync` re-runs the pipeline
+- Managed targets may be partially updated — each adapter handles its own atomicity
+- Re-running `mars sync` converges: content diffs as unchanged, targets get re-synced
 
-This matches the crash-only design principle: there is no rollback. Re-running `mars sync` after a crash converges to the correct state because:
-- Content that's already installed will diff as `Unchanged` (skip)
-- Capabilities will be re-materialized from the managed root content
-- The lock will finally be written when everything succeeds
-
-**Error handling**: Capability materialization errors are **non-fatal by default** — they produce diagnostics and `mars sync` reports them, but does not fail the sync. Content sync is the primary value; capability sync is additive. Users can opt into strict mode with `--strict-capabilities` if they want materialization failures to be fatal.
-
-### Link Integration
-
-`mars link` gains a second responsibility: after creating content symlinks, invoke runtime adapters for the link target. This uses the shared reconciliation layer (A4) for atomic operations.
-
-```
-mars link .claude
-  1. Symlink .agents/agents/ → .claude/agents/ (existing)
-  2. Symlink .agents/skills/ → .claude/skills/ (existing)
-  3. Materialize permissions → .claude/settings.json (new)
-  4. Materialize MCP servers → .claude/settings.json (new)
-  5. Materialize tools → .claude/settings.json (new)
-  6. Register hooks → .claude/settings.json (new)
-```
+**Error handling**: Target sync errors are **non-fatal by default**. Content sync to `.agents/` is the primary value; target sync is additive. Opt-in `--strict` makes target sync failures fatal.
 
 ---
 
@@ -588,11 +703,7 @@ mars link .claude
 name = "my-agents"
 version = "0.2.0"
 description = "Agent profiles with capability policies"
-
-# Declare which item kinds this package provides
-# (optional — mars discovers automatically, but explicit declaration
-# helps consumers understand what they're installing)
-provides = ["agents", "skills", "permissions", "mcp"]
+provides = ["agents", "skills", "soul", "permissions", "mcp"]
 ```
 
 ### Consumer Configuration
@@ -601,38 +712,48 @@ provides = ["agents", "skills", "permissions", "mcp"]
 [dependencies.base]
 url = "https://github.com/org/base"
 version = "~0.2"
-# Filter by kind
-include_kinds = ["agent", "skill", "permission"]
-# Existing filters still work for agent/skill items
+include_kinds = ["agent", "skill", "soul", "permission"]
 exclude = ["deprecated-agent"]
+
+[models]
+opus = { harness = "claude", model = "claude-opus-4-6", description = "Best reasoning" }
+sonnet = { harness = "claude", model = "claude-sonnet-4-6", description = "Fast" }
 
 [settings]
 managed_root = ".agents"
-links = [".claude"]
 enable_hooks = ["pre-commit-check"]
 
-# Global permission override
-[settings.permissions]
-default_approval_mode = "auto"
+[[settings.targets]]
+name = ".claude"
+
+[[settings.targets]]
+name = ".cursor"
+# content_strategy = "symlink"  # override for cursor
 ```
 
 ### Lock Schema
 
-The lock file version stays at `1` — new item kinds are additive and use the existing `kind` field. Old mars versions fail with a clear error on unknown kinds.
+Lock version stays at `1` for new item kinds (additive). Bump to `version: 2` if structural changes are needed (e.g., variant tracking):
 
-If structural changes to the lock are needed (e.g., tracking capability materialization state), bump to `version: 2` with migration:
+```toml
+version = 2
 
-```rust
-fn migrate_lock(lock: &LockFile) -> LockFile {
-    match lock.version {
-        1 => {
-            // v1 → v2: add materialization_hash field (default to empty)
-            LockFile { version: 2, ..lock.clone() }
-        }
-        2 => lock.clone(),
-        _ => panic!("unsupported lock version {}", lock.version),
-    }
-}
+[items."agents/coder.md"]
+source = "base"
+kind = "agent"
+source_checksum = "sha256:abc..."
+installed_checksum = "sha256:abc..."
+dest_path = "agents/coder.md"
+
+[items."agents/coder.md".variants]
+claude = "sha256:def..."
+
+[items."soul/opus.md"]
+source = "base"
+kind = "soul"
+source_checksum = "sha256:..."
+installed_checksum = "sha256:..."
+dest_path = "soul/opus.md"
 ```
 
 ---
@@ -641,6 +762,8 @@ fn migrate_lock(lock: &LockFile) -> LockFile {
 
 - **Runtime process management**: Mars doesn't start, stop, or monitor MCP servers. It generates config.
 - **Secret management**: Mars doesn't store API keys. It documents which env vars are needed.
-- **Dynamic plugin loading**: All item kinds and adapters are compiled in. Wasm plugins are a far-future possibility, not designed here.
-- **Registry/distribution model**: Package distribution (registries, publisher trust) is a separate design not covered here.
-- **Workspace support**: Multi-project monorepo support is orthogonal to the extension model.
+- **Dynamic plugin loading**: All item kinds and adapters are compiled in.
+- **Registry/distribution model**: Package distribution is a separate design.
+- **Workspace support**: Multi-project monorepo support is orthogonal.
+- **Model runtime routing**: Mars provides the alias table and cache; meridian does the routing at spawn time.
+- **Variant-level filtering**: Initial implementation installs all variants; filtering can be added later.

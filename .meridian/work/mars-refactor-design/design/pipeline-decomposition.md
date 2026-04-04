@@ -72,6 +72,10 @@ pub fn execute(ctx: &MarsContext, request: &SyncRequest) -> Result<SyncReport, M
     }
     
     let applied = apply_plan(ctx, planned, request)?;          // planned moved in
+    
+    // Future (Phase B): capability materialization inserts here
+    // let materialized = materialize_capabilities(ctx, applied)?;
+    
     let report = finalize(ctx, applied, request)?;             // applied moved in
     
     Ok(report)
