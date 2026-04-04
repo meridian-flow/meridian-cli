@@ -14,7 +14,7 @@ Mars syncs agent profiles and skills from git/local sources into `.agents/` dire
 
 Additionally, new requirements have emerged since the initial design:
 
-6. **Model catalog + routing** is being implemented independently (issue #7) — mars owns `[models]` config and cache, but the pipeline must be aware of model metadata as a non-item artifact
+6. **Model catalog + routing** — mars owns `[models]` config and cache. Model aliases need two modes (pinned and auto-resolve), dependency-tree merge with same precedence as other config sections, builtin defaults, and integration with rule discovery (per-model rules are classified by matching filename against merged model aliases)
 7. **Rule files** (per-model and per-harness behavioral instructions) need to be synced like content items — operational rules like "you're on opus, think deeply" or "you're on codex, go straight to code"
 8. **Harness-specific variants** (issue #6) — packages can ship different versions of agents/skills optimized for different harnesses, resolved at sync time
 9. **`.mars/` as canonical content store** — `.agents/` can't serve as both source of truth and harness-specific target. If a harness reads `.agents/` directly, mars can't control what it sees. All target directories (`.agents/`, `.claude/`, `.codex/`, `.cursor/`) must be managed targets that mars materializes content into
@@ -39,20 +39,20 @@ models.rs → fetch/cache (standalone, not integrated into pipeline)
 
 ```
 mars.toml → Config → resolve → discover (all kinds + variants) → TargetState → diff → SyncPlan
-               ↑                    ↑                                                      ↓
-          [models]             LocalPackage                                        apply → .mars/content/
-          (routing)            (first-class)                                              (canonical store)
-               ↓                                                                           ↓
+               ↑          ↑          ↑                                                      ↓
+          [models]    merge models   model aliases                                 apply → .mars/content/
+          (per-dep)   from dep tree  inform rule                                          (canonical store)
+               ↓      + builtins     discovery                                              ↓
         models cache                                                              sync all managed targets
-        (.mars/)                                                                          ↓
-                                                                    ┌──────────────────────┼──────────────┐
-                                                                    ↓                      ↓              ↓
-                                                              .agents/              .claude/        .cursor/
-                                                              (default target)      (cross-compiled) (cross-compiled)
-                                                                                         ↓
-                                                                              runtime adapters
-                                                                              (content copy + variant resolution
-                                                                               + capability cross-compilation)
+        (.mars/)                     LocalPackage                                           ↓
+                                     (first-class)              ┌──────────────────────┼──────────────┐
+                                                                ↓                      ↓              ↓
+                                                          .agents/              .claude/        .cursor/
+                                                          (default target)      (cross-compiled) (cross-compiled)
+                                                                                     ↓
+                                                                          runtime adapters
+                                                                          (content copy + variant resolution
+                                                                           + capability cross-compilation)
 ```
 
 **Key changes**:
@@ -66,7 +66,7 @@ mars.toml → Config → resolve → discover (all kinds + variants) → TargetS
 - Harness-specific variant resolution during discovery
 - **All targets are managed** — `.agents/`, `.claude/`, `.cursor/` are all materialized from `.mars/content/` via copy
 - **Runtime adapters are cross-compilers** — map universal package features to harness-native equivalents, emit diagnostics for unsupported features, honor harness-specific schema extensions
-- Model catalog as a pipeline-adjacent artifact (cache refresh, not a sync item)
+- **Model catalog integrated into pipeline** — `[models]` sections merge from dependency tree during `resolve_graph()` using same precedence as other config; auto-resolve aliases match against `.mars/models-cache.json`; merged aliases inform rule discovery (per-model rules)
 - **Copy, not symlink** for all target materialization — Windows compatibility, git friendliness, crash safety via tmp+rename
 
 ## Directory Layout
@@ -101,7 +101,7 @@ project/
 | Subsystem | Doc | What It Covers |
 |-----------|-----|----------------|
 | [Pipeline decomposition](pipeline-decomposition.md) | Typed phases, _self as first-class, DependencyEntry split, shared reconciliation, structured diagnostics | Phase A — structural refactor |
-| [Extension model](extension-model.md) | Generalized item kinds, rule files, harness variants, .mars/ canonical store, copy-based target materialization, cross-compiler adapters, harness-specific schema extensions | Phase B — new capabilities |
+| [Extension model](extension-model.md) | Generalized item kinds, rule files, harness variants, .mars/ canonical store, copy-based target materialization, cross-compiler adapters, harness-specific schema extensions, model catalog with pinned/auto-resolve aliases and dependency-tree merge | Phase B — new capabilities |
 
 ## Design Decisions
 
@@ -119,10 +119,11 @@ Recorded in [decisions.md](../decisions.md) as they were made during design.
 
 Phase B requires A1 (typed phases) and A2 (first-class LocalPackage). Phase B items are ordered by dependency:
 
-6. **B1: Generalized item kinds + rule files** — extensible `ItemKind`, per-kind discovery (including `Rule` kind with per-harness and per-model subtypes), per-kind materializers.
-7. **B2: Harness-specific variants** — variant resolution in discovery, variant-aware target building. Depends on B1 (discovery conventions).
+6. **B4: Model catalog integration** — two-mode ModelAlias (pinned + auto-resolve), builtin aliases, dependency-tree merge in `resolve_graph()`, cache lifecycle. **Must run before B1** because rule discovery needs the merged model alias set. Depends on A1 (pipeline phases) and A3 (manifest extension).
+7. **B1: Generalized item kinds + rule files** — extensible `ItemKind`, per-kind discovery (including `Rule` kind with per-harness and per-model subtypes), per-kind materializers. **Depends on B4** — per-model rule classification requires the merged model alias set.
+8. **B2: Harness-specific variants** — variant resolution in discovery, variant-aware target building. Depends on B1 (discovery conventions).
 8. **B3: `.mars/` canonical store + managed target sync** — `.mars/content/` becomes the canonical content store. All target directories (`.agents/`, `.claude/`, `.cursor/`) are managed outputs materialized via copy. Content sync + capability cross-compilation into targets. Depends on B1 (new item kinds to materialize) and benefits from B2 (variant-resolved content for targets). **This is the architectural pivot** — the pipeline's apply phase writes to `.mars/content/`, and a new target sync phase materializes to all configured targets.
-9. **B4: Model catalog integration** — `[models]` config handling, cache refresh lifecycle, model metadata in pipeline context. **Independent** — already being implemented (issue #7). Cache location moves to `.mars/models-cache.json`.
+9. **B4: Model catalog integration** — `[models]` config with pinned and auto-resolve alias modes, builtin aliases, dependency-tree merge (same precedence as other config sections), models cache in `.mars/`. **Depends on A1** (pipeline phases for merge insertion) **and A3** (manifest extension for model exports). **Must complete before B1** — rule discovery needs the merged model alias set to classify per-model rules.
 10. **B5-B8: Capability items** — Permission sync, tool distribution, MCP integration, hook distribution (in priority order). Depend on B1 + B3.
 
 ## Constraints
@@ -132,6 +133,6 @@ Phase B requires A1 (typed phases) and A2 (first-class LocalPackage). Phase B it
 - **No runtime dependencies**: Mars is build-time/setup-time. Capability definitions are declarative, not executable.
 - **Single binary**: No dynamic loading. New item kinds and adapters are compiled in.
 - **~5k LOC budget for Phase A**: The refactor should not significantly increase total LOC. Prefer restructuring over adding. Phase B will add net new code but should stay lean.
-- **Model catalog is independent**: Issue #7 implementation proceeds in parallel. The design must accommodate it without blocking on it.
+- **Model catalog ships with everything**: No partial releases — model catalog, pipeline decomposition, and extension model ship together. Model config merge uses the same dependency-tree precedence as other config sections.
 - **Copy, not symlink for targets**: All content materialized to targets via copy (not symlink). Reasons: Windows symlinks need admin/developer mode, git symlink handling is finicky, copy + tmp+rename is simpler for crash safety, no broken links if `.mars/` is rebuilt.
 - **`.mars/` is derived state**: Entirely gitignored, regenerated from mars.toml + mars.lock + sources. Only mars.toml and mars.lock are committed.

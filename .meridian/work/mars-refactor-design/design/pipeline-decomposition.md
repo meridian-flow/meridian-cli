@@ -29,10 +29,15 @@ pub struct LoadedConfig {
     pub _sync_lock: FileLock,  // held for duration
 }
 
-/// Phase 2: Resolved dependency graph.
+/// Phase 2: Resolved dependency graph with merged model aliases.
 pub struct ResolvedState {
     pub loaded: LoadedConfig,
     pub graph: ResolvedGraph,
+    /// Model aliases merged from dependency tree + builtins.
+    /// consumer mars.toml > deps (declaration order) > builtins > fallback IDs.
+    /// Available for rule discovery (per-model rule classification) and
+    /// capability materialization.
+    pub model_aliases: IndexMap<String, ModelAlias>,
 }
 
 /// Phase 3: Desired target state after discovery + filtering.
@@ -117,7 +122,7 @@ Note: `ctx` and `request` are borrowed — they're read-only context that doesn'
 | Current step | New phase function | Notes |
 |---|---|---|
 | Steps 1-4b (lock, config, mutation, merge) | `load_config()` | Config loading + mutation under sync lock |
-| Steps 5-7 (validate targets, load lock, resolve) | `resolve_graph()` | Resolution with options from request |
+| Steps 5-7 (validate targets, load lock, resolve) | `resolve_graph()` | Resolution with options from request. Merges `[models]` from dependency tree + builtins into `ResolvedState.model_aliases`. |
 | Steps 8-11 (target, collisions, rewrites, validation) | `build_target()` | Discovery, filtering, collision detection |
 | Steps 12-13c (diff, plan, _self injection) | `create_plan()` | _self handled inside target building, not here (see A2) |
 | Step 14 (frozen gate) | `check_frozen_gate()` | Standalone check between plan and apply |

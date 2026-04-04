@@ -107,9 +107,9 @@ pub enum RuleCategory {
 }
 ```
 
-The category is determined during discovery by checking:
+The category is determined during discovery by checking (requires both harness IDs from config and merged model aliases from B4):
 - If the file is under `rules/<subdir>/` and `<subdir>` matches a configured harness ID → `Harness`
-- If the file is `rules/<name>.md` and `<name>` matches a model alias from `[models]` config → `Model`
+- If the file is `rules/<name>.md` and `<name>` matches a model alias from the merged `[models]` config (see B4 — merged from dependency tree + builtins during `resolve_graph()`) → `Model`
 - Otherwise → `Shared`
 
 **Materialization:**
@@ -343,15 +343,18 @@ pub struct DiscoveredItem {
 5. After scanning all files, attach collected variants to their base items by matching `base_name`
 6. Variants without a matching base item emit a `Diagnostic::Warning` and are skipped
 
-This requires passing the set of known harness IDs into `discover_source()`:
+This requires passing the set of known harness IDs and model aliases into `discover_source()`:
 
 ```rust
 pub fn discover_source(
     tree_path: &Path,
     fallback_name: Option<&str>,
     harness_ids: &HashSet<String>,  // from settings.targets
+    model_aliases: &HashSet<String>,  // from merged [models] config (B4)
 ) -> Result<(Vec<DiscoveredItem>, Vec<Diagnostic>), MarsError>
 ```
+
+The `model_aliases` parameter comes from `ResolvedState.model_aliases` (merged during `resolve_graph()` per B4). It's used by `DiscoveryPattern::RuleTree` to classify per-model vs. shared rules.
 
 **Resolution in target building**: During `build_target()`, the configured managed targets determine which variants are relevant. For each item:
 
@@ -625,7 +628,7 @@ If target sync fails:
 
 ### Problem
 
-Model alias → harness + model resolution is needed for agent spawning. This is being implemented independently (issue #7) but must integrate cleanly with the mars pipeline and config schema.
+Model alias → harness + model resolution is needed for agent spawning. The existing `ModelAlias` struct only supports pinned model IDs, but real usage requires auto-resolution against a live model catalog — models are released frequently, and hardcoding IDs means manual updates on every release. The model catalog must integrate into the pipeline's config merge system so packages can distribute model aliases with operational descriptions, and the dependency tree's merge precedence applies uniformly.
 
 ### Current State (Already Implemented)
 
@@ -645,28 +648,369 @@ pub struct Config {
 - `read_cache()` / `write_cache()` for cache persistence
 - `resolve_alias()` for alias lookup
 
-### Design: Integration Points
+### Design: ModelAlias with Two Modes
 
-**No changes to Phase A pipeline.** The model catalog is orthogonal to the sync pipeline — it's not an item kind, not discovered from sources, and not diffed/planned/applied. It's a separate artifact that mars manages.
+The current `ModelAlias` only supports pinned model IDs. Extend to support two modes:
 
-**Cache location**: `.mars/models-cache.json` — moved from `.agents/models-cache.json` to align with the new canonical store model. The cache is a mars-managed artifact, not a synced item.
-
-**Refresh lifecycle**: `mars models refresh` fetches live data from models.dev and writes the cache. Meridian triggers this when the cache TTL is stale. Mars doesn't auto-refresh during `mars sync` — the cache is a separate concern.
-
-**Config-level integration**: The `[models]` section in mars.toml defines project-specific model aliases. These are read during `load_config()` and available in `LoadedConfig`. Rule files (B1) reference model aliases by filename convention — `rules/opus.md` matches the `opus` alias.
-
-**Package-provided model aliases**: Packages can ship `[models]` entries in their manifest. During resolution, package-provided aliases are merged into the consumer's model config with consumer aliases taking precedence (same shadow semantics as local packages shadowing dependencies).
+**Pinned** — explicit model ID, no resolution needed:
 
 ```toml
-# In a package's mars.toml
-[models]
-opus = { harness = "claude", model = "claude-opus-4-6", description = "Best for complex reasoning" }
-sonnet = { harness = "claude", model = "claude-sonnet-4-6", description = "Fast and capable" }
+[models.fast]
+harness = 'claude'
+model = 'claude-haiku-4-5'
+description = 'Fast and cheap'
 ```
 
-**Model aliases inform rule discovery**: During B1 rule discovery, the set of model aliases from `[models]` config determines which `rules/*.md` files are per-model rules vs. shared rules. This creates a dependency: rule discovery needs model config to be loaded first (which it is — `load_config()` runs before `build_target()`).
+**Auto-resolve** — pattern matching against the models cache:
 
-**What mars does NOT do**: Mars doesn't route models at runtime. It provides the alias table and cache. Meridian reads these at spawn time.
+```toml
+[models.opus]
+harness = 'claude'
+provider = 'anthropic'
+match = ['opus']
+exclude = ['*-preview']
+description = 'Best reasoning model'
+```
+
+```rust
+/// A model alias — either pinned to a specific model ID or auto-resolved
+/// against the models cache at resolution time.
+pub struct ModelAlias {
+    pub harness: String,
+    pub description: Option<String>,
+    pub spec: ModelSpec,
+}
+
+pub enum ModelSpec {
+    /// Explicit model ID — no resolution needed.
+    Pinned { model: String },
+    /// Pattern-based resolution against models cache.
+    AutoResolve {
+        provider: String,
+        match_patterns: Vec<String>,
+        exclude_patterns: Vec<String>,
+    },
+}
+```
+
+**Serde**: The two modes are distinguished by field presence — `model` field means pinned, `match` field means auto-resolve. Both present is a config validation error.
+
+```rust
+// Deserialization logic (simplified):
+if raw.model.is_some() && raw.match_patterns.is_some() {
+    return Err("model alias cannot have both 'model' and 'match'");
+}
+if let Some(model) = raw.model {
+    ModelSpec::Pinned { model }
+} else if let Some(patterns) = raw.match_patterns {
+    ModelSpec::AutoResolve {
+        provider: raw.provider.unwrap_or_else(|| infer_provider(&raw.harness)),
+        match_patterns: patterns,
+        exclude_patterns: raw.exclude.unwrap_or_default(),
+    }
+} else {
+    return Err("model alias must have either 'model' or 'match'");
+}
+```
+
+### Auto-Resolve Algorithm
+
+Auto-resolution runs against the models cache (`.mars/models-cache.json`):
+
+```rust
+pub fn auto_resolve(
+    spec: &ModelSpec::AutoResolve,
+    cache: &ModelsCache,
+) -> Option<String> {
+    let candidates: Vec<&CachedModel> = cache.models.iter()
+        // 1. Filter by provider
+        .filter(|m| m.provider == spec.provider)
+        // 2. All match patterns must hit (AND)
+        .filter(|m| spec.match_patterns.iter().all(|p| glob_match(p, &m.id)))
+        // 3. No exclude patterns may hit (OR)
+        .filter(|m| !spec.exclude_patterns.iter().any(|p| glob_match(p, &m.id)))
+        // 4. Skip *-latest suffix (synthetic aliases, not real models)
+        .filter(|m| !m.id.ends_with("-latest"))
+        .collect();
+
+    // 5. Sort by newest release_date, then shortest ID (prefer canonical names)
+    candidates.sort_by(|a, b| {
+        b.release_date.cmp(&a.release_date)
+            .then(a.id.len().cmp(&b.id.len()))
+    });
+
+    // 6. Pick first
+    candidates.first().map(|m| m.id.clone())
+}
+```
+
+**Glob matching**: `*` matches any sequence of characters; everything else is literal. This is intentionally simpler than full glob — no `?`, no character classes. Sufficient for model ID patterns.
+
+```rust
+fn glob_match(pattern: &str, text: &str) -> bool {
+    // Simple glob: split on '*', check that all literal segments appear in order.
+    let parts: Vec<&str> = pattern.split('*').collect();
+    // ... standard glob matching
+}
+```
+
+### Builtin Aliases
+
+Mars ships default auto-resolve specs for common model families. These provide working defaults without any `[models]` config — a fresh project can immediately use `opus`, `sonnet`, etc.
+
+```rust
+pub fn builtin_aliases() -> IndexMap<String, ModelAlias> {
+    indexmap! {
+        "opus" => ModelAlias {
+            harness: "claude", description: Some("Strong orchestrator..."),
+            spec: ModelSpec::AutoResolve {
+                provider: "anthropic", match_patterns: vec!["opus"],
+                exclude_patterns: vec![],
+            },
+        },
+        "sonnet" => ModelAlias {
+            harness: "claude", description: Some("Balanced speed and quality"),
+            spec: ModelSpec::AutoResolve {
+                provider: "anthropic", match_patterns: vec!["sonnet"],
+                exclude_patterns: vec![],
+            },
+        },
+        "haiku" => ModelAlias {
+            harness: "claude", description: Some("Fast and cheap"),
+            spec: ModelSpec::AutoResolve {
+                provider: "anthropic", match_patterns: vec!["haiku"],
+                exclude_patterns: vec![],
+            },
+        },
+        "codex" => ModelAlias {
+            harness: "codex", description: Some("OpenAI Codex"),
+            spec: ModelSpec::AutoResolve {
+                provider: "openai", match_patterns: vec!["codex"],
+                exclude_patterns: vec![],
+            },
+        },
+        "gpt" => ModelAlias {
+            harness: "codex", description: Some("OpenAI GPT flagship"),
+            spec: ModelSpec::AutoResolve {
+                provider: "openai", match_patterns: vec!["gpt-5.*"],
+                exclude_patterns: vec!["*-mini", "*-nano", "*-chat-*", "*-turbo"],
+            },
+        },
+        "gemini" => ModelAlias {
+            harness: "gemini", description: Some("Google Gemini Pro"),
+            spec: ModelSpec::AutoResolve {
+                provider: "google", match_patterns: vec!["gemini", "pro"],
+                exclude_patterns: vec!["*-flash", "*-lite"],
+            },
+        },
+    }
+}
+```
+
+**Fallback model IDs**: When the cache is empty (first run, no network), builtins fall back to hardcoded model IDs so aliases still resolve:
+
+```rust
+pub fn fallback_model_ids() -> IndexMap<&'static str, &'static str> {
+    indexmap! {
+        "opus" => "claude-opus-4",
+        "sonnet" => "claude-sonnet-4",
+        "haiku" => "claude-haiku-4",
+        "codex" => "codex-1",
+        "gpt" => "gpt-5.3",
+        "gemini" => "gemini-2.5-pro",
+    }
+}
+```
+
+### Model Config Merge from Dependency Tree
+
+Model aliases merge from the dependency tree using the **same precedence pattern** as permissions, tools, MCP, and rules:
+
+```
+consumer mars.toml > dependencies (in declaration order) > builtins > fallback IDs
+```
+
+This merge happens during `resolve_graph()` (A1 Phase 2), alongside dependency resolution. The resolver walks the dependency tree and collects `[models]` sections from each package manifest:
+
+```rust
+fn merge_model_config(
+    consumer: &IndexMap<String, ModelAlias>,
+    deps: &[ResolvedDep],  // in declaration order
+) -> (IndexMap<String, ModelAlias>, Vec<Diagnostic>) {
+    let mut merged = builtin_aliases();
+    let mut diagnostics = Vec::new();
+
+    // Layer 1: dependencies in reverse declaration order (last declared = lowest priority)
+    for dep in deps.iter().rev() {
+        if let Some(manifest) = &dep.manifest {
+            for (name, alias) in &manifest.models {
+                if merged.contains_key(name) && !is_builtin(name) {
+                    // Two deps at same level define same alias: first declared wins
+                    diagnostics.push(Diagnostic::warning(
+                        "model-alias-conflict",
+                        format!(
+                            "model alias `{name}` defined by both `{}` and prior dep — using first declared",
+                            dep.name
+                        ),
+                    ));
+                    continue;
+                }
+                merged.insert(name.clone(), alias.clone());
+            }
+        }
+    }
+
+    // Layer 2: consumer overrides everything
+    for (name, alias) in consumer {
+        merged.insert(name.clone(), alias.clone());
+    }
+
+    (merged, diagnostics)
+}
+```
+
+The merged model aliases are stored in `ResolvedState` and available to all subsequent pipeline phases:
+
+```rust
+pub struct ResolvedState {
+    pub loaded: LoadedConfig,
+    pub graph: ResolvedGraph,
+    pub model_aliases: IndexMap<String, ModelAlias>,  // merged from tree + builtins
+}
+```
+
+**Why merge in resolve_graph, not load_config?** Because dependency manifests are loaded during resolution — `load_config()` only reads the consumer's own config. The dependency tree isn't available until resolution runs.
+
+### Manifest Extension for Model Exports
+
+Packages export `[models]` alongside `[dependencies]` in their manifest:
+
+```rust
+pub struct Manifest {
+    pub package: PackageMetadata,
+    pub dependencies: IndexMap<String, ManifestDep>,
+    pub models: IndexMap<String, ModelAlias>,  // NEW
+}
+```
+
+`load_manifest()` extracts `[models]` from the package's mars.toml. Packages distribute model aliases with operational descriptions — the descriptions are the real value:
+
+```toml
+# In a package's mars.toml (e.g., meridian-base)
+[models.opus]
+harness = 'claude'
+provider = 'anthropic'
+match = ['opus']
+description = 'Strong orchestrator. Creative but can hallucinate. Best for architecture and design.'
+
+[models.sonnet]
+harness = 'claude'
+provider = 'anthropic'
+match = ['sonnet']
+description = 'Balanced speed and quality. Good default for most tasks.'
+
+[models.haiku]
+harness = 'claude'
+provider = 'anthropic'
+match = ['haiku']
+description = 'Fast and cheap. Use for research, exploration, bulk work.'
+```
+
+Consumer overrides any field — harness, spec, description. A consumer can pin an alias that a package defined as auto-resolve, or change the description to match their operational context.
+
+### Integration with Rule Discovery (B1)
+
+Model aliases inform rule discovery: `rules/opus.md` is a per-model rule only if `opus` is a known model alias. The merged model alias set (from `ResolvedState.model_aliases`) is passed to `discover_source()` alongside the harness ID set:
+
+```rust
+pub fn discover_source(
+    tree_path: &Path,
+    fallback_name: Option<&str>,
+    harness_ids: &HashSet<String>,
+    model_aliases: &HashSet<String>,  // from merged [models] config
+) -> Result<(Vec<DiscoveredItem>, Vec<Diagnostic>), MarsError>
+```
+
+Rule category determination (from B1) uses both sets:
+- `rules/<subdir>/` where `<subdir>` matches a harness ID → `RuleCategory::Harness`
+- `rules/<name>.md` where `<name>` matches a model alias → `RuleCategory::Model`
+- Otherwise → `RuleCategory::Shared`
+
+This creates an explicit dependency: **B4 model config merge must complete before B1 rule discovery runs.** In the pipeline, this is naturally satisfied because `resolve_graph()` (which merges model config) runs before `build_target()` (which runs discovery).
+
+### Integration with CapabilitySet
+
+Model aliases are included in the `CapabilitySet` so runtime adapters can reference them when materializing configs:
+
+```rust
+pub struct CapabilitySet {
+    pub permissions: Vec<PermissionPolicy>,
+    pub tools: Vec<ToolDefinition>,
+    pub mcp_servers: Vec<McpServerConfig>,
+    pub hooks: Vec<HookDefinition>,
+    pub model_aliases: IndexMap<String, ModelAlias>,  // from merged config
+}
+```
+
+This allows adapters to emit model configuration into target-native formats. For example, the Claude adapter could write model alias information to `.claude/settings.json` if Claude Code supports reading it.
+
+### Cache Location and Lifecycle
+
+**Cache location**: `.mars/models-cache.json` — gitignored as part of `.mars/`. The cache is a network-fetched artifact, not a package artifact.
+
+**Refresh lifecycle**: `mars models refresh` fetches live data from models.dev and writes the cache. Meridian triggers this when the cache TTL is stale. Mars does NOT auto-refresh during `mars sync` — the cache is a separate concern with its own staleness policy.
+
+**Cache schema**:
+
+```rust
+pub struct ModelsCache {
+    pub fetched_at: DateTime<Utc>,
+    pub models: Vec<CachedModel>,
+}
+
+pub struct CachedModel {
+    pub id: String,
+    pub provider: String,
+    pub release_date: Option<NaiveDate>,
+    pub description: Option<String>,
+    // ... cost, limits, capabilities (already implemented)
+}
+```
+
+### CLI Commands
+
+All model commands operate on the merged alias set (consumer + deps + builtins) and the local cache:
+
+- **`mars models refresh`** — fetch from models.dev API, write cache to `.mars/models-cache.json`
+- **`mars models list`** — display cached models with optional filters (`--provider`, `--harness`)
+- **`mars models resolve NAME`** — resolve alias against merged config + builtins + cache. Shows resolution chain: which layer provided the alias, what pattern matched, what model ID was resolved.
+- **`mars models alias`** — list all aliases: source (consumer/dep/builtin), spec (pinned/auto-resolve), resolved model ID, description
+- **`mars models alias NAME --harness H --match P [--exclude P] [--provider P] [--model M] [--description D]`** — add/update alias in consumer mars.toml
+- **`mars models alias --remove NAME`** — remove alias from consumer mars.toml
+
+All commands support `--json` for structured output.
+
+**`mars models resolve` output example:**
+
+```json
+{
+  "alias": "opus",
+  "source": "builtin",
+  "spec": {
+    "type": "auto_resolve",
+    "provider": "anthropic",
+    "match": ["opus"],
+    "exclude": []
+  },
+  "resolved_model": "claude-opus-4-6-20260401",
+  "harness": "claude",
+  "description": "Strong orchestrator..."
+}
+```
+
+### What Mars Does NOT Do
+
+Mars doesn't route models at runtime. It provides the alias table (merged from dependency tree + builtins) and the cache (fetched from models.dev). Meridian reads these at spawn time to resolve `--model opus` to an actual model ID and harness.
 
 ---
 

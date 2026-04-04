@@ -120,13 +120,13 @@
 
 **Reasoning**: The original design had `.agents/` as the managed root and other targets derived from it. This is wrong because: if a harness reads `.agents/` directly (e.g., Codex), mars can't control what it sees per-harness. You can't have content that's "shared between Claude and Cursor but not Codex" when `.agents/` is the universal source. `.mars/content/` as the canonical store, with all targets as managed outputs, solves this cleanly. Copy (not symlink) for targets because: Windows symlinks need admin mode, git symlinks are finicky, copy + tmp+rename is simpler for crash safety, and variant-resolved content can't be symlinked (each target may get different content). **Supersedes original D15.**
 
-## D16: Model catalog is pipeline-adjacent, not a sync item
+## D16: Model catalog is pipeline-integrated config merge, not a sync item (REVISED)
 
-**Choice**: The `[models]` config section and models cache are managed as standalone artifacts, not as items in the sync pipeline. `mars models refresh` is a separate command. The pipeline carries model config through `LoadedConfig` but doesn't discover/diff/apply models.
+**Choice**: Model aliases are configuration that merges from the dependency tree during `resolve_graph()`, using the same precedence pattern as other config sections (consumer > deps > builtins). Models are NOT item kinds — they don't go through discover/diff/plan/apply. The cache is a separate network-fetched artifact managed by `mars models refresh`.
 
-**Rejected**: Making model aliases an item kind that packages "install."
+**Rejected**: (a) Making model aliases an item kind that packages "install." (b) Keeping model catalog independent from the pipeline (original D16).
 
-**Reasoning**: Model aliases are configuration, not content. They don't come from a source tree directory, don't have checksums, and don't need diff/plan/apply semantics. They're key-value mappings in mars.toml. The cache is a network-fetched artifact, not a package artifact. Forcing models into the item pipeline would require inventing fake discovery/diff/apply semantics for what's fundamentally a config merge. Instead, model aliases merge at config load time (package defaults + consumer overrides), and the cache is a standalone file that `mars models refresh` manages. Cache moves to `.mars/models-cache.json`.
+**Reasoning**: Model aliases are configuration, not content — they don't have checksums and don't need diff/plan/apply semantics. But they're NOT independent of the pipeline either: rule discovery (B1) needs the merged model alias set to classify per-model rules, and packages distribute `[models]` sections that must merge with the same precedence as other config. The merge happens in `resolve_graph()` because that's where dependency manifests are loaded. Cache stays at `.mars/models-cache.json`. **Supersedes original D16 which treated models as fully independent.**
 
 ## D17: Variant naming convention uses `<name>.<harness>.<ext>` in source
 
@@ -232,10 +232,58 @@
 
 **Reasoning**: `.mars/content/` is fully derived from `mars.toml` + `mars.lock` + source repos — same as `node_modules` is derived from `package.json` + `package-lock.json`. Committing it would duplicate the lock file's information in actual files, create merge conflicts on every sync, and bloat the repo. Keeping `mars.lock` at project root (not inside `.mars/`) makes it visible alongside `mars.toml` and avoids selective gitignore complexity. Models cache is network-fetched ephemeral data that shouldn't be committed. The clean model: `mars.toml` and `mars.lock` are the committed authority; `mars sync` regenerates everything else.
 
-## D30: settings.targets controls which targets exist; .agents/ is default when targets is omitted
+## D30: settings.targets controls which targets exist; .agents/ is default when targets is omitted (unchanged)
 
 **Choice**: When `settings.targets` is not specified in mars.toml, `.agents/` is the sole managed target (backwards compatibility). When `targets` is specified, only the listed directories are managed. To include `.agents/`, list it explicitly.
 
 **Rejected**: (a) Always creating `.agents/` regardless of config. (b) Requiring `targets` to be specified.
 
 **Reasoning**: Existing projects without `targets` config must keep working — they get `.agents/` as the sole target, which matches current behavior exactly. New projects adopting multi-target can list exactly which targets they want. Making `.agents/` always present would force projects that only use `.claude/` to also have a redundant `.agents/` directory. The opt-in model is cleaner and matches the progressive disclosure principle: simple projects don't need to know about targets at all.
+
+## D31: ModelAlias supports two modes — pinned and auto-resolve
+
+**Choice**: `ModelAlias` has a `ModelSpec` enum with two variants: `Pinned { model: String }` for explicit model IDs, and `AutoResolve { provider, match_patterns, exclude_patterns }` for pattern-based resolution against the models cache. Distinguished by field presence in TOML — `model` field means pinned, `match` field means auto-resolve.
+
+**Rejected**: (a) Single mode with optional fields (ambiguous semantics). (b) Separate `[models.pinned]` and `[models.auto]` config sections (verbose, unintuitive). (c) Always auto-resolve with `model` as a filter pattern (overcomplicates the simple case).
+
+**Reasoning**: Pinned aliases are the simple, predictable case — "opus always means claude-opus-4-6." Auto-resolve aliases are the maintainable case — "opus means the newest opus model." Users need both: pinned for stability in production, auto-resolve for development where staying current matters. Making them a single struct with an enum spec keeps the config surface small while the Rust types make the distinction explicit. Both modes deserialize from the same `[models.NAME]` table, so the config is uniform.
+
+## D32: Builtin aliases are hardcoded auto-resolve specs, overridable
+
+**Choice**: Mars ships default auto-resolve specs for common model families (opus, sonnet, haiku, codex, gpt, gemini). These are the lowest-priority layer — any package or consumer definition overrides them. When the cache is empty, builtins fall back to hardcoded model IDs.
+
+**Rejected**: (a) No builtins — require every project to define all aliases. (b) Builtins from a shipped config file (adds a file to manage, versioning complexity). (c) Builtins as highest priority (consumer can't override).
+
+**Reasoning**: A fresh project should be able to use `--model opus` without any config. Builtins provide this zero-config experience. Making them lowest priority ensures packages and consumers always win — builtins are sensible defaults, not opinions. The fallback IDs for empty cache prevent first-run failures when there's no network — the alias resolves to a reasonable model ID even without a cache, and the next `mars models refresh` improves the resolution.
+
+## D33: Model config merges from dependency tree with same precedence as other config
+
+**Choice**: Model aliases merge during `resolve_graph()` with precedence: consumer mars.toml > dependencies (in declaration order) > builtins > fallback IDs. When two deps at the same level define the same alias, first declared wins with a diagnostic warning.
+
+**Rejected**: (a) Consumer-only model config (packages can't distribute defaults). (b) Separate merge logic from other config (inconsistent mental model). (c) Last-declared wins for same-level conflicts (less predictable — the dependency you listed first should have higher priority).
+
+**Reasoning**: Model aliases follow the exact same merge pattern as permissions, tools, MCP, and rules — this is the design's central config merge model. Making models a special case would be a false distinction. First-declared-wins for same-level deps matches TOML declaration order, which is the only visible ordering signal the consumer has. The merge happens in `resolve_graph()` (not `load_config()`) because dependency manifests aren't available until resolution.
+
+## D34: Auto-resolve uses simple glob matching — * only
+
+**Choice**: Glob patterns use `*` as the only wildcard (matches any character sequence). Everything else is literal. Match patterns are AND (all must hit); exclude patterns are OR (any hit excludes).
+
+**Rejected**: (a) Full glob with `?`, character classes, etc. (b) Regex. (c) Substring matching without wildcards.
+
+**Reasoning**: Model IDs are structured strings like `claude-opus-4-6-20260401`. The only pattern users need is "contains this substring" (`*opus*`) or "starts with this" (`gpt-5.*`). Full glob or regex adds complexity without value — nobody needs `claude-opus-4-[56]` patterns for model selection. AND semantics for match patterns lets users intersect filters naturally (`['gemini', 'pro']` = models matching both). OR semantics for excludes lets users list multiple exclusion patterns (`['*-mini', '*-nano']`). This matches how users think about model filtering.
+
+## D35: B4 must complete before B1 — model aliases inform rule discovery
+
+**Choice**: Phase ordering changed: B4 (model catalog) runs before B1 (generalized item kinds + rules). Rule discovery depends on the merged model alias set to classify per-model vs. shared rules.
+
+**Rejected**: (a) Keeping B4 independent/parallel with B1 (original ordering). (b) Hardcoding known model names for rule classification instead of using config.
+
+**Reasoning**: `rules/opus.md` is a per-model rule only if `opus` is a known model alias. Without the merged alias set from B4, rule discovery can't distinguish `rules/opus.md` (per-model) from `rules/general.md` (shared). The dependency is natural in the pipeline: `resolve_graph()` merges model config, `build_target()` runs discovery with the merged aliases — the pipeline ordering already satisfies this. Hardcoding model names would break the extensibility model — packages can define arbitrary aliases.
+
+## D36: Manifest exports [models] alongside [dependencies]
+
+**Choice**: `Manifest` struct extended with `models: IndexMap<String, ModelAlias>`. `load_manifest()` extracts `[models]` from package mars.toml. Packages distribute model aliases with operational descriptions.
+
+**Rejected**: (a) Models only in consumer config (packages can't share operational knowledge). (b) Separate model manifest file.
+
+**Reasoning**: The real value of package-distributed model aliases is the descriptions — "opus: strong orchestrator, creative but can hallucinate, best for architecture." This operational knowledge belongs with the package that uses those models in its agent profiles. Consumer overrides any field, so packages provide defaults that the consumer can customize. Extending the existing `Manifest` struct keeps the package format unified.
