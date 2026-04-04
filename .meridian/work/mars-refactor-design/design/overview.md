@@ -65,11 +65,11 @@ Recorded in [decisions.md](../decisions.md) as they were made during design.
 
 1. **A1: Typed pipeline phases** — decompose `sync::execute` into explicit phase functions with handoff structs. This is the foundation everything else touches.
 2. **A2: First-class LocalPackage** — make `_self` a typed `SourceOrigin::Local`, integrate into discovery/diff/plan instead of post-hoc injection. Depends on A1 (pipeline decomposition makes this clean).
-3. **A3: DependencyEntry split** — separate `InstallDep` from `ManifestDep`, fail loudly on unsupported manifest shapes. Can parallel with A2.
+3. **A3: DependencyEntry split** — separate `InstallDep` from `ManifestDep`, warn on unsupported manifest shapes. **Independent of A1** — lives at the config/manifest boundary and resolver. Can start immediately or parallel with A1/A2.
 4. **A4: Shared reconciliation** — extract reconciliation layer from sync apply and link. Can parallel with A2/A3.
 5. **A5: Structured diagnostics** — return `Diagnostic` values from library layers. Can run last (lowest risk, widest touch).
 
-Phase B items can start once A1 is done:
+Phase B items require both A1 (typed phases for the new pipeline insertion point) and A2 (first-class LocalPackage so new kinds are discovered for local packages automatically):
 
 6. **B1: Generalized item kinds** — extensible `ItemKind`, per-kind discovery, per-kind materializers
 7. **B2: Permission sync** — declarative permission policies materialized into runtime configs

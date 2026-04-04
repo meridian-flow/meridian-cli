@@ -2,7 +2,7 @@
 
 Design the extension points for capability packages: permissions, tools, MCP server registrations, hooks, and generalized item kinds.
 
-See [overview](overview.md) for context. This design depends on [pipeline decomposition](pipeline-decomposition.md) (Phase A) being complete — specifically A1 (typed phases) and A2 (first-class LocalPackage).
+See [overview](overview.md) for context. This design depends on [pipeline decomposition](pipeline-decomposition.md) Phase A being complete — specifically A1 (typed phases) for the new pipeline insertion point, and A2 (first-class LocalPackage) for local packages to discover new item kinds automatically.
 
 ## B1: Generalized Item Kinds
 
@@ -54,12 +54,10 @@ pub struct DiscoveryConvention {
 }
 
 pub enum DiscoveryPattern {
-    /// Each *.md file is one item (e.g. agents/*.md).
+    /// Each *.<ext> file is one item (e.g. agents/*.md, permissions/*.toml).
     FlatFiles { extension: &'static str },
     /// Each subdirectory containing a marker file is one item (e.g. skills/*/SKILL.md).
     MarkerDirs { marker: &'static str },
-    /// Each *.toml file is one item (e.g. permissions/*.toml).
-    FlatFiles { extension: &'static str },  // reuse for TOML-based items
 }
 
 /// Built-in discovery conventions.
@@ -198,6 +196,8 @@ This allows consumers to install only specific kinds from a source:
 url = "https://github.com/org/base"
 include_kinds = ["agent", "skill"]  # skip permissions, tools, MCP
 ```
+
+**Filter precedence**: Kind filters apply first, then item-level filters apply within the surviving kinds. Example: `include_kinds = ["agent", "permission"]` + `only_agents = true` → error (contradictory: `only_agents` implies "agents only" but `include_kinds` includes permissions). Conflicting filters fail at config validation time with a clear error rather than silently resolving with surprising behavior.
 
 ---
 
@@ -472,42 +472,40 @@ Each link target (`.claude/`, `.cursor/`, etc.) needs different materialization 
 Runtime adapters handle per-runtime materialization:
 
 ```rust
+/// A capability bundle ready for materialization into a runtime config.
+pub struct CapabilitySet {
+    pub permissions: Vec<PermissionPolicy>,
+    pub tools: Vec<ToolDefinition>,
+    pub mcp_servers: Vec<McpServerConfig>,
+    pub hooks: Vec<HookDefinition>,
+}
+
 /// A runtime adapter knows how to materialize capabilities for a specific tool.
+///
+/// Single method avoids ISP violation — adapters that don't support a capability
+/// kind simply skip those items. The CapabilitySet is the aggregate of all
+/// capability items for this runtime, and the adapter handles them in one pass.
+/// This also solves the coordination problem: when permissions and MCP servers
+/// both write to settings.json, the adapter handles the merge atomically.
 pub trait RuntimeAdapter {
     /// Which tool directory this adapter handles (e.g. ".claude").
     fn target_name(&self) -> &str;
     
-    /// Materialize permission policies into this runtime's config.
-    fn materialize_permissions(
+    /// Materialize all capabilities into this runtime's config directory.
+    /// Returns diagnostics for unsupported capabilities or conflicts.
+    fn materialize(
         &self,
-        policies: &[PermissionPolicy],
-        target_dir: &Path,
-    ) -> Result<Vec<Diagnostic>, MarsError>;
-    
-    /// Materialize MCP server configs into this runtime's config.
-    fn materialize_mcp_servers(
-        &self,
-        servers: &[McpServerConfig],
-        target_dir: &Path,
-    ) -> Result<Vec<Diagnostic>, MarsError>;
-    
-    /// Materialize tool definitions into this runtime's config.
-    fn materialize_tools(
-        &self,
-        tools: &[ToolDefinition],
-        target_dir: &Path,
-    ) -> Result<Vec<Diagnostic>, MarsError>;
-    
-    /// Materialize hook registrations into this runtime's config.
-    fn materialize_hooks(
-        &self,
-        hooks: &[HookDefinition],
+        capabilities: &CapabilitySet,
         target_dir: &Path,
     ) -> Result<Vec<Diagnostic>, MarsError>;
 }
 ```
 
-**Built-in adapters**: `ClaudeAdapter`, `CursorAdapter`, `GenericAdapter` (fallback — just symlinks content, skips capabilities).
+The single `materialize` method receives the full `CapabilitySet`, which solves two problems flagged in review:
+1. **ISP**: Adapters don't need to implement separate methods for each capability type — they iterate over what they support and emit diagnostics for what they don't
+2. **Config file coordination**: When permissions, MCP, and tools all write to `settings.json`, the adapter reads the file once, merges all capability types, and writes atomically
+
+**Built-in adapters**: `ClaudeAdapter`, `CursorAdapter`, `GenericAdapter` (fallback — just symlinks content, emits "unsupported capability" diagnostics for everything else).
 
 **Registration**: Adapters are selected by link target name in `mars.toml`:
 
@@ -544,6 +542,26 @@ pub fn execute(ctx: &MarsContext, request: &SyncRequest) -> Result<SyncReport, M
 ```
 
 Content items (agents, skills) are still handled by `apply_plan` — they're copied/symlinked to the managed root. Capability items (permissions, tools, MCP, hooks) are parsed from the managed root and materialized into runtime configs by the appropriate adapter.
+
+### Failure Semantics and Crash Safety
+
+Capability materialization happens **after** content apply and **before** lock write. This ordering is deliberate:
+
+1. **Content is applied first** — agents/skills are in the managed root
+2. **Capabilities are materialized** — runtime configs are updated
+3. **Lock is written** — records what was installed
+
+If capability materialization fails:
+- **Content is already applied** — this is fine, the managed root is in a consistent state
+- **Lock is NOT written** — the next `mars sync` will re-run the full pipeline, detecting that content is up-to-date (skip) and re-attempting capability materialization
+- **Runtime configs may be partially updated** — each adapter must handle its own atomicity (read config → merge → atomic write). If an adapter crashes mid-write, the next sync repairs it.
+
+This matches the crash-only design principle: there is no rollback. Re-running `mars sync` after a crash converges to the correct state because:
+- Content that's already installed will diff as `Unchanged` (skip)
+- Capabilities will be re-materialized from the managed root content
+- The lock will finally be written when everything succeeds
+
+**Error handling**: Capability materialization errors are **non-fatal by default** — they produce diagnostics and `mars sync` reports them, but does not fail the sync. Content sync is the primary value; capability sync is additive. Users can opt into strict mode with `--strict-capabilities` if they want materialization failures to be fatal.
 
 ### Link Integration
 

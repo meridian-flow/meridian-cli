@@ -56,23 +56,23 @@ pub struct AppliedState {
 }
 ```
 
-The `execute()` function becomes an orchestrator that calls phase functions:
+The `execute()` function becomes an orchestrator that calls phase functions. **Phase functions consume prior state by value** (moved, not borrowed) — this is what makes the nesting work without cloning or lifetimes:
 
 ```rust
 pub fn execute(ctx: &MarsContext, request: &SyncRequest) -> Result<SyncReport, MarsError> {
     validate_request(request)?;
     
     let loaded = load_config(ctx, request)?;
-    let resolved = resolve_graph(ctx, &loaded, request)?;
-    let targeted = build_target(ctx, &resolved, request)?;
-    let planned = create_plan(ctx, &targeted, request)?;
+    let resolved = resolve_graph(ctx, loaded, request)?;       // loaded moved in
+    let targeted = build_target(ctx, resolved, request)?;      // resolved moved in
+    let planned = create_plan(ctx, targeted, request)?;        // targeted moved in
     
     if request.options.frozen {
-        check_frozen_gate(&planned)?;
+        check_frozen_gate(&planned)?;  // borrow is fine for read-only check
     }
     
-    let applied = apply_plan(ctx, &planned, request)?;
-    let report = finalize(ctx, &applied, request)?;
+    let applied = apply_plan(ctx, planned, request)?;          // planned moved in
+    let report = finalize(ctx, applied, request)?;             // applied moved in
     
     Ok(report)
 }
@@ -82,19 +82,24 @@ Each phase function is independently testable. Extension points insert as new ph
 
 ```rust
 // Future: after apply_plan, before finalize
-let materialized = materialize_capabilities(ctx, &applied)?;
+let materialized = materialize_capabilities(ctx, applied)?;
+let report = finalize(ctx, materialized, request)?;
 ```
 
 ### Phase Function Signatures
 
+All phase functions **consume** the prior phase state by value. This matches the "moved, not cloned" nesting model — `LoadedConfig` is moved into `ResolvedState` when `resolve_graph` returns, not borrowed.
+
 ```rust
 fn load_config(ctx: &MarsContext, request: &SyncRequest) -> Result<LoadedConfig, MarsError>;
-fn resolve_graph(ctx: &MarsContext, loaded: &LoadedConfig, request: &SyncRequest) -> Result<ResolvedState, MarsError>;
-fn build_target(ctx: &MarsContext, resolved: &ResolvedState, request: &SyncRequest) -> Result<TargetedState, MarsError>;
-fn create_plan(ctx: &MarsContext, targeted: &TargetedState, request: &SyncRequest) -> Result<PlannedState, MarsError>;
-fn apply_plan(ctx: &MarsContext, planned: &PlannedState, request: &SyncRequest) -> Result<AppliedState, MarsError>;
-fn finalize(ctx: &MarsContext, applied: &AppliedState, request: &SyncRequest) -> Result<SyncReport, MarsError>;
+fn resolve_graph(ctx: &MarsContext, loaded: LoadedConfig, request: &SyncRequest) -> Result<ResolvedState, MarsError>;
+fn build_target(ctx: &MarsContext, resolved: ResolvedState, request: &SyncRequest) -> Result<TargetedState, MarsError>;
+fn create_plan(ctx: &MarsContext, targeted: TargetedState, request: &SyncRequest) -> Result<PlannedState, MarsError>;
+fn apply_plan(ctx: &MarsContext, planned: PlannedState, request: &SyncRequest) -> Result<AppliedState, MarsError>;
+fn finalize(ctx: &MarsContext, applied: AppliedState, request: &SyncRequest) -> Result<SyncReport, MarsError>;
 ```
+
+Note: `ctx` and `request` are borrowed — they're read-only context that doesn't participate in phase ownership transfer.
 
 ### What Moves Where
 
@@ -163,26 +168,50 @@ impl Serialize for SourceOrigin {
 
 **Local items participate in target building**
 
-Instead of `inject_self_items` mutating the plan post-hoc, local items are discovered during `build_target()` and included in `TargetState`:
+Instead of `inject_self_items` mutating the plan post-hoc, the project root is modeled as a synthetic source that goes through the same discovery pipeline as every dependency:
 
 ```rust
-fn build_target(ctx: &MarsContext, resolved: &ResolvedState, request: &SyncRequest) -> Result<TargetedState, MarsError> {
+fn build_target(ctx: &MarsContext, resolved: ResolvedState, request: &SyncRequest) -> Result<TargetedState, MarsError> {
     let mut target = build_target_from_graph(&resolved.graph, &resolved.loaded.effective)?;
     
-    // Local package items are added to target state here, not after plan creation
+    // Local package: treat project root as a source and run it through
+    // the same discover → filter → target pipeline as dependency sources.
     if resolved.loaded.config.package.is_some() {
-        let local_items = discover_local_items(&ctx.project_root)?;
-        integrate_local_items(&mut target, &local_items, &resolved.loaded.old_lock)?;
+        let local_items = discover_source(&ctx.project_root, Some("_self"))?;
+        // Filter local items the same way as dependency items
+        // (respects the same DiscoveryConvention registry from Phase B)
+        for item in local_items {
+            let target_item = TargetItem {
+                id: item.id,
+                origin: SourceOrigin::LocalPackage,
+                materialization: Materialization::Symlink {
+                    source_abs: ctx.project_root.join(&item.source_path),
+                },
+                // ... other fields
+            };
+            // Shadow check: local items win over dependency items
+            if let Some(existing) = target.items.get(&target_item.dest_path) {
+                collector.warn("shadow", format!(
+                    "local {} `{}` shadows dependency `{}` item",
+                    item.id.kind, item.id.name, existing.origin
+                ));
+                target.items.shift_remove(&target_item.dest_path);
+            }
+            target.items.insert(target_item.dest_path.clone(), target_item);
+        }
     }
     
     // ... collision detection, validation, etc.
 }
 ```
 
-`integrate_local_items` handles:
-- Shadow detection (local items shadow external items, with warning)
-- Unmanaged collision avoidance
-- Adding local items to `TargetState` with `SourceOrigin::LocalPackage`
+**Key change from review feedback**: local packages use the *same* `discover_source()` function as dependency sources. This means when Phase B adds new item kinds with new `DiscoveryConvention` entries, local packages automatically discover them too — no separate `discover_local_items` to update.
+
+Only two things remain local-specific:
+1. **Materialization strategy** — local items use `Symlink` instead of `Copy`
+2. **Shadow precedence** — local items always win over dependency items (with warning)
+
+The shadow check and unmanaged collision avoidance remain in `build_target`, but they operate on the same `TargetItem` type as dependency items.
 
 **TargetItem changes**
 
@@ -280,13 +309,36 @@ pub fn load_manifest(source_root: &Path) -> Result<Option<Manifest>, MarsError> 
 }
 ```
 
-**Breaking change**: Path-only deps in a manifest now warn (or error) instead of silently vanishing. This is a correctness improvement — if a package author writes a path dep in their manifest, they need to know it won't propagate to consumers.
+**Policy for path-only manifest deps**: Path-only deps in a manifest are filtered out during `load_manifest()` and a structured `Diagnostic::Warning` is emitted (not an error). This matches the current runtime behavior (resolver silently skips them) but makes the filtering explicit and visible:
+
+```rust
+pub fn load_manifest(source_root: &Path) -> Result<(Option<Manifest>, Vec<Diagnostic>), MarsError> {
+    // ...
+    let mut diagnostics = Vec::new();
+    let deps: IndexMap<String, ManifestDep> = parsed.dependencies
+        .into_iter()
+        .filter_map(|(name, entry)| {
+            match entry.url {
+                Some(url) => Some((name.to_string(), ManifestDep { url, version: entry.version })),
+                None => {
+                    diagnostics.push(Diagnostic::warning(
+                        "manifest-path-dep",
+                        format!("manifest dependency `{name}` has no URL and will not propagate to consumers"),
+                    ));
+                    None
+                }
+            }
+        })
+        .collect();
+    // ...
+}
+```
 
 **Serde compatibility**: Both `InstallDep` and `ManifestDep` deserialize from the same TOML format as the current `DependencyEntry`. The split is internal — the on-disk format doesn't change.
 
 ```rust
 // mars.toml [dependencies] section deserializes as InstallDep
-// Manifest extraction converts InstallDep → ManifestDep (filtering)
+// Manifest extraction converts InstallDep → ManifestDep (warning + filtering)
 ```
 
 ---
@@ -305,7 +357,32 @@ This duplication will drift on atomicity guarantees, diagnostics, force semantic
 
 ### Design
 
-Extract a shared `reconcile` module that both sync apply and link use:
+Extract a shared `reconcile` module with two layers: low-level atomic filesystem operations (used by both sync and link) and higher-level item-level reconciliation (used by sync apply).
+
+### Layer 1: Atomic Filesystem Operations
+
+```rust
+// src/reconcile/fs_ops.rs
+
+/// Atomic file write via tmp+rename.
+pub fn atomic_write_file(dest: &Path, content: &[u8]) -> Result<(), MarsError>;
+
+/// Atomic directory install: copy tree to tmp dir, then rename.
+pub fn atomic_install_dir(source: &Path, dest: &Path) -> Result<(), MarsError>;
+
+/// Create a symlink atomically (remove existing + create).
+pub fn atomic_symlink(link_path: &Path, target: &Path) -> Result<(), MarsError>;
+
+/// Remove a file or directory tree safely.
+pub fn safe_remove(path: &Path) -> Result<(), MarsError>;
+
+/// Compute hash of file or directory for comparison.
+pub fn content_hash(path: &Path, kind: ItemKind) -> Result<ContentHash, MarsError>;
+```
+
+These are the primitives that both sync apply and link need. Currently duplicated across `sync/apply.rs`, `link.rs`, and `fs/mod.rs`.
+
+### Layer 2: Item-Level Reconciliation
 
 ```rust
 // src/reconcile/mod.rs
@@ -314,14 +391,17 @@ Extract a shared `reconcile` module that both sync apply and link use:
 pub enum DestinationState {
     Empty,
     File { hash: ContentHash },
-    Directory,
+    Directory { hash: ContentHash },  // tree hash for skills/hooks
     Symlink { target: PathBuf },
+    ForeignSymlink { target: PathBuf },  // symlink to unexpected location
 }
 
 /// What we want at a destination path.
 pub enum DesiredState {
-    /// Copy content from source to destination.
-    FileContent { source: PathBuf, hash: ContentHash },
+    /// Copy a single file from source to destination.
+    CopyFile { source: PathBuf, hash: ContentHash },
+    /// Copy a directory tree from source to destination.
+    CopyDir { source: PathBuf, hash: ContentHash },
     /// Create symlink to target.
     Symlink { target: PathBuf },
     /// Remove whatever is there.
@@ -348,11 +428,13 @@ pub fn reconcile_one(
 pub fn scan_destination(path: &Path) -> DestinationState;
 ```
 
-**Sync apply** uses `reconcile_one` for each planned action. The existing `sync/apply.rs` becomes a thin layer that translates `PlannedAction` → `DesiredState` and calls into reconcile.
+**Sync apply** uses `reconcile_one` for each planned action. The existing `sync/apply.rs` becomes a thin layer that translates `PlannedAction` → `DesiredState` (using `CopyFile` for agents, `CopyDir` for skills, `Symlink` for local items) and calls into reconcile.
 
-**Link** uses `scan_destination` + `reconcile_one` for its scan-and-link flow. The existing `link.rs::ScanResult` maps to `DestinationState`, and `merge_and_link` becomes a sequence of `reconcile_one` calls.
+**Link** uses the Layer 1 atomic fs ops directly. Link's "merge unique files into managed root" algorithm is genuinely different from sync's item-level reconciliation — it scans a target directory for user files, moves non-conflicting files into the managed root, and replaces the directory with a symlink. This remains link-specific logic, but it uses the shared atomic primitives (`atomic_symlink`, `safe_remove`, `content_hash`) instead of duplicating them.
 
-**Atomicity lives in one place**. The `reconcile_one` function handles tmp+rename for file writes, proper cleanup ordering, and cross-filesystem copy. Bug fixes to atomicity propagate to both sync and link.
+**What's shared vs. link-specific:**
+- **Shared**: atomic fs ops, content hashing, destination scanning
+- **Link-specific**: the merge-unique-files-then-symlink algorithm (this is a one-time reconciliation for adopting an existing directory, not a per-item operation)
 
 ### Migration
 
@@ -411,9 +493,21 @@ impl DiagnosticCollector {
 }
 ```
 
-The collector is passed through phase functions. The CLI layer renders diagnostics to stderr (human mode) or includes them in JSON output (json mode).
+The collector is threaded through phase functions and accumulated into `SyncReport`:
 
-**Touch points**: Replace each `eprintln!("warning: ...")` with `collector.warn(...)`. Approximately 8-10 call sites across config, sync, self_package, and resolve.
+```rust
+pub struct SyncReport {
+    pub applied: ApplyResult,
+    pub pruned: Vec<ActionOutcome>,
+    pub diagnostics: Vec<Diagnostic>,        // replaces warnings: Vec<ValidationWarning>
+    pub dependency_changes: Vec<DependencyUpsertChange>,
+    pub dry_run: bool,
+}
+```
+
+The CLI layer is the **only** place that renders diagnostics — to stderr in human mode, or as a `"diagnostics"` array in JSON output. No library code calls `eprintln!` directly.
+
+**Touch points**: Replace each `eprintln!("warning: ...")` with `collector.warn(...)`. Approximately 8-10 call sites across config, sync, self_package, and resolve. The existing `warnings: Vec<ValidationWarning>` in `SyncReport` merges into the new `diagnostics` field.
 
 ### Testing
 

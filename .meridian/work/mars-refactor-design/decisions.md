@@ -48,7 +48,47 @@
 
 **Reasoning**: Package-defined permissions are defaults, not absolutes. The most-restrictive-wins policy is the safest default — it prevents accidentally granting more permissions than intended when combining packages. Consumers override via `mars.local.toml` for their specific needs. Error-on-conflict would block adoption; first-declared-wins would create order-dependent behavior.
 
-## D7: Hook scripts require explicit consumer opt-in
+## D7: Phase functions consume prior state by value (move semantics)
+
+**Choice**: Phase functions take prior state by value — `resolve_graph(ctx, loaded: LoadedConfig, ...)` moves `LoadedConfig` into the function, which returns `ResolvedState` containing it.
+
+**Rejected**: Borrowing prior state (`&LoadedConfig`) while nesting ownership in return types.
+
+**Reasoning**: Flagged by implementability reviewer — the original design had phase functions borrowing prior state (`&loaded`) while the phase structs nested by ownership. This can't type-check without lifetimes or cloning. Move-by-value is the simplest model: each phase consumes the previous phase's output and produces the next. The `execute()` orchestrator is a linear chain of moves. This matches the "moved, not cloned" claim and avoids lifetime complexity.
+
+## D8: Single RuntimeAdapter::materialize() method, not per-capability methods
+
+**Choice**: `RuntimeAdapter` has one `materialize(&CapabilitySet, &Path)` method that receives all capabilities at once.
+
+**Rejected**: Separate `materialize_permissions()`, `materialize_tools()`, `materialize_mcp()`, `materialize_hooks()` methods.
+
+**Reasoning**: Flagged by SOLID reviewer as ISP violation. Per-capability methods force every adapter to implement stubs for capabilities they don't support. More importantly, multiple capability kinds often write to the same config file (e.g., Claude's `settings.json` handles permissions, MCP, and tools). A single method lets the adapter handle the merge atomically — read config once, apply all changes, write once. Separate methods would require coordination (who reads first? who writes last?) or multiple read-write cycles.
+
+## D9: Capability materialization is non-fatal by default
+
+**Choice**: Capability materialization failures produce diagnostics but don't fail `mars sync`. Content sync completes normally. Opt-in `--strict-capabilities` makes failures fatal.
+
+**Rejected**: Making all materialization failures fatal; making them always silent.
+
+**Reasoning**: Flagged by implementability reviewer — failure semantics were undefined. Content sync is the primary value proposition; capability sync is additive. A package with an MCP server config that doesn't apply to a CursorAdapter shouldn't block agent/skill installation. The lock is written only after all phases succeed (including materialization diagnostics), so the next `mars sync` will re-attempt materialization.
+
+## D10: Local packages use the same discovery path as dependencies
+
+**Choice**: The project root is treated as a synthetic source and run through the same `discover_source()` function as dependency sources. Only materialization strategy (Symlink vs Copy) and shadow precedence remain local-specific.
+
+**Rejected**: Separate `discover_local_items()` function with its own scan logic.
+
+**Reasoning**: Flagged by correctness reviewer — the original design kept local packages on a bespoke discovery path, which means Phase B's "add one entry to conventions()" wouldn't automatically apply to local packages. Using the same discovery function ensures new item kinds are discovered from local packages without maintaining parallel code.
+
+## D11: Shared reconciliation is two layers, not one
+
+**Choice**: Extract shared atomic filesystem operations (Layer 1) used by both sync and link, plus item-level reconciliation (Layer 2) used by sync apply. Link's merge-then-symlink algorithm remains link-specific but uses Layer 1 primitives.
+
+**Rejected**: A single `reconcile_one()` API that fully subsumes both sync apply and link behavior.
+
+**Reasoning**: Flagged by both correctness and implementability reviewers — the original single-layer reconcile API only modeled file-level operations, but sync handles directory installs (skills) and link has a unique merge-unique-files-then-symlink algorithm. These are genuinely different operations. Extracting shared primitives (atomic write, atomic symlink, content hash) eliminates the real duplication without forcing a false abstraction over different reconciliation strategies.
+
+## D12: Hook scripts require explicit consumer opt-in
 
 **Choice**: Hooks from packages are discovered and tracked but not enabled until the consumer explicitly lists them in `settings.enable_hooks`.
 
