@@ -35,6 +35,7 @@ meridian mars list                          # show installed agents/skills
 | `meridian mars check [path]` | Validate source package (publisher CI). |
 | `meridian mars doctor` | Validate installed state (config, lock, files, links, deps). |
 | `meridian mars repair` | Force rebuild from sources. |
+| `meridian mars version <bump>` | Bump [package].version, commit, tag. `--push` to push. |
 | `meridian mars cache clean` | Remove cached archives and git clones. |
 
 ## Source Addressing
@@ -64,6 +65,17 @@ Read [`resources/mars-toml-reference.md`](resources/mars-toml-reference.md) for 
 meridian mars sync          # install everything from mars.lock
 meridian mars doctor        # verify state is healthy
 ```
+
+## Releasing a Package
+
+```bash
+meridian mars version patch              # 0.0.1 -> 0.0.2, commit, tag
+meridian mars version minor              # 0.0.2 -> 0.1.0, commit, tag
+meridian mars version major              # 0.1.0 -> 1.0.0, commit, tag
+meridian mars version 1.2.3 --push       # explicit version, push to origin
+```
+
+Requires `[package]` in mars.toml and a clean working tree.
 
 ## Drift Detection
 

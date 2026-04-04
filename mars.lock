@@ -6,8 +6,8 @@ commit = "98669c11ca63e9c81c11501e1437e5c47b556621"
 
 [dependencies.meridian-base]
 url = "https://github.com/haowjy/meridian-base"
-version = "v0.0.2"
-commit = "b2d6be50e0c4e6ea5244654edb415acdcc3e5afe"
+version = "v0.0.3"
+commit = "ffbff777fbf0941053c22af7f12d76c442c04c64"
 
 [dependencies.meridian-dev-workflow]
 path = "/home/jimyao/gitrepos/meridian-channel/meridian-dev-workflow"
@@ -155,9 +155,9 @@ dest_path = "agents/verifier.md"
 [items."skills/__mars"]
 source = "meridian-base"
 kind = "skill"
-version = "v0.0.2"
-source_checksum = "sha256:b1d27309814bf249154ac8d2b9a369a8ae595036c268623c405f0b4252a92f0b"
-installed_checksum = "sha256:b1d27309814bf249154ac8d2b9a369a8ae595036c268623c405f0b4252a92f0b"
+version = "v0.0.3"
+source_checksum = "sha256:cd367a6aaa95bcc5678fc7e91675ba106df841157e5b02c3ffdc21484fbd37cf"
+installed_checksum = "sha256:cd367a6aaa95bcc5678fc7e91675ba106df841157e5b02c3ffdc21484fbd37cf"
 dest_path = "skills/__mars"
 
 [items."skills/__meridian-diagnostics"]
