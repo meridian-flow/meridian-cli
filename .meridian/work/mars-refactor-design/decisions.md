@@ -8,13 +8,13 @@
 
 **Reasoning**: The number of item kinds is small (6-8), changes rarely, and each kind has genuinely different semantics. Exhaustive match catches every place that needs updating when a new kind is added. The dead `SourceFetcher` trait was removed in the prior v1 refactor for exactly this reason — trait abstraction for a small, stable set of types adds indirection without value. The compiler is the enforcement mechanism, not runtime dispatch.
 
-## D2: Trait for RuntimeAdapter, not closed enum
+## D2: Closed enum for AdapterKind, not trait-based (REVISED from trait approach)
 
-**Choice**: Use a `RuntimeAdapter` trait for per-runtime materialization (ClaudeAdapter, CursorAdapter, etc.).
+**Choice**: Use a closed `AdapterKind` enum with exhaustive match for per-runtime cross-compilation (Claude, Cursor, Codex, Generic).
 
-**Rejected**: Closed `RuntimeKind` enum with exhaustive match.
+**Rejected**: (a) `Box<dyn RuntimeAdapter>` trait — original D2 proposed this. (b) Fully open plugin system.
 
-**Reasoning**: Unlike item kinds, runtime adapters are self-contained modules with no shared exhaustive match needed. The set of supported runtimes grows independently of mars's release cycle (new editors/tools appear). Each adapter encapsulates its own config format knowledge. The trait boundary keeps adapter logic self-contained. For now, it's 2-3 built-in structs — the trait prevents coupling between adapters.
+**Reasoning**: The implementability reviewer flagged tension between `Box<dyn RuntimeAdapter>` and the "single binary, no dynamic loading" constraint. The adapter set is closed and small (3-4 built-in). A closed enum gives exhaustive match (compiler catches missing adapters), avoids heap allocation, and is consistent with D1's reasoning. Content sync is actually the same algorithm for all adapters — only capability cross-compilation differs. If the adapter set truly needs to be open, the enum can be replaced with a trait later. **Supersedes original D2.**
 
 ## D3: Pipeline phase structs nest rather than flatten
 
@@ -30,7 +30,7 @@
 
 **Rejected**: Having `apply_plan()` handle both content and capability materialization.
 
-**Reasoning**: Content apply is destination-scoped (one item → one file/directory in managed root). Capability materialization is target-scoped (many items → one config file per runtime). These are fundamentally different operations — content apply is per-item, capability materialization is aggregate. Keeping them separate means content sync works exactly as before (no risk), and capability materialization is additive.
+**Reasoning**: Content apply is destination-scoped (one item → one file/directory in canonical store). Capability materialization is target-scoped (many items → one config file per runtime). These are fundamentally different operations — content apply is per-item, capability materialization is aggregate. Keeping them separate means content sync works exactly as before (no risk), and capability materialization is additive.
 
 ## D5: DependencyEntry split is internal, not format-breaking
 
@@ -58,7 +58,7 @@
 
 ## D8: Single RuntimeAdapter::materialize() method, not per-capability methods
 
-**Choice**: `RuntimeAdapter` has one `materialize(&CapabilitySet, &Path)` method that receives all capabilities at once.
+**Choice**: `AdapterKind` has one `materialize_capabilities(&CapabilitySet, &Path)` method that receives all capabilities at once.
 
 **Rejected**: Separate `materialize_permissions()`, `materialize_tools()`, `materialize_mcp()`, `materialize_hooks()` methods.
 
@@ -66,11 +66,11 @@
 
 ## D9: Capability materialization is non-fatal by default
 
-**Choice**: Capability materialization failures produce diagnostics but don't fail `mars sync`. Content sync completes normally. Opt-in `--strict-capabilities` makes failures fatal.
+**Choice**: Capability materialization failures produce diagnostics but don't fail `mars sync`. Content sync completes normally. Opt-in `--strict` makes failures fatal.
 
 **Rejected**: Making all materialization failures fatal; making them always silent.
 
-**Reasoning**: Flagged by implementability reviewer — failure semantics were undefined. Content sync is the primary value proposition; capability sync is additive. A package with an MCP server config that doesn't apply to a CursorAdapter shouldn't block agent/skill installation. The lock is written only after all phases succeed (including materialization diagnostics), so the next `mars sync` will re-attempt materialization.
+**Reasoning**: Flagged by implementability reviewer — failure semantics were undefined. Content sync is the primary value proposition; capability sync is additive. A package with an MCP server config that doesn't apply to a CursorAdapter shouldn't block agent/skill installation. The lock is written after content apply regardless of target sync outcome, so the next `mars sync` will re-attempt target sync.
 
 ## D10: Local packages use the same discovery path as dependencies
 
@@ -96,29 +96,29 @@
 
 **Reasoning**: Hook scripts are executable code — auto-enabling them from packages would be a security risk. The consumer should make an explicit decision about which hooks to run. This matches the pattern of MCP servers (configured explicitly) and avoids the npm postinstall footgun.
 
-## D13: Soul files are a proper ItemKind, not just a directory convention
+## D13: Rule files are a proper ItemKind, not just a directory convention (renamed from "soul")
 
-**Choice**: Add `ItemKind::Soul` as a first-class item kind, discovered via the same convention registry as agents/skills.
+**Choice**: Add `ItemKind::Rule` as a first-class item kind, discovered via the convention registry with a specialized `RuleTree` discovery pattern that handles shared, per-harness, and per-model categories.
 
-**Rejected**: Treating soul files as a subdirectory convention that lives outside the sync pipeline (just copy files, no lock tracking).
+**Rejected**: (a) Treating rule files as a subdirectory convention outside the sync pipeline. (b) Keeping the "soul" naming.
 
-**Reasoning**: Soul files need the same lifecycle as other synced content — lock tracking for change detection, `mars list` visibility, kind-based filtering (`include_kinds = ["soul"]`), and participation in the diff/plan/apply pipeline. Making them a proper ItemKind gives all of this for free via the discovery convention registry. The alternative would require bespoke handling outside the pipeline, which is exactly the pattern the refactor is eliminating.
+**Reasoning**: Rule files need the same lifecycle as other synced content — lock tracking for change detection, `mars list` visibility, kind-based filtering, and participation in the diff/plan/apply pipeline. Making them a proper ItemKind gives all of this for free. The "soul" name was wrong — OpenClaw's Soul.md is about identity/personality. What we're building is operational rules: per-model thinking instructions, per-harness behavioral adaptations. "Rule" matches Claude Code's existing `.claude/rules/` convention and accurately describes the content. See D24 for the soul→rule rename decision.
 
-## D14: Harness variant resolution happens at target sync, not discovery
+## D14: Variant resolution happens at target sync, not discovery (REVISED)
 
-**Choice**: Discovery finds all variants and attaches them to the base item. The managed root (`.agents/`) always gets the default version. Variants are resolved and applied only when syncing managed targets.
+**Choice**: Discovery finds all variants and attaches them to the base item. The canonical store (`.mars/content/`) always gets the default version. Variants are resolved and applied only when syncing managed targets.
 
-**Rejected**: Resolving variants during discovery so `.agents/` contains variant-resolved content.
+**Rejected**: Resolving variants during discovery so the canonical store contains variant-resolved content.
 
-**Reasoning**: `.agents/` is the canonical source of truth and should contain the default (harness-agnostic) content. If `.agents/` contained Claude-specific variants, any tool reading `.agents/` directly would get Claude-optimized content even when running under a different harness. Keeping variant resolution at target sync time means: (1) `.agents/` is always the universal default, (2) each managed target gets the right variant for its harness, (3) tools reading `.agents/` directly still work correctly with the default content.
+**Reasoning**: `.mars/content/` is the canonical content store and should contain the default (harness-agnostic) content. If `.mars/content/` contained Claude-specific variants, any target materialized from it would get Claude-optimized content unless explicitly overridden. Keeping variant resolution at target sync means: (1) `.mars/content/` is always the universal default, (2) each managed target gets the right variant for its harness, (3) the default target (`.agents/`) always gets harness-agnostic content.
 
-## D15: Link reframed as "managed target sync" — not symlinks
+## D15: All targets are managed — copy-based materialization (REVISED)
 
-**Choice**: Redefine `mars link` to mean "mars owns and manages this target directory," with content copied (not symlinked) and variants resolved per target. Default strategy is mirror (copy + ongoing sync).
+**Choice**: ALL target directories (`.agents/`, `.claude/`, `.codex/`, `.cursor/`) are managed outputs materialized from `.mars/content/` via copy. No target is special. Default strategy is copy for all targets.
 
-**Rejected**: Keeping symlink-based linking as the primary mechanism, with variant support bolted on.
+**Rejected**: (a) Keeping `.agents/` as the source of truth with symlink-based linking to other targets (original design). (b) Keeping symlink as the default materialization strategy.
 
-**Reasoning**: The original symlink approach worked for agents/skills where the content is the same regardless of harness. With harness-specific variants, soul files, and capability materialization, each managed target needs different content than `.agents/`. Symlinks point to one location — they can't resolve variants. Copying is the only mechanism that supports per-target content customization. The mirror strategy ensures targets stay in sync without requiring users to re-run `mars link` separately from `mars sync`. Symlink mode is preserved as an optimization for simple cases where no variants or capabilities are needed.
+**Reasoning**: The original design had `.agents/` as the managed root and other targets derived from it. This is wrong because: if a harness reads `.agents/` directly (e.g., Codex), mars can't control what it sees per-harness. You can't have content that's "shared between Claude and Cursor but not Codex" when `.agents/` is the universal source. `.mars/content/` as the canonical store, with all targets as managed outputs, solves this cleanly. Copy (not symlink) for targets because: Windows symlinks need admin mode, git symlinks are finicky, copy + tmp+rename is simpler for crash safety, and variant-resolved content can't be symlinked (each target may get different content). **Supersedes original D15.**
 
 ## D16: Model catalog is pipeline-adjacent, not a sync item
 
@@ -126,7 +126,7 @@
 
 **Rejected**: Making model aliases an item kind that packages "install."
 
-**Reasoning**: Model aliases are configuration, not content. They don't come from a source tree directory, don't have checksums, and don't need diff/plan/apply semantics. They're key-value mappings in mars.toml. The cache is a network-fetched artifact, not a package artifact. Forcing models into the item pipeline would require inventing fake discovery/diff/apply semantics for what's fundamentally a config merge. Instead, model aliases merge at config load time (package defaults + consumer overrides), and the cache is a standalone file that `mars models refresh` manages.
+**Reasoning**: Model aliases are configuration, not content. They don't come from a source tree directory, don't have checksums, and don't need diff/plan/apply semantics. They're key-value mappings in mars.toml. The cache is a network-fetched artifact, not a package artifact. Forcing models into the item pipeline would require inventing fake discovery/diff/apply semantics for what's fundamentally a config merge. Instead, model aliases merge at config load time (package defaults + consumer overrides), and the cache is a standalone file that `mars models refresh` manages. Cache moves to `.mars/models-cache.json`.
 
 ## D17: Variant naming convention uses `<name>.<harness>.<ext>` in source
 
@@ -136,21 +136,21 @@
 
 **Reasoning**: Filename convention is the simplest mechanism that works with the existing discovery pipeline. It requires no config, no parsing, and no new directory structure. Discovery already scans `agents/*.md` — extending the pattern to recognize `<name>.<harness>.md` is a minimal change. Separate directories would break the flat `agents/` convention and complicate lock paths. Frontmatter-based declaration would require parsing every file during discovery. Config-level mapping would be verbose for the common case.
 
-## D18: Managed targets configured via `[[settings.targets]]` with backwards-compatible `links`
+## D18: Managed targets configured via `settings.targets` list (REVISED)
 
-**Choice**: New `[[settings.targets]]` TOML array for managed target configuration, with the existing `links = [".claude"]` syntax supported as shorthand.
+**Choice**: Simple `targets = [".claude", ".cursor"]` list in `[settings]`. Backwards-compatible with existing `links` syntax.
 
-**Rejected**: Breaking the `links` syntax, or overloading it with new fields.
+**Rejected**: (a) `[[settings.targets]]` array-of-tables with per-target configuration (original design). (b) Breaking the `links` syntax.
 
-**Reasoning**: The `links` syntax is simple and works for the common case. The new `[[settings.targets]]` syntax is needed for per-target configuration (content strategy, etc.). Supporting both means existing mars.toml files keep working. The migration path is: `links = [".claude"]` is equivalent to `[[settings.targets]] name = ".claude"` with defaults. Users who need per-target config use the new syntax.
+**Reasoning**: Per-target configuration (content strategy, per-target kind filtering) is deferred — the initial implementation copies all content to all targets. A simple list is sufficient and simpler to configure. When per-target configuration is needed, `[[settings.targets]]` with `name`/`include_kinds`/`exclude_kinds` fields can be introduced as an alternative syntax. The existing `links = [".claude"]` syntax is supported as equivalent to `targets = [".agents", ".claude"]` (the old behavior always had `.agents/` as managed root plus linked targets). **Supersedes original D18.**
 
-## D19: Content sync is generic; capability materialization dispatches via AdapterKind enum
+## D19: Content sync is generic; capability cross-compilation dispatches via AdapterKind enum
 
-**Choice**: Content sync uses a shared function (variant resolution by harness ID). Capability materialization dispatches through a closed `AdapterKind` enum. Replaces the original `Box<dyn RuntimeAdapter>` trait approach.
+**Choice**: Content sync uses a shared function (variant resolution by harness ID). Capability cross-compilation dispatches through a closed `AdapterKind` enum.
 
 **Rejected**: (a) Trait-based `Box<dyn RuntimeAdapter>` with both sync_content and materialize methods, (b) Keeping sync_content adapter-specific.
 
-**Reasoning**: Implementability reviewer flagged tension between `Box<dyn RuntimeAdapter>` and the "single binary, no dynamic loading" constraint from D1. Content sync is actually the same algorithm for all adapters — the only varying input is the harness ID for variant selection. Making it adapter-specific would duplicate the same code across adapters. Capability materialization genuinely differs per adapter (different config formats), so that's where dispatch happens. A closed enum gives exhaustive match and avoids heap allocation, consistent with D1's reasoning.
+**Reasoning**: Implementability reviewer flagged tension between `Box<dyn RuntimeAdapter>` and the "single binary, no dynamic loading" constraint from D1. Content sync is actually the same algorithm for all adapters — the only varying input is the harness ID for variant selection. Making it adapter-specific would duplicate the same code across adapters. Capability cross-compilation genuinely differs per adapter (different config formats, different native features), so that's where dispatch happens.
 
 ## D20: Variant parsing uses last-segment matching against known harness IDs
 
@@ -162,11 +162,11 @@
 
 ## D21: Lock written regardless of target sync outcome (non-strict mode)
 
-**Choice**: In non-strict mode, the lock is always written after successful content apply to `.agents/`, even if managed target sync fails. Target sync status is reported separately in `SyncReport.target_outcomes`.
+**Choice**: In non-strict mode, the lock is always written after successful content apply to `.mars/content/`, even if managed target sync fails. Target sync status is reported separately in `SyncReport.target_outcomes`.
 
 **Rejected**: (a) Not writing lock on target sync failure (original design), (b) Always making target sync failure fatal.
 
-**Reasoning**: Correctness reviewer flagged that "lock not written + non-fatal target sync" is contradictory — if the command succeeds but the lock isn't advanced, the next run doesn't have a committed baseline. The lock should reflect what's in `.agents/` (the source of truth), not what's in managed targets. Targets are derived state that can always be re-synced. Writing the lock ensures the next `mars sync` operates from the correct baseline and only re-runs target sync (which is idempotent).
+**Reasoning**: Correctness reviewer flagged that "lock not written + non-fatal target sync" is contradictory — if the command succeeds but the lock isn't advanced, the next run doesn't have a committed baseline. The lock should reflect what's in `.mars/content/` (the source of truth), not what's in managed targets. Targets are derived state that can always be re-synced. Writing the lock ensures the next `mars sync` operates from the correct baseline and only re-runs target sync (which is idempotent).
 
 ## D22: Variant content goes through the same rewrite pipeline as base items
 
@@ -174,7 +174,7 @@
 
 **Rejected**: Skipping rewrites for variant content (only using raw source files).
 
-**Reasoning**: Correctness reviewer flagged that `sync_target_content()` would read raw variant files, bypassing the rewrite pipeline that transforms base items (frontmatter transforms, skill renames per `rewrite.rs`). This would cause managed targets to get unrewritten variant content while `.agents/` gets the rewritten default — breaking renamed skill references. Variants must go through the same transforms to maintain consistency.
+**Reasoning**: Correctness reviewer flagged that `sync_target_content()` would read raw variant files, bypassing the rewrite pipeline that transforms base items (frontmatter transforms, skill renames per `rewrite.rs`). This would cause managed targets to get unrewritten variant content while `.mars/content/` gets the rewritten default — breaking renamed skill references. Variants must go through the same transforms to maintain consistency.
 
 ## D23: Lock version conditional on content — v1 when no variants, v2 when variants present
 
@@ -183,3 +183,59 @@
 **Rejected**: (a) Always writing v2 once the mars version supports it, (b) Silently ignoring unknown fields.
 
 **Reasoning**: Correctness reviewer flagged that the v2 lock schema (nested `variants` table) would be silently accepted and variant data dropped by older mars versions that only know v1. Conditional version writing means projects that don't use variants stay on v1 (compatible with older mars). Projects that adopt variants get v2, and older mars fails fast with a clear upgrade message instead of silently dropping data.
+
+## D24: "Soul" renamed to "Rule" — operational instructions, not identity
+
+**Choice**: Rename `ItemKind::Soul` to `ItemKind::Rule`. Directory `soul/` becomes `rules/`. Three categories: shared rules (all targets), per-harness rules (rules/claude/), per-model rules (rules/opus.md).
+
+**Rejected**: (a) Keeping "soul" naming. (b) "Prompt" as the name. (c) Flat rules/ without subcategories.
+
+**Reasoning**: "Soul" implies identity and personality — OpenClaw's Soul.md is about *who* the AI is. What we're building is operational instructions: "you're on opus, think deeply", "you're on codex, go straight to code", "always use ruff for linting." These are behavioral *rules*, not identity. "Rule" matches Claude Code's existing `.claude/rules/` convention, making materialization natural — mars just copies rules into the directory Claude Code already reads. "Prompt" was rejected because it's too generic and conflicts with the concept of user prompts. The three-category structure (shared/per-harness/per-model) emerged from the realization that per-model rules aren't harness-specific — opus behaves the same way regardless of whether it's running under Claude Code or Codex.
+
+## D25: .mars/ as canonical content store, all targets derived
+
+**Choice**: `.mars/content/` is the canonical resolved content store. ALL target directories (`.agents/`, `.claude/`, `.codex/`, `.cursor/`) are managed outputs materialized via copy from `.mars/content/`. No target is special.
+
+**Rejected**: (a) `.agents/` as the managed root with other targets derived from it (original architecture). (b) Each target resolving independently from sources.
+
+**Reasoning**: The original design had `.agents/` as both source of truth and a target that harnesses read directly. This creates an unsolvable problem: if a harness (e.g., Codex) reads `.agents/` directly, mars can't control what content that harness sees. You can't have content that's "shared between Claude and Cursor but not Codex" when `.agents/` is the universal source. `.mars/content/` as a neutral canonical store, with ALL targets (including `.agents/`) as managed outputs, solves this cleanly. Per-target content control becomes natural: each target gets exactly the content its adapter resolves. `.mars/` is entirely gitignored (derived state). `mars.toml` and `mars.lock` stay at project root and are committed.
+
+## D26: Copy from .mars/content/ to targets, not symlinks
+
+**Choice**: All content is COPIED from `.mars/content/` to managed targets. No symlinks between canonical store and targets.
+
+**Rejected**: (a) Symlinks from targets to `.mars/content/`. (b) Hardlinks. (c) Reflinks.
+
+**Reasoning**: Four concrete problems with symlinks for target materialization: (1) **Windows**: symlinks require admin or developer mode — copy works everywhere. (2) **Git**: symlinks are platform-dependent and require `core.symlinks` config — tools interacting with target directories may not handle symlinks correctly. (3) **Atomicity**: copy + tmp+rename is the simplest crash-safe write pattern — symlink atomicity requires remove+create (race window). (4) **Variant content**: when a target gets a harness-specific variant instead of the default, the content is *different* from `.mars/content/` — symlinks can only point to one source. Copy is the only mechanism that supports per-target content customization. Performance cost is negligible — we're copying markdown files and TOML configs, not gigabytes.
+
+## D27: Harness-specific schema extensions via [item.harness] sections
+
+**Choice**: Package schema supports harness-specific override sections using `[<item_type>.<harness_id>]` convention. Adapters read universal section + their own harness section. Unknown harness sections are ignored.
+
+**Rejected**: (a) Separate harness-specific files alongside universal definitions. (b) Frontmatter-based harness overrides. (c) No harness-specific extensions (adapters figure it out).
+
+**Reasoning**: Each harness has unique capabilities that go beyond format translation — Claude Code has hooks and native MCP, Cursor has .mdc frontmatter patterns, Codex has its own sandbox model. A package author needs to express "this MCP server uses stdio transport on Claude but SSE on Cursor" without maintaining separate files. Inline `[server.claude]` / `[server.cursor]` sections are the most natural TOML pattern, keep everything about one item in one file, and are forward-compatible (adding a new harness section doesn't break existing adapters that ignore it). Separate files would complicate the package structure and break the 1-file-per-item convention for capability items.
+
+## D28: Adapters are cross-compilers, not format translators
+
+**Choice**: Runtime adapters map universal package features to harness-native equivalents, emit diagnostics for unsupported features, and honor harness-specific schema extensions. The mental model is a "cross-compiler" targeting different harness runtimes.
+
+**Rejected**: (a) Simple format translators (just convert TOML → settings.json). (b) No adapters (dump universal format and let harnesses figure it out).
+
+**Reasoning**: Each harness has genuinely different capabilities: Claude Code has hooks in settings.json and native MCP transport; Cursor has .mdc rule files with frontmatter file patterns; Codex has its own sandbox model and AGENTS.md conventions. A format translator can't handle this — it's not just "same data, different syntax." The adapter needs to understand what the harness can and can't do, use the harness-specific schema extensions when available, and emit clear diagnostics when a feature has no equivalent ("hooks have no Cursor equivalent — skipping"). This is cross-compilation: same source semantics, different target capabilities. The adapter is the authoritative source of "what does this harness support."
+
+## D29: .mars/ is entirely gitignored — derived state only
+
+**Choice**: `.mars/` directory is completely gitignored. It contains only derived state: resolved content in `content/` and the model cache in `models-cache.json`. `mars.toml` and `mars.lock` live at project root and are committed.
+
+**Rejected**: (a) Committing `.mars/content/` (tracking resolved content in git). (b) Putting mars.lock inside `.mars/` and committing it selectively. (c) Committing models-cache.json.
+
+**Reasoning**: `.mars/content/` is fully derived from `mars.toml` + `mars.lock` + source repos — same as `node_modules` is derived from `package.json` + `package-lock.json`. Committing it would duplicate the lock file's information in actual files, create merge conflicts on every sync, and bloat the repo. Keeping `mars.lock` at project root (not inside `.mars/`) makes it visible alongside `mars.toml` and avoids selective gitignore complexity. Models cache is network-fetched ephemeral data that shouldn't be committed. The clean model: `mars.toml` and `mars.lock` are the committed authority; `mars sync` regenerates everything else.
+
+## D30: settings.targets controls which targets exist; .agents/ is default when targets is omitted
+
+**Choice**: When `settings.targets` is not specified in mars.toml, `.agents/` is the sole managed target (backwards compatibility). When `targets` is specified, only the listed directories are managed. To include `.agents/`, list it explicitly.
+
+**Rejected**: (a) Always creating `.agents/` regardless of config. (b) Requiring `targets` to be specified.
+
+**Reasoning**: Existing projects without `targets` config must keep working — they get `.agents/` as the sole target, which matches current behavior exactly. New projects adopting multi-target can list exactly which targets they want. Making `.agents/` always present would force projects that only use `.claude/` to also have a redundant `.agents/` directory. The opt-in model is cleaner and matches the progressive disclosure principle: simple projects don't need to know about targets at all.
