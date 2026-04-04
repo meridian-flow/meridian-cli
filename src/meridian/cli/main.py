@@ -3,6 +3,7 @@
 import logging
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 from collections.abc import Sequence
@@ -428,9 +429,29 @@ def serve() -> None:
     run_server()
 
 
+def _resolve_mars_executable() -> str | None:
+    """Prefer the mars binary from the current install environment over PATH."""
+
+    # Keep the wrapper path intact: uv tool scripts point at a symlinked Python binary,
+    # and resolving it jumps out of the tool environment where the sibling mars lives.
+    scripts_dir = Path(sys.executable).parent
+    for name in ("mars", "mars.exe"):
+        candidate = scripts_dir / name
+        if candidate.is_file():
+            return str(candidate)
+    return shutil.which("mars")
+
+
 def _run_mars_passthrough(args: Sequence[str]) -> None:
+    executable = _resolve_mars_executable()
+    if executable is None:
+        print(
+            "error: Failed to execute 'mars'. Install meridian with dependencies and retry.",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
     try:
-        result = subprocess.run(["mars", *args], check=False)
+        result = subprocess.run([executable, *args], check=False)
     except FileNotFoundError:
         print(
             "error: Failed to execute 'mars'. Install meridian with dependencies and retry.",

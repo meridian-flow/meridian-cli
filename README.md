@@ -55,7 +55,7 @@ that agents use to coordinate other agents.
 ## Install
 
 ```bash
-uv tool install meridian-channel   # installs both meridian and mars
+uv tool install meridian-channel
 ```
 
 Verify:
@@ -103,6 +103,12 @@ From source:
 ```bash
 git clone https://github.com/haowjy/meridian-channel.git
 cd meridian-channel
+uv tool install --force . --no-cache --reinstall
+```
+
+Development environment (no tool install):
+
+```bash
 uv sync --extra dev
 uv run meridian --help
 ```

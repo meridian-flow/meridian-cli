@@ -33,12 +33,12 @@ Run the recommended install:
 uv tool install meridian-channel
 ```
 
-Alternative install from source:
+From source (for development or pre-release):
 
 ```bash
-git clone https://github.com/haowjy/meridian-channel
+git clone https://github.com/haowjy/meridian-channel.git
 cd meridian-channel
-uv sync
+uv tool install --force . --no-cache --reinstall
 ```
 
 Verify the CLI is available:
