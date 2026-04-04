@@ -205,7 +205,7 @@ The orchestrator and subagent profiles, plus skills for spawning, work
 coordination, session context, and troubleshooting:
 
 ```bash
-meridian mars add @haowjy/meridian-base
+meridian mars add haowjy/meridian-base
 meridian mars sync
 ```
 
@@ -216,7 +216,7 @@ researcher, documenter — plus workflow skills for design, planning,
 implementation, review, testing, and documentation:
 
 ```bash
-meridian mars add @haowjy/meridian-dev-workflow
+meridian mars add haowjy/meridian-dev-workflow
 meridian mars sync
 ```
 
