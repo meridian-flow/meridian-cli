@@ -717,6 +717,8 @@ def execute_spawn_blocking(
         )
     except Exception:
         logger.warning("Failed to write params.json", spawn_id=str(spawn.spawn_id), exc_info=True)
+    # Emit spawn ID immediately so the caller can reference it while blocking.
+    print(json.dumps({"spawn_id": str(spawn.spawn_id), "status": "running"}), flush=True)
     started = time.monotonic()
     stream_stdout_to_terminal = payload.stream
     event_observer = None

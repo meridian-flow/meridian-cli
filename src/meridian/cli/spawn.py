@@ -139,11 +139,11 @@ def _spawn_create(
             name="--stream", help="Stream raw harness output to terminal (debug only).", show=False
         ),
     ] = False,
-    foreground: Annotated[
+    background: Annotated[
         bool,
         Parameter(
-            name="--foreground",
-            help="Run in foreground and block until completion.",
+            name="--background",
+            help="Run in background and return immediately with spawn ID.",
         ),
     ] = False,
     timeout: Annotated[
@@ -265,7 +265,7 @@ def _spawn_create(
                 verbose=verbose,
                 quiet=quiet,
                 stream=stream,
-                background=not foreground,
+                background=background,
                 timeout=timeout,
                 approval=resolved_approval,
                 autocompact=autocompact,
@@ -299,7 +299,7 @@ def _spawn_create(
                 skills=parsed_skills,
                 dry_run=dry_run,
                 timeout=timeout,
-                background=not foreground,
+                background=background,
                 passthrough_args=passthrough,
                 approval=resolved_approval,
             ),
@@ -321,7 +321,7 @@ def _spawn_create(
                 verbose=verbose,
                 quiet=quiet,
                 stream=stream,
-                background=not foreground,
+                background=background,
                 timeout=timeout,
                 approval=resolved_approval,
                 autocompact=autocompact,
@@ -500,15 +500,25 @@ def _spawn_show(
 
 def _spawn_stats(
     emit: Any,
+    spawn_id: Annotated[
+        str | None,
+        Parameter(name="spawn_id", help="Spawn ID to get stats for (includes descendants)."),
+    ] = None,
     session: Annotated[
         str | None,
         Parameter(name="--session", help="Only include spawns for this session id."),
     ] = None,
+    flat: Annotated[
+        bool,
+        Parameter(name="--flat", help="Only show the specified spawn, exclude descendants."),
+    ] = False,
 ) -> None:
     emit(
         spawn_stats_sync(
             SpawnStatsInput(
+                spawn_id=spawn_id,
                 session=session,
+                flat=flat,
             ),
             sink=current_output_sink(),
         )

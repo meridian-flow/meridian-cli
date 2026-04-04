@@ -98,7 +98,7 @@ def test_spawn_continue_passes_resume_details_in_session_dto_fields(
     assert result.status == "dry-run"
     assert result.command == "spawn.continue"
     assert captured_input is not None
-    assert captured_input.background is True
+    assert captured_input.background is False
 
     # Session DTO carries the canonical continuation payload.
     assert captured_input.session.harness_session_id == "session-21"
@@ -111,7 +111,7 @@ def test_spawn_continue_passes_resume_details_in_session_dto_fields(
     assert captured_input.session.source_execution_cwd == "/tmp/source-cwd"
 
 
-def test_spawn_continue_respects_explicit_foreground_request(
+def test_spawn_continue_respects_explicit_background_request(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -139,11 +139,11 @@ def test_spawn_continue_respects_explicit_foreground_request(
         SpawnContinueInput(
             spawn_id="p22",
             prompt="follow-up prompt",
-            background=False,
+            background=True,
             repo_root=repo_root.as_posix(),
         )
     )
 
     assert result.status == "dry-run"
     assert captured_input is not None
-    assert captured_input.background is False
+    assert captured_input.background is True

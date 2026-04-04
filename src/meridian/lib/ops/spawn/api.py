@@ -27,6 +27,7 @@ from .execute import (
     execute_spawn_blocking,
 )
 from .models import (
+    ModelStats,
     SpawnActionOutput,
     SpawnCancelInput,
     SpawnContinueInput,
@@ -36,6 +37,7 @@ from .models import (
     SpawnListInput,
     SpawnListOutput,
     SpawnShowInput,
+    SpawnStatsChild,
     SpawnStatsInput,
     SpawnStatsOutput,
     SpawnWaitInput,
@@ -214,6 +216,31 @@ async def spawn_list(
     return await asyncio.to_thread(spawn_list_sync, payload, ctx=ctx, sink=sink)
 
 
+def _collect_descendants(
+    root_id: str,
+    all_spawns: list[spawn_store.SpawnRecord],
+) -> list[spawn_store.SpawnRecord]:
+    """Walk the parent→child tree and return root + all descendants."""
+    by_parent: dict[str | None, list[spawn_store.SpawnRecord]] = {}
+    for s in all_spawns:
+        by_parent.setdefault(s.parent_id, []).append(s)
+
+    result: list[spawn_store.SpawnRecord] = []
+    # Find the root spawn itself
+    for s in all_spawns:
+        if s.id == root_id:
+            result.append(s)
+            break
+
+    queue = [root_id]
+    while queue:
+        parent = queue.pop()
+        for child in by_parent.get(parent, []):
+            result.append(child)
+            queue.append(child.id)
+    return result
+
+
 def spawn_stats_sync(
     payload: SpawnStatsInput,
     ctx: RuntimeContext | None = None,
@@ -225,12 +252,22 @@ def spawn_stats_sync(
     from meridian.lib.state.reaper import reconcile_spawns
 
     state_root = resolve_state_root(repo_root)
-    spawns = reconcile_spawns(state_root, spawn_store.list_spawns(state_root))
+    all_spawns = reconcile_spawns(state_root, spawn_store.list_spawns(state_root))
+
     if payload.session is not None and payload.session.strip():
         wanted_session = payload.session.strip()
-        spawns = [row for row in spawns if row.chat_id == wanted_session]
+        all_spawns = [row for row in all_spawns if row.chat_id == wanted_session]
 
-    models: dict[str, int] = {}
+    if payload.spawn_id is not None:
+        root_id = payload.spawn_id.strip()
+        if payload.flat:
+            spawns = [s for s in all_spawns if s.id == root_id]
+        else:
+            spawns = _collect_descendants(root_id, all_spawns)
+    else:
+        spawns = all_spawns
+
+    model_accum: dict[str, dict[str, int | float]] = {}
     total_duration_secs = 0.0
     total_cost_usd = 0.0
     succeeded = 0
@@ -248,12 +285,49 @@ def spawn_stats_sync(
         elif row.status == "running":
             running += 1
 
-        if row.model is not None:
-            models[row.model] = models.get(row.model, 0) + 1
+        model_key = row.model or ""
+        acc = model_accum.setdefault(model_key, {
+            "total": 0, "succeeded": 0, "failed": 0,
+            "cancelled": 0, "running": 0, "cost_usd": 0.0,
+        })
+        acc["total"] = int(acc["total"]) + 1
+        if row.status in ("succeeded", "failed", "cancelled", "running"):
+            acc[row.status] = int(acc[row.status]) + 1
+        if row.total_cost_usd is not None:
+            acc["cost_usd"] = float(acc["cost_usd"]) + row.total_cost_usd
+
         if row.duration_secs is not None:
             total_duration_secs += row.duration_secs
         if row.total_cost_usd is not None:
             total_cost_usd += row.total_cost_usd
+
+    models: dict[str, ModelStats] = {
+        k: ModelStats(
+            total=int(v["total"]),
+            succeeded=int(v["succeeded"]),
+            failed=int(v["failed"]),
+            cancelled=int(v["cancelled"]),
+            running=int(v["running"]),
+            cost_usd=float(v["cost_usd"]),
+        )
+        for k, v in model_accum.items()
+    }
+
+    # Build per-child breakdown when scoped to a specific spawn
+    children: tuple[SpawnStatsChild, ...] = ()
+    if payload.spawn_id is not None and not payload.flat:
+        children = tuple(
+            SpawnStatsChild(
+                spawn_id=s.id,
+                status=s.status,
+                model=s.model or "",
+                duration_secs=s.duration_secs,
+                cost_usd=s.total_cost_usd,
+                input_tokens=s.input_tokens,
+                output_tokens=s.output_tokens,
+            )
+            for s in spawns
+        )
 
     return SpawnStatsOutput(
         total_runs=len(spawns),
@@ -264,6 +338,7 @@ def spawn_stats_sync(
         total_duration_secs=total_duration_secs,
         total_cost_usd=total_cost_usd,
         models=models,
+        children=children,
     )
 
 

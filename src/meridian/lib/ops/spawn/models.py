@@ -36,7 +36,7 @@ class SpawnCreateInput(BaseModel):
     verbose: bool = False
     quiet: bool = False
     stream: bool = False
-    background: bool = True
+    background: bool = False
     repo_root: str | None = None
     timeout: float | None = None
     approval: str | None = None
@@ -158,8 +158,48 @@ class SpawnListInput(BaseModel):
 class SpawnStatsInput(BaseModel):
     model_config = ConfigDict(frozen=True)
 
+    spawn_id: str | None = None
     session: str | None = None
+    flat: bool = False
     repo_root: str | None = None
+
+
+class SpawnStatsChild(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    spawn_id: str
+    status: str
+    model: str
+    duration_secs: float | None
+    cost_usd: float | None
+    input_tokens: int | None
+    output_tokens: int | None
+
+    def as_row(self) -> list[str]:
+        return [
+            self.spawn_id,
+            self.status,
+            _truncate_cell(self.model, max_chars=18),
+            f"{self.duration_secs:.1f}s" if self.duration_secs is not None else "-",
+            f"${self.cost_usd:.4f}" if self.cost_usd is not None else "-",
+        ]
+
+
+class ModelStats(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    total: int = 0
+    succeeded: int = 0
+    failed: int = 0
+    cancelled: int = 0
+    running: int = 0
+    cost_usd: float = 0.0
+
+    def success_rate(self) -> str:
+        finished = self.succeeded + self.failed
+        if finished == 0:
+            return "-"
+        return f"{self.succeeded / finished * 100:.0f}%"
 
 
 class SpawnStatsOutput(BaseModel):
@@ -172,25 +212,48 @@ class SpawnStatsOutput(BaseModel):
     running: int
     total_duration_secs: float
     total_cost_usd: float
-    models: dict[str, int]
+    models: dict[str, ModelStats]
+    children: tuple[SpawnStatsChild, ...] = ()
+
+    def _pct(self, n: int) -> str:
+        if self.total_runs == 0:
+            return "0.0%"
+        return f"{n / self.total_runs * 100:.1f}%"
 
     def format_text(self, ctx: FormatContext | None = None) -> str:
         _ = ctx
         lines = [
             f"total_runs: {self.total_runs}",
-            f"succeeded: {self.succeeded}",
-            f"failed: {self.failed}",
-            f"cancelled: {self.cancelled}",
+            f"succeeded: {self.succeeded} ({self._pct(self.succeeded)})",
+            f"failed: {self.failed} ({self._pct(self.failed)})",
+            f"cancelled: {self.cancelled} ({self._pct(self.cancelled)})",
             f"running: {self.running}",
             f"total_duration: {self.total_duration_secs:.1f}s",
             f"total_cost: ${self.total_cost_usd:.4f}",
         ]
         if self.models:
-            lines.append("models:")
-            for model, count in self.models.items():
-                lines.append(f"{model}: {count}")
-        else:
-            lines.append("models: (none)")
+            from meridian.cli.format_helpers import tabular
+
+            lines.append("")
+            rows = [["model", "total", "succeeded", "failed", "success%", "cost"]]
+            for model, stats in self.models.items():
+                label = model if model else "(unknown)"
+                rows.append([
+                    label,
+                    str(stats.total),
+                    str(stats.succeeded),
+                    str(stats.failed),
+                    stats.success_rate(),
+                    f"${stats.cost_usd:.2f}" if stats.cost_usd else "-",
+                ])
+            lines.append(tabular(rows))
+        if self.children:
+            from meridian.cli.format_helpers import tabular
+
+            lines.append("")
+            rows = [["spawn", "status", "model", "duration", "cost"]]
+            rows.extend(child.as_row() for child in self.children)
+            lines.append(tabular(rows))
         return "\n".join(lines)
 
 
@@ -210,7 +273,6 @@ class SpawnListEntry(BaseModel):
             self.status,
             _truncate_cell(self.model, max_chars=18),
             f"{self.duration_secs:.1f}s" if self.duration_secs is not None else "-",
-            f"${self.cost_usd:.2f}" if self.cost_usd is not None else "-",
         ]
 
 
@@ -237,7 +299,7 @@ class SpawnListOutput(BaseModel):
             return "(no spawns)"
         from meridian.cli.format_helpers import tabular
 
-        rows = [["spawn", "status", "model", "duration", "cost"]]
+        rows = [["spawn", "status", "model", "duration"]]
         rows.extend(entry.as_row() for entry in self.spawns)
         result = tabular(rows)
         if self.truncated and self.total_count is not None:
@@ -380,7 +442,7 @@ class SpawnContinueInput(BaseModel):
     fork: bool = False
     dry_run: bool = False
     timeout: float | None = None
-    background: bool = True
+    background: bool = False
     repo_root: str | None = None
     passthrough_args: tuple[str, ...] = ()
     approval: str | None = None
