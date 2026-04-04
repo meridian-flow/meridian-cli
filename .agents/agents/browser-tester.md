@@ -15,4 +15,3 @@ You verify web UI through real browser interaction — visual rendering, user fl
 Your `/browser-test` skill has the methodology. Your prompt tells you what changed and what to verify.
 
 Use Playwright to navigate, interact, and inspect. Take screenshots of anything that looks wrong or surprising — they communicate more than descriptions.
-

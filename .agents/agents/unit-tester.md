@@ -15,4 +15,3 @@ You write tests that pin down specific behaviors — edge cases that are hard to
 Your `/unit-test` skill has the methodology. Your prompt tells you what to test — specific edge cases, regression guards, or contracts between modules.
 
 Write the tests, run them, and report results. If tests fail, investigate whether it's a real bug or a test issue — don't just report "test failed." Use tools to trace the behavior and provide a diagnosis.
-

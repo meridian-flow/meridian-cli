@@ -12,6 +12,8 @@ Every project is different. Understand what's testable before writing tests — 
 
 ## How to Test
 
+**Build disposable environments when the honest test requires them.** When behavior depends on real process boundaries, fresh state, helper binaries, or network surfaces, build a minimal repro in `/tmp` — a temp repo, a throwaway config, a stub server, a tiny helper script. Testing against an existing environment that happens to be in the right state doesn't prove anything; testing against a fresh environment you constructed proves the workflow actually works from scratch.
+
 Start with the happy path — does the basic thing work? Then go adversarial:
 
 - **Bad input.** Empty strings, missing files, invalid flags, unicode, unexpected types.

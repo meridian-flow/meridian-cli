@@ -23,6 +23,8 @@ Your prompt tells you what to focus on. Common concerns:
 
 ## How to Test
 
+**Build disposable environments when the honest test requires them.** When the test needs fresh state, a stub API, or a temp config, build it rather than testing against whatever happens to be running. A test that passes because the dev server was already in the right state doesn't prove anything — a test against a fresh environment you constructed proves the UI actually works from scratch.
+
 Start with the happy path — does the basic flow work? Then probe the edges:
 
 - Resize the viewport. Does the layout hold?

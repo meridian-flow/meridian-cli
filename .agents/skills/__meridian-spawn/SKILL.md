@@ -13,7 +13,9 @@ description: >
 
 All CLI output is JSON in agent mode — parse `spawn_id` and `status` programmatically from responses.
 
-Spawns run in the **background** by default — the command returns immediately with a `spawn_id`. Use `spawn wait` to block until done, then `spawn show` to read the report:
+Spawns run in the **background** by default — the command returns immediately with a `spawn_id`.
+
+**After you `meridian spawn` all the subagents, you MUST `meridian spawn wait` in the same turn before responding to the user.** Do not reply with "I'll let you know when it's done" and leave the user to ask — that's spawn-and-forget. Wait for results, then relay them.
 
 ```bash
 meridian spawn -a agent -p "task description"

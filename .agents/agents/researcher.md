@@ -18,4 +18,3 @@ Search for current docs, recent discussions, and real-world usage patterns rathe
 Search the web and fetch current docs — your value is verified, current information that reflects the latest state of libraries, APIs, and ecosystems.
 
 Write research artifacts to `$MERIDIAN_WORK_DIR` when findings need to persist for future reference. Provide trade-off analysis: what are the options, what are the pros and cons, and what do you recommend and why.
-

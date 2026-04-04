@@ -10,4 +10,3 @@ skills = ["frontend-design"]
 
 [settings]
 managed_root = ".agents"
-links = [".claude"]

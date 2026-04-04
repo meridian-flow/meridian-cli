@@ -5,58 +5,32 @@ description: Team composition for design and implementation phases — which age
 
 # Agent Staffing
 
-Compose the right team for each phase. Two questions drive most staffing decisions: how much surface area does the change touch, and how reversible are mistakes if something goes wrong?
+Compose the right team for each phase. The goal is coverage across perspectives, not redundant passes from the same angle.
 
 ## Model Selection
 
-Run `meridian models list` to see available models. Models with descriptions indicate their strengths — use these to match models to tasks. Override agent profile defaults with `-m` when a different model is a better fit for the specific work.
+Run `meridian models list` to see available models. Models with descriptions indicate their strengths — use these to match models to tasks. Override agent profile defaults with `-m` when a different model is a better fit for the specific work. Match model cost to task value — research and bulk exploration are high-throughput information gathering that benefits from fast, cheap models; review and architecture are judgment-heavy and benefit from the strongest available.
 
-## Design Phase
+## General Principles
 
-Design staffing depends on uncertainty more than implementation volume.
+**Delegation is the default.** An orchestrator's value is coordination and judgment across phases, not solo execution. Implementing your own phases bypasses the review, structural review, and smoke-test lanes that catch what the implementer can't see in their own work. If no team composition was provided by your caller, compose one yourself before starting — use the catalogs in the resources below.
 
-- **Architects** own structural design, boundaries, interfaces, and tradeoff evaluation for candidate approaches.
-- **Researchers** gather external context: ecosystem best practices, constraints from dependencies, and prior art that can reduce design risk.
-- **Explorers** investigate the current codebase so design decisions reflect real code paths and integration points instead of assumptions.
+**Default model primarily, specialists for their blind spots.** Most reviewers should run on the default model — it's the baseline and usually the best cost/quality tradeoff. But every model has blind spots shaped by its training, and using only the default means every reviewer shares the same ones. Bring in a different model when its strengths match the focus area — it's not there for prestige, it's there because it sees things the default model consistently misses on that dimension. Check `meridian models list` for current model strengths. For high-risk focus areas, duplicate coverage with both the default model and the specialist to get convergence across independent perspectives.
 
-One architect is usually enough when the problem is constrained and the tradeoffs are obvious. Staff multiple architects when there are materially different viable approaches, high-cost mistakes, or conflicting non-functional goals (for example, latency vs maintainability).
+**Decision review.** Significant decisions — staffing composition, phase parallelization, design trade-off calls, interface choices — should get a review from a different model before committing. Not just code review; any judgment call that downstream work depends on. A second perspective on a different model catches blind spots cheaply, before they compound into implementation.
 
-## Coders
+**Review convergence.** Review loops run until convergence (no new substantive findings), not a fixed number of passes. The orchestrator can override and stop early, but must log the reasoning in the decision log so future agents understand what was decided and why. The default is to keep iterating — when reviewers come back clean, the work is ready.
 
-Default to one coder per phase — multiple coders on the same files tend to create merge conflicts and duplicated work. If a phase feels too big for one coder, splitting the plan is usually better than parallelizing coders. The exception is when phases touch cleanly disjoint file sets. Pick the coder variant that matches the work: `coder` for backend/infrastructure, `frontend-coder` for UI.
+**Design alignment as default focus.** Always include one reviewer with design alignment focus, passing the design docs. Every implementation phase should verify the code matches the spec, because drift from the design is invisible until downstream phases build on wrong assumptions. This doesn't need a dedicated agent — spec-vs-code comparison is natural for the model when given both artifacts.
 
-## Reviewers
+## Effort Scaling
 
-Reviewers catch what testing can't — design drift, subtle correctness issues, architectural erosion. The value of multiple reviewers comes from different focus areas and different models, not redundant coverage.
+Effort scaling applies mainly to reviewers — the role that fans out within a phase. Coders don't scale within a phase (one coder per phase; split the plan if it's too big). Testers are matched to what changed, not scaled by risk.
 
-**Choosing focus areas.** The change itself tells you what perspectives matter — think about what could go wrong that testing won't catch. Common dimensions: concurrent state and races, security and trust boundaries, module structure and abstraction quality, correctness and contract compliance, design alignment (does implementation match intent?). Not all apply to every change — pick the ones that match what could actually go wrong.
-
-**Model diversity.** Fan out reviewers across different models, not just different focus areas. Different models have different blind spots — using the same model for every reviewer gives you N copies of the same perspective.
-
-**Review agents.** Different agents serve different review purposes:
-- **reviewer** — adversarial code analysis with a specified focus area. Read-only.
-- **refactor-reviewer** — structural review for tangled dependencies, mixed concerns, coupling. Read-only — reports findings with recommended moves.
-- **verifier** — build health gate. Runs tests, type checks, lints. Fixes mechanical breakage, reports substantive failures.
-- **investigator** — root-cause triage. Spawn when a test fails unexpectedly or a reviewer flags something needing deeper analysis.
-
-**Calibrating effort.** Scale review to the risk:
-- **Low risk** (internal refactor, well-tested area) — one reviewer, fast model, quick pass.
-- **Medium risk** (new feature, moderate complexity) — two reviewers with different focus areas.
-- **High risk** (security-sensitive, concurrent, public API) — two or three reviewers on strong models with different focus areas.
-
-**Synthesizing findings.** Fix valid findings — agents are cheap. The only findings to skip are ones the reviewer got wrong. When reviewers disagree, you have context they don't — make the call and record it in the decision log. Keep iterating while reviewers surface real issues; stop when they come back clean. If reviews aren't converging, that's a signal the design has a structural problem — investigate or escalate.
-
-## Testers
-
-Different testers cover different failure modes. Verification (tests, lints, type checks) is the baseline. Beyond that, match testing to what changed: smoke testing when user-facing behavior changed, unit testing when there's tricky logic or contracts between modules, browser testing when UI needs visual verification.
-
-## Documenters
-
-Decision rationale lives in conversations, not code. If nobody extracts it, it's lost when sessions end. The documenter mines conversations for decisions, pivots, and tradeoffs — then captures them in the FS mirror. Worth running when the phase involved significant decisions. Skip when the change is self-explanatory.
-
-## Backlog
-
-Use the investigator in two modes. Reactive: when a failure or unexpected behavior is flagged, spawn to validate root cause and either quick-fix or file a GH issue. Proactive: spawn at natural breakpoints to mine conversations and code for deferred items. Keep proactive sweeps in the background so they don't block delivery.
+For reviewers, scale to the risk and reversibility of the change:
+- Fast, low-risk changes: ~2 reviewers on the default model with different focus areas
+- Medium risk: 3-5 reviewers with split focus areas, bringing in specialist models where their strengths match the focus area
+- High risk or critical paths: 5+ reviewers; for the most critical focus areas, duplicate coverage with both the default model and a specialist reviewing the same concern — convergence across independent perspectives is what gives confidence
 
 ## Parallelism
 
@@ -64,7 +38,14 @@ Think about what depends on what:
 
 - Reviewers and testers both need finished code — they wait for the coder
 - Reviewers and testers examine different dimensions — they can run simultaneously
-- Documenters and investigators need the full picture — they run after review synthesis
 - Within each category (all reviewers, all testers) there are no dependencies — fan them out
+- Coders parallelize across non-overlapping phases (determined at plan time), not within a single phase
+- Documenters and investigators need the full picture — they run after review synthesis
 
-See `/context-handoffs` for how to pass context between phases.
+## Agent Catalogs
+
+See resources for detailed catalogs of available agents and when to use each:
+
+- Read `resources/reviewers.md` when composing review teams — covers reviewer, refactor-reviewer, verifier, and investigator. These apply to both design and implementation review.
+- Read `resources/testers.md` when deciding what testing a phase needs — covers smoke-tester, browser-tester, and unit-tester.
+- Read `resources/builders.md` when staffing implementation and design exploration — covers coders, architects, researchers, explorers, and documenters.
