@@ -226,6 +226,7 @@ class ConfigInitInput(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     repo_root: str | None = None
+    link: tuple[str, ...] = ()
 
 
 class ConfigInitOutput(BaseModel):
@@ -697,24 +698,45 @@ def _scaffold_template() -> str:
     return "\n".join(lines)
 
 
-def _ensure_mars_init(repo_root: Path) -> None:
-    """Run ``mars init`` if no mars.toml exists yet, scaffolding an empty managed root."""
+def _ensure_mars_init(repo_root: Path, *, link: tuple[str, ...] = ()) -> None:
+    """Run ``mars init`` if no mars.toml exists yet, scaffolding an empty managed root.
+
+    When *link* directories are specified, ``--link`` flags are forwarded to
+    ``mars init`` so that the managed root is linked in one step.  If
+    ``mars.toml`` already exists but link dirs are requested, we run
+    ``mars link`` separately to be idempotent.
+    """
     import contextlib
     import subprocess
 
     mars_toml = repo_root / "mars.toml"
-    if mars_toml.exists():
+    import shutil
+
+    mars_bin = shutil.which("mars")
+    if mars_bin is None:
         return
-    with contextlib.suppress(FileNotFoundError):
-        subprocess.run(
-            ["mars", "init", "--json"],
-            cwd=str(repo_root),
-            check=False,
-            capture_output=True,
-        )
+
+    if not mars_toml.exists():
+        cmd: list[str] = [mars_bin, "init", "--json"]
+        for d in link:
+            cmd.extend(["--link", d])
+        with contextlib.suppress(FileNotFoundError):
+            subprocess.run(cmd, cwd=str(repo_root), check=False, capture_output=True)
+    elif link:
+        # mars.toml already exists — just link the requested dirs.
+        for d in link:
+            with contextlib.suppress(FileNotFoundError):
+                subprocess.run(
+                    [mars_bin, "link", d],
+                    cwd=str(repo_root),
+                    check=False,
+                    capture_output=True,
+                )
 
 
-def ensure_state_bootstrap_sync(repo_root: Path) -> ConfigInitOutput:
+def ensure_state_bootstrap_sync(
+    repo_root: Path, *, link: tuple[str, ...] = ()
+) -> ConfigInitOutput:
     """Ensure first-run state exists and scaffold project config when missing."""
 
     from meridian.lib.catalog.models_toml import ensure_models_config
@@ -733,7 +755,7 @@ def ensure_state_bootstrap_sync(repo_root: Path) -> ConfigInitOutput:
     for dir_path in bootstrap_dirs:
         dir_path.mkdir(parents=True, exist_ok=True)
     ensure_gitignore(repo_root)
-    _ensure_mars_init(repo_root)
+    _ensure_mars_init(repo_root, link=link)
 
     path = _config_path(repo_root)
     if path.exists():
@@ -747,7 +769,7 @@ def ensure_state_bootstrap_sync(repo_root: Path) -> ConfigInitOutput:
 
 def config_init_sync(payload: ConfigInitInput) -> ConfigInitOutput:
     repo_root = _resolve_repo_root(payload.repo_root)
-    return ensure_state_bootstrap_sync(repo_root)
+    return ensure_state_bootstrap_sync(repo_root, link=payload.link)
 
 
 def config_show_sync(payload: ConfigShowInput) -> ConfigShowOutput:

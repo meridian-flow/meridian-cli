@@ -52,10 +52,18 @@ meridian --help
 In the user's project root, run:
 
 ```bash
-meridian config init
+meridian init --link .claude
 ```
 
-This creates `.meridian/` with baseline config.
+This creates `.meridian/` with baseline config and links `.agents/` into `.claude/` so Claude Code auto-discovers installed agents and skills.
+
+For other tools (Cursor, etc.), use `--link .cursor` instead or in addition.
+
+If the user doesn't use Claude Code or any tool that reads from a dot-directory, omit `--link`:
+
+```bash
+meridian init
+```
 
 ## Step 3: Install Agent & Skill Packages
 
@@ -73,30 +81,7 @@ If they only want the core coordination primitives (without the dev team):
 meridian mars add haowjy/meridian-base
 ```
 
-## Step 4: Claude Code Symlinks (Optional)
-
-Ask the user:
-`Are you using Claude Code, and do you want Claude to natively discover Meridian agents and skills in interactive sessions?`
-
-Explain before acting:
-- Meridian spawns already inject agents/skills automatically.
-- These symlinks are only for interactive Claude Code sessions where Claude should auto-discover agents/skills.
-
-If yes, run in the repo root:
-
-```bash
-mkdir -p .claude
-ln -sf ../.agents/agents .claude/agents
-ln -sf ../.agents/skills .claude/skills
-```
-
-Check `.gitignore` and ensure these symlink paths are ignored:
-- `.claude/agents`
-- `.claude/skills`
-
-If they are not ignored, ask the user for permission to add them.
-
-## Step 5: Shell Completion (Optional)
+## Step 4: Shell Completion (Optional)
 
 Ask the user: `Would you like shell autocompletion for the meridian CLI?`
 
@@ -108,7 +93,7 @@ meridian completion install
 
 Tell the user to restart their shell (or source their shell profile) for completion to take effect.
 
-## Step 6: Verify Setup
+## Step 5: Verify Setup
 
 Run:
 

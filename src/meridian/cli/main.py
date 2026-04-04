@@ -897,10 +897,19 @@ def _resolve_session_target(
 
 
 @app.command(name="init")
-def init_alias() -> None:
-    """Alias for config init."""
+def init_alias(
+    *,
+    link: Annotated[
+        tuple[str, ...],
+        Parameter(name="--link", help="Link .agents/ into a tool directory (e.g. .claude)."),
+    ] = (),
+) -> None:
+    """Initialize meridian in the current project."""
 
-    config_app(["init"])
+    from meridian.lib.ops.config import ConfigInitInput, config_init_sync
+
+    result = config_init_sync(ConfigInitInput(link=link))
+    emit(result)
 
 
 def _register_group_commands() -> None:

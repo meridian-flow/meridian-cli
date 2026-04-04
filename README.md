@@ -73,28 +73,6 @@ meridian --version
 meridian doctor
 ```
 
-## Set Up a Project
-
-```bash
-cd your-project
-meridian mars add haowjy/meridian-dev-workflow
-```
-
-This installs the full dev team (coder, reviewers, testers, architect, etc.) plus core coordination primitives. For just the core primitives:
-
-```bash
-meridian mars add haowjy/meridian-base
-```
-
-### Alternative: manual setup (without mars)
-
-```bash
-mkdir -p .agents/agents .agents/skills
-git clone https://github.com/haowjy/meridian-base /tmp/meridian-base
-cp -r /tmp/meridian-base/agents/. .agents/agents/
-cp -r /tmp/meridian-base/skills/. .agents/skills/
-```
-
 <details>
 <summary>Alternative install methods</summary>
 
@@ -122,6 +100,30 @@ If `meridian` is not on your PATH: `uv tool update-shell`
 
 </details>
 
+## Set Up a Project
+
+```bash
+cd your-project
+meridian init --link .claude
+meridian mars add haowjy/meridian-dev-workflow
+```
+
+This initializes `.meridian/`, links `.agents/` into `.claude/` so Claude Code
+discovers your agents and skills, and installs the full dev team (coder,
+reviewers, testers, architect, etc.) plus core coordination primitives.
+
+For just the core primitives:
+
+```bash
+meridian mars add haowjy/meridian-base
+```
+
+To link into other tool directories (e.g. Cursor):
+
+```bash
+meridian mars link .cursor
+```
+
 ### Prerequisites
 
 **Platforms:** macOS and Linux. Windows is supported via
@@ -144,27 +146,20 @@ support but lighter day-to-day coverage.
 primary session. Codex and OpenCode work well as **spawn targets** but aren't
 as suited as the primary harness.
 
-### Claude Code integration
+### Tool integration (Claude Code, Cursor, etc.)
 
-Meridian reads agents from `.agents/`. Claude Code discovers them from
-`.claude/`. Symlink them so Claude Code sees everything synced into `.agents/`:
+If you didn't pass `--link .claude` during `meridian init`, you can link later:
 
 ```bash
-mkdir -p .claude
-ln -sf ../.agents/agents .claude/agents
-ln -sf ../.agents/skills .claude/skills
+meridian mars link .claude
 ```
 
-Add these to `.gitignore` if they aren't already:
+This symlinks `.agents/` into `.claude/` so Claude Code auto-discovers your
+installed agents and skills. Without linking, `meridian spawn` still works
+(it injects context directly), but interactive sessions won't auto-discover
+agents and skills.
 
-```
-.claude/agents
-.claude/skills
-```
-
-Without these symlinks, `meridian spawn` still works (it injects context
-directly), but interactive Claude Code sessions won't auto-discover your
-installed agents and skills.
+To unlink: `meridian mars link --unlink .claude`
 
 ## Quick Start
 
@@ -183,74 +178,34 @@ meridian spawn wait p1
 meridian spawn show p1
 ```
 
-## How It Works
-
-1. `meridian` launches a primary agent with coordination skills injected.
-2. The agent delegates work via `meridian spawn`, picking the right model for
-   each task. Meridian routes model names to the right harness CLI.
-3. Spawns run in parallel, writing logs, reports, and metadata to `.meridian/`.
-4. The orchestrator reads spawn reports, checks results, and iterates —
-   spawning follow-ups, fanning out reviewers, or continuing prior work.
-5. State persists across sessions. A future agent (or the same one after
-   compaction) can search past reports, read session history, and resume.
-
-## Agent & Skill Packages
-
-Meridian discovers agent profiles from `.agents/agents/` and skills from
-`.agents/skills/`. Write your own, or add external packages with mars:
-
-### [meridian-base](https://github.com/haowjy/meridian-base) — Core coordination
-
-The orchestrator and subagent profiles, plus skills for spawning, work
-coordination, session context, and troubleshooting:
-
-```bash
-meridian mars add haowjy/meridian-base
-meridian mars sync
-```
-
-### [meridian-dev-workflow](https://github.com/haowjy/meridian-dev-workflow) — Dev team
-
-An opinionated SDLC methodology: coder, reviewers, testers, investigator,
-researcher, documenter — plus workflow skills for design, planning,
-implementation, review, testing, and documentation:
-
-```bash
-meridian mars add haowjy/meridian-dev-workflow
-meridian mars sync
-```
-
-Browse their READMEs for full agent/skill catalogs.
-
 ## Architecture
 
 ```mermaid
 graph TB
-    User([You]) --> Primary["meridian<br/>(primary agent)"]
+    User([You]) --> Primary["meridian<br/>(primary session)"]
 
-    subgraph Orchestration
+    subgraph Packages
+        Sources["git sources"] -->|"meridian mars add/sync"| Mars["mars"]
+        Mars --> Agents[".agents/"]
+        Agents -->|"meridian mars link"| Tool[".claude/ · .cursor/"]
+    end
+
+    subgraph Runtime
         Primary -->|"meridian spawn"| Router{"Model router"}
         Router --> Claude["Claude Code"]
         Router --> Codex["Codex CLI"]
         Router --> OpenCode["OpenCode"]
     end
 
-    subgraph ".meridian/"
-        Spawns["spawns.jsonl"]
-        Reports["spawns/p1/report.md"]
-        Sessions["sessions.jsonl"]
-        Fs["fs/ (shared files)"]
+    subgraph State[".meridian/"]
+        Spawns["spawns + reports"]
+        Sessions["sessions"]
+        Work["work items + fs"]
     end
 
-    subgraph ".agents/"
-        Agents["agents/*.md"]
-        Skills["skills/*/SKILL.md"]
-    end
-
-    Claude --> .meridian/
-    Codex --> .meridian/
-    OpenCode --> .meridian/
-    .agents/ --> Orchestration
+    Agents --> Primary
+    Primary --> State
+    Claude & Codex & OpenCode -->|"meridian CLI"| State
 ```
 
 ## Commands
@@ -278,14 +233,23 @@ graph TB
 
 | Command | Description |
 |---|---|
+| `meridian init [--link DIR]` | Initialize project (`.meridian/`, `mars.toml`, optional tool linking) |
 | `meridian config show` | Show resolved config and bootstrap `.meridian/` on first run |
-| `meridian config init` | Explicitly scaffold `config.toml` |
 | `meridian config set KEY VALUE` | Set a config value |
 | `meridian models config show` | Show `.meridian/models.toml` policy overrides |
 | `meridian models list` | Inspect the model catalog |
-| `meridian mars sync` | Sync package definitions into `.agents/` |
 | `meridian doctor` | Run diagnostics |
 | `meridian serve` | Start the MCP server |
+
+**Package management (mars):**
+
+| Command | Description |
+|---|---|
+| `meridian mars add SOURCE` | Add an agent/skill package source |
+| `meridian mars sync` | Resolve and install packages into `.agents/` |
+| `meridian mars link DIR` | Symlink `.agents/` into a tool directory |
+| `meridian mars list` | Show installed agents and skills |
+| `meridian mars upgrade` | Fetch latest versions and sync |
 
 ## State Layout
 
