@@ -247,9 +247,19 @@ soul/
   opus.claude.md              # Claude-specific soul addon
 ```
 
-**Naming convention**: `<name>.<harness>.<ext>` for flat files, `<MARKER>.<harness>.<ext>` for marker dirs. The harness identifier matches link target names (e.g., `.claude` → `claude`, `.cursor` → `cursor`).
+**Naming convention**: `<name>.<harness>.<ext>` for flat files, `<MARKER>.<harness>.<ext>` for marker dirs. The harness identifier matches managed target names (e.g., `.claude` → `claude`, `.cursor` → `cursor`).
 
-**Discovery changes**: Discovery finds all variants and attaches them to the base item:
+**Variant parsing rule**: The harness identifier is extracted by matching the second-to-last dot-separated segment against the set of known managed target harness IDs from config. The algorithm:
+
+1. Split filename (without final extension) on `.` — e.g., `coder.claude` → `["coder", "claude"]`
+2. If the last segment matches a known harness ID (from `[[settings.targets]]`) → it's a variant. Base name is everything before that segment.
+3. If no match → it's a base item with a dotted name (e.g., `my.company.agent.md` is base name `my.company.agent`).
+
+This is unambiguous because variant resolution requires the harness ID set from config. A file like `review.v2.claude.md` is a variant of `review.v2` for `claude` only if `claude` is a configured target. Without configured targets, no files are variants.
+
+**Constraint**: Item names MAY contain dots. Harness IDs in `[[settings.targets]]` MUST NOT contain dots (enforced at config validation). This ensures the last-segment match is always unambiguous.
+
+**Discovery changes**: Discovery finds all variants and attaches them to the base item. The algorithm is:
 
 ```rust
 /// A discovered item with optional harness-specific variants.
@@ -261,9 +271,28 @@ pub struct DiscoveredItem {
 }
 ```
 
-**Resolution in target building**: During `build_target()`, the active link targets determine which variants are relevant. For each item:
+**Variant attachment algorithm** (inside `discover_source()`):
 
-1. If a variant exists for an active link target's harness → use the variant for that target
+1. Scan all files matching the convention pattern (e.g., `agents/*.md`)
+2. For each file, check if the last dot-separated stem segment matches a known harness ID
+3. If yes → set aside as variant (harness_id, base_name, path)
+4. If no → create base `DiscoveredItem`
+5. After scanning all files, attach collected variants to their base items by matching `base_name`
+6. Variants without a matching base item emit a `Diagnostic::Warning` and are skipped
+
+This requires passing the set of known harness IDs into `discover_source()`:
+
+```rust
+pub fn discover_source(
+    tree_path: &Path,
+    fallback_name: Option<&str>,
+    harness_ids: &HashSet<String>,  // NEW: from settings.targets
+) -> Result<(Vec<DiscoveredItem>, Vec<Diagnostic>), MarsError>
+```
+
+**Resolution in target building**: During `build_target()`, the active managed targets determine which variants are relevant. For each item:
+
+1. If a variant exists for a managed target's harness → use the variant for that target
 2. If no variant exists → use the default version
 3. Variants for inactive harnesses are ignored (not installed)
 
@@ -288,6 +317,10 @@ pub struct TargetItem {
 pub struct VariantSource {
     pub source_path: PathBuf,
     pub source_hash: ContentHash,
+    /// Rewritten content for this variant (same transform as base item).
+    /// Ensures variant content goes through the same rewrite pipeline
+    /// (frontmatter transforms, skill renames) as the base item.
+    pub rewritten_content: Option<String>,
 }
 ```
 
@@ -342,8 +375,27 @@ pub struct ManagedTarget {
     pub harness_id: String,
     /// How content items are synced to this target.
     pub content_strategy: ContentStrategy,
-    /// Runtime adapter for capability materialization.
-    pub adapter: Box<dyn RuntimeAdapter>,
+    /// Which runtime adapter handles capability materialization.
+    pub adapter_kind: AdapterKind,
+}
+
+/// Closed enum for adapter selection — matches the "single binary, no dynamic loading" constraint.
+/// Adapter logic is method dispatch on this enum, not trait objects.
+pub enum AdapterKind {
+    Claude,
+    Cursor,
+    Generic,  // fallback for unknown targets
+}
+
+impl AdapterKind {
+    /// Select adapter from target name.
+    pub fn from_target(name: &str) -> Self {
+        match name.trim_start_matches('.') {
+            "claude" => Self::Claude,
+            "cursor" => Self::Cursor,
+            _ => Self::Generic,
+        }
+    }
 }
 
 /// How content (agents, skills, soul files) reaches a managed target.
@@ -606,43 +658,43 @@ Runtime adapters handle per-target materialization. With the link reframing, ada
 2. **Capability materialization**: Merge config fragments into target-specific config files
 
 ```rust
-/// A runtime adapter knows how to manage a specific target directory.
-pub trait RuntimeAdapter {
-    /// Which target directory this adapter handles (e.g. ".claude").
-    fn target_name(&self) -> &str;
-    
-    /// Harness identifier for variant resolution (e.g. "claude").
-    fn harness_id(&self) -> &str;
-    
+impl AdapterKind {
     /// Sync content items to the target directory.
     /// Resolves harness-specific variants where available.
-    fn sync_content(
+    pub fn sync_content(
         &self,
         managed_root: &Path,
-        target_dir: &Path,
+        target: &ManagedTarget,
         items: &[TargetItem],
-    ) -> Result<Vec<ReconcileOutcome>, MarsError>;
+    ) -> Result<Vec<ReconcileOutcome>, MarsError> {
+        // Content sync is generic — same algorithm for all adapters.
+        // Variant resolution uses target.harness_id to pick the right variant.
+        sync_target_content(managed_root, target, items, &target.content_strategy)
+    }
     
     /// Materialize all capabilities into this target's config.
     /// Returns diagnostics for unsupported capabilities or conflicts.
-    fn materialize_capabilities(
+    pub fn materialize_capabilities(
         &self,
         capabilities: &CapabilitySet,
         target_dir: &Path,
-    ) -> Result<Vec<Diagnostic>, MarsError>;
+    ) -> Result<Vec<Diagnostic>, MarsError> {
+        match self {
+            Self::Claude => materialize_claude(capabilities, target_dir),
+            Self::Cursor => materialize_cursor(capabilities, target_dir),
+            Self::Generic => materialize_generic(capabilities, target_dir),
+        }
+    }
 }
 ```
 
-**Built-in adapters**: `ClaudeAdapter`, `CursorAdapter`, `GenericAdapter` (fallback).
+**Why enum, not trait?** The implementability reviewer flagged tension between `Box<dyn RuntimeAdapter>` and the "single binary, no dynamic loading" constraint. The adapter set is closed and small (2-3 built-in). A closed enum gives exhaustive match (compiler catches missing adapters) and avoids heap allocation. If the adapter set truly needs to be open in the future, the enum can be replaced with a trait at that point — but the current constraints don't justify the indirection.
 
-### Why the adapter gained `sync_content`
+### Content sync is generic; capability materialization is adapter-specific
 
-With the link reframing, content sync to targets is no longer "just create symlinks." Each target may need:
-- Variant-resolved content (coder.claude.md instead of coder.md)
-- Soul files copied/synced
-- Different content strategies (symlink vs copy vs mirror)
+Content sync (copy items, resolve variants) follows the same algorithm for all adapters — the only input that varies is the harness ID for variant resolution. This is a shared function, not per-adapter logic.
 
-The adapter encapsulates all target-specific logic. The generic adapter provides sensible defaults (copy everything, skip capabilities).
+Capability materialization is genuinely different per adapter — Claude's `settings.json`, Cursor's config format, etc. This is where `AdapterKind` dispatches to adapter-specific logic.
 
 ### Capability Set
 
@@ -685,12 +737,12 @@ Managed target sync happens **after** content apply and **before** lock write:
 3. **Lock is written** — records what was installed
 
 If target sync fails:
-- `.agents/` is already correct — this is fine
-- Lock is NOT written — next `mars sync` re-runs the pipeline
+- `.agents/` is already correct
+- **Lock IS still written** — the lock records what's in `.agents/`, which is the source of truth. Target sync state is tracked separately.
 - Managed targets may be partially updated — each adapter handles its own atomicity
-- Re-running `mars sync` converges: content diffs as unchanged, targets get re-synced
+- Re-running `mars sync` converges: content diffs as unchanged (lock matches), targets get re-synced
 
-**Error handling**: Target sync errors are **non-fatal by default**. Content sync to `.agents/` is the primary value; target sync is additive. Opt-in `--strict` makes target sync failures fatal.
+**Error handling**: Target sync errors are **non-fatal by default**. Content sync to `.agents/` is the primary value; target sync is additive. The lock always reflects the `.agents/` state regardless of target sync outcome. Target sync status is reported in `SyncReport.target_outcomes` so the CLI can display which targets succeeded/failed. Opt-in `--strict` makes target sync failures fatal (lock not written, full re-run on next sync).
 
 ---
 
@@ -733,7 +785,36 @@ name = ".cursor"
 
 ### Lock Schema
 
-Lock version stays at `1` for new item kinds (additive). Bump to `version: 2` if structural changes are needed (e.g., variant tracking):
+Lock version stays at `1` for new item kinds (additive — the `kind` field is already a string). Bump to `version: 2` when variants are introduced, since the nested `variants` table is a structural schema change.
+
+**Lock version gating**: The lock loader must check the version field before deserializing:
+
+```rust
+fn load_lock(path: &Path) -> Result<LockFile, MarsError> {
+    let raw: toml::Value = ...;
+    let version = raw.get("version").and_then(|v| v.as_integer()).unwrap_or(1);
+    
+    match version {
+        1 => deserialize_v1(raw),
+        2 => deserialize_v2(raw),  // includes variant support
+        v => Err(MarsError::InvalidRequest {
+            message: format!("lock version {v} is not supported — upgrade mars"),
+        }),
+    }
+}
+
+fn deserialize_v1(raw: toml::Value) -> Result<LockFile, MarsError> {
+    // Current deserialization — no variants field
+    toml::from_str(...)
+}
+
+fn deserialize_v2(raw: toml::Value) -> Result<LockFile, MarsError> {
+    // Extended deserialization — includes optional variants per item
+    toml::from_str(...)
+}
+```
+
+**Migration**: When mars writes a lock file, it uses v2 format if any items have variants, v1 otherwise. This means projects that don't use variants keep v1 locks and stay compatible with older mars. The first `mars sync` after adding variant content upgrades the lock to v2.
 
 ```toml
 version = 2

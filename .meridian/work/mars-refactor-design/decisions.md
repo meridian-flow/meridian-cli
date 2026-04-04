@@ -144,10 +144,42 @@
 
 **Reasoning**: The `links` syntax is simple and works for the common case. The new `[[settings.targets]]` syntax is needed for per-target configuration (content strategy, etc.). Supporting both means existing mars.toml files keep working. The migration path is: `links = [".claude"]` is equivalent to `[[settings.targets]] name = ".claude"` with defaults. Users who need per-target config use the new syntax.
 
-## D19: RuntimeAdapter gains sync_content alongside materialize_capabilities
+## D19: Content sync is generic; capability materialization dispatches via AdapterKind enum
 
-**Choice**: The `RuntimeAdapter` trait has both `sync_content()` and `materialize_capabilities()` methods, giving the adapter full control over how a managed target is populated.
+**Choice**: Content sync uses a shared function (variant resolution by harness ID). Capability materialization dispatches through a closed `AdapterKind` enum. Replaces the original `Box<dyn RuntimeAdapter>` trait approach.
 
-**Rejected**: Keeping content sync as generic logic outside the adapter, with only capability materialization adapter-specific.
+**Rejected**: (a) Trait-based `Box<dyn RuntimeAdapter>` with both sync_content and materialize methods, (b) Keeping sync_content adapter-specific.
 
-**Reasoning**: With harness-specific variants, content sync is no longer generic — each target needs variant-resolved content specific to its harness. The adapter knows its harness identity and can resolve variants correctly. Keeping content sync outside the adapter would require passing harness context separately and duplicating variant resolution logic. The adapter encapsulates all target-specific logic in one place.
+**Reasoning**: Implementability reviewer flagged tension between `Box<dyn RuntimeAdapter>` and the "single binary, no dynamic loading" constraint from D1. Content sync is actually the same algorithm for all adapters — the only varying input is the harness ID for variant selection. Making it adapter-specific would duplicate the same code across adapters. Capability materialization genuinely differs per adapter (different config formats), so that's where dispatch happens. A closed enum gives exhaustive match and avoids heap allocation, consistent with D1's reasoning.
+
+## D20: Variant parsing uses last-segment matching against known harness IDs
+
+**Choice**: Extract the harness ID by matching the last dot-separated stem segment against the set of known managed target harness IDs from config. Item names may contain dots; harness IDs may not.
+
+**Rejected**: (a) Always splitting on the second-to-last dot (ambiguous for dotted names), (b) Using a different delimiter like `__` or `@`.
+
+**Reasoning**: Both reviewers flagged the `<name>.<harness>.<ext>` convention as ambiguous for names containing dots. The fix is to make variant detection depend on config: a file is only a variant if its last stem segment matches a configured harness ID. This means `review.v2.claude.md` is a variant of `review.v2` for `claude` *only if* `claude` is a configured target. Without configured targets, no files are variants. Requiring harness IDs to be dot-free (enforced at config validation) makes the split unambiguous. Alternative delimiters (`__`, `@`) would break the natural `.claude.md` naming that users expect.
+
+## D21: Lock written regardless of target sync outcome (non-strict mode)
+
+**Choice**: In non-strict mode, the lock is always written after successful content apply to `.agents/`, even if managed target sync fails. Target sync status is reported separately in `SyncReport.target_outcomes`.
+
+**Rejected**: (a) Not writing lock on target sync failure (original design), (b) Always making target sync failure fatal.
+
+**Reasoning**: Correctness reviewer flagged that "lock not written + non-fatal target sync" is contradictory — if the command succeeds but the lock isn't advanced, the next run doesn't have a committed baseline. The lock should reflect what's in `.agents/` (the source of truth), not what's in managed targets. Targets are derived state that can always be re-synced. Writing the lock ensures the next `mars sync` operates from the correct baseline and only re-runs target sync (which is idempotent).
+
+## D22: Variant content goes through the same rewrite pipeline as base items
+
+**Choice**: `VariantSource` includes a `rewritten_content` field, and variant content goes through the same frontmatter/rename rewrite pipeline as the base item during target building.
+
+**Rejected**: Skipping rewrites for variant content (only using raw source files).
+
+**Reasoning**: Correctness reviewer flagged that `sync_target_content()` would read raw variant files, bypassing the rewrite pipeline that transforms base items (frontmatter transforms, skill renames per `rewrite.rs`). This would cause managed targets to get unrewritten variant content while `.agents/` gets the rewritten default — breaking renamed skill references. Variants must go through the same transforms to maintain consistency.
+
+## D23: Lock version conditional on content — v1 when no variants, v2 when variants present
+
+**Choice**: Mars writes v1 lock format when no items have variants, v2 when any item has variants. The loader checks the version field before deserializing and rejects unknown versions with a clear error.
+
+**Rejected**: (a) Always writing v2 once the mars version supports it, (b) Silently ignoring unknown fields.
+
+**Reasoning**: Correctness reviewer flagged that the v2 lock schema (nested `variants` table) would be silently accepted and variant data dropped by older mars versions that only know v1. Conditional version writing means projects that don't use variants stay on v1 (compatible with older mars). Projects that adopt variants get v2, and older mars fails fast with a clear upgrade message instead of silently dropping data.
