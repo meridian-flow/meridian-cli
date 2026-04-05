@@ -198,7 +198,11 @@ def _resolve_final_model(
     config: MeridianConfig,
     repo_root: Path,
 ) -> str:
-    """Resolve final model string after harness is known."""
+    """Resolve final model string after harness is known.
+
+    This is intentionally outside the generic first-non-none layer merge because
+    config model defaults are keyed by resolved harness (`harness.<id>`).
+    """
 
     from meridian.lib.catalog.models import resolve_model as resolve_model_entry
 
@@ -216,6 +220,16 @@ def _resolve_final_model(
     return ""
 
 
+def _first_set_layer_index(
+    layers: tuple[RuntimeOverrides, ...],
+    field_name: str,
+) -> int | None:
+    for index, layer in enumerate(layers):
+        if getattr(layer, field_name) is not None:
+            return index
+    return None
+
+
 def resolve_policies(
     *,
     repo_root: Path,
@@ -227,25 +241,51 @@ def resolve_policies(
     configured_default_harness: str = 'claude',
     skills_readonly: bool = True,
 ) -> ResolvedPolicies:
+    # Two-pass resolution is required because selecting an agent determines
+    # profile overrides, while profile overrides participate in final layer
+    # resolution for model/harness/safety fields.
     pre_profile_resolved = resolve(*layers, config_overrides)
-    agent_name = pre_profile_resolved.agent or builtin_default_agent
+    requested_agent = resolve(*layers).agent
+    configured_default_agent = (
+        (pre_profile_resolved.agent or builtin_default_agent) if not requested_agent else ""
+    )
 
     profile, profile_warning = resolve_agent_profile_with_builtin_fallback(
         repo_root=repo_root,
-        requested_agent=agent_name if pre_profile_resolved.agent else None,
-        configured_default=agent_name if not pre_profile_resolved.agent else '',
+        requested_agent=requested_agent,
+        configured_default=configured_default_agent,
         builtin_default=builtin_default_agent,
     )
     profile_overrides = RuntimeOverrides.from_agent_profile(profile)
     full_layers = (*layers, profile_overrides, config_overrides)
     resolved = resolve(*full_layers)
+    model_layer_index = _first_set_layer_index(full_layers, "model")
+    harness_layer_index = _first_set_layer_index(full_layers, "harness")
+    pre_profile_layer_count = len(layers)
+    model_set_in_pre_profile_layers = (
+        model_layer_index is not None and model_layer_index < pre_profile_layer_count
+    )
+    harness_from_profile_or_config = (
+        harness_layer_index is not None and harness_layer_index >= pre_profile_layer_count
+    )
 
+    # Harness cannot live purely in the layer stack:
+    # 1) explicit layer harness wins
+    # 2) otherwise derive from resolved model
+    # 3) otherwise use configured default harness fallback
     if resolved.harness:
         harness_id = HarnessId(resolved.harness)
     elif resolved.model:
         harness_id = _derive_harness_from_model(resolved.model, repo_root=repo_root)
     else:
         harness_id = HarnessId(configured_default_harness or 'claude')
+
+    # If model is overridden in pre-profile layers (CLI/env), a lower-precedence
+    # profile/config harness should not lock resolution into an incompatible runtime.
+    if resolved.model and model_set_in_pre_profile_layers and harness_from_profile_or_config:
+        model_derived_harness = _derive_harness_from_model(resolved.model, repo_root=repo_root)
+        if harness_id != model_derived_harness:
+            harness_id = model_derived_harness
 
     try:
         adapter = harness_registry.get_subprocess_harness(harness_id)
@@ -262,7 +302,13 @@ def resolve_policies(
         repo_root=repo_root,
     )
 
-    if final_model and resolved.harness and resolved.model:
+    user_explicit_same_precedence = (
+        model_layer_index is not None
+        and harness_layer_index is not None
+        and model_layer_index == harness_layer_index
+        and model_layer_index < pre_profile_layer_count
+    )
+    if final_model and user_explicit_same_precedence:
         resolve_harness(
             model=ModelId(final_model),
             harness_override=str(harness_id),

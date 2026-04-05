@@ -639,7 +639,7 @@ def _scaffold_template() -> str:
         "# Default model for spawns when --model and profile model are both unset",
         "# (str model id).",
         f"# model = {_toml_literal(cast('str', defaults['defaults.model']))}",
-        "# Default harness for spawns when --harness and profile harness are both unset (str).",
+        "# Default harness for spawns when higher-precedence values and profile harness are unset.",
         f"# harness = {_toml_literal(cast('str', defaults['defaults.harness']))}",
         "",
         "# -- Timeout behavior -------------------------------------------------------",

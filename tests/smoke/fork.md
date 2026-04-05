@@ -291,7 +291,7 @@ PY
 ```bash
 FAIL=0
 for HARNESS in claude codex opencode; do
-  if ! uv run meridian --json spawn --harness "$HARNESS" -a reviewer -p "Seed $HARNESS fork smoke." > "/tmp/meridian-fork-10-${HARNESS}-seed.json"; then
+  if ! MERIDIAN_DEFAULT_HARNESS="$HARNESS" uv run meridian --json spawn -a reviewer -p "Seed $HARNESS fork smoke." > "/tmp/meridian-fork-10-${HARNESS}-seed.json"; then
     echo "FAIL: could not create $HARNESS seed spawn"
     FAIL=1
     continue
@@ -309,7 +309,7 @@ PY
   [ -n "$SEED_SPAWN_ID" ] || FAIL=1
   uv run meridian spawn wait "$SEED_SPAWN_ID" >/tmp/meridian-fork-10-wait-"$HARNESS".txt 2>&1 || true
 
-  if ! uv run meridian --json spawn --fork "$SEED_SPAWN_ID" --harness "$HARNESS" -p "Fork on $HARNESS." > "/tmp/meridian-fork-10-${HARNESS}-fork.json"; then
+  if ! MERIDIAN_DEFAULT_HARNESS="$HARNESS" uv run meridian --json spawn --fork "$SEED_SPAWN_ID" -p "Fork on $HARNESS." > "/tmp/meridian-fork-10-${HARNESS}-fork.json"; then
     echo "FAIL: could not fork on $HARNESS"
     FAIL=1
     continue
@@ -377,15 +377,8 @@ PY
 ### FORK-12. Forking a nonexistent reference fails cleanly [IMPORTANT]
 
 ```bash
-SOURCE_HARNESS="$(uv run python - <<'PY'
-import json
-from pathlib import Path
-meta = json.loads(Path('/tmp/meridian-fork-source-meta.json').read_text(encoding='utf-8'))
-print(meta['source_harness'])
-PY
-)"
 BAD_REF="fork-smoke-missing-$(date +%s)"
-if uv run meridian spawn --fork "$BAD_REF" --harness "$SOURCE_HARNESS" -p "missing fork smoke" >/tmp/meridian-fork-12.out 2>&1; then
+if uv run meridian spawn --fork "$BAD_REF" -p "missing fork smoke" >/tmp/meridian-fork-12.out 2>&1; then
   echo "FAIL: nonexistent fork ref unexpectedly succeeded"
 elif grep -q "Traceback" /tmp/meridian-fork-12.out; then
   echo "FAIL: nonexistent fork ref produced a traceback"
@@ -406,7 +399,7 @@ meta = json.loads(Path('/tmp/meridian-fork-source-meta.json').read_text(encoding
 print(meta['source_spawn_id'])
 PY
 )"
-if uv run meridian spawn --fork "$SOURCE_SPAWN_ID" --harness definitely-not-a-harness -p "bad harness smoke" >/tmp/meridian-fork-13.out 2>&1; then
+if MERIDIAN_DEFAULT_HARNESS=definitely-not-a-harness uv run meridian spawn --fork "$SOURCE_SPAWN_ID" -p "bad harness smoke" >/tmp/meridian-fork-13.out 2>&1; then
   echo "FAIL: unsupported harness unexpectedly succeeded"
 elif grep -q "Traceback" /tmp/meridian-fork-13.out; then
   echo "FAIL: unsupported harness produced a traceback"
@@ -461,7 +454,7 @@ meta = json.loads(Path('/tmp/meridian-fork-source-meta.json').read_text(encoding
 print(meta['source_spawn_id'])
 PY
 )"
-if uv run meridian spawn --fork "$SOURCE_SPAWN_ID" --harness "$TARGET_HARNESS" -p "cross harness fork" >/tmp/meridian-fork-15.out 2>&1; then
+if MERIDIAN_DEFAULT_HARNESS="$TARGET_HARNESS" uv run meridian spawn --fork "$SOURCE_SPAWN_ID" -p "cross harness fork" >/tmp/meridian-fork-15.out 2>&1; then
   echo "FAIL: cross-harness fork unexpectedly succeeded"
 elif grep -q "Cannot fork across harnesses" /tmp/meridian-fork-15.out; then
   echo "PASS: cross-harness fork rejected with explicit message"
@@ -541,7 +534,7 @@ meta = json.loads(Path('/tmp/meridian-fork-source-meta.json').read_text(encoding
 print(meta['source_harness'])
 PY
 )" && \
-uv run meridian --json spawn --fork "$SOURCE_HARNESS_ID" --harness "$SOURCE_HARNESS" -p "Raw harness fork." > /tmp/meridian-fork-18.json && \
+MERIDIAN_DEFAULT_HARNESS="$SOURCE_HARNESS" uv run meridian --json spawn --fork "$SOURCE_HARNESS_ID" -p "Raw harness fork." > /tmp/meridian-fork-18.json && \
 uv run python - <<'PY'
 import json
 import os

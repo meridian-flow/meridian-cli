@@ -32,6 +32,7 @@ def write_agent(
     name: str,
     model: str,
     skills: list[str] | tuple[str, ...] = (),
+    harness: str | None = None,
     sandbox: str | None = None,
     mcp_tools: list[str] | tuple[str, ...] | None = None,
     tools: list[str] | tuple[str, ...] | None = None,
@@ -45,6 +46,8 @@ def write_agent(
         f"model: {model}",
         f"skills: [{', '.join(skills)}]",
     ]
+    if harness is not None:
+        lines.append(f"harness: {harness}")
     if sandbox is not None:
         lines.append(f"sandbox: {sandbox}")
     if mcp_tools is not None:

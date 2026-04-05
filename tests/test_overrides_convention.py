@@ -27,6 +27,7 @@ def _env_overrides(overrides: dict[str, str]) -> Iterator[None]:
 _TEST_VALUES: dict[str, str] = {
     "model": "test-model",
     "harness": "claude",
+    "agent": "coder",
     "effort": "high",
     "sandbox": "full-access",
     "approval": "auto",
@@ -61,6 +62,7 @@ def test_runtime_overrides_fields_are_exposed_across_env_config_and_cli_layers()
     primary = PrimaryConfig(
         model="test-model",
         harness="claude",
+        agent="coder",
         effort="high",
         sandbox="full-access",
         approval="auto",
@@ -87,3 +89,20 @@ def test_resolve_precedence() -> None:
     assert result.effort == "high"
     assert result.sandbox == "full-access"
     assert result.timeout == 10.0
+
+
+def test_spawn_config_layer_does_not_set_harness() -> None:
+    from meridian.lib.config.settings import MeridianConfig
+    from meridian.lib.core.overrides import RuntimeOverrides
+
+    overrides = RuntimeOverrides.from_spawn_config(
+        MeridianConfig(
+            default_model="gpt-5.4",
+            default_harness="codex",
+            default_agent="__meridian-subagent",
+        )
+    )
+
+    assert overrides.model == "gpt-5.4"
+    assert overrides.agent == "__meridian-subagent"
+    assert overrides.harness is None
