@@ -74,6 +74,7 @@ class GlobalOptions(BaseModel):
 
     output: OutputConfig
     config_file: str | None = None
+    harness: str | None = None
     yes: bool = False
     no_input: bool = False
     output_explicit: bool = False
@@ -185,6 +186,7 @@ def _extract_global_options(argv: Sequence[str]) -> tuple[list[str], GlobalOptio
     json_mode = False
     output_format: str | None = None
     config_file: str | None = None
+    harness: str | None = None
     yes = False
     no_input = False
     output_explicit = False
@@ -194,6 +196,9 @@ def _extract_global_options(argv: Sequence[str]) -> tuple[list[str], GlobalOptio
     i = 0
     while i < len(argv):
         arg = argv[i]
+        if arg == "--":
+            cleaned.extend(argv[i:])
+            break
         if arg == "mars":
             cleaned.extend(argv[i:])
             break
@@ -232,6 +237,30 @@ def _extract_global_options(argv: Sequence[str]) -> tuple[list[str], GlobalOptio
                 raise SystemExit("--config requires a non-empty value")
             i += 1
             continue
+        if arg == "--harness":
+            if i + 1 >= len(argv):
+                raise SystemExit("--harness requires a value")
+            requested_harness = argv[i + 1].strip()
+            if not requested_harness:
+                raise SystemExit("--harness requires a non-empty value")
+            if harness is not None and harness != requested_harness:
+                raise SystemExit(
+                    f"Conflicting harness selections: '{harness}' and '{requested_harness}'."
+                )
+            harness = requested_harness
+            i += 2
+            continue
+        if arg.startswith("--harness="):
+            requested_harness = arg.partition("=")[2].strip()
+            if not requested_harness:
+                raise SystemExit("--harness requires a non-empty value")
+            if harness is not None and harness != requested_harness:
+                raise SystemExit(
+                    f"Conflicting harness selections: '{harness}' and '{requested_harness}'."
+                )
+            harness = requested_harness
+            i += 1
+            continue
         if arg == "--yes":
             yes = True
             i += 1
@@ -254,10 +283,23 @@ def _extract_global_options(argv: Sequence[str]) -> tuple[list[str], GlobalOptio
         cleaned.append(arg)
         i += 1
 
+    shortcut = _first_positional_token_with_index(cleaned)
+    if shortcut is not None:
+        shortcut_index, shortcut_value = shortcut
+        if shortcut_value in _HARNESS_SHORTCUT_NAMES:
+            if harness is not None and harness != shortcut_value:
+                raise SystemExit(
+                    "Conflicting harness selections: "
+                    f"'{harness}' and '{shortcut_value}'."
+                )
+            harness = shortcut_value
+            del cleaned[shortcut_index]
+
     resolved = normalize_output_format(requested=output_format, json_mode=json_mode)
     return cleaned, GlobalOptions(
         output=OutputConfig(format=resolved),
         config_file=config_file,
+        harness=harness,
         yes=yes,
         no_input=no_input,
         output_explicit=output_explicit,
@@ -281,7 +323,7 @@ app = App(
     name="meridian",
     help=(
         "Multi-agent orchestration across Claude, Codex, and OpenCode.\n\n"
-        "Harness shortcuts: meridian claude, meridian codex, meridian opencode\n"
+        "Global harness selection: --harness (or prefix with claude/codex/opencode)\n"
         "Bundled package manager: meridian mars <args>\n\n"
         'Run "meridian spawn -h" for subagent usage.'
     ),
@@ -295,7 +337,8 @@ def root(
     *passthrough: Annotated[
         str,
         Parameter(
-            help="Harness passthrough arguments (after --).",
+            help="Harness passthrough arguments.",
+            allow_leading_hyphen=True,
             show=False,
         ),
     ],
@@ -333,7 +376,7 @@ def root(
     ] = None,
     model: Annotated[
         str,
-        Parameter(name="--model", help="Model id or alias for primary harness."),
+        Parameter(name=["--model", "-m"], help="Model id or alias for primary harness."),
     ] = "",
     harness: Annotated[
         str | None,
@@ -399,16 +442,24 @@ def root(
             GlobalOptions(
                 output=OutputConfig(format=resolved),
                 config_file=config_file,
+                harness=harness,
                 yes=yes,
                 no_input=no_input,
             )
+        )
+
+    global_harness = get_global_options().harness
+    explicit_harness = harness.strip() if harness is not None and harness.strip() else None
+    if global_harness and explicit_harness and global_harness != explicit_harness:
+        raise ValueError(
+            f"Conflicting harness selections: '{global_harness}' and '{explicit_harness}'."
         )
 
     _run_primary_launch(
         continue_ref=continue_ref,
         fork_ref=fork_ref,
         model=model,
-        harness=harness,
+        harness=global_harness or explicit_harness,
         agent=agent,
         work=work,
         yolo=yolo,
@@ -749,130 +800,6 @@ def _run_primary_launch(
         )
     )
 
-
-def _register_harness_shortcut_command(harness_name: str) -> None:
-    """Register a harness shortcut command on the main app."""
-
-    @app.command(name=harness_name)
-    def shortcut(
-        *passthrough: Annotated[
-            str,
-            Parameter(
-                help="Harness passthrough arguments (after --).",
-                show=False,
-            ),
-        ],
-        yes: Annotated[
-            bool,
-            Parameter(name="--yes", help="Auto-approve prompts when supported.", show=False),
-        ] = False,
-        no_input: Annotated[
-            bool,
-            Parameter(
-                name="--no-input",
-                help="Disable interactive prompts and fail if input is needed.",
-                show=False,
-            ),
-        ] = False,
-        continue_ref: Annotated[
-            str | None,
-            Parameter(name="--continue", help="Continue a previous session reference."),
-        ] = None,
-        fork_ref: Annotated[
-            str | None,
-            Parameter(name="--fork", help="Fork from a session or spawn reference."),
-        ] = None,
-        model: Annotated[
-            str,
-            Parameter(name="--model", help="Model id or alias for primary harness."),
-        ] = "",
-        agent: Annotated[
-            str | None,
-            Parameter(name=["--agent", "-a"], help="Agent profile name for the primary agent."),
-        ] = None,
-        work: Annotated[
-            str,
-            Parameter(name="--work", help="Attach the primary session to a work item id."),
-        ] = "",
-        yolo: Annotated[
-            bool,
-            Parameter(
-                name="--yolo",
-                help="Skip all harness safety prompts and sandboxing.",
-            ),
-        ] = False,
-        autocompact: Annotated[
-            int | None,
-            Parameter(name="--autocompact", help="Auto-compact threshold in messages."),
-        ] = None,
-        effort: Annotated[
-            str | None,
-            Parameter(name="--effort", help="Effort level: low, medium, high, xhigh."),
-        ] = None,
-        sandbox: Annotated[
-            str | None,
-            Parameter(
-                name="--sandbox",
-                help=(
-                    "Sandbox mode: read-only, workspace-write, full-access,"
-                    " danger-full-access, unrestricted."
-                ),
-            ),
-        ] = None,
-        approval: Annotated[
-            str | None,
-            Parameter(
-                name="--approval",
-                help="Approval mode: default, confirm, auto, yolo. Overrides agent profile.",
-            ),
-        ] = None,
-        timeout: Annotated[
-            float | None,
-            Parameter(name="--timeout", help="Maximum runtime in minutes."),
-        ] = None,
-        dry_run: Annotated[
-            bool,
-            Parameter(name="--dry-run", help="Preview launch command without starting harness."),
-        ] = False,
-    ) -> None:
-        """Launch or resume the primary harness."""
-
-        if yolo and approval is not None:
-            raise ValueError("Cannot combine --yolo with --approval.")
-
-        if _GLOBAL_OPTIONS.get() is None:
-            _GLOBAL_OPTIONS.set(
-                GlobalOptions(
-                    output=OutputConfig(format="text"),
-                    config_file=None,
-                    yes=yes,
-                    no_input=no_input,
-                )
-            )
-
-        _run_primary_launch(
-            continue_ref=continue_ref,
-            fork_ref=fork_ref,
-            model=model,
-            harness=harness_name,
-            agent=agent,
-            work=work,
-            yolo=yolo,
-            approval=approval,
-            autocompact=autocompact,
-            effort=effort,
-            sandbox=sandbox,
-            timeout=timeout,
-            dry_run=dry_run,
-            passthrough=passthrough,
-        )
-
-    shortcut.__doc__ = f"Launch the {harness_name} harness directly."
-
-
-for _harness_name in ("claude", "codex", "opencode"):
-    _register_harness_shortcut_command(_harness_name)
-
 def _resolve_session_target(
     *,
     repo_root: Path,
@@ -956,6 +883,7 @@ _TOP_LEVEL_VALUE_FLAGS = frozenset(
         "--continue",
         "--fork",
         "--model",
+        "-m",
         "--harness",
         "--agent",
         "-a",
@@ -985,16 +913,17 @@ _TOP_LEVEL_BOOL_FLAGS = frozenset(
         "--no-dry-run",
     }
 )
+_HARNESS_SHORTCUT_NAMES = frozenset({"claude", "codex", "opencode"})
 
 
-def _first_positional_token(argv: Sequence[str]) -> str | None:
+def _first_positional_token_with_index(argv: Sequence[str]) -> tuple[int, str] | None:
     index = 0
     while index < len(argv):
         token = argv[index]
         if token == "--":
             return None
         if not token.startswith("-"):
-            return token
+            return index, token
         if "=" in token:
             index += 1
             continue
@@ -1011,15 +940,25 @@ def _first_positional_token(argv: Sequence[str]) -> str | None:
     return None
 
 
+def _first_positional_token(argv: Sequence[str]) -> str | None:
+    resolved = _first_positional_token_with_index(argv)
+    if resolved is None:
+        return None
+    _, token = resolved
+    return token
+
+
 def _top_level_command_names() -> set[str]:
     return {name for name in app.resolved_commands() if not name.startswith("-")}
 
 
-def _validate_top_level_command(argv: Sequence[str]) -> None:
+def _validate_top_level_command(argv: Sequence[str], *, global_harness: str | None = None) -> None:
     candidate = _first_positional_token(argv)
     if candidate is None:
         return
     if candidate in _top_level_command_names():
+        return
+    if global_harness is not None:
         return
     print(f"error: Unknown command: {candidate}", file=sys.stderr)
     raise SystemExit(1)
@@ -1067,7 +1006,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         _print_agent_root_help()
         return
 
-    _validate_top_level_command(cleaned_args)
+    _validate_top_level_command(cleaned_args, global_harness=options.harness)
 
     if not agent_mode_enabled():
         try:

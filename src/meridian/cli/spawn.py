@@ -61,11 +61,7 @@ def _spawn_create(
     *passthrough: Annotated[
         str,
         Parameter(
-            help=(
-                "Extra arguments passed directly to the harness (place after --). "
-                "Known limitation: meridian still consumes "
-                "--json/--format/--config/--yes/--no-input/--human even after --."
-            ),
+            help="Extra arguments passed directly to the harness (place after --).",
         ),
     ],
     template_vars: Annotated[
@@ -200,6 +196,8 @@ def _spawn_create(
         Parameter(name="--fork", help="Fork from a session or spawn reference."),
     ] = None,
 ) -> None:
+    global_harness = get_global_options().harness
+
     # Resolve --yolo / --approval interaction.
     if yolo and approval is not None:
         raise ValueError(
@@ -252,7 +250,8 @@ def _spawn_create(
                 autocompact=autocompact,
                 effort=effort,
                 sandbox=sandbox,
-                harness=resolved_reference.harness if not requested_model else None,
+                harness=global_harness
+                or (resolved_reference.harness if not requested_model else None),
                 passthrough_args=passthrough,
                 session=SessionContinuation(
                     harness_session_id=resolved_reference.harness_session_id,
@@ -274,6 +273,7 @@ def _spawn_create(
                 spawn_id=resolved_continue_from,
                 prompt=prompt,
                 model=model,
+                harness=global_harness,
                 agent=agent,
                 skills=parsed_skills,
                 dry_run=dry_run,
@@ -306,6 +306,7 @@ def _spawn_create(
                 autocompact=autocompact,
                 effort=effort,
                 sandbox=sandbox,
+                harness=global_harness,
                 passthrough_args=passthrough,
             ),
             sink=current_output_sink(),

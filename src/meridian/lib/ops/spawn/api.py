@@ -729,10 +729,23 @@ def spawn_continue_sync(
             f"Spawn '{resolved_spawn_id}' has no recorded session — cannot continue/fork."
         )
 
+    requested_harness = (payload.harness or "").strip() or None
+    source_harness = (resolved_reference.harness or "").strip() or None
+    if (
+        requested_harness is not None
+        and source_harness is not None
+        and requested_harness != source_harness
+    ):
+        raise ValueError(
+            f"Cannot continue spawn '{resolved_spawn_id}' with harness '{requested_harness}'; "
+            f"source spawn uses '{source_harness}'."
+        )
+
     derived_prompt = _prompt_for_follow_up(source_spawn, resolved_spawn_id, payload.prompt)
     create_input = SpawnCreateInput(
         prompt=derived_prompt,
         model=_model_for_follow_up(source_spawn, payload.model),
+        harness=requested_harness,
         agent=payload.agent,
         skills=payload.skills,
         repo_root=payload.repo_root,

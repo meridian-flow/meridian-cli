@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 import meridian.lib.ops.spawn.api as spawn_api
 from meridian.lib.ops.spawn.models import SpawnActionOutput, SpawnContinueInput, SpawnCreateInput
 from meridian.lib.state import spawn_store
@@ -147,3 +149,65 @@ def test_spawn_continue_respects_explicit_background_request(
     assert result.status == "dry-run"
     assert captured_input is not None
     assert captured_input.background is True
+
+
+def test_spawn_continue_passes_explicit_harness_to_create_input(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    state_root = _state_root(repo_root)
+    _seed_spawn(state_root, spawn_id="p23", harness_session_id="session-23")
+
+    captured_input: SpawnCreateInput | None = None
+
+    def _fake_spawn_create_sync(
+        payload: SpawnCreateInput,
+        ctx=None,
+        *,
+        sink=None,
+    ) -> SpawnActionOutput:
+        _ = (ctx, sink)
+        nonlocal captured_input
+        captured_input = payload
+        return SpawnActionOutput(command="spawn.create", status="dry-run")
+
+    monkeypatch.setattr(spawn_api, "spawn_create_sync", _fake_spawn_create_sync)
+
+    result = spawn_api.spawn_continue_sync(
+        SpawnContinueInput(
+            spawn_id="p23",
+            prompt="follow-up prompt",
+            harness="codex",
+            repo_root=repo_root.as_posix(),
+        )
+    )
+
+    assert result.status == "dry-run"
+    assert captured_input is not None
+    assert captured_input.harness == "codex"
+
+
+def test_spawn_continue_errors_on_explicit_harness_conflict(
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    state_root = _state_root(repo_root)
+    _seed_spawn(state_root, spawn_id="p24", harness_session_id="session-24")
+
+    with pytest.raises(ValueError) as exc_info:
+        spawn_api.spawn_continue_sync(
+            SpawnContinueInput(
+                spawn_id="p24",
+                prompt="follow-up prompt",
+                harness="claude",
+                repo_root=repo_root.as_posix(),
+            )
+        )
+
+    assert (
+        str(exc_info.value)
+        == "Cannot continue spawn 'p24' with harness 'claude'; source spawn uses 'codex'."
+    )

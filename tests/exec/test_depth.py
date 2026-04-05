@@ -44,7 +44,7 @@ class RecursiveHarnessAdapter(BaseSubprocessHarness):
 
     @property
     def capabilities(self) -> HarnessCapabilities:
-        return HarnessCapabilities()
+        return HarnessCapabilities(supports_primary_launch=True)
 
     def build_command(self, run: SpawnParams, perms: PermissionResolver) -> list[str]:
         _ = perms
@@ -116,7 +116,7 @@ def _write_recursive_harness_script(path: Path) -> None:
 
                 @property
                 def capabilities(self) -> HarnessCapabilities:
-                    return HarnessCapabilities()
+                    return HarnessCapabilities(supports_primary_launch=True)
 
                 def build_command(self, run: SpawnParams, perms: PermissionResolver) -> list[str]:
                     _ = perms

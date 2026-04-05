@@ -437,6 +437,7 @@ class SpawnContinueInput(BaseModel):
     spawn_id: str
     prompt: str
     model: str = ""
+    harness: str | None = None
     agent: str | None = None
     skills: tuple[str, ...] = ()
     fork: bool = False
