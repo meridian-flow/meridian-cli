@@ -184,13 +184,6 @@ def _spawn_create(
             ),
         ),
     ] = None,
-    harness: Annotated[
-        str | None,
-        Parameter(
-            name="--harness",
-            help="Harness id to use. Overrides agent profile.",
-        ),
-    ] = None,
     yolo: Annotated[
         bool,
         Parameter(
@@ -229,18 +222,6 @@ def _spawn_create(
         if resolved_reference.missing_harness_session_id:
             raise ValueError(missing_fork_session_error(resolved_fork_from))
 
-        requested_harness = (harness or "").strip() or None
-        source_harness = (resolved_reference.harness or "").strip() or None
-        if (
-            requested_harness is not None
-            and source_harness is not None
-            and requested_harness != source_harness
-        ):
-            raise ValueError(
-                "Cannot fork across harnesses: "
-                f"source is '{source_harness}', target is '{requested_harness}'."
-            )
-
         requested_model = model.strip()
         requested_agent = (agent or "").strip() or None
         requested_work = work.strip()
@@ -271,9 +252,7 @@ def _spawn_create(
                 autocompact=autocompact,
                 effort=effort,
                 sandbox=sandbox,
-                harness=requested_harness or (
-                    resolved_reference.harness if not requested_model else None
-                ),
+                harness=resolved_reference.harness if not requested_model else None,
                 passthrough_args=passthrough,
                 session=SessionContinuation(
                     harness_session_id=resolved_reference.harness_session_id,
@@ -327,7 +306,6 @@ def _spawn_create(
                 autocompact=autocompact,
                 effort=effort,
                 sandbox=sandbox,
-                harness=harness,
                 passthrough_args=passthrough,
             ),
             sink=current_output_sink(),
