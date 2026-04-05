@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict
 from meridian.lib.catalog.models import load_discovered_models, load_merged_aliases, resolve_model
 from meridian.lib.config.settings import MeridianConfig
 from meridian.lib.core.context import RuntimeContext
-from meridian.lib.core.overrides import RuntimeOverrides, resolve
+from meridian.lib.core.overrides import RuntimeOverrides
 from meridian.lib.core.types import HarnessId, ModelId
 from meridian.lib.harness.registry import HarnessRegistry, get_default_harness_registry
 from meridian.lib.launch.prompt import (
@@ -197,23 +197,20 @@ def build_create_payload(
         )
     cli_overrides = RuntimeOverrides.from_spawn_input(payload)
     env_overrides = RuntimeOverrides.from_env()
-    config_overrides = RuntimeOverrides.from_config(runtime_view.config)
-    pre_resolved = resolve(cli_overrides, env_overrides)
+    config_overrides = RuntimeOverrides.from_spawn_config(runtime_view.config)
 
     policies = resolve_policies(
         repo_root=runtime_view.repo_root,
-        overrides=pre_resolved,
-        requested_agent=payload.agent,
+        layers=(cli_overrides, env_overrides),
+        config_overrides=config_overrides,
         config=runtime_view.config,
         harness_registry=runtime_view.harness_registry,
-        configured_default_agent=runtime_view.config.default_agent,
         builtin_default_agent="__meridian-subagent",
         configured_default_harness=runtime_view.config.default_harness,
         skills_readonly=payload.dry_run,
     )
     profile = policies.profile
-    profile_overrides = RuntimeOverrides.from_agent_profile(profile)
-    resolved = resolve(cli_overrides, env_overrides, profile_overrides, config_overrides)
+    resolved = policies.resolved_overrides
 
     # Merge profile skills with ad-hoc CLI --skills entries, deduplicating.
     merged_skill_names = dedupe_skill_names(

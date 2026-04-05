@@ -8,7 +8,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.config.settings import MeridianConfig, load_config, resolve_repo_root
-from meridian.lib.core.overrides import RuntimeOverrides, resolve
+from meridian.lib.core.overrides import RuntimeOverrides
 from meridian.lib.core.types import HarnessId, ModelId
 from meridian.lib.harness.adapter import PermissionResolver, SpawnParams, SubprocessHarness
 from meridian.lib.harness.registry import HarnessRegistry
@@ -162,22 +162,19 @@ def resolve_primary_launch_plan(
     cli_overrides = RuntimeOverrides.from_launch_request(request)
     env_overrides = RuntimeOverrides.from_env()
     config_overrides = RuntimeOverrides.from_config(resolved_config)
-    pre_resolved = resolve(cli_overrides, env_overrides)
 
     policies: ResolvedPolicies = resolve_policies(
         repo_root=resolved_root,
-        overrides=pre_resolved,
-        requested_agent=request.agent,
+        layers=(cli_overrides, env_overrides),
+        config_overrides=config_overrides,
         config=resolved_config,
         harness_registry=harness_registry,
-        configured_default_agent=resolved_config.primary_agent,
         builtin_default_agent="__meridian-orchestrator",
         configured_default_harness=resolved_config.primary.harness or "claude",
         skills_readonly=True,
     )
     profile = policies.profile
-    profile_overrides = RuntimeOverrides.from_agent_profile(profile)
-    resolved = resolve(cli_overrides, env_overrides, profile_overrides, config_overrides)
+    resolved = policies.resolved_overrides
     model = ModelId(policies.model) if policies.model else None
     harness = policies.harness
     adapter = policies.adapter
