@@ -768,7 +768,11 @@ def ensure_state_bootstrap_sync(
 
 
 def config_init_sync(payload: ConfigInitInput) -> ConfigInitOutput:
-    repo_root = _resolve_repo_root(payload.repo_root)
+    # init always targets CWD or explicit path — don't walk up to a parent repo.
+    if payload.repo_root:
+        repo_root = Path(payload.repo_root).expanduser().resolve()
+    else:
+        repo_root = Path.cwd().resolve()
     return ensure_state_bootstrap_sync(repo_root, link=payload.link)
 
 

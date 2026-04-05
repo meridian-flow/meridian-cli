@@ -898,17 +898,21 @@ def _resolve_session_target(
 
 @app.command(name="init")
 def init_alias(
+    path: Annotated[
+        str | None,
+        Parameter(name="path", help="Optional project path to initialize."),
+    ] = None,
     *,
     link: Annotated[
         tuple[str, ...],
         Parameter(name="--link", help="Link .agents/ into a tool directory (e.g. .claude)."),
     ] = (),
 ) -> None:
-    """Initialize meridian in the current project."""
+    """Initialize meridian in the current project or provided path."""
 
     from meridian.lib.ops.config import ConfigInitInput, config_init_sync
 
-    result = config_init_sync(ConfigInitInput(link=link))
+    result = config_init_sync(ConfigInitInput(repo_root=path, link=link))
     emit(result)
 
 
