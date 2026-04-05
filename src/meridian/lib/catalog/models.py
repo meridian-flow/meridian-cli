@@ -15,13 +15,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from meridian.lib.catalog.model_aliases import (
     AliasEntry,
     load_alias_by_name,
-    load_builtin_aliases,
-    load_builtin_descriptions,
-    load_user_model_metadata,
-    merge_alias_entries,
-)
-from meridian.lib.catalog.model_aliases import (
-    load_user_aliases as _load_user_aliases,
+    load_mars_aliases,
+    load_mars_descriptions,
 )
 from meridian.lib.catalog.model_policy import (
     DEFAULT_HARNESS_PATTERNS,
@@ -93,30 +88,24 @@ def load_model_visibility(repo_root: Path | None = None) -> ModelVisibilityConfi
     return merge_model_visibility(coerce_model_visibility(payload.get("model_visibility")))
 
 
-def load_user_aliases(
-    repo_root: Path | None = None,
-    discovered_models: list[DiscoveredModel] | None = None,
-) -> list[AliasEntry]:
-    root = resolve_repo_root(repo_root)
-    return _load_user_aliases(root, discovered_models=discovered_models)
-
-
-def _resolve_alias_harness(entry: AliasEntry, repo_root: Path | None) -> AliasEntry:
-    resolved_harness = route_model(str(entry.model_id), repo_root=repo_root).harness_id
-    return entry.model_copy(update={"resolved_harness": resolved_harness})
+def _resolve_alias_harness(alias_entry: AliasEntry, repo_root: Path | None) -> AliasEntry:
+    """Ensure the alias entry has a resolved harness from routing patterns."""
+    if alias_entry.resolved_harness is not None:
+        return alias_entry
+    resolved_harness = route_model(str(alias_entry.model_id), repo_root=repo_root).harness_id
+    return alias_entry.model_copy(update={"resolved_harness": resolved_harness})
 
 
 def load_merged_aliases(repo_root: Path | None = None) -> list[AliasEntry]:
-    """Load built-in aliases merged with user aliases (user wins by alias key)."""
+    """Load model aliases from mars packages.
 
-    discovered = load_discovered_models()
-
-    merged = merge_alias_entries(
-        load_builtin_aliases(discovered_models=discovered),
-        load_user_aliases(repo_root=repo_root, discovered_models=discovered),
-    )
+    Mars owns all alias definitions — meridian has zero builtin aliases.
+    Calls ``mars models list --json`` for the full resolved view, or falls
+    back to reading ``.mars/models-merged.json``.
+    """
     resolved_root = resolve_repo_root(repo_root) if repo_root is not None else None
-    return [_resolve_alias_harness(entry, resolved_root) for entry in merged]
+    mars_aliases = load_mars_aliases(resolved_root)
+    return [_resolve_alias_harness(e, resolved_root) for e in mars_aliases]
 
 
 def resolve_alias(name: str, repo_root: Path | None = None) -> ModelId | None:
@@ -609,14 +598,12 @@ __all__ = [
     "ensure_models_config",
     "fetch_models_dev",
     "is_default_visible_model",
-    "load_builtin_aliases",
-    "load_builtin_descriptions",
     "load_discovered_models",
     "load_harness_patterns",
+    "load_mars_aliases",
+    "load_mars_descriptions",
     "load_merged_aliases",
     "load_model_visibility",
-    "load_user_aliases",
-    "load_user_model_metadata",
     "merge_harness_patterns",
     "merge_model_visibility",
     "refresh_models_cache",

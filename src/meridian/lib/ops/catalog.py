@@ -5,8 +5,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, model_serializer
 
 from meridian.lib.catalog.model_aliases import (
-    load_builtin_descriptions,
-    load_user_model_metadata,
+    load_mars_descriptions,
 )
 from meridian.lib.catalog.models import (
     AliasEntry,
@@ -284,10 +283,14 @@ def models_list_sync(payload: ModelsListInput) -> ModelsListOutput:
     visibility = load_model_visibility(repo_root=root)
     discovered = load_discovered_models()
 
-    # Load descriptions and pinned flags
-    builtin_descs = load_builtin_descriptions()
-    user_descs, pinned_ids = load_user_model_metadata(root, aliases) if root else ({}, set[str]())
-    descriptions = {**builtin_descs, **user_descs}  # user overrides builtins
+    # Load descriptions from mars aliases and alias entries
+    mars_descs = load_mars_descriptions(root)
+    alias_descs: dict[str, str] = {}
+    pinned_ids: set[str] = set()
+    for alias in aliases:
+        if alias.description:
+            alias_descs[str(alias.model_id)] = alias.description
+    descriptions = {**mars_descs, **alias_descs}
 
     aliases_by_model_id: dict[str, list[AliasEntry]] = {}
     for alias in aliases:

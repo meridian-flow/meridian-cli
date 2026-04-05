@@ -1,78 +1,28 @@
-"""Alias parsing and merge helpers for the model catalog."""
+"""Alias parsing and merge helpers for the model catalog.
+
+Model aliases are resolved exclusively via mars packages.
+Meridian has ZERO builtin alias definitions — all aliases come from
+mars dependency packages (via .mars/models-merged.json) and consumer
+config (via mars.toml [models]).
+"""
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import contextlib
+import json
+import logging
+import shutil
+import subprocess
+import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, NamedTuple, cast
+from typing import cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from meridian.lib.catalog.model_policy import DEFAULT_HARNESS_PATTERNS, route_model_with_patterns
-from meridian.lib.catalog.models_toml import catalog_path, load_models_file_payload
 from meridian.lib.core.types import HarnessId, ModelId
 
-if TYPE_CHECKING:
-    from meridian.lib.catalog.models import DiscoveredModel
-
-
-class _AliasSpec(NamedTuple):
-    provider: str
-    include: str
-    exclude: tuple[str, ...]
-
-
-_BUILTIN_ALIAS_SPECS: dict[str, _AliasSpec] = {
-    "opus": _AliasSpec("anthropic", "opus", ()),
-    "sonnet": _AliasSpec("anthropic", "sonnet", ()),
-    "haiku": _AliasSpec("anthropic", "haiku", ()),
-    "codex": _AliasSpec("openai", "codex", ("-mini", "-spark", "-max")),
-    "gpt": _AliasSpec("openai", "gpt-", ("-codex", "-pro", "-mini", "-nano", "-chat", "-turbo")),
-    "gpt52": _AliasSpec(
-        "openai",
-        "gpt-5.2",
-        ("-codex", "-pro", "-mini", "-nano", "-chat", "-turbo"),
-    ),
-    "gemini": _AliasSpec("google", "pro", ("-customtools",)),
-}
-
-_FALLBACK_ALIASES: dict[str, str] = {
-    "opus": "claude-opus-4-6",
-    "sonnet": "claude-sonnet-4-6",
-    "haiku": "claude-haiku-4-5",
-    "codex": "gpt-5.3-codex",
-    "gpt": "gpt-5.4",
-    "gpt52": "gpt-5.2",
-    "gemini": "gemini-3.1-pro-preview",
-}
-
-_BUILTIN_DESCRIPTIONS: dict[str, str] = {
-    "claude-opus-4-6": (
-        "Strong long-term vision and best orchestrator."
-        " Creative but can hallucinate or over-engineer."
-        " Best for orchestration, frontend implementation, architecture, and design exploration."
-        " Not recommended for backend implementation or precise technical review."
-    ),
-    "gpt-5.3-codex": (
-        "Default backend implementer. Fast, token-efficient, and faithful to instructions."
-        " Best when given a clear task. Weak at frontend and UI work."
-    ),
-    "gpt-5.4": (
-        "Strongest generalist with broad reasoning."
-        " Best for review, verification, security, and architectural judgment."
-    ),
-    "gpt-5.2": "Extremely thorough reviewer, but slow.",
-    "gemini-3.1-pro-preview": (
-        "Large context window. Best for multimodal tasks."
-        " Okay at frontend design mockups (but prefer opus for true implementation)."
-    ),
-}
-
-
-class ModelEntriesResult(NamedTuple):
-    aliases: dict[str, AliasEntry]
-    descriptions: dict[str, str]  # model_id → description
-    pinned: set[str]  # model_ids with pinned=true
+logger = logging.getLogger(__name__)
 
 
 class AliasEntry(BaseModel):
@@ -83,6 +33,7 @@ class AliasEntry(BaseModel):
     alias: str
     model_id: ModelId
     resolved_harness: HarnessId | None = Field(default=None, exclude=True)
+    description: str | None = Field(default=None, exclude=True)
 
     @property
     def harness(self) -> HarnessId:
@@ -105,91 +56,230 @@ class AliasEntry(BaseModel):
         return kv_block(pairs)
 
 
-def entry(*, alias: str, model_id: str) -> AliasEntry:
+def entry(
+    *,
+    alias: str,
+    model_id: str,
+    harness: str | None = None,
+    description: str | None = None,
+) -> AliasEntry:
+    resolved_harness: HarnessId | None = None
+    if harness:
+        with contextlib.suppress(ValueError):
+            resolved_harness = HarnessId(harness)
     return AliasEntry(
         alias=alias,
         model_id=ModelId(model_id),
+        resolved_harness=resolved_harness,
+        description=description,
     )
 
 
-def _resolve_alias_from_models(
-    spec: _AliasSpec,
-    models: Sequence[DiscoveredModel],
-) -> str | None:
-    candidates: list[DiscoveredModel] = []
-    for m in models:
-        if m.provider != spec.provider:
-            continue
-        mid = m.id.lower()
-        if spec.include not in mid:
-            continue
-        if mid.endswith("-latest"):
-            continue
-        if any(excl in mid for excl in spec.exclude):
-            continue
-        candidates.append(m)
+# ---------------------------------------------------------------------------
+# Mars integration
+# ---------------------------------------------------------------------------
 
-    if not candidates:
+def _resolve_mars_binary() -> str | None:
+    """Find the mars binary, preferring the one from the same install environment."""
+    scripts_dir = Path(sys.executable).parent
+    for name in ("mars", "mars.exe"):
+        candidate = scripts_dir / name
+        if candidate.is_file():
+            return str(candidate)
+    return shutil.which("mars")
+
+
+def _run_mars_models_list(repo_root: Path | None = None) -> list[dict[str, object]] | None:
+    """Call ``mars models list --json`` and return the alias entries.
+
+    Returns *None* when the mars binary is unavailable or the command fails,
+    so the caller can fall back to reading the cached merged file.
+    """
+    mars_bin = _resolve_mars_binary()
+    if mars_bin is None:
         return None
 
-    # Latest date first; for same date, prefer shorter (cleaner) ID
-    candidates.sort(key=lambda m: (m.release_date or "", -len(m.id)), reverse=True)
-    return candidates[0].id
+    cmd = [mars_bin, "models", "list", "--json"]
+    if repo_root is not None:
+        cmd.extend(["--root", str(repo_root)])
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        logger.debug("mars binary not available or timed out", exc_info=True)
+        return None
+
+    if result.returncode != 0:
+        logger.debug("mars models list failed (rc=%d): %s", result.returncode, result.stderr)
+        return None
+
+    try:
+        payload = json.loads(result.stdout)
+    except (json.JSONDecodeError, ValueError):
+        logger.debug("mars models list returned invalid JSON")
+        return None
+
+    aliases = payload.get("aliases")
+    if not isinstance(aliases, list):
+        return None
+    return cast("list[dict[str, object]]", aliases)
 
 
-def load_builtin_aliases(
-    discovered_models: Sequence[DiscoveredModel] | None = None,
-) -> list[AliasEntry]:
-    resolved: dict[str, str] = {}
-    if discovered_models:
-        for alias, spec in _BUILTIN_ALIAS_SPECS.items():
-            model_id = _resolve_alias_from_models(spec, discovered_models)
-            if model_id is not None:
-                resolved[alias] = model_id
+def _read_mars_merged_file(repo_root: Path | None = None) -> dict[str, object]:
+    """Read ``.mars/models-merged.json`` directly (dep-only aliases).
 
-    # Fill gaps from fallbacks
-    for alias, model_id in _FALLBACK_ALIASES.items():
-        if alias not in resolved:
-            resolved[alias] = model_id
+    Falls back to empty dict if the file doesn't exist or is invalid.
+    """
+    search_dirs: list[Path] = []
+    if repo_root is not None:
+        search_dirs.append(repo_root)
+    search_dirs.append(Path.cwd())
 
-    return [
-        entry(alias=a, model_id=mid)
-        for a, mid in sorted(resolved.items())
-    ]
+    for root in search_dirs:
+        merged_path = root / ".mars" / "models-merged.json"
+        if merged_path.is_file():
+            try:
+                raw = json.loads(merged_path.read_text(encoding="utf-8"))
+                if isinstance(raw, dict):
+                    return cast("dict[str, object]", raw)
+            except (OSError, json.JSONDecodeError, ValueError):
+                logger.debug("Failed to read %s", merged_path, exc_info=True)
+    return {}
 
 
-def load_user_aliases(
-    repo_root: Path,
-    discovered_models: Sequence[DiscoveredModel] | None = None,
-) -> list[AliasEntry]:
-    path = catalog_path(repo_root)
-    if not path.is_file():
-        return []
+def _mars_list_to_entries(aliases_list: list[dict[str, object]]) -> list[AliasEntry]:
+    """Convert mars ``models list --json`` alias entries to :class:`AliasEntry` objects."""
+    entries: list[AliasEntry] = []
+    for item in aliases_list:
+        name = item.get("name")
+        if not isinstance(name, str) or not name.strip():
+            continue
 
-    payload = load_models_file_payload(path)
-    result = _load_aliases_from_payload(payload)
-    pinned = result.aliases
+        resolved_model = item.get("resolved_model")
+        harness = item.get("harness")
+        description = item.get("description")
 
-    if discovered_models:
-        specs = _coerce_user_alias_specs(payload.get("models"))
-        for alias, spec in specs.items():
-            if alias not in pinned:
-                model_id = _resolve_alias_from_models(spec, discovered_models)
-                if model_id is not None:
-                    pinned[alias] = entry(
-                        alias=alias, model_id=model_id
-                    )
+        # Skip aliases that didn't resolve to a concrete model ID
+        if not isinstance(resolved_model, str) or not resolved_model.strip():
+            continue
 
-    return [pinned[key] for key in sorted(pinned)]
+        entries.append(entry(
+            alias=name.strip(),
+            model_id=resolved_model.strip(),
+            harness=str(harness) if isinstance(harness, str) else None,
+            description=str(description) if isinstance(description, str) else None,
+        ))
+
+    return entries
+
+
+def _mars_merged_to_entries(merged: dict[str, object]) -> list[AliasEntry]:
+    """Convert ``.mars/models-merged.json`` raw data to :class:`AliasEntry` objects.
+
+    For pinned aliases, the model ID is stored directly.  For auto-resolve aliases,
+    only the harness and description are available — the model ID is unknown
+    without the models cache, so these are skipped.
+    """
+    entries: list[AliasEntry] = []
+    for alias_name, alias_data in merged.items():
+        if not isinstance(alias_data, dict):
+            continue
+        typed_data = cast("dict[str, object]", alias_data)
+
+        # Pinned alias: has a "model" key
+        model_id = typed_data.get("model")
+        if isinstance(model_id, str) and model_id.strip():
+            harness = typed_data.get("harness")
+            description = typed_data.get("description")
+            entries.append(entry(
+                alias=alias_name,
+                model_id=model_id.strip(),
+                harness=str(harness) if isinstance(harness, str) else None,
+                description=str(description) if isinstance(description, str) else None,
+            ))
+        # Auto-resolve aliases without the cache can't be resolved here
+        # — they need mars models list which runs auto-resolve against the cache
+
+    return entries
+
+
+def load_mars_aliases(repo_root: Path | None = None) -> list[AliasEntry]:
+    """Load model aliases from mars.
+
+    Prefers ``mars models list --json`` for the full resolved view
+    (includes consumer overrides + auto-resolution).  Falls back to
+    reading ``.mars/models-merged.json`` if the mars binary isn't available.
+    """
+    # Try mars CLI first — it returns fully resolved aliases
+    mars_list = _run_mars_models_list(repo_root)
+    if mars_list is not None:
+        entries = _mars_list_to_entries(mars_list)
+        if entries:
+            return sorted(entries, key=lambda e: e.alias)
+
+    # Fallback: read the cached dependency file directly
+    merged = _read_mars_merged_file(repo_root)
+    if merged:
+        entries = _mars_merged_to_entries(merged)
+        if entries:
+            return sorted(entries, key=lambda e: e.alias)
+
+    return []
+
+
+def load_mars_descriptions(repo_root: Path | None = None) -> dict[str, str]:
+    """Load model descriptions from mars aliases.
+
+    Returns a dict keyed by model_id with description values.
+    """
+    descriptions: dict[str, str] = {}
+
+    # Try mars CLI first
+    mars_list = _run_mars_models_list(repo_root)
+    if mars_list is not None:
+        for item in mars_list:
+            resolved_model = item.get("resolved_model")
+            description = item.get("description")
+            if (
+                isinstance(resolved_model, str)
+                and resolved_model.strip()
+                and isinstance(description, str)
+                and description.strip()
+            ):
+                descriptions[resolved_model.strip()] = description.strip()
+        return descriptions
+
+    # Fallback: read merged file
+    merged = _read_mars_merged_file(repo_root)
+    for alias_data in merged.values():
+        if not isinstance(alias_data, dict):
+            continue
+        typed_data = cast("dict[str, object]", alias_data)
+        model_id = typed_data.get("model")
+        description = typed_data.get("description")
+        if (
+            isinstance(model_id, str)
+            and model_id.strip()
+            and isinstance(description, str)
+            and description.strip()
+        ):
+            descriptions[model_id.strip()] = description.strip()
+
+    return descriptions
 
 
 def merge_alias_entries(
-    builtin_aliases: list[AliasEntry],
-    user_aliases: list[AliasEntry],
+    *alias_lists: list[AliasEntry],
 ) -> list[AliasEntry]:
-    merged: dict[str, AliasEntry] = {item.alias: item for item in builtin_aliases}
-    for item in user_aliases:
-        merged[item.alias] = item
+    merged: dict[str, AliasEntry] = {}
+    for alias_list in alias_lists:
+        for item in alias_list:
+            merged[item.alias] = item
     return [merged[key] for key in sorted(merged)]
 
 
@@ -197,144 +287,7 @@ def load_alias_by_name(name: str, aliases: list[AliasEntry]) -> AliasEntry | Non
     normalized = name.strip()
     if not normalized:
         return None
-    for entry in aliases:
-        if entry.alias == normalized:
-            return entry
+    for alias_entry in aliases:
+        if alias_entry.alias == normalized:
+            return alias_entry
     return None
-
-
-def _load_aliases_from_payload(payload: dict[str, object]) -> ModelEntriesResult:
-    return _coerce_model_entries(payload.get("models"))
-
-
-def _coerce_model_entries(
-    raw_models: object,
-) -> ModelEntriesResult:
-    if not isinstance(raw_models, dict):
-        return ModelEntriesResult(aliases={}, descriptions={}, pinned=set())
-
-    aliases: dict[str, AliasEntry] = {}
-    descriptions: dict[str, str] = {}
-    pinned: set[str] = set()
-
-    for raw_key, raw_value in cast("dict[object, object]", raw_models).items():
-        key = _coerce_string(raw_key)
-        if key is None:
-            continue
-
-        # Case 1: String shorthand — pinned alias
-        if isinstance(raw_value, str):
-            model_id = _coerce_string(raw_value)
-            if model_id is None:
-                continue
-            aliases[key] = entry(alias=key, model_id=model_id)
-            continue
-
-        if isinstance(raw_value, dict):
-            table = cast("dict[object, object]", raw_value)
-
-            # Case 2: Auto-resolve spec (provider + include)
-            if _coerce_string(table.get("provider")) and _coerce_string(table.get("include")):
-                desc = _coerce_string(table.get("description"))
-                if desc:
-                    # Can't resolve model_id yet for description — store by alias key
-                    # Will be resolved later when auto-resolve runs
-                    pass
-                if isinstance(table.get("pinned"), bool) and table["pinned"]:
-                    pass  # pinned for auto-resolve handled after resolution
-                continue
-
-            # Case 3: Dict with model_id — alias with metadata
-            model_id = _coerce_string(table.get("model_id") or table.get("id"))
-            if model_id is not None:
-                aliases[key] = entry(alias=key, model_id=model_id)
-                desc = _coerce_string(table.get("description"))
-                if desc:
-                    descriptions[model_id] = desc
-                if isinstance(table.get("pinned"), bool) and table["pinned"]:
-                    pinned.add(model_id)
-                continue
-
-            # Case 4: No model_id — key IS the model_id, metadata only
-            desc = _coerce_string(table.get("description"))
-            if desc:
-                descriptions[key] = desc
-            if isinstance(table.get("pinned"), bool) and table["pinned"]:
-                pinned.add(key)
-
-    return ModelEntriesResult(aliases=aliases, descriptions=descriptions, pinned=pinned)
-
-
-def _coerce_user_alias_specs(raw_models: object) -> dict[str, _AliasSpec]:
-    if not isinstance(raw_models, dict):
-        return {}
-
-    specs: dict[str, _AliasSpec] = {}
-    for raw_alias, raw_value in cast("dict[object, object]", raw_models).items():
-        alias = _coerce_string(raw_alias)
-        if alias is None or not isinstance(raw_value, dict):
-            continue
-        table = cast("dict[object, object]", raw_value)
-        provider = _coerce_string(table.get("provider"))
-        include = _coerce_string(table.get("include"))
-        if provider is None or include is None:
-            continue
-        raw_exclude = table.get("exclude")
-        exclude: tuple[str, ...] = ()
-        if isinstance(raw_exclude, list):
-            exclude = tuple(
-                s
-                for item in cast("list[object]", raw_exclude)
-                if isinstance(item, str)
-                for s in [item.strip()]
-                if s
-            )
-        specs[alias] = _AliasSpec(provider=provider, include=include, exclude=exclude)
-    return specs
-
-
-def load_builtin_descriptions() -> dict[str, str]:
-    """Return builtin descriptions keyed by model_id."""
-    return dict(_BUILTIN_DESCRIPTIONS)
-
-
-def load_user_model_metadata(
-    repo_root: Path,
-    aliases: list[AliasEntry],
-) -> tuple[dict[str, str], set[str]]:
-    """Load descriptions and pinned flags from [models.*], keyed by model_id."""
-    path = catalog_path(repo_root)
-    if not path.is_file():
-        return {}, set()
-
-    payload = load_models_file_payload(path)
-    result = _coerce_model_entries(payload.get("models"))
-
-    # Also resolve descriptions for auto-resolve specs by checking resolved aliases
-    raw_models = payload.get("models")
-    if isinstance(raw_models, dict):
-        for raw_key, raw_value in cast("dict[object, object]", raw_models).items():
-            key = _coerce_string(raw_key)
-            if key is None or not isinstance(raw_value, dict):
-                continue
-            table = cast("dict[object, object]", raw_value)
-            if not (_coerce_string(table.get("provider")) and _coerce_string(table.get("include"))):
-                continue
-            # This is an auto-resolve spec — find its resolved alias
-            for alias_entry in aliases:
-                if alias_entry.alias == key:
-                    desc = _coerce_string(table.get("description"))
-                    if desc:
-                        result.descriptions[str(alias_entry.model_id)] = desc
-                    if isinstance(table.get("pinned"), bool) and table["pinned"]:
-                        result.pinned.add(str(alias_entry.model_id))
-                    break
-
-    return result.descriptions, result.pinned
-
-
-def _coerce_string(value: object) -> str | None:
-    if not isinstance(value, str):
-        return None
-    normalized = value.strip()
-    return normalized or None
