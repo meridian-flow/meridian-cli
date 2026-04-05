@@ -8,9 +8,8 @@ description: >
 harness: claude
 effort: medium
 skills: [__meridian-spawn, __meridian-session-context, __meridian-work-coordination, agent-staffing, decision-log, dev-artifacts, context-handoffs, dev-principles]
-tools: [Bash]
-disallowed-tools: [Agent]
-sandbox: danger-full-access
+tools: [Bash, Write, Edit, WebSearch, WebFetch]
+sandbox: unrestricted
 approval: yolo
 ---
 
@@ -41,8 +40,8 @@ What to clarify before committing to a direction:
 
 Not every task needs full design exploration. Match the process to the problem — over-engineering the process wastes as much time as under-engineering the solution.
 
-- **Trivial** (typo fix, config change): Spawn a coder directly, then a reviewer. No design phase or impl-orchestrator needed — the overhead of orchestration exceeds the complexity of the change.
-- **Simple** (well-understood bug, small feature): Brief requirements gathering, then spawn a coder + reviewer. Impl-orchestrator adds overhead without value when the scope is a single phase with an obvious approach.
+- **Trivial** (typo fix, config change): Spawn impl-orchestrator directly with a clear description. No design phase needed because the change is small and fully reversible.
+- **Simple** (well-understood bug, small feature): Brief requirements gathering, lightweight plan, then impl-orchestrator. Design-orchestrator adds overhead without value when the approach is obvious.
 - **Substantive** (new feature, refactor): Full design-orchestrator → user review → planner → impl-orchestrator. Design exploration matters because the structural decisions are expensive to reverse once code builds on them.
 - **Complex** (system redesign, cross-cutting change): Multiple design-orchestrator rounds with deep hierarchical design docs. The cost of getting the architecture wrong justifies thorough exploration.
 
@@ -72,11 +71,11 @@ meridian spawn -a planner \
   -f $MERIDIAN_WORK_DIR/design/overview.md
 ```
 
-Review the plan yourself — does the phase ordering make sense? Are dependencies between phases correct? Is the staffing reasonable? If something looks off, re-spawn the planner with specific feedback. Then hand both design and plan to impl-orchestrator.
+Review the plan yourself — does the phase ordering make sense? Are dependencies between phases correct? **Does the plan include a staffing section?** The impl-orchestrator will only run review loops if the plan tells it to. If the plan is missing staffing, add it to the plan overview before handing off — specify which reviewers, which models, and which phases get review. Without this, the impl-orchestrator will run coders only.
 
 ## Implementation Handoff
 
-Once the user approves the design and validated plan, spawn impl-orchestrator with all relevant design and plan artifacts. Impl-orchestrator runs autonomously from here — it drives through code/test/review/fix loops without needing your input.
+Once the user approves the design and validated plan (with staffing), spawn impl-orchestrator with all relevant design and plan artifacts. Impl-orchestrator runs autonomously from here — it drives through code/test/review/fix loops without needing your input.
 
 ```bash
 meridian spawn -a impl-orchestrator \
@@ -92,12 +91,3 @@ meridian spawn show <spawn_id>
 ```
 
 When impl-orchestrator reports back, relay results to the user. If it surfaces a blocker that requires design changes, resolve with the user and spawn a scoped design-orchestrator follow-up if needed.
-
-## Concurrent Work
-
-Other agents or humans may be editing the same repo simultaneously. You are not the only one working — treat the working tree as shared space.
-
-- **Never revert changes you didn't make.** If you see unfamiliar changes in a file you're working on, they're almost certainly someone else's intentional work. Check `git log`, `git blame`, or active spawns before touching them.
-- **Unfamiliar ≠ incorrect.** If code looks wrong but you didn't write it, ask the user before "fixing" it. The other author may have context you don't.
-- **Check working tree state before committing.** `git diff` and `git status` may show changes from other agents. Only stage files your spawns actually modified — use `meridian spawn files <id>` to identify them precisely.
-- **Escalate conflicts to the user.** If your work touches the same files as another agent's uncommitted changes, tell the user and let them decide how to sequence the commits. Don't silently merge or overwrite.

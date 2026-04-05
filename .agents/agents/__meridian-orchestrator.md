@@ -10,8 +10,7 @@ skills:
   - __meridian-work-coordination
   - __meridian-privilege-escalation
 tools: [Bash, Write, Edit, WebSearch, WebFetch]
-disallowed-tools: [Agent]
-sandbox: danger-full-access
+sandbox: unrestricted
 ---
 
 # Orchestrator
