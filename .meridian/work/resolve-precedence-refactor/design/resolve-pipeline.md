@@ -27,29 +27,43 @@ Problems:
 plan.py:
   cli_overrides = RuntimeOverrides.from_launch_request(request)
   env_overrides = RuntimeOverrides.from_env()
-  config_overrides = RuntimeOverrides.from_config(config)
+  config_overrides = RuntimeOverrides.from_config(config)  # primary path: config.primary.*
   
-  # Step 1: Load profile (needs agent from layers)
+  # Step 1: Load profile (needs agent from layers — agent resolved first)
   agent = first_non_none(cli.agent, env.agent, config.agent) or builtin_default
   profile = load_agent_profile(agent, ...)
   profile_overrides = RuntimeOverrides.from_agent_profile(profile)
   
-  # Step 2: Single resolution pass — all fields, all layers, correct order
-  resolved = resolve(cli_overrides, env_overrides, profile_overrides, config_overrides)
+  # Step 2: Build layer tuple in precedence order
+  layers = (cli_overrides, env_overrides, profile_overrides, config_overrides)
   
-  # Step 3: Derive dependent fields
-  harness_id = derive_harness(
-      explicit_model=resolved.model,
-      explicit_harness=resolved.harness,
+  # Step 3: Derive harness by scanning layers (layer-aware, not merged)
+  harness_id, _ = derive_harness(
+      layers=layers,
       config=config,
       harness_registry=harness_registry,
       repo_root=repo_root,
+      default_harness=config.default_harness,
   )
   
-  # Step 4: Resolve adapter, skills, build ResolvedPolicies
+  # Step 4: Resolve scalar fields via standard merge (effort, sandbox, etc.)
+  resolved = resolve(*layers)
+  
+  # Step 5: Resolve final model (apply harness-specific defaults if needed)
+  final_model = resolve_final_model(
+      layer_model=resolved.model,
+      harness_id=harness_id,
+      config=config,
+      repo_root=repo_root,
+  )
+  
+  # Step 6: Resolve adapter, skills, build ResolvedPolicies
   adapter = harness_registry.get_subprocess_harness(harness_id)
   ...
 ```
+
+Note: `prepare.py` (spawn path) uses a different `from_config()` variant that reads
+`config.default_*` instead of `config.primary.*`. See "Primary vs Spawn Config" below.
 
 ## Key Functions
 
@@ -70,32 +84,60 @@ def resolve(*layers: RuntimeOverrides) -> RuntimeOverrides:
 
 Already generic. Works for any field on RuntimeOverrides.
 
-### `derive_harness()` (resolve.py) — New function
+### `derive_harness()` (resolve.py) — New function, LAYER-AWARE
+
+**Critical design point**: This function scans layers directly, NOT the pre-merged
+resolved output. The pre-merged output loses which layer contributed model vs harness,
+which breaks the "derived fields inherit source precedence" invariant.
 
 ```python
 def derive_harness(
     *,
-    explicit_model: str | None,
-    explicit_harness: str | None,
+    layers: tuple[RuntimeOverrides, ...],
     config: MeridianConfig,
     harness_registry: HarnessRegistry,
     repo_root: Path,
     default_harness: str = "claude",
-) -> tuple[HarnessId, str | None]:
-    """Derive final harness from resolved fields. Returns (harness_id, warning).
+) -> tuple[HarnessId, str]:
+    """Derive final harness by scanning layers in precedence order.
     
-    Rules:
-    1. If explicit_harness is set: use it. Validate against model if model also set.
-    2. If only model is set: derive harness from model via route_model().
-    3. If neither: use config.default_harness or builtin default.
+    Scans layers from highest to lowest precedence. At each layer:
+    - If the layer specifies harness: return that harness immediately.
+    - If the layer specifies model (but no harness): derive harness from 
+      model via route_model() and return immediately.
+    - If the layer specifies neither: continue to next layer.
     
-    Harness-specific default model (config.default_model_for_harness) is NOT
-    applied here — that's a model default, resolved during the model derivation
-    step when the final harness is known.
+    If no layer specifies either: return config.default_harness or builtin.
+    
+    This ensures a CLI model (-m sonnet) derives 'claude' harness and wins
+    over a profile's explicit harness: codex, because the CLI layer is scanned
+    first. The derived harness inherits the precedence of the model that
+    produced it.
+    
+    Returns (harness_id, resolved_model_or_empty).
     """
+    for layer in layers:
+        harness = (layer.harness or "").strip()
+        model = (layer.model or "").strip()
+        if harness:
+            # This layer explicitly sets harness — use it
+            return HarnessId(harness), model
+        if model:
+            # This layer sets model but not harness — derive harness from model
+            routed = _route_harness_for_model(model, repo_root=repo_root)
+            return routed, model
+    # No layer set either — use configured default
+    return HarnessId(default_harness or "claude"), ""
 ```
 
 This replaces lines 199-256 of resolve.py — the entire ad-hoc if/elif chain.
+
+**Why layer-aware, not merged**: If CLI sets `-m sonnet` and profile sets
+`harness: codex`, a merged resolve() produces `model="sonnet", harness="codex"`.
+derive_harness would see "both set" and either error (current bug) or pick one
+arbitrarily. By scanning layers, we see CLI has model (higher precedence) before
+profile has harness (lower precedence), so we derive from model. The invariant
+is structurally enforced.
 
 ### `resolve_final_model()` (resolve.py) — New function
 
@@ -179,31 +221,32 @@ If changing the CLI default isn't feasible (backwards compat), keep the current 
 
 ## Derivation Order
 
-The two-phase approach means:
+Three phases, with harness derivation scanning layers directly:
 
 ```
-Phase 1: resolve(cli, env, profile, config) → resolved
-  - resolved.model: first non-None across layers (may be None)
-  - resolved.harness: first non-None across layers (may be None)
-  - resolved.agent: first non-None across layers (used earlier for profile loading)
-  - resolved.effort, .sandbox, .approval, etc.
+Phase 1: Resolve agent, load profile
+  - agent = first_non_none(cli.agent, env.agent, config.agent) or builtin
+  - profile = load(agent)
+  - profile_overrides = RuntimeOverrides.from_agent_profile(profile)
+  - layers = (cli, env, profile, config)  -- in strict precedence order
 
-Phase 2: derive_harness(resolved.model, resolved.harness, config)
-  - If both set: validate compatibility
-  - If only model: derive harness from model
-  - If only harness: keep it
-  - If neither: config.default_harness
+Phase 2: derive_harness(layers=layers, ...)  -- LAYER-AWARE scan
+  - For each layer in precedence order:
+    - If layer.harness: return that harness
+    - If layer.model: derive harness from model, return
+    - Else: continue
+  - Fallback: config.default_harness
 
-Phase 3: resolve_final_model(resolved.model, harness_id, config)
-  - If model set: resolve alias, done
-  - If model not set: config.default_model_for_harness(harness_id) || config.default_model
+Phase 3: resolve_final_model(layer_model=resolved.model, harness_id, config)
+  - If layer_model set: resolve alias, done
+  - If not: config.default_model_for_harness(harness_id) || config.default_model || ""
 ```
 
-This ensures:
-- A CLI `-m sonnet` always beats a profile harness (harness derived from model)
-- A config `primary.model` participates in resolution (it's in the layer stack)
-- Harness derivation sees the fully-resolved model, not a partial one
-- Config default model is applied after harness is known (for harness-specific defaults)
+Phase 2 is the critical change. By scanning layers instead of using merged output:
+- CLI `-m sonnet` derives claude harness, beats profile's `harness: codex` (CLI layer scanned first)
+- Profile `harness: codex` beats config model (profile layer scanned before config)
+- Config `primary.model` participates (config layer is in the stack)
+- No circular dependency: harness derivation reads layers directly, model defaults come after
 
 ## Caller Impact
 
@@ -221,7 +264,28 @@ After:
 
 ### `prepare.py` (spawn prepare)
 
-Same pattern as plan.py. Currently mirrors the same bugs. After refactor, mirrors the same fix.
+Same layer-aware pattern as plan.py, but **different config layer construction**.
+
+Primary path uses `config.primary.*` (per-session overrides):
+```python
+config_overrides = RuntimeOverrides.from_config(config)  # reads config.primary.*
+```
+
+Spawn path uses `config.default_*` (spawn-level defaults):
+```python
+config_overrides = RuntimeOverrides.from_spawn_config(config)  # reads config.default_*
+```
+
+This distinction already exists implicitly — `prepare.py` passes `config.default_agent`
+and `config.default_harness` as separate arguments. The refactor makes it explicit by
+having two `from_config` variants (or a `context` parameter). The layer stack mechanics
+are identical; only what the config layer contains differs.
+
+Add `RuntimeOverrides.from_spawn_config(config)` that reads:
+- `config.default_model` (not `config.primary.model`)
+- `config.default_harness` (not `config.primary.harness`)
+- `config.default_agent` (not `config.primary.agent`)
+- Other fields from `config.primary.*` where they exist (effort, sandbox, etc.)
 
 ## Edge Cases
 

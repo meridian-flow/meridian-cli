@@ -44,15 +44,17 @@ The challenge: **profile_overrides aren't known until the profile is loaded**, a
 1. **Load profile**: Use agent from CLI > ENV > config > builtin default (simple first-non-None on agent field only)
 2. **Resolve all fields**: `resolve(cli, env, profile, config)` for model, harness, effort, etc.
 
-### Phase 2: Derive Dependent Fields
+### Phase 2: Derive Dependent Fields (Layer-Aware)
 
-After all primary fields are resolved, derive dependent fields:
+After profile loading and layer construction, derive dependent fields by **scanning layers directly** — not from the pre-merged result. This is the critical design point that all reviewers flagged.
 
-- If `resolved.harness` is set (explicitly by some layer): validate it's compatible with `resolved.model`
-- If `resolved.harness` is None but `resolved.model` is set: derive harness from model via `route_model()`
-- If neither is set: use `config.default_harness` builtin
+`derive_harness()` scans layers in precedence order:
+- At each layer: if it specifies harness, use that harness. If it specifies model (but not harness), derive harness from model. If neither, continue to next layer.
+- Fallback: `config.default_harness`.
 
-This is a pure function: `derive_harness(resolved_model, resolved_harness, config) -> HarnessId`. It runs once, after resolution, and cannot violate precedence because it only fills in what wasn't explicitly set.
+This ensures a CLI `-m sonnet` derives `claude` harness and wins over a profile's `harness: codex`, because the CLI layer is scanned first. The derived harness inherits the precedence of the model that produced it — structurally, not by convention.
+
+After harness is known, `resolve_final_model()` applies harness-specific model defaults (e.g., `config.harness.codex = "o3"`) for cases where no layer specified a model.
 
 ### Why Not Build Something New?
 
@@ -85,11 +87,13 @@ The `RuntimeOverrides` + `resolve()` pattern already works. It's tested, underst
 ### Agent field in RuntimeOverrides
 Agent resolution currently lives outside the override system. Adding it to `RuntimeOverrides` means the same first-non-None mechanism handles agent precedence, eliminating violation #4 (`primary.agent` being dead).
 
+**Config agent reconciliation**: Two config fields exist — `config.primary_agent` (top-level, default `"__meridian-orchestrator"`) and `config.primary.agent` (nested, default `None`). `from_config()` reads `config.primary.agent`. The builtin default agent is passed separately as a function argument (not a layer), so the existing `config.primary_agent` default still works as the fallback when no layer sets agent. `config.primary.agent` becomes a user-settable override at config precedence level.
+
 ### Config default model as a layer vs. fallback
 Currently `config.default_model` is applied as a post-hoc fallback after harness resolution. In the new design, `RuntimeOverrides.from_config()` already reads `config.primary.model` — we just need to ensure the harness default model (`config.default_model_for_harness()`) is also accessible. This goes into the derivation phase, not the layer stack, because it depends on the resolved harness (a derived field).
 
 ### Approval "default" sentinel
-`from_launch_request` currently maps `approval="default"` to `None`, making it invisible. Fix: use `"default"` as a real value that propagates through layers. The harness adapter already understands `"default"` — it's the only consumer that needs to distinguish "not set" from "explicitly default".
+`from_launch_request` currently maps `approval="default"` to `None`, making it invisible. **Deferred** — fixing requires changing the CLI argument parser default, which is outside scope. See decision D4.
 
 ### Harness-model compatibility validation
 Currently scattered across resolution. In the new design, validation happens exactly once in `derive_harness()`, after both model and harness are resolved. If both are explicitly set and incompatible, error. If only model is set, derive harness. If only harness is set, no validation needed (model may come from harness default).

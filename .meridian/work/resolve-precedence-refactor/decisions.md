@@ -24,7 +24,25 @@
 
 **Trade-off**: Agent is slightly different from other fields because it triggers profile loading (which produces more overrides). This means agent must be resolved first (from CLI > ENV > config layers, without profile layer), then the profile is loaded, then all other fields are resolved with the profile layer included. This is a sequencing constraint, not a structural one.
 
-## D4: Keep approval="default" → None mapping for now
+## D4: Layer-aware harness derivation, not merged-output derivation
+
+**Choice**: `derive_harness()` scans the full `layers` tuple in precedence order, returning as soon as any layer contributes a harness (explicit or derived from model). It does NOT operate on the pre-merged `resolve()` output.
+
+**Why**: Three independent reviewers (opus, gpt-5.4, gpt-5.2) converged on the same blocking finding: merging layers first destroys the information needed to enforce "derived fields inherit source precedence." When CLI sets `-m sonnet` and profile sets `harness: codex`, the merged output is `{model: "sonnet", harness: "codex"}` — indistinguishable from both being at the same layer. Only by scanning layers can we see that CLI model (higher precedence) should derive the harness.
+
+**Rejected**: (a) Pre-merged output with "both set → validate compatibility" — this is the current bug. (b) Precedence-tagged values where each value carries its source level — more complex than needed. The layer scan is simpler and achieves the same structural guarantee: the first layer that contributes model or harness wins, and derived harness inherits the layer position of its source model.
+
+**Rejected**: (c) gpt-5.4 suggested "carry the winning layer index for just model and harness" — functionally equivalent to scanning layers but requires threading indices through the generic resolve(). The direct scan is simpler and doesn't modify resolve().
+
+## D5: Separate config layer for primary vs spawn paths
+
+**Choice**: Add `RuntimeOverrides.from_spawn_config(config)` alongside existing `from_config()`. Primary path reads `config.primary.*`, spawn path reads `config.default_*`.
+
+**Why**: gpt-5.4 correctly identified that `from_config()` reads `config.primary.*` but spawn preparation uses `config.default_agent` and `config.default_harness`. These are different policy domains — primary session vs spawned subagent. Making both use `config.primary.*` would change spawn behavior.
+
+**Rejected**: Single `from_config(config, context="primary"|"spawn")` — adds branching to a factory method. Two separate methods are clearer about which config fields they read.
+
+## D6: Keep approval="default" → None mapping for now
 
 **Choice**: Document violation #7 (`--approval default` can't override profile approval) as a known limitation. Don't fix in this refactor.
 
