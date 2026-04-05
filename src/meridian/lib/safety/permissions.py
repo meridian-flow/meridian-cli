@@ -1,8 +1,7 @@
-"""Permission tiers and harness-flag translation."""
+"""Permission configuration and harness-flag translation."""
 
 import json
 import logging
-from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict
 
@@ -10,16 +9,6 @@ from meridian.lib.core.overrides import KNOWN_APPROVAL_VALUES
 from meridian.lib.core.types import HarnessId
 
 logger = logging.getLogger(__name__)
-
-
-class PermissionTier(StrEnum):
-    """Safety tiers applied to harness command construction."""
-
-    READ_ONLY = "read-only"
-    WORKSPACE_WRITE = "workspace-write"
-    FULL_ACCESS = "full-access"
-    DANGER_FULL_ACCESS = "danger-full-access"
-    UNRESTRICTED = "unrestricted"
 
 
 _APPROVAL_MODES = KNOWN_APPROVAL_VALUES
@@ -30,64 +19,11 @@ class PermissionConfig(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    tier: PermissionTier | None = None
+    sandbox: str | None = None
     approval: str = "default"
     # Optional OpenCode permission map JSON derived from explicit allowed_tools.
-    # When set, this takes precedence over tier-derived OpenCode permissions.
+    # When set, this takes precedence over sandbox-derived OpenCode permissions.
     opencode_permission_override: str | None = None
-
-
-def parse_permission_tier(
-    raw: str | PermissionTier | None,
-) -> PermissionTier | None:
-    """Parse one permission tier string."""
-
-    if raw is None:
-        return None
-    if isinstance(raw, PermissionTier):
-        return raw
-
-    normalized = raw.strip().lower()
-    if not normalized:
-        return None
-    return _parse_permission_tier_value(normalized)
-
-
-def permission_tier_from_profile(
-    agent_sandbox: str | None,
-    *,
-    warning_logger: logging.Logger | None = None,
-) -> PermissionTier | None:
-    if agent_sandbox is None:
-        return None
-    normalized = agent_sandbox.strip().lower()
-    if not normalized:
-        return None
-    try:
-        return _parse_permission_tier_value(normalized)
-    except ValueError:
-        pass
-
-    sink = warning_logger or logger
-    sink.warning(
-        "Agent profile has unsupported sandbox '%s'; harness defaults will apply.",
-        agent_sandbox.strip(),
-    )
-    return None
-
-
-def _parse_permission_tier_value(raw: str | PermissionTier) -> PermissionTier:
-    if isinstance(raw, PermissionTier):
-        return raw
-
-    normalized = raw.strip().lower()
-    if not normalized:
-        raise ValueError("Unsupported permission tier ''.")
-    for candidate in PermissionTier:
-        if candidate.value == normalized:
-            return candidate
-    allowed = ", ".join(item.value for item in PermissionTier)
-    raise ValueError(f"Unsupported permission tier '{raw}'. Expected: {allowed}.")
 
 
 def _parse_approval_value(raw: str) -> str:
@@ -99,14 +35,15 @@ def _parse_approval_value(raw: str) -> str:
 
 
 def build_permission_config(
-    tier: str | PermissionTier | None,
+    sandbox: str | None,
     *,
     approval: str = "default",
 ) -> PermissionConfig:
     """Build and validate a permission configuration."""
 
+    normalized = sandbox.strip().lower() if sandbox else None
     return PermissionConfig(
-        tier=parse_permission_tier(tier),
+        sandbox=normalized or None,
         approval=_parse_approval_value(approval),
     )
 
@@ -149,12 +86,12 @@ def permission_flags_for_harness(
     harness_id: HarnessId,
     config: PermissionConfig,
 ) -> list[str]:
-    """Translate one tier into harness-specific CLI flags."""
+    """Translate sandbox + approval into harness-specific CLI flags."""
 
-    tier = config.tier
+    sandbox = config.sandbox
     approval = config.approval
 
-    # --- approval-level flags (take precedence over tier) ---
+    # --- approval-level flags (take precedence over sandbox) ---
     if approval == "yolo":
         if harness_id == HarnessId.CLAUDE:
             return ["--dangerously-skip-permissions"]
@@ -171,21 +108,20 @@ def permission_flags_for_harness(
             return ["--permission-mode", "default"]
         if harness_id == HarnessId.CODEX:
             return ["--ask-for-approval", "untrusted"]
-    # "default" or None → no approval flags, fall through to tier logic.
+    # "default" or None → no approval flags, fall through to sandbox logic.
 
-    if tier is None:
+    if sandbox is None:
         return []
 
     if harness_id == HarnessId.CODEX:
-        return ["--sandbox", tier.value]
+        return ["--sandbox", sandbox]
 
-    # OpenCode permission controls vary by backend provider; keep default behavior for
-    # safe tiers until a stable CLI surface is available.
+    # Other harnesses: no sandbox flag support yet.
     return []
 
 
 class TieredPermissionResolver(BaseModel):
-    """PermissionResolver implementation backed by one tier config."""
+    """PermissionResolver implementation backed by one sandbox config."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -199,7 +135,7 @@ class ExplicitToolsResolver(BaseModel):
     """PermissionResolver backed by an explicit tool allowlist.
 
     For harnesses that don't support fine-grained tool lists (Codex),
-    falls back to tier-based flags using the provided fallback config.
+    falls back to sandbox-based flags using the provided fallback config.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -294,7 +230,7 @@ def build_permission_resolver(
     | DisallowedToolsResolver
     | CombinedToolsResolver
 ):
-    """Pick the right resolver: explicit tools if specified, else tier-based."""
+    """Pick the right resolver: explicit tools if specified, else sandbox-based."""
     if disallowed_tools:
         return CombinedToolsResolver(
             allowlist=(
@@ -337,8 +273,7 @@ def resolve_permission_pipeline(
         | CombinedToolsResolver
     ),
 ]:
-    inferred_tier = permission_tier_from_profile(sandbox)
-    config = build_permission_config(inferred_tier, approval=approval)
+    config = build_permission_config(sandbox, approval=approval)
     if allowed_tools and disallowed_tools:
         logger.warning(
             "Both tools (allowlist) and disallowed-tools (denylist) are set; "

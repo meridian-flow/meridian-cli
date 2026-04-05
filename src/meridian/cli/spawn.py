@@ -179,8 +179,8 @@ def _spawn_create(
         Parameter(
             name="--sandbox",
             help=(
-                "Sandbox mode: read-only, workspace-write, full-access, "
-                "danger-full-access, unrestricted. Overrides agent profile."
+                "Sandbox mode passed to harness "
+                "(e.g., read-only, workspace-write). Overrides agent profile."
             ),
         ),
     ] = None,

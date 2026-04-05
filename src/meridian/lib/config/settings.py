@@ -13,7 +13,6 @@ from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, Settings
 from meridian.lib.core.overrides import (
     KNOWN_APPROVAL_VALUES,
     KNOWN_EFFORT_VALUES,
-    KNOWN_SANDBOX_VALUES,
 )
 from meridian.lib.state.paths import resolve_state_paths
 
@@ -625,19 +624,6 @@ class PrimaryConfig(BaseModel):
             raise ValueError(
                 "Invalid value for 'primary.effort': expected one of "
                 f"{sorted(KNOWN_EFFORT_VALUES)}, got {value!r}."
-            )
-        return normalized
-
-    @field_validator("sandbox")
-    @classmethod
-    def _validate_sandbox(cls, value: str | None) -> str | None:
-        normalized = _normalize_optional_string(value, source="primary.sandbox")
-        if normalized is None:
-            return None
-        if normalized not in KNOWN_SANDBOX_VALUES:
-            raise ValueError(
-                "Invalid value for 'primary.sandbox': expected one of "
-                f"{sorted(KNOWN_SANDBOX_VALUES)}, got {value!r}."
             )
         return normalized
 

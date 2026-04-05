@@ -12,7 +12,6 @@ from meridian.lib.safety.permissions import (
     CombinedToolsResolver,
     ExplicitToolsResolver,
     PermissionConfig,
-    PermissionTier,
     build_permission_config,
     opencode_permission_json_for_allowed_tools,
     opencode_permission_json_for_disallowed_tools,
@@ -46,7 +45,7 @@ def test_resolve_permission_pipeline_sets_opencode_override_for_explicit_tools()
     )
 
     assert isinstance(resolver, ExplicitToolsResolver)
-    assert config.tier is PermissionTier.WORKSPACE_WRITE
+    assert config.sandbox == "workspace-write"
     assert config.opencode_permission_override is not None
     assert json.loads(config.opencode_permission_override) == {
         "*": "deny",
@@ -76,7 +75,7 @@ def test_resolve_permission_pipeline_sets_opencode_override_for_disallowed_tools
     )
 
     assert isinstance(resolver, CombinedToolsResolver)
-    assert config.tier is PermissionTier.WORKSPACE_WRITE
+    assert config.sandbox == "workspace-write"
     assert config.opencode_permission_override is not None
     assert json.loads(config.opencode_permission_override) == {
         "*": "allow",
@@ -93,7 +92,7 @@ def test_disallowed_tools_resolver_codex_warns_and_falls_back(
         disallowed_tools=("Bash",),
     )
 
-    assert config.tier is PermissionTier.WORKSPACE_WRITE
+    assert config.sandbox == "workspace-write"
     assert isinstance(resolver, CombinedToolsResolver)
     with caplog.at_level("WARNING"):
         assert resolver.resolve_flags(HarnessId.CODEX) == ["--sandbox", "workspace-write"]
@@ -101,20 +100,20 @@ def test_disallowed_tools_resolver_codex_warns_and_falls_back(
 
 
 @pytest.mark.parametrize(
-    ("sandbox", "expected_tier"),
+    ("sandbox", "expected_sandbox"),
     (
-        ("full-access", PermissionTier.FULL_ACCESS),
-        ("danger-full-access", PermissionTier.DANGER_FULL_ACCESS),
-        ("unrestricted", PermissionTier.UNRESTRICTED),
+        ("full-access", "full-access"),
+        ("danger-full-access", "danger-full-access"),
+        ("unrestricted", "unrestricted"),
     ),
 )
-def test_codex_uses_exact_sandbox_tier_from_profile(
+def test_codex_uses_exact_sandbox_from_profile(
     sandbox: str,
-    expected_tier: PermissionTier,
+    expected_sandbox: str,
 ) -> None:
     config, resolver = resolve_permission_pipeline(sandbox=sandbox)
 
-    assert config.tier is expected_tier
+    assert config.sandbox == expected_sandbox
     assert resolver.resolve_flags(HarnessId.CODEX) == ["--sandbox", sandbox]
 
 
@@ -236,7 +235,7 @@ def test_build_launch_env_never_exports_permission_tier(
         LaunchRequest(model="gpt-5.3-codex"),
         adapter=ClaudeAdapter(),
         run_params=SpawnParams(prompt="test", model=ModelId("claude-sonnet-4-6")),
-        permission_config=PermissionConfig(tier=PermissionTier.WORKSPACE_WRITE),
+        permission_config=PermissionConfig(sandbox="workspace-write"),
     )
 
     assert "MERIDIAN_PERMISSION_TIER" not in env

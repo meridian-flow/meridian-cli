@@ -80,7 +80,7 @@ class BackgroundWorkerParams(BaseModel):
     skills: tuple[str, ...] = ()
     agent_name: str | None = None
     mcp_tools: tuple[str, ...] = ()
-    permission_tier: str | None = None
+    sandbox: str | None = None
     approval: str = "default"
     allowed_tools: tuple[str, ...] = ()
     passthrough_args: tuple[str, ...] = ()
@@ -539,11 +539,7 @@ def execute_spawn_background(
             skills=prepared.skills,
             agent_name=prepared.agent_name,
             mcp_tools=prepared.mcp_tools,
-            permission_tier=(
-                prepared.execution.permission_config.tier.value
-                if prepared.execution.permission_config.tier is not None
-                else None
-            ),
+            sandbox=prepared.execution.permission_config.sandbox,
             approval=prepared.execution.permission_config.approval,
             allowed_tools=prepared.execution.allowed_tools,
             passthrough_args=prepared.passthrough_args,
@@ -850,7 +846,7 @@ def _background_worker_main(
         return 1
 
     permission_config, permission_resolver = resolve_permission_pipeline(
-        sandbox=params.permission_tier,
+        sandbox=params.sandbox,
         allowed_tools=params.allowed_tools,
         approval=params.approval,
     )

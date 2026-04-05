@@ -17,15 +17,6 @@ _AUTOCOMPACT_MIN = 1
 _AUTOCOMPACT_MAX = 100
 
 KNOWN_EFFORT_VALUES = frozenset({"low", "medium", "high", "xhigh"})
-KNOWN_SANDBOX_VALUES = frozenset(
-    {
-        "read-only",
-        "workspace-write",
-        "full-access",
-        "danger-full-access",
-        "unrestricted",
-    }
-)
 KNOWN_APPROVAL_VALUES = frozenset({"default", "confirm", "auto", "yolo"})
 
 
@@ -89,19 +80,6 @@ class RuntimeOverrides(BaseModel):
             raise ValueError(
                 "Invalid runtime override 'effort': expected one of "
                 f"{sorted(KNOWN_EFFORT_VALUES)}, got {value!r}."
-            )
-        return normalized
-
-    @field_validator("sandbox")
-    @classmethod
-    def _validate_sandbox(cls, value: str | None) -> str | None:
-        normalized = _normalize_optional_string(value)
-        if normalized is None:
-            return None
-        if normalized not in KNOWN_SANDBOX_VALUES:
-            raise ValueError(
-                "Invalid runtime override 'sandbox': expected one of "
-                f"{sorted(KNOWN_SANDBOX_VALUES)}, got {value!r}."
             )
         return normalized
 
@@ -233,7 +211,6 @@ def resolve(*layers: RuntimeOverrides) -> RuntimeOverrides:
 __all__ = [
     "KNOWN_APPROVAL_VALUES",
     "KNOWN_EFFORT_VALUES",
-    "KNOWN_SANDBOX_VALUES",
     "RuntimeOverrides",
     "resolve",
 ]

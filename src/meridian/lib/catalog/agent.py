@@ -11,7 +11,6 @@ from meridian.lib.config.settings import resolve_repo_root
 from meridian.lib.core.overrides import (
     KNOWN_APPROVAL_VALUES,
     KNOWN_EFFORT_VALUES,
-    KNOWN_SANDBOX_VALUES,
 )
 
 logger = logging.getLogger(__name__)
@@ -21,7 +20,6 @@ _AUTOCOMPACT_PCT_MIN = 1
 _AUTOCOMPACT_PCT_MAX = 100
 
 # Re-export under private names for backward compatibility within this module.
-_KNOWN_SANDBOX_VALUES = KNOWN_SANDBOX_VALUES
 _KNOWN_EFFORT_VALUES = KNOWN_EFFORT_VALUES
 _KNOWN_APPROVAL_VALUES = KNOWN_APPROVAL_VALUES
 
@@ -89,12 +87,6 @@ def parse_agent_profile(path: Path) -> AgentProfile:
 
     profile_name = str(name_value).strip() if name_value is not None else path.stem
     sandbox = str(sandbox_value).strip() if sandbox_value is not None else None
-    if sandbox is not None and sandbox and sandbox not in _KNOWN_SANDBOX_VALUES:
-        logger.warning(
-            "Agent profile '%s' has unknown sandbox '%s'.",
-            profile_name,
-            sandbox,
-        )
     effort = str(effort_value).strip() if effort_value is not None else None
     if effort is not None and effort and effort not in _KNOWN_EFFORT_VALUES:
         logger.warning(
