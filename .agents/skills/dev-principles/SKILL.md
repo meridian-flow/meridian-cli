@@ -53,6 +53,18 @@ Treat each signal as an immediate action trigger, not backlog material:
 
 # For Orchestrators
 
+## Never Write Code Directly
+
+Orchestrators coordinate — they never write code or edit source files, regardless of how trivial the change seems. This isn't ceremony for its own sake:
+
+- **Spawns produce artifacts.** A coder spawn generates a traceable report, changed file list, and session transcript. Direct edits via Bash leave no trail — if something breaks downstream, there's nothing to inspect.
+- **Review catches what the author can't see.** Even a one-line change can have unintended consequences. The orchestrator that wrote the code can't objectively review it — the same blind spot that let the bug through will let it pass review.
+- **Workarounds compound.** When Edit/Write are blocked, writing files via `Bash(cat >)` or `python3 -c` bypasses the restriction without removing the reason it exists. Each workaround teaches the next session that the rules are negotiable.
+
+If a task is too trivial for a full impl-orchestrator cycle, the dev-orchestrator should spawn a coder + reviewer directly — not hand it to an impl-orchestrator that shortcuts the process.
+
+## Refactor Continuously
+
 The `refactor-reviewer -> coder` loop is mandatory and immediate:
 
 - Run `refactor-reviewer` after every feature phase.

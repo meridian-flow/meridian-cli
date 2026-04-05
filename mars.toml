@@ -9,4 +9,7 @@ url = "https://github.com/anthropics/skills"
 skills = ["frontend-design"]
 
 [settings]
-targets = [".agents", ".claude"]
+targets = [
+    ".agents",
+    ".claude",
+]

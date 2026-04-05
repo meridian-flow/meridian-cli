@@ -9,11 +9,11 @@ Compose the right team for each phase. The goal is coverage across perspectives,
 
 ## Model Selection
 
-Run `meridian models list` to see available models. Models with descriptions indicate their strengths — use these to match models to tasks. Override agent profile defaults with `-m` when a different model is a better fit for the specific work. Match model cost to task value — research and bulk exploration are high-throughput information gathering that benefits from fast, cheap models; review and architecture are judgment-heavy and benefit from the strongest available.
+Profile defaults are correct for most roles — don't override with `-m` unless you have a specific reason. The primary use of `-m` is **review fan-out**: spawning the same reviewer role multiple times with different model families so their blind spots don't overlap. Run `meridian models list` to see available families and strengths.
 
 ## General Principles
 
-**Delegation is the default.** An orchestrator's value is coordination and judgment across phases, not solo execution. Implementing your own phases bypasses the review, structural review, and smoke-test lanes that catch what the implementer can't see in their own work. If no team composition was provided by your caller, compose one yourself before starting — use the catalogs in the resources below.
+**Delegation is mandatory for orchestrators.** An orchestrator's value is coordination and judgment across phases, not solo execution. Orchestrators never write code or edit source files directly — not even for trivial changes. Implementing your own phases bypasses the review, structural review, and smoke-test lanes that catch what the implementer can't see in their own work. If no team composition was provided by your caller, compose one yourself before starting — use the catalogs in the resources below.
 
 **Default model primarily, specialists for their blind spots.** Most reviewers should run on the default model — it's the baseline and usually the best cost/quality tradeoff. But every model has blind spots shaped by its training, and using only the default means every reviewer shares the same ones. Bring in a different model when its strengths match the focus area — it's not there for prestige, it's there because it sees things the default model consistently misses on that dimension. Check `meridian models list` for current model strengths. For high-risk focus areas, duplicate coverage with both the default model and the specialist to get convergence across independent perspectives.
 

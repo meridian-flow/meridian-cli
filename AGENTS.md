@@ -47,6 +47,8 @@ NEVER REVERT CHANGES — always assume it's someone else's work.
 - **`meridian-base/`** — core agents, skills, and spawn infrastructure (e.g. `__meridian-spawn`, `__meridian-subagent`)
 - **`meridian-dev-workflow/`** — dev orchestration agents and skills (e.g. `dev-orchestrator`, `reviewer`, `coder`, `agent-staffing`)
 
+When writing or editing agent profiles and skills, follow the design principles in `resources/design-principles.md` under the `__meridian-spawn` skill (linked from `resources/creating-agents.md`). It covers prompt structure, tool restrictions, progressive disclosure, and common anti-patterns.
+
 Canonical workflow:
 
 1. Edit in the source submodule (e.g. `meridian-base/skills/__meridian-spawn/SKILL.md`)
@@ -70,6 +72,8 @@ Spawns support 4 approval modes: `default` (harness decides), `confirm` (user ap
 ### Config Precedence
 
 CLI flags > ENV vars > YAML profile > Project config > User config > harness default.
+
+This applies to **every resolved field independently** — model, harness, approval, timeout, skills. Derived fields inherit the precedence level of their source: if the user overrides the model with `-m`, the harness must be derived from the overridden model, not from the profile's harness. A profile-level value must never win over a CLI override, even indirectly.
 
 ### Testing
 
