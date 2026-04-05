@@ -10,7 +10,7 @@ from meridian.lib.catalog.models import route_model
 from meridian.lib.catalog.skill import SkillRegistry
 from meridian.lib.config.settings import MeridianConfig
 from meridian.lib.core.domain import SkillContent
-from meridian.lib.core.overrides import RuntimeOverrides
+from meridian.lib.core.overrides import RuntimeOverrides, resolve
 from meridian.lib.core.types import HarnessId, ModelId
 from meridian.lib.harness.adapter import SubprocessHarness
 from meridian.lib.harness.registry import HarnessRegistry
@@ -67,6 +67,7 @@ class ResolvedPolicies:
     harness: HarnessId
     adapter: SubprocessHarness
     resolved_skills: ResolvedSkills
+    resolved_overrides: RuntimeOverrides
     warning: str | None = None
 
 
@@ -177,50 +178,74 @@ def resolve_harness(
     return override_harness
 
 
+def _derive_harness_from_model(model_str: str, *, repo_root: Path) -> HarnessId:
+    """Derive harness from model when no layer specifies harness."""
+
+    from meridian.lib.catalog.models import resolve_model as resolve_model_entry
+
+    try:
+        resolved = resolve_model_entry(model_str, repo_root=repo_root)
+        return resolved.harness
+    except ValueError:
+        decision = route_model(model_str, mode="harness", repo_root=repo_root)
+        return decision.harness_id
+
+
+def _resolve_final_model(
+    *,
+    layer_model: str | None,
+    harness_id: HarnessId,
+    config: MeridianConfig,
+    repo_root: Path,
+) -> str:
+    """Resolve final model string after harness is known."""
+
+    from meridian.lib.catalog.models import resolve_model as resolve_model_entry
+
+    if layer_model:
+        try:
+            catalog_entry = resolve_model_entry(layer_model, repo_root=repo_root)
+            return str(catalog_entry.model_id)
+        except ValueError:
+            return layer_model
+    harness_default = config.default_model_for_harness(str(harness_id))
+    if harness_default:
+        return harness_default
+    if config.default_model:
+        return config.default_model
+    return ""
+
+
 def resolve_policies(
     *,
     repo_root: Path,
-    overrides: RuntimeOverrides,
-    requested_agent: str | None,
+    layers: tuple[RuntimeOverrides, ...],
+    config_overrides: RuntimeOverrides,
     config: MeridianConfig,
     harness_registry: HarnessRegistry,
-    configured_default_agent: str | None = None,
-    builtin_default_agent: str = "",
-    configured_default_harness: str = "claude",
+    builtin_default_agent: str = '',
+    configured_default_harness: str = 'claude',
     skills_readonly: bool = True,
 ) -> ResolvedPolicies:
+    pre_profile_resolved = resolve(*layers, config_overrides)
+    agent_name = pre_profile_resolved.agent or builtin_default_agent
+
     profile, profile_warning = resolve_agent_profile_with_builtin_fallback(
         repo_root=repo_root,
-        requested_agent=requested_agent,
-        configured_default=configured_default_agent or "",
+        requested_agent=agent_name if pre_profile_resolved.agent else None,
+        configured_default=agent_name if not pre_profile_resolved.agent else '',
         builtin_default=builtin_default_agent,
     )
+    profile_overrides = RuntimeOverrides.from_agent_profile(profile)
+    full_layers = (*layers, profile_overrides, config_overrides)
+    resolved = resolve(*full_layers)
 
-    resolved_model = (overrides.model or "").strip()
-    model_independently_specified = bool(resolved_model)
-    if not resolved_model and profile is not None and profile.model:
-        resolved_model = profile.model.strip()
-        model_independently_specified = bool(resolved_model)
-
-    explicit_harness = (overrides.harness or "").strip()
-    profile_harness = ""
-    if profile is not None and profile.harness:
-        profile_harness = profile.harness.strip()
-
-    if explicit_harness:
-        harness_id = HarnessId(explicit_harness)
-    elif profile_harness:
-        harness_id = HarnessId(profile_harness)
-    elif resolved_model:
-        harness_id = resolve_harness(
-            model=ModelId(resolved_model),
-            harness_override=None,
-            harness_registry=harness_registry,
-            repo_root=repo_root,
-        )
+    if resolved.harness:
+        harness_id = HarnessId(resolved.harness)
+    elif resolved.model:
+        harness_id = _derive_harness_from_model(resolved.model, repo_root=repo_root)
     else:
-        harness_id = HarnessId(configured_default_harness or "claude")
-    harness_independently_specified = bool(explicit_harness or profile_harness)
+        harness_id = HarnessId(configured_default_harness or 'claude')
 
     try:
         adapter = harness_registry.get_subprocess_harness(harness_id)
@@ -230,26 +255,16 @@ def resolve_policies(
             f"Unknown or unsupported harness '{harness_id}'. Available harnesses: {supported}"
         ) from exc
 
-    if not resolved_model:
-        harness_default = config.default_model_for_harness(str(harness_id))
-        if harness_default:
-            resolved_model = harness_default
-    if not resolved_model and config.default_model:
-        resolved_model = config.default_model
-        model_independently_specified = bool(resolved_model)
+    final_model = _resolve_final_model(
+        layer_model=resolved.model,
+        harness_id=harness_id,
+        config=config,
+        repo_root=repo_root,
+    )
 
-    if resolved_model:
-        try:
-            from meridian.lib.catalog.models import resolve_model as resolve_model_entry
-
-            catalog_entry = resolve_model_entry(resolved_model, repo_root=repo_root)
-            resolved_model = str(catalog_entry.model_id)
-        except ValueError:
-            pass
-
-    if resolved_model and harness_independently_specified and model_independently_specified:
+    if final_model and resolved.harness and resolved.model:
         resolve_harness(
-            model=ModelId(resolved_model),
+            model=ModelId(final_model),
             harness_override=str(harness_id),
             harness_registry=harness_registry,
             repo_root=repo_root,
@@ -266,10 +281,11 @@ def resolve_policies(
 
     return ResolvedPolicies(
         profile=profile,
-        model=resolved_model,
+        model=final_model,
         harness=harness_id,
         adapter=adapter,
         resolved_skills=resolved_skills,
+        resolved_overrides=resolved,
         warning=profile_warning,
     )
 
