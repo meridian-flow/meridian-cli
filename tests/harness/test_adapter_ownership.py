@@ -56,6 +56,70 @@ def test_claude_adapter_detects_latest_project_session(
     assert infer_harness_from_untracked_session_ref(repo_root, new_session_id) == "claude"
 
 
+def test_claude_adapter_resolves_session_from_prefixed_child_project_slug(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    child_cwd = repo_root / ".meridian" / "spawns" / "p1"
+    child_cwd.mkdir(parents=True)
+    fake_home = tmp_path / "home"
+    monkeypatch.setenv("HOME", fake_home.as_posix())
+
+    session_id = str(uuid4())
+    child_project_dir = fake_home / ".claude" / "projects" / project_slug(child_cwd)
+    child_project_dir.mkdir(parents=True)
+    child_session_path = child_project_dir / f"{session_id}.jsonl"
+    child_session_path.write_text(
+        json.dumps({"type": "agent-setting", "sessionId": session_id}) + "\n",
+        encoding="utf-8",
+    )
+
+    adapter = ClaudeAdapter()
+    assert (
+        adapter.resolve_session_file(repo_root=repo_root, session_id=session_id)
+        == child_session_path
+    )
+    assert adapter.owns_untracked_session(repo_root=repo_root, session_ref=session_id) is True
+
+
+def test_claude_adapter_resolve_prefers_repo_root_project_slug(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    child_cwd = repo_root / ".meridian" / "spawns" / "p1"
+    child_cwd.mkdir(parents=True)
+    fake_home = tmp_path / "home"
+    monkeypatch.setenv("HOME", fake_home.as_posix())
+
+    session_id = str(uuid4())
+    root_project_dir = fake_home / ".claude" / "projects" / project_slug(repo_root)
+    root_project_dir.mkdir(parents=True)
+    root_session_path = root_project_dir / f"{session_id}.jsonl"
+    root_session_path.write_text(
+        json.dumps({"type": "agent-setting", "sessionId": session_id}) + "\n",
+        encoding="utf-8",
+    )
+
+    child_project_dir = fake_home / ".claude" / "projects" / project_slug(child_cwd)
+    child_project_dir.mkdir(parents=True)
+    child_session_path = child_project_dir / f"{session_id}.jsonl"
+    child_session_path.write_text(
+        json.dumps({"type": "agent-setting", "sessionId": session_id}) + "\n",
+        encoding="utf-8",
+    )
+
+    adapter = ClaudeAdapter()
+    assert (
+        adapter.resolve_session_file(repo_root=repo_root, session_id=session_id)
+        == root_session_path
+    )
+    assert child_session_path.exists()
+
+
 def test_codex_adapter_owns_session_detection(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

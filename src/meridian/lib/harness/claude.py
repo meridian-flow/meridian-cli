@@ -60,8 +60,40 @@ def project_slug(repo_root: Path) -> str:
     return re.sub(r"[^a-zA-Z0-9]", "-", str(repo_root.resolve()))
 
 
+def _claude_projects_root() -> Path:
+    return Path.home() / ".claude" / "projects"
+
+
 def _claude_project_dir(repo_root: Path) -> Path:
-    return Path.home() / ".claude" / "projects" / project_slug(repo_root)
+    return _claude_projects_root() / project_slug(repo_root)
+
+
+def _candidate_claude_project_dirs(repo_root: Path) -> list[Path]:
+    projects_root = _claude_projects_root()
+    root_slug = project_slug(repo_root)
+    candidates: list[Path] = [projects_root / root_slug]
+
+    if not projects_root.is_dir():
+        return candidates
+
+    try:
+        project_dirs = sorted(projects_root.iterdir(), key=lambda path: path.name)
+    except OSError:
+        logger.debug(
+            "Failed to list Claude project directories %s",
+            projects_root,
+            exc_info=True,
+        )
+        return candidates
+
+    for project_dir in project_dirs:
+        if not project_dir.is_dir():
+            continue
+        if project_dir.name == root_slug or not project_dir.name.startswith(root_slug):
+            continue
+        candidates.append(project_dir)
+
+    return candidates
 
 
 def _read_claude_session_id(path: Path) -> str | None:
@@ -374,11 +406,18 @@ class ClaudeAdapter(BaseSubprocessHarness):
         normalized_session_id = session_id.strip()
         if not normalized_session_id:
             return None
-        candidate = _claude_project_dir(repo_root) / f"{normalized_session_id}.jsonl"
-        if not candidate.is_file():
-            return None
-        return candidate
+        for project_dir in _candidate_claude_project_dirs(repo_root):
+            candidate = project_dir / f"{normalized_session_id}.jsonl"
+            if candidate.is_file():
+                return candidate
+        return None
 
     def owns_untracked_session(self, *, repo_root: Path, session_ref: str) -> bool:
-        session_file = _claude_project_dir(repo_root) / f"{session_ref}.jsonl"
-        return session_file.is_file()
+        normalized_session_ref = session_ref.strip()
+        if not normalized_session_ref:
+            return False
+        for project_dir in _candidate_claude_project_dirs(repo_root):
+            session_file = project_dir / f"{normalized_session_ref}.jsonl"
+            if session_file.is_file():
+                return True
+        return False
