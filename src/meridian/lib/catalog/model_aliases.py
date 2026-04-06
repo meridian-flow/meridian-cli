@@ -133,27 +133,48 @@ def _run_mars_models_resolve(
 ) -> dict[str, object] | None:
     """Call ``mars models resolve <name> --json`` and return the resolved entry.
 
-    Returns None when mars binary is unavailable, the command fails,
-    or the alias is unknown (exit code 1). The caller distinguishes
-    "mars doesn't know this alias" from "mars is broken" by checking
-    whether the mars binary exists separately.
+    Returns ``None`` when the alias is unknown (mars exit code 1).
+    Raises ``RuntimeError`` when mars is unavailable or broken - mars is
+    always bundled with meridian, so absence is a hard error.
     """
     mars_bin = _resolve_mars_binary()
     if mars_bin is None:
-        return None
+        raise RuntimeError(
+            "Mars binary not found. Mars is required for model resolution. "
+            "Run 'meridian doctor' to diagnose."
+        )
     cmd = [mars_bin, "models", "resolve", name, "--json"]
     if repo_root is not None:
         cmd.extend(["--root", str(repo_root)])
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-        return None
+    except FileNotFoundError as exc:
+        raise RuntimeError(
+            "Mars binary not found. Mars is required for model resolution. "
+            "Run 'meridian doctor' to diagnose."
+        ) from exc
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        logger.debug("mars models resolve failed: %s", exc, exc_info=True)
+        raise RuntimeError(
+            "Mars model resolution failed. Run 'meridian doctor' to diagnose."
+        ) from exc
     if result.returncode != 0:
+        logger.debug(
+            "mars models resolve '%s' exited %d: %s",
+            name,
+            result.returncode,
+            result.stderr,
+        )
         return None
     try:
-        return json.loads(result.stdout)
+        payload = json.loads(result.stdout)
     except (json.JSONDecodeError, ValueError):
+        logger.debug("mars models resolve returned invalid JSON for '%s'", name)
         return None
+    if not isinstance(payload, dict):
+        logger.debug("mars models resolve returned non-object JSON for '%s'", name)
+        return None
+    return cast("dict[str, object]", payload)
 
 
 def run_mars_models_resolve(name: str, repo_root: Path | None = None) -> dict[str, object] | None:

@@ -108,6 +108,23 @@ def test_resolve_model_raw_model_id_pattern_fallback(
     assert result.harness == HarnessId.CLAUDE
 
 
+def test_resolve_model_mars_broken_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When mars binary is unavailable, resolve_model raises RuntimeError."""
+
+    def mock_mars_resolve(
+        name: str, repo_root: object = None
+    ) -> dict[str, object] | None:
+        _ = (name, repo_root)
+        raise RuntimeError("Mars binary not found.")
+
+    monkeypatch.setattr(
+        "meridian.lib.catalog.model_aliases._run_mars_models_resolve",
+        mock_mars_resolve,
+    )
+    with pytest.raises(RuntimeError, match="Mars binary not found"):
+        resolve_model("opus")
+
+
 def test_resolve_model_unknown_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     """Unknown model that isn't a mars alias and doesn't match patterns raises."""
 
