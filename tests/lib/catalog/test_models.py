@@ -7,17 +7,10 @@ from meridian.lib.catalog.model_policy import _model_lineage, compute_superseded
 from meridian.lib.catalog.models import (
     AliasEntry,
     DiscoveredModel,
-    load_model_visibility,
     resolve_model,
 )
 from meridian.lib.core.types import HarnessId
 from meridian.lib.ops.catalog import ModelsListInput, models_list_sync
-
-
-def _write_models_toml(repo_root: Path, content: str) -> None:
-    state_root = repo_root / ".meridian"
-    state_root.mkdir(parents=True, exist_ok=True)
-    (state_root / "models.toml").write_text(content, encoding="utf-8")
 
 
 def _model(
@@ -41,21 +34,6 @@ def _model(
         capabilities=("tool_call",),
         release_date=release_date,
     )
-
-
-def test_load_model_visibility_uses_user_overrides(tmp_path: Path) -> None:
-    repo_root = tmp_path / "repo"
-    repo_root.mkdir()
-    _write_models_toml(
-        repo_root,
-        "[model_visibility]\n"
-        'exclude = ["gemini*"]\n'
-        "max_input_cost = 100.0\n",
-    )
-
-    visibility = load_model_visibility(repo_root=repo_root)
-    assert visibility.exclude == ("gemini*",)
-    assert visibility.max_input_cost == 100.0
 
 
 # --- resolve_model with mars ---
@@ -191,14 +169,6 @@ def test_models_list_uses_visibility_rules_and_keeps_aliased_models_visible(
 ) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
-    _write_models_toml(
-        repo_root,
-        "[models]\n"
-        'gem = "gemini-3.1-pro"\n'
-        "\n"
-        "[model_visibility]\n"
-        'exclude = ["gemini*"]\n',
-    )
 
     old_date = (date.today() - timedelta(days=365)).isoformat()
     monkeypatch.setattr(
@@ -305,7 +275,6 @@ def test_models_list_hides_superseded(
 ) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
-    _write_models_toml(repo_root, "")
 
     today = date.today().isoformat()
     yesterday = (date.today() - timedelta(days=30)).isoformat()
@@ -335,7 +304,6 @@ def test_models_list_show_superseded_overrides(
 ) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
-    _write_models_toml(repo_root, "")
 
     today = date.today().isoformat()
     yesterday = (date.today() - timedelta(days=30)).isoformat()
@@ -368,7 +336,6 @@ def test_models_list_aliased_model_survives_superseded(
 ) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
-    _write_models_toml(repo_root, "")
 
     today = date.today().isoformat()
     yesterday = (date.today() - timedelta(days=30)).isoformat()

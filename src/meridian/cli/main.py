@@ -18,7 +18,6 @@ from meridian import __version__
 from meridian.cli.config_cmd import register_config_commands
 from meridian.cli.doctor_cmd import register_doctor_command
 from meridian.cli.models_cmd import register_models_commands
-from meridian.cli.models_config_cmd import register_models_config_commands
 from meridian.cli.output import (
     OutputConfig,
     create_sink,
@@ -552,11 +551,6 @@ work_app = App(
     help_formatter="plain",
 )
 models_app = App(name="models", help="Model catalog commands", help_formatter="plain")
-models_config_app = App(
-    name="config",
-    help="Model catalog config commands",
-    help_formatter="plain",
-)
 config_app = App(name="config", help="Repository config commands", help_formatter="plain")
 completion_app = App(name="completion", help="Shell completion helpers", help_formatter="plain")
 
@@ -566,7 +560,6 @@ spawn_app.command(report_app, name="report")
 app.command(session_app, name="session")
 app.command(work_app, name="work")
 app.command(models_app, name="models")
-models_app.command(models_config_app, name="config")
 app.command(config_app, name="config")
 app.command(completion_app, name="completion")
 
@@ -852,7 +845,6 @@ def _register_group_commands() -> None:
     register_session_commands(session_app, emit)
     register_work_commands(work_app, emit)
     register_models_commands(models_app, emit)
-    register_models_config_commands(models_config_app, emit)
     register_config_commands(config_app, emit)
     register_doctor_command(app, emit)
 

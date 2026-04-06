@@ -7,15 +7,14 @@ from pydantic import BaseModel, ConfigDict, model_serializer
 from meridian.lib.catalog.model_aliases import (
     load_mars_descriptions,
 )
+from meridian.lib.catalog.model_policy import DEFAULT_MODEL_VISIBILITY, ModelVisibilityConfig
 from meridian.lib.catalog.models import (
     AliasEntry,
     DiscoveredModel,
-    ModelVisibilityConfig,
     compute_superseded_ids,
     is_default_visible_model,
     load_discovered_models,
     load_merged_aliases,
-    load_model_visibility,
     refresh_models_cache,
     resolve_model,
 )
@@ -280,7 +279,7 @@ def _cost_tier(cost_input: float | None) -> str | None:
 def models_list_sync(payload: ModelsListInput) -> ModelsListOutput:
     root = _repo_root(payload.repo_root)
     aliases = load_merged_aliases(repo_root=root)
-    visibility = load_model_visibility(repo_root=root)
+    visibility = DEFAULT_MODEL_VISIBILITY
     discovered = load_discovered_models()
 
     # Load descriptions from mars aliases and alias entries

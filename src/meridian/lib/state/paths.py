@@ -19,7 +19,6 @@ _GITIGNORE_CONTENT = (
     "\n"
     "# Track project config\n"
     "!config.toml\n"
-    "!models.toml\n"
     "\n"
     "# Track shared repo state\n"
     "!fs/\n"
@@ -32,7 +31,6 @@ _GITIGNORE_CONTENT = (
 _REQUIRED_GITIGNORE_LINES = (
     "!.gitignore",
     "!config.toml",
-    "!models.toml",
     "!fs/",
     "!fs/**",
     "!work/",
@@ -102,7 +100,6 @@ class StatePaths(BaseModel):
     spawns_dir: Path
     cache_dir: Path
     config_path: Path
-    models_path: Path
 
 
 def _resolve_state_root(repo_root: Path) -> Path:
@@ -128,7 +125,6 @@ def resolve_state_paths(repo_root: Path) -> StatePaths:
         spawns_dir=root_dir / "spawns",
         cache_dir=root_dir / "cache",
         config_path=root_dir / "config.toml",
-        models_path=root_dir / "models.toml",
     )
 
 

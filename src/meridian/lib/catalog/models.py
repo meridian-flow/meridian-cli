@@ -31,32 +31,12 @@ from meridian.lib.catalog.model_policy import (
     merge_model_visibility,
     pattern_fallback_harness,
 )
-from meridian.lib.catalog.models_toml import (
-    catalog_path as _catalog_path,
-)
-from meridian.lib.catalog.models_toml import (
-    ensure_models_config,
-    load_models_file_payload,
-    render_models_toml,
-    scaffold_models_toml,
-)
 from meridian.lib.config.settings import resolve_repo_root
 from meridian.lib.core.types import HarnessId, ModelId
 from meridian.lib.state.atomic import atomic_write_text
 from meridian.lib.state.paths import resolve_cache_dir
 
 logger = logging.getLogger(__name__)
-
-def load_model_visibility(repo_root: Path | None = None) -> ModelVisibilityConfig:
-    if repo_root is None:
-        return DEFAULT_MODEL_VISIBILITY
-
-    path = _catalog_path(resolve_repo_root(repo_root))
-    if not path.is_file():
-        return DEFAULT_MODEL_VISIBILITY
-
-    payload = load_models_file_payload(path)
-    return merge_model_visibility(coerce_model_visibility(payload.get("model_visibility")))
 
 
 def load_merged_aliases(repo_root: Path | None = None) -> list[AliasEntry]:
@@ -580,18 +560,14 @@ __all__ = [
     "SpawnMode",
     "coerce_model_visibility",
     "compute_superseded_ids",
-    "ensure_models_config",
     "fetch_models_dev",
     "is_default_visible_model",
     "load_discovered_models",
     "load_mars_aliases",
     "load_mars_descriptions",
     "load_merged_aliases",
-    "load_model_visibility",
     "merge_model_visibility",
     "refresh_models_cache",
-    "render_models_toml",
     "resolve_alias",
     "resolve_model",
-    "scaffold_models_toml",
 ]
