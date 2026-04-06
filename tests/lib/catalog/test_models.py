@@ -8,7 +8,7 @@ from meridian.lib.catalog.models import (
     AliasEntry,
     DiscoveredModel,
     load_model_visibility,
-    route_model,
+    resolve_model,
 )
 from meridian.lib.core.types import HarnessId
 from meridian.lib.ops.catalog import ModelsListInput, models_list_sync
@@ -43,34 +43,6 @@ def _model(
     )
 
 
-def test_route_model_uses_user_harness_patterns(tmp_path: Path) -> None:
-    repo_root = tmp_path / "repo"
-    repo_root.mkdir()
-    _write_models_toml(
-        repo_root,
-        '[harness_patterns]\n'
-        'codex = ["gpt-*", "foo-*"]\n'
-        'claude = ["claude-*", "opus*", "sonnet*", "haiku*"]\n'
-        'opencode = ["opencode-*", "gemini*", "*/*"]\n',
-    )
-
-    assert route_model("foo-bar", repo_root=repo_root).harness_id == HarnessId.CODEX
-
-
-def test_route_model_rejects_ambiguous_harness_patterns(tmp_path: Path) -> None:
-    repo_root = tmp_path / "repo"
-    repo_root.mkdir()
-    _write_models_toml(
-        repo_root,
-        '[harness_patterns]\n'
-        'codex = ["foo-*"]\n'
-        'opencode = ["foo-*"]\n',
-    )
-
-    with pytest.raises(ValueError, match="matches multiple harness_patterns"):
-        route_model("foo-bar", repo_root=repo_root)
-
-
 def test_load_model_visibility_uses_user_overrides(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
@@ -84,6 +56,116 @@ def test_load_model_visibility_uses_user_overrides(tmp_path: Path) -> None:
     visibility = load_model_visibility(repo_root=repo_root)
     assert visibility.exclude == ("gemini*",)
     assert visibility.max_input_cost == 100.0
+
+
+# --- resolve_model with mars ---
+
+
+def test_resolve_model_returns_concrete_model_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify resolve_model returns the concrete model_id, not the alias name."""
+
+    def mock_mars_resolve(
+        name: str, repo_root: object = None
+    ) -> dict[str, object] | None:
+        if name == "codex":
+            return {
+                "name": "codex",
+                "model_id": "gpt-5.3-codex",
+                "harness": "codex",
+                "harness_source": "auto_detected",
+            }
+        return None
+
+    monkeypatch.setattr(
+        "meridian.lib.catalog.model_aliases._run_mars_models_resolve",
+        mock_mars_resolve,
+    )
+    result = resolve_model("codex")
+    assert str(result.model_id) == "gpt-5.3-codex"
+    assert result.alias == "codex"
+    assert result.harness == HarnessId.CODEX
+
+
+def test_resolve_model_raw_model_id_pattern_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Raw model IDs that aren't aliases use pattern fallback."""
+
+    def mock_mars_resolve(
+        name: str, repo_root: object = None
+    ) -> dict[str, object] | None:
+        return None  # Not a known alias
+
+    monkeypatch.setattr(
+        "meridian.lib.catalog.model_aliases._run_mars_models_resolve",
+        mock_mars_resolve,
+    )
+    result = resolve_model("claude-opus-4-6")
+    assert str(result.model_id) == "claude-opus-4-6"
+    assert result.alias == ""
+    assert result.harness == HarnessId.CLAUDE
+
+
+def test_resolve_model_unknown_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unknown model that isn't a mars alias and doesn't match patterns raises."""
+
+    def mock_mars_resolve(
+        name: str, repo_root: object = None
+    ) -> dict[str, object] | None:
+        return None
+
+    monkeypatch.setattr(
+        "meridian.lib.catalog.model_aliases._run_mars_models_resolve",
+        mock_mars_resolve,
+    )
+    with pytest.raises(ValueError, match="Unknown model"):
+        resolve_model("some-unknown-model")
+
+
+def test_resolve_model_unavailable_harness_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Mars resolving a model with no installed harness raises a clear error."""
+
+    def mock_mars_resolve(
+        name: str, repo_root: object = None
+    ) -> dict[str, object] | None:
+        return {
+            "name": "opus",
+            "model_id": "claude-opus-4-6",
+            "harness": None,
+            "harness_source": "unavailable",
+            "harness_candidates": ["claude", "opencode"],
+        }
+
+    monkeypatch.setattr(
+        "meridian.lib.catalog.model_aliases._run_mars_models_resolve",
+        mock_mars_resolve,
+    )
+    with pytest.raises(ValueError, match="No installed harness"):
+        resolve_model("opus")
+
+
+def test_resolve_model_empty_raises() -> None:
+    """Empty model identifier raises ValueError."""
+    with pytest.raises(ValueError, match="must not be empty"):
+        resolve_model("")
+    with pytest.raises(ValueError, match="must not be empty"):
+        resolve_model("   ")
+
+
+def test_pattern_fallback_harness() -> None:
+    """pattern_fallback_harness routes known patterns correctly."""
+    from meridian.lib.catalog.model_policy import pattern_fallback_harness
+
+    assert pattern_fallback_harness("claude-opus-4-6") == HarnessId.CLAUDE
+    assert pattern_fallback_harness("gpt-5.3-codex") == HarnessId.CODEX
+    assert pattern_fallback_harness("gemini-pro") == HarnessId.OPENCODE
+
+    with pytest.raises(ValueError):
+        pattern_fallback_harness("totally-unknown-model")
 
 
 def test_models_list_uses_visibility_rules_and_keeps_aliased_models_visible(
