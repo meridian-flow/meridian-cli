@@ -18,8 +18,7 @@ path (see `design/call-sites.md` §4).
   - Rewrite `run_list` to call `ensure_fresh` before reading the cache.
   - Rewrite `run_resolve` to call `ensure_fresh` before reading the
     cache.
-  - Update `run_refresh` to acquire the lock and use the renamed
-    `now_unix_secs` helper (already partially done in phase 2; verify).
+  - **Do not touch `run_refresh`.** Phase 2 fully owns it.
   - Remove the "no models cache — run `mars models refresh`" hint from
     `run_list`, since the list command itself now refreshes.
   - On `RefreshOutcome::StaleFallback`, print a stderr warning (non-JSON
@@ -51,18 +50,38 @@ fn run_list(args: &ListArgs, ctx: &MarsContext, json: bool) -> Result<i32, MarsE
 
 ### `run_resolve`
 
-Same shape. Note that `resolve` also has a `--json` path; the
-`ModelCacheUnavailable` error must be formatted into the JSON error
-envelope consistently with mars's other JSON errors. If a helper for JSON
-error output already exists, use it; otherwise inline:
+Same shape. JSON error envelope: match the exact pattern `run_resolve`
+already uses for the "unknown alias" case (see `cli/models.rs` lines
+195-208 in the current source) — object with a single `"error"` key,
+`serde_json::to_string_pretty`, exit 1. Quote that snippet literally in
+the implementation, do not invent a new shape.
 
 ```rust
+// Matches the existing run_resolve error envelope at cli/models.rs:195-208
 println!(
     "{}",
-    serde_json::to_string_pretty(&serde_json::json!({ "error": format!("{err}") })).unwrap()
+    serde_json::to_string_pretty(&serde_json::json!({
+        "error": format!("{err}"),
+    })).unwrap()
 );
 return Ok(1);
 ```
+
+### `cache_warning` JSON shape
+
+Both `run_list` and `run_resolve` add an optional `cache_warning` string
+to their JSON output when `RefreshOutcome::StaleFallback { reason }` is
+returned:
+
+```json
+{
+  "aliases": [...],
+  "cache_available": true,
+  "cache_warning": "models cache refresh failed: <reason>; using stale cache"
+}
+```
+
+Absent the field means no warning. Do not use `null`; omit the key.
 
 ### `ListArgs` / `ResolveAliasArgs`
 

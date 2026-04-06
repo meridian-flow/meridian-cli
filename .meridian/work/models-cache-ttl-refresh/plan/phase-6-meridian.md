@@ -24,15 +24,24 @@ subprocess timeout to accommodate a cold fetch.
 ## Implementation
 
 ```python
-# In _run_mars_models_list:
-# 60s accommodates a cold `ensure_fresh(Auto)` fetch inside mars;
-# resolution is launch-critical, so we'd rather wait than fail spawns.
+# In run_mars_models_resolve (launch-critical: spawn fails on timeout):
+# 60s accommodates a cold `ensure_fresh(Auto)` fetch inside mars. Mars
+# itself caps the HTTP request at 15s + 15s, so a legitimate fetch is
+# well under this budget; the extra headroom absorbs first-boot
+# disk-cache warmups and slow DNS.
 result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
 
-# In run_mars_models_resolve: same, with the same comment.
+# In _run_mars_models_list (UI-only path, not launch-critical):
+# 30s — same refresh path but this is only used by `meridian models
+# list` / agent-inspection UIs where the user can retry manually.
+result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
 ```
 
 No structural changes, no new functions, no new config knobs.
+
+The `meridian doctor` subcommand already surfaces mars-binary problems;
+if a timeout becomes common in practice, doctor is the place to add
+proactive diagnostics. Out of scope for this phase.
 
 ## Smoke Test: `tests/smoke/models-cache-auto-refresh.md`
 
@@ -49,6 +58,21 @@ produces a clean error instead of a hang.
    alias you know maps to a provider covered by the models cache (e.g.
    an Anthropic alias).
 2. `rm -f .mars/models-cache.json` to force a cold state.
+
+## Case 0: `meridian mars add` then immediate spawn
+
+Background: `mars add` runs sync internally, so a fresh `mars add`
+already triggers `ensure_fresh(Auto)` inside sync. This case verifies
+the end-to-end story from requirements §Success Criteria #2.
+
+```bash
+rm -f .mars/models-cache.json
+meridian mars add <pkg-shipping-new-aliases>
+meridian spawn -a <agent-using-new-alias> -p "echo hello"
+```
+
+**Expected:** the `mars add` already populated the cache via sync, so
+the spawn resolves instantly without another refresh.
 
 ## Case 1: Cold cache, spawn succeeds
 

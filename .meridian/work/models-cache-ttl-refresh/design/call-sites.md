@@ -97,36 +97,27 @@ guarantee "for free".
 
 ## 4. `mars models refresh` — `src/cli/models.rs::run_refresh`
 
-Continues to exist as the explicit online entry point. Does **not** route
-through `ensure_fresh`:
+Routes through `ensure_fresh(Force)`. `Force` mode is defined to ignore
+`MARS_OFFLINE` (see `ensure-fresh.md` §"MARS_OFFLINE Coercion"), which
+preserves the user's intent: "I typed this, fetch now."
 
 ```rust
 fn run_refresh(ctx: &MarsContext, json: bool) -> Result<i32, MarsError> {
     let mars = mars_dir(ctx);
-    let _guard = crate::fs::FileLock::acquire(&mars.join(".models-cache.lock"))?;
+    let ttl = models::load_models_cache_ttl(ctx);
     eprint!("Fetching models catalog... ");
-    let fetched = models::fetch_models()?;
-    let count = fetched.len();
-    let cache = ModelsCache {
-        models: fetched,
-        fetched_at: Some(now_unix_secs()),
-    };
-    models::write_cache(&mars, &cache)?;
-    // ...existing output...
+    let (cache, outcome) = models::ensure_fresh(&mars, ttl, RefreshMode::Force)?;
+    // ...existing output, using `cache.models.len()` for count...
 }
 ```
 
-Why bypass `ensure_fresh`? Because:
+Consolidating through `ensure_fresh` eliminates the previously-proposed
+bypass path, so every cache mutation — refresh, sync, list, resolve —
+flows through the same lock + double-check + fetch + write logic. One
+place to fix bugs.
 
-1. `mars models refresh` always fetches, regardless of `MARS_OFFLINE`. The
-   user typed it explicitly.
-2. `ensure_fresh` intentionally coerces `MARS_OFFLINE → Offline`. Routing
-   `refresh` through it would require a special-case escape hatch, which
-   complicates the helper for one caller.
-3. Sharing the lock primitive (not the function) is enough to stay
-   concurrent-safe with the other call sites.
-
-This is the single "doesn't use `ensure_fresh`" exception and it's worth it.
+Phase 2 is the only phase that touches `run_refresh`. Phases 3 and 4
+must not rewrite this function.
 
 ## 5. `meridian` agent-launch
 
@@ -141,9 +132,23 @@ Two small helpers live in `cli/models.rs` (or a new `cli/models_support.rs`)
 to avoid duplication across call sites:
 
 ```rust
+/// Truthy `MARS_OFFLINE` parsing: 1 / true / yes (case-insensitive).
+/// Anything else — including unset, empty, "0", "false" — is NOT offline.
+pub fn is_mars_offline() -> bool {
+    match std::env::var("MARS_OFFLINE") {
+        Ok(v) => matches!(
+            v.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes"
+        ),
+        Err(_) => false,
+    }
+}
+
 /// Resolve the refresh mode from CLI flag + env.
+/// Used by Auto-mode callers (list, resolve, sync). Force-mode callers
+/// (refresh) call `ensure_fresh(Force)` directly.
 pub fn resolve_refresh_mode(no_refresh_flag: bool) -> RefreshMode {
-    if no_refresh_flag || std::env::var_os("MARS_OFFLINE").is_some() {
+    if no_refresh_flag || is_mars_offline() {
         RefreshMode::Offline
     } else {
         RefreshMode::Auto
@@ -161,8 +166,14 @@ pub fn load_models_cache_ttl(ctx: &MarsContext) -> u32 {
 pub fn warn_on_stale_fallback(outcome: &RefreshOutcome) { /* ... */ }
 ```
 
-`sync` also uses these — they live in a module both `cli/` and `sync/` can
-see. Simplest placement: add to `src/models/mod.rs` next to `ensure_fresh`.
+`sync` also uses these — they live in a module both `cli/` and `sync/`
+can see. Placement: `src/models/mod.rs` next to `ensure_fresh`. This
+keeps all policy (`ensure_fresh`, `resolve_refresh_mode`,
+`is_mars_offline`, `load_models_cache_ttl`) in one module so callers
+import exactly one namespace. `ensure_fresh` itself **does not** call
+`is_mars_offline` — the env check lives inside `ensure_fresh` as a
+separate inline check so that any direct caller (not via
+`resolve_refresh_mode`) still inherits `Auto → Offline` coercion.
 
 ## Error Messages
 

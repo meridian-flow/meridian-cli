@@ -27,18 +27,14 @@ All scenarios use `tempfile::tempdir` for the project root, write a
 minimal `mars.toml`, optionally pre-populate `.mars/models-cache.json`,
 and invoke the real `mars` binary via `assert_cmd`.
 
-Because these scenarios should not hit the network, they need a stub.
-Options:
+Because these scenarios should not hit the network, they use the same
+testability seam introduced in phase 2: `fetch_models` reads
+`MARS_MODELS_API_URL` and falls back to `https://models.dev/api.json`.
+Integration tests start an `httpmock::MockServer` and set the env var
+on every spawned `mars` subprocess via `assert_cmd::Command::env`.
 
-1. **Env-injected base URL**: phase 2 exposes a hidden env var
-   `MARS_MODELS_API_URL` that `fetch_models` reads (fallback to
-   models.dev). Tests set it to a local `httpmock` server. Low-risk;
-   well-trodden pattern.
-2. **Compile-time seam**: `#[cfg(test)]` exposes a global fetcher
-   override. More invasive.
-
-Pick (1). Add the env var reading in phase 2's implementation (small
-enough to keep inside phase 2 without bloating it).
+Both `httpmock` and `serial_test` are already added to
+`[dev-dependencies]` by phase 2. This phase only consumes them.
 
 ### Scenario A: Cold cache refreshes on `models list`
 

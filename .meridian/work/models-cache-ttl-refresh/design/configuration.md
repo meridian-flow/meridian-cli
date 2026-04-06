@@ -2,12 +2,13 @@
 
 ## `mars.toml` Schema Addition
 
-Add one field to `[settings]` in `src/config/mod.rs::Settings`:
+Add one field to `[settings]` in `src/config/mod.rs::Settings` **and**
+switch `Settings` from `#[derive(Default)]` to a manual `Default` impl:
 
 ```rust
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Settings {
-    // ...existing fields...
+    // ...existing fields — keep their serde defaults unchanged...
 
     /// How long the models cache is considered fresh, in hours.
     /// `0` means always refresh on read. Default: 24.
@@ -15,15 +16,33 @@ pub struct Settings {
     pub models_cache_ttl_hours: u32,
 }
 
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            managed_root: None,
+            targets: None,
+            model_visibility: ModelVisibility::default(),
+            models_cache_ttl_hours: 24,
+        }
+    }
+}
+
 fn default_models_cache_ttl_hours() -> u32 {
     24
 }
 ```
 
-A custom serde default (rather than `Default::default() = 0`) is
-important: `Default` for `u32` is `0`, and `0` has a special meaning
-("always refresh"), so we must not let the field default to `0` when the
-user simply omitted it from `mars.toml`.
+**Why manual Default is load-bearing:** when a `mars.toml` has no
+`[settings]` table at all, `Config` deserializes with
+`Settings::default()`, not via the field-level `#[serde(default = ...)]`
+helper. Leaving `#[derive(Default)]` in place would give
+`models_cache_ttl_hours = u32::default() = 0`, silently meaning "always
+refresh." Manual `Default` makes the two paths (missing table vs
+missing field) both yield 24.
+
+Any existing test that constructs `Settings { ... }` via struct literal
+must add the new field. Call sites that use `..Default::default()` pick
+up 24 for free.
 
 ## User-facing TOML
 

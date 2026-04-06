@@ -76,8 +76,23 @@ pub struct SyncOptions {
 }
 ```
 
-All existing `SyncOptions { ... }` literals must be updated. Search for
-construction sites: `cli/sync.rs`, tests, any mutation flow.
+**Known construction sites** (update all of them):
+
+1. `src/cli/sync.rs::run` — the primary CLI entry. Wire in
+   `args.no_refresh_models`.
+2. `src/cli/add.rs` — `mars add` constructs a `SyncRequest` internally.
+   Default to `false` so `mars add` always refreshes.
+3. Any `SyncOptions { ... }` struct literal in `src/sync/` tests.
+4. Any `SyncOptions::default()` or `..Default::default()` path — if
+   `SyncOptions` derives `Default`, the new field becomes `false` for
+   free; verify no existing site depends on a specific construction
+   shape that rejects unknown fields.
+
+Before starting, the coder runs
+`rg -n 'SyncOptions\\s*\\{' ../mars-agents/src` and
+`rg -n 'SyncOptions::default' ../mars-agents/src` to produce an
+exhaustive list, and updates every hit. The review of phase 4 verifies
+no construction site was missed.
 
 ### `SyncArgs`
 
@@ -118,3 +133,8 @@ Wire into `SyncRequest::options` in `cli/sync.rs::run`.
   side-effect.
 - **Do not** move the `models-merged.json` write into `ensure_fresh` or
   vice versa — they stay separate concerns.
+- **Rely on phase 2's `fetch_models` timeout.** Sync holds `sync.lock`
+  across the whole pipeline; an unbounded fetch inside `ensure_fresh`
+  would deadlock concurrent syncs. Phase 2 sets a 15s+15s ureq timeout,
+  so the worst-case extra stall is ~30s. Do not add another timeout
+  layer here.

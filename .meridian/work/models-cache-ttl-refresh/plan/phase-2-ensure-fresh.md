@@ -15,14 +15,31 @@ it in.
 - `src/models/mod.rs`
   - Add `RefreshMode`, `RefreshOutcome` enums.
   - Add `ensure_fresh` function.
-  - Add shared helpers `resolve_refresh_mode(no_refresh_flag: bool)`
-    and `load_models_cache_ttl(ctx: &MarsContext)`.
-  - Rename `cli::models::now_iso` → `models::now_unix_secs` and move it
-    into `models/mod.rs` (drive-by: current name lies).
-  - Update the existing `run_refresh` caller in `cli/models.rs` to use
-    the renamed helper.
+  - Add `read_cache_tolerant` wrapper (converts any read/parse error
+    into empty cache + `debug!` log).
+  - Add `is_fresh(cache, ttl_hours)` and `is_usable(cache)` private
+    helpers; empty `models` vector is always stale+unusable.
+  - Add shared helpers `is_mars_offline()`,
+    `resolve_refresh_mode(no_refresh_flag: bool)`, and
+    `load_models_cache_ttl(ctx: &MarsContext)`.
+  - Rename `cli::models::now_iso` → `models::now_unix_secs` (returns
+    `String`) and `now_unix_secs_value` (returns `u64`). Move into
+    `models/mod.rs`.
+  - Modify `fetch_models` to:
+    1. Read `MARS_MODELS_API_URL` env var with fallback to
+       `https://models.dev/api.json`.
+    2. Set explicit `ureq::Agent` timeouts: 15s connect, 15s read.
+       (Prevents sync from deadlocking on a hung endpoint while
+       holding `sync.lock`.)
+- `src/cli/models.rs`
+  - **Fully rewrite** `run_refresh` to call `ensure_fresh(Force)`. This
+    is the only place in this phase or later that touches `run_refresh`.
+    Delete the old inline lock/fetch/write code. Delete the old local
+    `now_iso` helper.
 - `src/error.rs` — add `ModelCacheUnavailable { reason: String }` variant
-  with `thiserror` message per `design/ensure-fresh.md`.
+  with `thiserror` message per `design/ensure-fresh.md` §"Error Types".
+- `Cargo.toml` — add `httpmock = "0.7"` to `[dev-dependencies]` for the
+  unit tests in this phase (and reused by phase 5).
 
 ## Implementation Notes
 
@@ -32,6 +49,9 @@ it in.
 fn is_fresh(cache: &ModelsCache, ttl_hours: u32) -> bool {
     if ttl_hours == 0 {
         return false;
+    }
+    if cache.models.is_empty() {
+        return false; // empty => stale (see design/cache-freshness.md)
     }
     let Some(fetched_str) = &cache.fetched_at else {
         return false;
@@ -43,13 +63,38 @@ fn is_fresh(cache: &ModelsCache, ttl_hours: u32) -> bool {
     if fetched > now {
         return false; // clock skew / future timestamp — treat as stale
     }
+    // u32::MAX * 3600 fits comfortably in u64; no overflow guard needed.
     (now - fetched) < (ttl_hours as u64) * 3600
+}
+
+fn is_usable(cache: &ModelsCache) -> bool {
+    !cache.models.is_empty()
 }
 ```
 
 Provide both `now_unix_secs() -> String` (for writing `fetched_at`) and
 `now_unix_secs_value() -> u64` (for comparisons). The first is a thin
 wrapper around the second.
+
+### Tolerant read
+
+```rust
+fn read_cache_tolerant(mars_dir: &Path) -> ModelsCache {
+    match read_cache(mars_dir) {
+        Ok(cache) => cache,
+        Err(err) => {
+            tracing::debug!(
+                "models cache read failed, treating as empty: {err}"
+            );
+            ModelsCache { models: Vec::new(), fetched_at: None }
+        }
+    }
+}
+```
+
+`read_cache` stays strict (used by `refresh` after write-back for
+round-trip verification); `read_cache_tolerant` is the one `ensure_fresh`
+calls.
 
 ### Lock + double-check
 
@@ -58,39 +103,42 @@ let cache_path = mars_dir.join(CACHE_FILE);
 let lock_path = mars_dir.join(".models-cache.lock");
 std::fs::create_dir_all(mars_dir)?;
 
-// First read, outside the lock.
-let prior = read_cache(mars_dir)?;
-if mode != RefreshMode::Force && is_fresh(&prior, ttl_hours) {
+// MARS_OFFLINE coercion: Auto → Offline, Force and Offline pass through.
+let effective_mode = match mode {
+    RefreshMode::Auto if is_mars_offline() => RefreshMode::Offline,
+    m => m,
+};
+
+// First read, outside the lock. Tolerant: corrupt/missing => empty.
+let prior = read_cache_tolerant(mars_dir);
+
+if effective_mode == RefreshMode::Auto && is_fresh(&prior, ttl_hours) {
     return Ok((prior, RefreshOutcome::AlreadyFresh));
 }
 
-// MARS_OFFLINE coercion.
-let effective_mode = if std::env::var_os("MARS_OFFLINE").is_some() {
-    RefreshMode::Offline
-} else {
-    mode
-};
-
-if matches!(effective_mode, RefreshMode::Offline) {
-    if prior.models.is_empty() && prior.fetched_at.is_none() {
-        return Err(MarsError::ModelCacheUnavailable {
-            reason: "MARS_OFFLINE is set".to_string(),
-        });
+if effective_mode == RefreshMode::Offline {
+    if is_usable(&prior) {
+        return Ok((prior, RefreshOutcome::Offline));
     }
-    return Ok((prior, RefreshOutcome::Offline));
+    return Err(MarsError::ModelCacheUnavailable {
+        reason: offline_reason(mode),  // distinguishes env vs flag
+    });
 }
 
+// Auto!fresh or Force: we're going to try to fetch.
 let _guard = crate::fs::FileLock::acquire(&lock_path)?;
 
-// Re-check under the lock: another process may have just refreshed.
-let under_lock = read_cache(mars_dir)?;
+// Re-check under the lock (Auto only): another process may have just
+// refreshed. Force ignores freshness and always attempts to fetch.
+let under_lock = read_cache_tolerant(mars_dir);
 if effective_mode == RefreshMode::Auto && is_fresh(&under_lock, ttl_hours) {
-    return Ok((under_lock, RefreshOutcome::Refreshed { models_count: 0 }));
+    return Ok((under_lock, RefreshOutcome::AlreadyFresh));
 }
 
 // We own the fetch.
-match fetch_models() {
-    Ok(models) => {
+let fetch_result = fetch_models();
+match fetch_result {
+    Ok(models) if !models.is_empty() => {
         let count = models.len();
         let cache = ModelsCache {
             models,
@@ -99,28 +147,59 @@ match fetch_models() {
         write_cache(mars_dir, &cache)?;
         Ok((cache, RefreshOutcome::Refreshed { models_count: count }))
     }
-    Err(err) => {
-        if !under_lock.models.is_empty() {
-            Ok((
-                under_lock,
-                RefreshOutcome::StaleFallback {
-                    reason: format!("{err}"),
-                },
-            ))
-        } else {
-            Err(MarsError::ModelCacheUnavailable {
-                reason: format!("fetch failed: {err}"),
-            })
-        }
+    Ok(_) => {
+        // Empty catalog — treat as fetch failure.
+        fall_back(under_lock, "API returned empty catalog".to_string())
+    }
+    Err(err) => fall_back(under_lock, format!("fetch failed: {err}")),
+}
+
+fn fall_back(
+    under_lock: ModelsCache,
+    reason: String,
+) -> Result<(ModelsCache, RefreshOutcome), MarsError> {
+    if is_usable(&under_lock) {
+        tracing::warn!("models cache refresh failed: {reason}; using stale cache");
+        Ok((under_lock, RefreshOutcome::StaleFallback { reason }))
+    } else {
+        Err(MarsError::ModelCacheUnavailable { reason })
+    }
+}
+
+fn offline_reason(requested_mode: RefreshMode) -> String {
+    // If caller passed Offline explicitly, the trigger was the
+    // `--no-refresh-models` flag (or a programmatic caller). Otherwise
+    // it was MARS_OFFLINE coercion.
+    match requested_mode {
+        RefreshMode::Offline =>
+            "--no-refresh-models was passed and no cached catalog is available".into(),
+        _ =>
+            "MARS_OFFLINE is set and no cached catalog is available".into(),
     }
 }
 ```
 
+Note: no `ensure_fresh_with` / `ModelFetcher` trait. The testability
+seam is `MARS_MODELS_API_URL` read inside `fetch_models` itself. Phase-2
+unit tests spin up an in-process `httpmock::MockServer` and set that
+env var per-test; phase 5 uses the same mechanism for multi-process
+integration tests.
+
 ### Helpers
 
 ```rust
+pub fn is_mars_offline() -> bool {
+    match std::env::var("MARS_OFFLINE") {
+        Ok(v) => matches!(
+            v.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes"
+        ),
+        Err(_) => false,
+    }
+}
+
 pub fn resolve_refresh_mode(no_refresh_flag: bool) -> RefreshMode {
-    if no_refresh_flag {
+    if no_refresh_flag || is_mars_offline() {
         RefreshMode::Offline
     } else {
         RefreshMode::Auto
@@ -134,69 +213,105 @@ pub fn load_models_cache_ttl(ctx: &MarsContext) -> u32 {
 }
 ```
 
-`resolve_refresh_mode` does not itself check `MARS_OFFLINE` — it only
-handles the CLI flag. The env check lives inside `ensure_fresh` so that
-*any* future caller (not just CLI handlers) inherits the opt-out.
+`ensure_fresh` also calls `is_mars_offline()` internally as a
+defense-in-depth check, so a direct call like
+`ensure_fresh(&mars, 24, RefreshMode::Auto)` from a non-CLI caller
+still inherits the env opt-out.
 
-### `run_refresh` adjustment
-
-Update `cli/models.rs::run_refresh` to acquire the lock and use
-`now_unix_secs()` from `models/` instead of the old local helper. It
-still bypasses `ensure_fresh` entirely (see `design/call-sites.md` §4).
-
-## Unit Tests
-
-All tests use `tempfile::tempdir` for a temporary `.mars` dir and call
-`ensure_fresh` directly.
-
-1. **Missing cache, offline** → `ModelCacheUnavailable`.
-2. **Missing cache, auto, fetch mocked to fail** → `ModelCacheUnavailable`.
-3. **Stale cache, offline** → returns stale, `RefreshOutcome::Offline`.
-4. **Fresh cache, auto** → no fetch, `AlreadyFresh`.
-5. **Stale cache, auto, fetch mocked to succeed** → returns new cache,
-   `Refreshed`.
-6. **Stale cache, auto, fetch fails** → returns stale cache,
-   `StaleFallback`.
-7. **TTL = 0, auto** → every call refreshes.
-8. **`fetched_at` unparseable** → treated as stale.
-9. **`fetched_at` in future** → treated as stale.
-10. **`MARS_OFFLINE=1` with auto mode and fresh cache** → returns
-    `AlreadyFresh` (env doesn't *force* offline if cache is already
-    fresh; it just prevents fetching).
-11. **Concurrency**: two threads calling `ensure_fresh(Auto)` on a stale
-    cache with a mocked-slow fetch → only one fetch happens, both return
-    fresh data. Use a counter atomic in the mock.
-
-### Mocking `fetch_models`
-
-`fetch_models` currently hits the network. For testable `ensure_fresh`,
-extract a seam:
+### `run_refresh` rewrite (owned by this phase)
 
 ```rust
-pub trait ModelFetcher {
-    fn fetch(&self) -> Result<Vec<CachedModel>, MarsError>;
-}
+fn run_refresh(ctx: &MarsContext, json: bool) -> Result<i32, MarsError> {
+    let mars = mars_dir(ctx);
+    let ttl = models::load_models_cache_ttl(ctx);
+    eprint!("Fetching models catalog... ");
 
-pub fn ensure_fresh_with<F: ModelFetcher>(
-    mars_dir: &Path,
-    ttl_hours: u32,
-    mode: RefreshMode,
-    fetcher: &F,
-) -> Result<(ModelsCache, RefreshOutcome), MarsError>;
+    let (cache, _outcome) = models::ensure_fresh(
+        &mars, ttl, models::RefreshMode::Force,
+    )?;
 
-pub fn ensure_fresh(
-    mars_dir: &Path,
-    ttl_hours: u32,
-    mode: RefreshMode,
-) -> Result<(ModelsCache, RefreshOutcome), MarsError> {
-    ensure_fresh_with(mars_dir, ttl_hours, mode, &HttpFetcher)
+    let count = cache.models.len();
+    // ...existing JSON / text output using `count` and `cache.fetched_at`...
 }
 ```
 
-Tests use an in-memory fetcher; production uses `HttpFetcher` which
-delegates to the existing `fetch_models` function. This keeps the real
-call signature identical for callers while making the concurrency and
-failure tests hermetic.
+Phases 3 and 4 must **not** touch `run_refresh`. Phase 2 fully owns it.
+
+## Unit Tests
+
+All tests use `tempfile::tempdir` for a temporary `.mars` dir,
+`httpmock::MockServer` for the API stub, and `#[serial_test::serial]`
+for env var isolation.
+
+1. **Missing cache, offline** → `ModelCacheUnavailable` with
+   `MARS_OFFLINE` reason.
+2. **Missing cache, auto, stub 500** → `ModelCacheUnavailable` with
+   `fetch failed` reason.
+3. **Stale-but-usable cache, offline** → returns stale,
+   `RefreshOutcome::Offline`.
+4. **Fresh cache, auto** → no HTTP call (assert stub hit count = 0),
+   `AlreadyFresh`.
+5. **Stale cache, auto, stub 200** → returns new cache, `Refreshed`.
+6. **Stale cache, auto, stub 500** → returns stale cache,
+   `StaleFallback`.
+7. **Stale cache, auto, stub 200 with empty array** → treated as fetch
+   failure; returns stale cache, `StaleFallback`.
+8. **Empty cache (`models=[]`, `fetched_at` present), auto, stub 200**
+   → refetches; `Refreshed`.
+9. **Empty cache, offline** → `ModelCacheUnavailable` (empty is not
+   usable).
+10. **Corrupt JSON file, auto, stub 200** → refetches; `Refreshed`.
+11. **Corrupt JSON file, offline** → `ModelCacheUnavailable`.
+12. **TTL = 0, auto, fresh-by-other-criteria cache, stub 200** → refetches.
+13. **`fetched_at` unparseable** → treated as stale.
+14. **`fetched_at` in future** → treated as stale.
+15. **`MARS_OFFLINE=1` + auto + fresh cache** → `AlreadyFresh`, no stub
+    hit.
+16. **`MARS_OFFLINE=0`** → not offline (parsed as non-truthy).
+17. **`MARS_OFFLINE=TRUE`** → offline (case-insensitive).
+18. **Force mode + `MARS_OFFLINE=1` + stub 200** → still fetches
+    (Force ignores env). This is the `mars models refresh` contract.
+19. **Concurrency**: two threads calling `ensure_fresh(Auto)` against a
+    stale cache with a stub that sleeps 200ms and counts hits → both
+    threads return `AlreadyFresh`/`Refreshed`, exactly one hit recorded.
+20. **`run_refresh` → ensure_fresh(Force)** integration test:
+    `cargo run -- models refresh` in a temp dir writes a cache; assert
+    `fetched_at` is recent and `models` is non-empty.
+
+### Mocking `fetch_models`
+
+Seam: `fetch_models` reads `MARS_MODELS_API_URL` with fallback to
+`https://models.dev/api.json`. Every test (unit and integration)
+points that env var at an in-process `httpmock::MockServer`.
+
+```rust
+#[test]
+fn auto_refreshes_stale_cache() {
+    let server = httpmock::MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/api.json");
+        then.status(200).json_body(sample_catalog_json());
+    });
+    std::env::set_var("MARS_MODELS_API_URL", server.url("/api.json"));
+
+    let tmp = tempfile::tempdir().unwrap();
+    write_stale_cache(tmp.path());
+
+    let (cache, outcome) =
+        ensure_fresh(tmp.path(), 24, RefreshMode::Auto).unwrap();
+    assert!(!cache.models.is_empty());
+    assert!(matches!(outcome, RefreshOutcome::Refreshed { .. }));
+}
+```
+
+No `ensure_fresh_with`, no `ModelFetcher` trait. One API, one seam.
+
+**Env var isolation:** tests must set `MARS_MODELS_API_URL` and
+`MARS_OFFLINE` via a serial fixture or guarded pattern — Cargo runs
+tests in parallel by default and the env is process-global. Either
+(a) use `#[serial_test::serial]` on the affected tests (add
+`serial_test` to dev-deps), or (b) serialize with a `Mutex<()>` inside
+the test module. Pick (a); it's the standard Rust pattern.
 
 ## Verification
 
