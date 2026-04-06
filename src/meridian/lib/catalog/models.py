@@ -24,11 +24,8 @@ from meridian.lib.catalog.model_policy import (
     DEFAULT_HARNESS_PATTERNS,
     DEFAULT_MODEL_VISIBILITY,
     ModelVisibilityConfig,
-    SpawnMode,
-    coerce_model_visibility,
     compute_superseded_ids,
     is_default_visible_model,
-    merge_model_visibility,
     pattern_fallback_harness,
 )
 from meridian.lib.config.settings import resolve_repo_root
@@ -557,8 +554,6 @@ __all__ = [
     "AliasEntry",
     "DiscoveredModel",
     "ModelVisibilityConfig",
-    "SpawnMode",
-    "coerce_model_visibility",
     "compute_superseded_ids",
     "fetch_models_dev",
     "is_default_visible_model",
@@ -566,7 +561,6 @@ __all__ = [
     "load_mars_aliases",
     "load_mars_descriptions",
     "load_merged_aliases",
-    "merge_model_visibility",
     "refresh_models_cache",
     "resolve_alias",
     "resolve_model",

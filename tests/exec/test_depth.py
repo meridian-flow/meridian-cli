@@ -242,6 +242,11 @@ def test_recursive_spawn_blocks_before_creating_third_level(
 ) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
+    (repo_root / "mars.toml").write_text(
+        "[settings]\n"
+        'targets = [".agents"]\n',
+        encoding="utf-8",
+    )
     # Pre-install dummy agent so bootstrap doesn't scan the real submodule tree
     agents_dir = repo_root / ".agents" / "agents"
     agents_dir.mkdir(parents=True, exist_ok=True)

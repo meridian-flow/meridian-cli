@@ -14,7 +14,16 @@ from meridian.lib.ops.spawn.prepare import build_create_payload
 from tests.helpers.fixtures import write_agent
 
 
+def _write_minimal_mars_config(repo_root: Path) -> None:
+    (repo_root / "mars.toml").write_text(
+        "[settings]\n"
+        'targets = [".agents"]\n',
+        encoding="utf-8",
+    )
+
+
 def test_resolve_policies_treats_config_agent_as_configured_default(tmp_path: Path) -> None:
+    _write_minimal_mars_config(tmp_path)
     write_agent(tmp_path, name="__meridian-subagent", model="gpt-5.4")
 
     policies = resolve_policies(
@@ -34,6 +43,7 @@ def test_resolve_policies_treats_config_agent_as_configured_default(tmp_path: Pa
 
 
 def test_resolve_primary_launch_plan_uses_defaults_primary_agent(tmp_path: Path) -> None:
+    _write_minimal_mars_config(tmp_path)
     write_agent(tmp_path, name="custom-primary", model="gpt-5.4")
     config = MeridianConfig(primary_agent="custom-primary")
 
@@ -49,6 +59,7 @@ def test_resolve_primary_launch_plan_uses_defaults_primary_agent(tmp_path: Path)
 
 
 def test_spawn_prepare_derives_harness_from_model_before_default_harness(tmp_path: Path) -> None:
+    _write_minimal_mars_config(tmp_path)
     config = MeridianConfig(default_model="claude-sonnet-4", default_harness="codex")
     runtime = build_runtime_from_root_and_config(tmp_path, config)
 
@@ -66,11 +77,15 @@ def test_spawn_prepare_derives_harness_from_model_before_default_harness(tmp_pat
 
 
 def test_resolve_policies_cli_model_override_can_replace_profile_harness(tmp_path: Path) -> None:
+    _write_minimal_mars_config(tmp_path)
     write_agent(tmp_path, name="explorer", model="gpt-5.4", harness="codex")
 
     policies = resolve_policies(
         repo_root=tmp_path,
-        layers=(RuntimeOverrides(agent="explorer", model="haiku"), RuntimeOverrides()),
+        layers=(
+            RuntimeOverrides(agent="explorer", model="claude-haiku-4-5"),
+            RuntimeOverrides(),
+        ),
         config_overrides=RuntimeOverrides(),
         config=MeridianConfig(),
         harness_registry=get_default_harness_registry(),
@@ -81,10 +96,14 @@ def test_resolve_policies_cli_model_override_can_replace_profile_harness(tmp_pat
 
 
 def test_resolve_policies_errors_on_same_layer_user_harness_model_conflict(tmp_path: Path) -> None:
+    _write_minimal_mars_config(tmp_path)
     with pytest.raises(ValueError, match="incompatible with model"):
         resolve_policies(
             repo_root=tmp_path,
-            layers=(RuntimeOverrides(model="haiku", harness="codex"), RuntimeOverrides()),
+            layers=(
+                RuntimeOverrides(model="claude-haiku-4-5", harness="codex"),
+                RuntimeOverrides(),
+            ),
             config_overrides=RuntimeOverrides(),
             config=MeridianConfig(),
             harness_registry=get_default_harness_registry(),

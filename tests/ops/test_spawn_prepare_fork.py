@@ -26,6 +26,11 @@ def _write_minimal_subagent(repo_root: Path) -> None:
 
 def _prepare_codex_runtime(repo_root: Path):
     _write_minimal_subagent(repo_root)
+    (repo_root / "mars.toml").write_text(
+        "[settings]\n"
+        'targets = [".agents"]\n',
+        encoding="utf-8",
+    )
     harness_registry = get_default_harness_registry()
     codex_adapter = harness_registry.get_subprocess_harness(HarnessId.CODEX)
     return codex_adapter, build_runtime_from_root_and_config(

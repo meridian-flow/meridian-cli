@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 from unittest.mock import patch
+
+import pytest
 
 from meridian.lib.catalog.model_aliases import (
     _mars_list_to_entries,
@@ -14,6 +17,7 @@ from meridian.lib.catalog.model_aliases import (
     load_mars_aliases,
     load_mars_descriptions,
     merge_alias_entries,
+    run_mars_models_resolve,
 )
 
 # --- entry() helper ---
@@ -148,6 +152,46 @@ class TestLoadAliasByName:
     def test_empty_name(self) -> None:
         aliases = [entry(alias="opus", model_id="claude-opus-4-6")]
         assert load_alias_by_name("", aliases) is None
+
+
+# --- run_mars_models_resolve ---
+
+
+class TestRunMarsModelsResolve:
+    def test_returns_none_for_unknown_alias_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            "meridian.lib.catalog.model_aliases._resolve_mars_binary",
+            lambda: "/usr/bin/mars",
+        )
+        monkeypatch.setattr(
+            "meridian.lib.catalog.model_aliases.subprocess.run",
+            lambda *args, **kwargs: subprocess.CompletedProcess(
+                args=args[0],
+                returncode=1,
+                stdout='{"error":"unknown alias: does-not-exist"}',
+                stderr="",
+            ),
+        )
+
+        assert run_mars_models_resolve("does-not-exist") is None
+
+    def test_raises_for_non_alias_mars_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            "meridian.lib.catalog.model_aliases._resolve_mars_binary",
+            lambda: "/usr/bin/mars",
+        )
+        monkeypatch.setattr(
+            "meridian.lib.catalog.model_aliases.subprocess.run",
+            lambda *args, **kwargs: subprocess.CompletedProcess(
+                args=args[0],
+                returncode=2,
+                stdout="",
+                stderr='{"error":"failed to parse mars.toml"}',
+            ),
+        )
+
+        with pytest.raises(RuntimeError, match=r"failed to parse mars\.toml"):
+            run_mars_models_resolve("opus")
 
 
 # --- load_mars_aliases ---

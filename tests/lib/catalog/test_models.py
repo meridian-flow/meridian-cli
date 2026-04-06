@@ -36,6 +36,15 @@ def _model(
     )
 
 
+def _init_repo(repo_root: Path) -> None:
+    repo_root.mkdir()
+    (repo_root / "mars.toml").write_text(
+        "[settings]\n"
+        'targets = [".agents"]\n',
+        encoding="utf-8",
+    )
+
+
 # --- resolve_model with mars ---
 
 
@@ -168,7 +177,7 @@ def test_models_list_uses_visibility_rules_and_keeps_aliased_models_visible(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     repo_root = tmp_path / "repo"
-    repo_root.mkdir()
+    _init_repo(repo_root)
 
     old_date = (date.today() - timedelta(days=365)).isoformat()
     monkeypatch.setattr(
@@ -274,7 +283,7 @@ def test_models_list_hides_superseded(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     repo_root = tmp_path / "repo"
-    repo_root.mkdir()
+    _init_repo(repo_root)
 
     today = date.today().isoformat()
     yesterday = (date.today() - timedelta(days=30)).isoformat()
@@ -303,7 +312,7 @@ def test_models_list_show_superseded_overrides(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     repo_root = tmp_path / "repo"
-    repo_root.mkdir()
+    _init_repo(repo_root)
 
     today = date.today().isoformat()
     yesterday = (date.today() - timedelta(days=30)).isoformat()
@@ -335,7 +344,7 @@ def test_models_list_aliased_model_survives_superseded(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     repo_root = tmp_path / "repo"
-    repo_root.mkdir()
+    _init_repo(repo_root)
 
     today = date.today().isoformat()
     yesterday = (date.today() - timedelta(days=30)).isoformat()

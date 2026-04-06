@@ -127,6 +127,35 @@ def _run_mars_models_list(repo_root: Path | None = None) -> list[dict[str, objec
     return cast("list[dict[str, object]]", aliases)
 
 
+def _extract_mars_error_message(raw_output: str) -> str | None:
+    """Extract a readable error message from mars stdout/stderr text."""
+    output = raw_output.strip()
+    if not output:
+        return None
+
+    try:
+        payload = json.loads(output)
+    except (json.JSONDecodeError, ValueError):
+        return output
+
+    if isinstance(payload, dict):
+        typed_payload = cast("dict[str, object]", payload)
+        error = typed_payload.get("error")
+        if isinstance(error, str) and error.strip():
+            return error.strip()
+        message = typed_payload.get("message")
+        if isinstance(message, str) and message.strip():
+            return message.strip()
+
+    return output
+
+
+def _is_unknown_alias_error(message: str | None) -> bool:
+    if message is None:
+        return False
+    return "unknown alias" in message.lower()
+
+
 def run_mars_models_resolve(
     name: str,
     repo_root: Path | None = None,
@@ -159,13 +188,24 @@ def run_mars_models_resolve(
             "Mars model resolution failed. Run 'meridian doctor' to diagnose."
         ) from exc
     if result.returncode != 0:
+        stderr_message = _extract_mars_error_message(result.stderr)
+        stdout_message = _extract_mars_error_message(result.stdout)
+        error_message = stderr_message or stdout_message
         logger.debug(
-            "mars models resolve '%s' exited %d: %s",
+            "mars models resolve '%s' exited %d: stderr=%r stdout=%r",
             name,
             result.returncode,
             result.stderr,
+            result.stdout,
         )
-        return None
+        if _is_unknown_alias_error(error_message):
+            return None
+
+        if error_message:
+            raise RuntimeError(f"Mars model resolution failed: {error_message}")
+        raise RuntimeError(
+            f"Mars model resolution failed: mars exited with status {result.returncode}."
+        )
     try:
         payload = json.loads(result.stdout)
     except (json.JSONDecodeError, ValueError):

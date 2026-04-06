@@ -4,13 +4,10 @@ from __future__ import annotations
 
 import fnmatch
 from datetime import date, timedelta
-from typing import Literal, cast
 
 from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.core.types import HarnessId
-
-SpawnMode = Literal["harness", "direct"]
 
 
 class ModelVisibilityConfig(BaseModel):
@@ -44,36 +41,6 @@ DEFAULT_MODEL_VISIBILITY = ModelVisibilityConfig()
 
 def match_pattern(pattern: str, value: str) -> bool:
     return fnmatch.fnmatchcase(value, pattern)
-
-
-def coerce_model_visibility(raw_section: object) -> dict[str, object]:
-    if raw_section is None:
-        return {}
-    if not isinstance(raw_section, dict):
-        raise ValueError("Invalid value for 'model_visibility': expected table.")
-
-    values: dict[str, object] = {}
-    for key, value in cast("dict[str, object]", raw_section).items():
-        if key in {"include", "exclude"}:
-            values[key] = _coerce_pattern_tuple(value, source=f"model_visibility.{key}")
-            continue
-        if key == "max_input_cost":
-            values[key] = _coerce_optional_float(value, source=f"model_visibility.{key}")
-            continue
-        if key == "max_age_days":
-            values[key] = _coerce_optional_int(value, source=f"model_visibility.{key}")
-            continue
-        if key in {"hide_date_variants", "hide_superseded"}:
-            values[key] = _coerce_bool(value, source=f"model_visibility.{key}")
-            continue
-        raise ValueError(f"Invalid value for 'model_visibility.{key}': unsupported key.")
-    return values
-
-
-def merge_model_visibility(overrides: dict[str, object] | None = None) -> ModelVisibilityConfig:
-    if not overrides:
-        return DEFAULT_MODEL_VISIBILITY
-    return DEFAULT_MODEL_VISIBILITY.model_copy(update=overrides)
 
 
 def pattern_fallback_harness(model: str) -> HarnessId:
@@ -167,49 +134,6 @@ def _visibility_recency_cutoff(max_age_days: int | None) -> str | None:
     if max_age_days is None:
         return None
     return (date.today() - timedelta(days=max_age_days)).isoformat()
-
-
-def _coerce_optional_float(value: object, *, source: str) -> float | None:
-    if value is None:
-        return None
-    if isinstance(value, bool):
-        raise ValueError(f"Invalid value for '{source}': expected float.")
-    if isinstance(value, int | float):
-        return float(value)
-    if isinstance(value, str):
-        try:
-            return float(value)
-        except ValueError as exc:
-            raise ValueError(f"Invalid value for '{source}': expected float.") from exc
-    raise ValueError(f"Invalid value for '{source}': expected float.")
-
-
-def _coerce_optional_int(value: object, *, source: str) -> int | None:
-    if value is None:
-        return None
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise ValueError(f"Invalid value for '{source}': expected int.")
-    return value
-
-
-def _coerce_bool(value: object, *, source: str) -> bool:
-    if not isinstance(value, bool):
-        raise ValueError(f"Invalid value for '{source}': expected bool.")
-    return value
-
-
-def _coerce_pattern_tuple(raw_value: object, *, source: str) -> tuple[str, ...]:
-    if not isinstance(raw_value, list):
-        raise ValueError(f"Invalid value for '{source}': expected array of strings.")
-    patterns: list[str] = []
-    for raw_pattern in cast("list[object]", raw_value):
-        if not isinstance(raw_pattern, str):
-            raise ValueError(f"Invalid value for '{source}': expected array of strings.")
-        pattern = raw_pattern.strip()
-        if not pattern:
-            raise ValueError(f"Invalid value for '{source}': empty pattern.")
-        patterns.append(pattern)
-    return tuple(patterns)
 
 
 def _model_lineage(model_id: str) -> str | None:
