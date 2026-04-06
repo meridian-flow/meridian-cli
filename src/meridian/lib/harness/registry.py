@@ -1,7 +1,6 @@
 """Harness registry for built-in and custom adapters."""
 
-from pathlib import Path
-from typing import Literal, Self, cast, overload
+from typing import Self, cast
 
 from pydantic import BaseModel, ConfigDict, PrivateAttr
 
@@ -73,39 +72,6 @@ class HarnessRegistry(BaseModel):
 
     def ids(self) -> tuple[HarnessId, ...]:
         return tuple(sorted(self._adapters))
-
-    @overload
-    def route(
-        self,
-        model: str,
-        mode: Literal["harness"] = "harness",
-        *,
-        repo_root: Path | None = None,
-    ) -> tuple[SubprocessHarness, str | None]: ...
-
-    @overload
-    def route(
-        self,
-        model: str,
-        mode: Literal["direct"],
-        *,
-        repo_root: Path | None = None,
-    ) -> tuple[InProcessHarness, str | None]: ...
-
-    def route(
-        self,
-        model: str,
-        mode: Literal["harness", "direct"] = "harness",
-        *,
-        repo_root: Path | None = None,
-    ) -> tuple[HarnessEntry, str | None]:
-        if mode == "harness":
-            from meridian.lib.catalog.models import resolve_model
-
-            resolved = resolve_model(model, repo_root=repo_root)
-            return self.get_subprocess_harness(resolved.harness), None
-
-        return self.get_in_process_harness(HarnessId.DIRECT), None
 
 
 _default_registry: HarnessRegistry | None = None

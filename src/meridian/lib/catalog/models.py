@@ -18,6 +18,7 @@ from meridian.lib.catalog.model_aliases import (
     load_alias_by_name,
     load_mars_aliases,
     load_mars_descriptions,
+    run_mars_models_resolve,
 )
 from meridian.lib.catalog.model_policy import (
     DEFAULT_HARNESS_PATTERNS,
@@ -80,16 +81,12 @@ def resolve_model(name_or_alias: str, repo_root: Path | None = None) -> AliasEnt
     Mars is always present (bundled with meridian).
     """
 
-    from meridian.lib.catalog.model_aliases import (
-        _run_mars_models_resolve,  # pyright: ignore[reportPrivateUsage]
-    )
-
     normalized = name_or_alias.strip()
     if not normalized:
         raise ValueError("Model identifier must not be empty.")
 
     # Step 1: Try mars resolve (alias + harness in one call)
-    mars_result = _run_mars_models_resolve(normalized, repo_root)
+    mars_result = run_mars_models_resolve(normalized, repo_root)
     if mars_result is not None:
         model_id = mars_result.get("model_id")
         harness = mars_result.get("harness")

@@ -10,7 +10,6 @@ from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.catalog.models_toml import ensure_models_config, render_models_toml
 from meridian.lib.config.settings import resolve_repo_root
-from meridian.lib.core.types import HarnessId
 from meridian.lib.core.util import FormatContext, to_jsonable
 from meridian.lib.ops.runtime import async_from_sync
 from meridian.lib.state.atomic import atomic_write_text
@@ -24,9 +23,6 @@ _MODELS_ENTRY_KEYS = frozenset({
     "model_id", "id", "description", "pinned",
     "provider", "include", "exclude",
 })
-_CONFIGURABLE_HARNESS_NAMES = tuple(
-    sorted(str(harness) for harness in HarnessId if harness != HarnessId.DIRECT)
-)
 
 
 class ModelsConfigInitInput(BaseModel):
@@ -161,19 +157,13 @@ def _validated_key_parts(key: str) -> tuple[str, ...]:
         return parts
     if root == "models" and len(parts) == 3 and parts[2] in _MODELS_ENTRY_KEYS:
         return parts
-    if (
-        root == "harness_patterns"
-        and len(parts) == 2
-        and parts[1] in _CONFIGURABLE_HARNESS_NAMES
-    ):
-        return parts
     if root == "model_visibility" and len(parts) == 2 and parts[1] in _MODELS_VISIBILITY_KEYS:
         return parts
 
     raise ValueError(
         "Unsupported models config key. Use models.<name>, "
         "models.<name>.{description|pinned|model_id|provider|include|exclude}, "
-        f"harness_patterns.{{{'|'.join(_CONFIGURABLE_HARNESS_NAMES)}}}, or model_visibility."
+        "or model_visibility."
         "{include|exclude|max_input_cost|max_age_days|hide_date_variants|hide_superseded}."
     )
 
@@ -214,16 +204,6 @@ def _validate_value(parts: tuple[str, ...], value: object) -> object:
                 patterns.append(item.strip())
             return patterns
         raise ValueError(f"Unsupported config key: {'.'.join(parts)}.")
-
-    if root == "harness_patterns":
-        if not isinstance(value, list):
-            raise ValueError("harness_patterns.<harness> expects an array of strings.")
-        patterns: list[str] = []
-        for item in cast("list[object]", value):
-            if not isinstance(item, str) or not item.strip():
-                raise ValueError("harness_patterns.<harness> expects an array of strings.")
-            patterns.append(item.strip())
-        return patterns
 
     if parts[1] in {"include", "exclude"}:
         if not isinstance(value, list):

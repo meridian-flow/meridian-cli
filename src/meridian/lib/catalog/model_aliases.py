@@ -127,7 +127,7 @@ def _run_mars_models_list(repo_root: Path | None = None) -> list[dict[str, objec
     return cast("list[dict[str, object]]", aliases)
 
 
-def _run_mars_models_resolve(
+def run_mars_models_resolve(
     name: str,
     repo_root: Path | None = None,
 ) -> dict[str, object] | None:
@@ -175,11 +175,6 @@ def _run_mars_models_resolve(
         logger.debug("mars models resolve returned non-object JSON for '%s'", name)
         return None
     return cast("dict[str, object]", payload)
-
-
-def run_mars_models_resolve(name: str, repo_root: Path | None = None) -> dict[str, object] | None:
-    """Public wrapper around internal mars resolve helper."""
-    return _run_mars_models_resolve(name, repo_root)
 
 
 def _read_mars_merged_file(repo_root: Path | None = None) -> dict[str, object]:

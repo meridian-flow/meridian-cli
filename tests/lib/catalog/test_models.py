@@ -79,7 +79,7 @@ def test_resolve_model_returns_concrete_model_id(
         return None
 
     monkeypatch.setattr(
-        "meridian.lib.catalog.model_aliases._run_mars_models_resolve",
+        "meridian.lib.catalog.models.run_mars_models_resolve",
         mock_mars_resolve,
     )
     result = resolve_model("codex")
@@ -99,7 +99,7 @@ def test_resolve_model_raw_model_id_pattern_fallback(
         return None  # Not a known alias
 
     monkeypatch.setattr(
-        "meridian.lib.catalog.model_aliases._run_mars_models_resolve",
+        "meridian.lib.catalog.models.run_mars_models_resolve",
         mock_mars_resolve,
     )
     result = resolve_model("claude-opus-4-6")
@@ -118,7 +118,7 @@ def test_resolve_model_mars_broken_raises(monkeypatch: pytest.MonkeyPatch) -> No
         raise RuntimeError("Mars binary not found.")
 
     monkeypatch.setattr(
-        "meridian.lib.catalog.model_aliases._run_mars_models_resolve",
+        "meridian.lib.catalog.models.run_mars_models_resolve",
         mock_mars_resolve,
     )
     with pytest.raises(RuntimeError, match="Mars binary not found"):
@@ -134,7 +134,7 @@ def test_resolve_model_unknown_raises(monkeypatch: pytest.MonkeyPatch) -> None:
         return None
 
     monkeypatch.setattr(
-        "meridian.lib.catalog.model_aliases._run_mars_models_resolve",
+        "meridian.lib.catalog.models.run_mars_models_resolve",
         mock_mars_resolve,
     )
     with pytest.raises(ValueError, match="Unknown model"):
@@ -158,7 +158,7 @@ def test_resolve_model_unavailable_harness_raises(
         }
 
     monkeypatch.setattr(
-        "meridian.lib.catalog.model_aliases._run_mars_models_resolve",
+        "meridian.lib.catalog.models.run_mars_models_resolve",
         mock_mars_resolve,
     )
     with pytest.raises(ValueError, match="No installed harness"):
