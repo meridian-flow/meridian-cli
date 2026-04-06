@@ -11,16 +11,17 @@ description: >
 
 ## Core Loop
 
-All CLI output is JSON in agent mode — parse `spawn_id` and `status` programmatically from responses.
+All CLI output is JSON when running from a meridian CLI — parse `spawn_id` and `status` programmatically from responses.
 
-Spawns run in the **foreground** by default — the command blocks until the spawn completes, then returns the result.
+Spawns block until the spawn completes, then returns the result. The preferred pattern is to spawn these in the in the background to later get a notification when they complete.
 
 ```bash
-meridian spawn -a agent -p "task description"
+meridian spawn -a agent -p "task description" --desc "Implement step 1"
+meridian spawn -a agent2 -p "task2 description" --desc "Review step 1"
 # → blocks until done, returns terminal status with spawn_id
 
-meridian spawn show p107
-# → full report + metadata (re-inspect a past spawn)
+# you can then wait for them both to complete with (make sure to spawn all the spawns you want to wait for before calling this):
+meridian spawn wait p107 p108
 ```
 
 ## Spawning
@@ -39,7 +40,7 @@ meridian spawn -a reviewer -p "Review this change"
 meridian spawn -m MODEL -p "Implement the fix"
 ```
 
-You can combine both to override a profile's default model — useful for budget constraints or when fanning out the same task across different models for diverse perspectives:
+You can combine both to override a profile's default model, but you usually shouldn't — the profile author already chose the right model for the role:
 
 ```bash
 meridian spawn -a reviewer -m sonnet -p "Quick review"
@@ -53,9 +54,10 @@ meridian spawn -a agent -p "Implement fix" \
   -f src/module.py
 ```
 
-Run `meridian models list` to see available models and aliases. Run `mars list` to see available agent profiles and skills — useful when your harness doesn't show agents natively. Model and agent preferences belong in your project's agent profiles, `meridian config`, or project docs (CLAUDE.md, AGENTS.md) — hardcoding them into spawn commands makes them invisible to `meridian config show`, impossible to change project-wide, and silently divergent from profile defaults.
+Run `meridian models list` to see available models with their strengths and cost tiers. Run `meridian mars models -h` for the full model management surface. Run `mars list` to see available agent profiles and skills. Model and agent preferences belong in your project's agent profiles, `meridian config`, or project docs (CLAUDE.md, AGENTS.md) — hardcoding them into spawn commands makes them invisible to `meridian config show`, impossible to change project-wide, and silently divergent from profile defaults.
 
 To create your own agent profiles, see [`resources/creating-agents.md`](resources/creating-agents.md).
+
 
 ## Work Items
 

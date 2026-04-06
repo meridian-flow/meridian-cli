@@ -17,7 +17,3 @@ Scale design staffing to uncertainty, not implementation volume.
 **researcher** — gathers external context: ecosystem best practices, constraints from dependencies, library comparisons, and prior art. Research is high-throughput information gathering, not deep reasoning — use fast, cheap models and spawn multiple in parallel if needed.
 
 **explorer** — investigates the current codebase so design decisions reflect real code paths and integration points instead of assumptions. Cheap and high-throughput.
-
-## Documentation
-
-**documenter** — mines conversations for decisions, pivots, and tradeoffs, then captures them in persistent artifacts. Decision rationale lives in conversations and gets lost after compaction — if nobody extracts it, future agents re-derive decisions that were already made, wasting cycles and risking different conclusions. Run after phases that involved significant decisions, which is most phases.

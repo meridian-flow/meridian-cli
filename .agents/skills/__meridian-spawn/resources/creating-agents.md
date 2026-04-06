@@ -92,6 +92,10 @@ At runtime, Meridian reads agent profiles from `.agents/agents/` only.
 
 Bundled agents are installed/bootstrapped into that directory (for example via `mars sync`), so they appear as normal local profiles.
 
+## Design Principles
+
+For guidance on writing effective agent prompts and skills — no role identity, explaining why constraints exist, right altitude, progressive disclosure, tool restrictions — read [`resources/agent-design-principles.md`](resources/agent-design-principles.md).
+
 ## Tips
 
 - **One role per profile.** Mixing review and implementation in one agent creates conflicts of interest and bloats the system prompt, diluting both sets of instructions.

@@ -14,10 +14,6 @@ These should be part of every phase's review team unless there's a specific reas
 
 **verifier** — build health gate. Runs tests, type checks, and lints. Fixes mechanical breakage (import errors, type mismatches), reports substantive failures. This is the baseline — every phase gets verification.
 
-## Phase Boundary Default
-
-**investigator** — proactive backlog sweeps at phase boundaries. Mines conversations and code for deferred items, latent bugs, and TODO debt before they compound across phases. These items are invisible in the code and lost from conversations after compaction — if nobody extracts them at phase boundaries, they accumulate silently. Also used reactively when a test fails unexpectedly or a reviewer flags something needing deeper root-cause analysis.
-
 ## Focus Areas
 
 The change tells you what perspectives matter. Think about what could go wrong that testing won't catch:

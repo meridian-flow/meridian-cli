@@ -15,7 +15,7 @@ path = "/home/jimyao/gitrepos/meridian-channel/meridian-dev-workflow"
 [items."agents/__meridian-orchestrator.md"]
 source = "meridian-base"
 kind = "agent"
-version = "v0.0.7"
+version = "v0.0.9"
 source_checksum = "sha256:6d28d20d5669a673d4c4e464bbc4903478a0d011b0730cd2723c306016ca6d23"
 installed_checksum = "sha256:6d28d20d5669a673d4c4e464bbc4903478a0d011b0730cd2723c306016ca6d23"
 dest_path = "agents/__meridian-orchestrator.md"
@@ -66,8 +66,8 @@ dest_path = "agents/design-orchestrator.md"
 [items."agents/dev-orchestrator.md"]
 source = "meridian-dev-workflow"
 kind = "agent"
-source_checksum = "sha256:b2e36bab58c53d2502575b46ee0c4aa33d6558ef391e46698e7b22bd6dcda59d"
-installed_checksum = "sha256:b2e36bab58c53d2502575b46ee0c4aa33d6558ef391e46698e7b22bd6dcda59d"
+source_checksum = "sha256:62c716dce75a55d94a322befc15b4dcf37f8aa6f70856a5cd85a72edb8c69d37"
+installed_checksum = "sha256:62c716dce75a55d94a322befc15b4dcf37f8aa6f70856a5cd85a72edb8c69d37"
 dest_path = "agents/dev-orchestrator.md"
 
 [items."agents/explorer.md"]
@@ -94,8 +94,8 @@ dest_path = "agents/frontend-designer.md"
 [items."agents/impl-orchestrator.md"]
 source = "meridian-dev-workflow"
 kind = "agent"
-source_checksum = "sha256:3c32aa2a91c98fa39f4367c6323baa1daa33ba284e3fd7a5e07da2d9ab51fe28"
-installed_checksum = "sha256:3c32aa2a91c98fa39f4367c6323baa1daa33ba284e3fd7a5e07da2d9ab51fe28"
+source_checksum = "sha256:46c82aa557658b02b1c5729ee574cd6112971045499c48742ed8f36df00f7bba"
+installed_checksum = "sha256:46c82aa557658b02b1c5729ee574cd6112971045499c48742ed8f36df00f7bba"
 dest_path = "agents/impl-orchestrator.md"
 
 [items."agents/investigator.md"]

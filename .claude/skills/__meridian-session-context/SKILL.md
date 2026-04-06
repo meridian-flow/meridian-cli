@@ -57,6 +57,17 @@ meridian session search "error" p107
 
 Each match includes a Navigate command you can run to inspect nearby messages.
 
+## Delegating Session Mining
+
+For bulk session mining across multiple spawns or long histories, delegate to explorers rather than reading everything yourself. Pass this skill so the explorer has the session commands:
+
+```bash
+meridian spawn -a explorer --skills __meridian-session-context \
+  -p "Search session p875 for decisions about the permission system."
+```
+
+The explorer is cheap and keeps your context window free for synthesis. If you are an explorer yourself, use the session commands directly — don't delegate further.
+
 ## Discovering Sessions per Work Item
 
 `meridian work sessions <work_id>` lists sessions that have touched a work item.
