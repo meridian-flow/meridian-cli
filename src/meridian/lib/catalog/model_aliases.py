@@ -19,7 +19,7 @@ from typing import cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from meridian.lib.catalog.model_policy import DEFAULT_HARNESS_PATTERNS, route_model_with_patterns
+from meridian.lib.catalog.model_policy import pattern_fallback_harness
 from meridian.lib.core.types import HarnessId, ModelId
 
 logger = logging.getLogger(__name__)
@@ -39,10 +39,7 @@ class AliasEntry(BaseModel):
     def harness(self) -> HarnessId:
         if self.resolved_harness is not None:
             return self.resolved_harness
-        return route_model_with_patterns(
-            str(self.model_id),
-            patterns_by_harness=DEFAULT_HARNESS_PATTERNS,
-        ).harness_id
+        return pattern_fallback_harness(str(self.model_id))
 
     def format_text(self, ctx: object | None = None) -> str:
         _ = ctx
@@ -130,7 +127,7 @@ def _run_mars_models_list(repo_root: Path | None = None) -> list[dict[str, objec
     return cast("list[dict[str, object]]", aliases)
 
 
-def _run_mars_models_resolve(  # pyright: ignore[reportUnusedFunction]
+def _run_mars_models_resolve(
     name: str,
     repo_root: Path | None = None,
 ) -> dict[str, object] | None:
@@ -157,6 +154,11 @@ def _run_mars_models_resolve(  # pyright: ignore[reportUnusedFunction]
         return json.loads(result.stdout)
     except (json.JSONDecodeError, ValueError):
         return None
+
+
+def run_mars_models_resolve(name: str, repo_root: Path | None = None) -> dict[str, object] | None:
+    """Public wrapper around internal mars resolve helper."""
+    return _run_mars_models_resolve(name, repo_root)
 
 
 def _read_mars_merged_file(repo_root: Path | None = None) -> dict[str, object]:

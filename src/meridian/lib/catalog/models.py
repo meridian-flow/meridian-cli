@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from contextlib import suppress
 from pathlib import Path
 from typing import cast
 from urllib import request
@@ -30,6 +31,7 @@ from meridian.lib.catalog.model_policy import (
     is_default_visible_model,
     merge_harness_patterns,
     merge_model_visibility,
+    pattern_fallback_harness,
     route_model_with_patterns,
 )
 from meridian.lib.catalog.models_toml import (
@@ -88,24 +90,10 @@ def load_model_visibility(repo_root: Path | None = None) -> ModelVisibilityConfi
     return merge_model_visibility(coerce_model_visibility(payload.get("model_visibility")))
 
 
-def _resolve_alias_harness(alias_entry: AliasEntry, repo_root: Path | None) -> AliasEntry:
-    """Ensure the alias entry has a resolved harness from routing patterns."""
-    if alias_entry.resolved_harness is not None:
-        return alias_entry
-    resolved_harness = route_model(str(alias_entry.model_id), repo_root=repo_root).harness_id
-    return alias_entry.model_copy(update={"resolved_harness": resolved_harness})
-
-
 def load_merged_aliases(repo_root: Path | None = None) -> list[AliasEntry]:
-    """Load model aliases from mars packages.
-
-    Mars owns all alias definitions — meridian has zero builtin aliases.
-    Calls ``mars models list --json`` for the full resolved view, or falls
-    back to reading ``.mars/models-merged.json``.
-    """
+    """Load model aliases from mars packages."""
     resolved_root = resolve_repo_root(repo_root) if repo_root is not None else None
-    mars_aliases = load_mars_aliases(resolved_root)
-    return [_resolve_alias_harness(e, resolved_root) for e in mars_aliases]
+    return load_mars_aliases(resolved_root)
 
 
 def resolve_alias(name: str, repo_root: Path | None = None) -> ModelId | None:
@@ -118,23 +106,57 @@ def resolve_alias(name: str, repo_root: Path | None = None) -> ModelId | None:
 
 
 def resolve_model(name_or_alias: str, repo_root: Path | None = None) -> AliasEntry:
-    """Resolve alias to model id, or pass through a direct model identifier."""
+    """Resolve alias to model id, or pass through a direct model identifier.
+
+    Resolution: mars resolve -> pattern fallback for raw model IDs -> hard error.
+    Mars is always present (bundled with meridian).
+    """
+
+    from meridian.lib.catalog.model_aliases import (
+        _run_mars_models_resolve,  # pyright: ignore[reportPrivateUsage]
+    )
 
     normalized = name_or_alias.strip()
     if not normalized:
         raise ValueError("Model identifier must not be empty.")
 
-    resolved = load_alias_by_name(normalized, load_merged_aliases(repo_root=repo_root))
-    if resolved is not None:
-        _ = route_model(str(resolved.model_id), repo_root=repo_root)
-        return resolved
+    # Step 1: Try mars resolve (alias + harness in one call)
+    mars_result = _run_mars_models_resolve(normalized, repo_root)
+    if mars_result is not None:
+        model_id = mars_result.get("model_id")
+        harness = mars_result.get("harness")
+        harness_source = mars_result.get("harness_source", "")
 
-    resolved_harness = route_model(normalized, repo_root=repo_root).harness_id
-    return AliasEntry(
-        alias="",
-        model_id=ModelId(normalized),
-        resolved_harness=resolved_harness,
-    )
+        if isinstance(model_id, str) and model_id.strip():
+            resolved_harness: HarnessId | None = None
+            if isinstance(harness, str) and harness.strip():
+                with suppress(ValueError):
+                    resolved_harness = HarnessId(harness.strip())
+
+            if harness_source == "unavailable":
+                candidates = mars_result.get("harness_candidates", [])
+                candidate_list: list[object] = []
+                if isinstance(candidates, list):
+                    candidate_list = cast("list[object]", candidates)
+                raise ValueError(
+                    f"No installed harness for model '{normalized}'. "
+                    f"Install one of: {', '.join(str(c) for c in candidate_list)}"
+                )
+
+            if resolved_harness is None:
+                # Mars resolved the alias but didn't provide harness -> pattern fallback
+                resolved_harness = pattern_fallback_harness(model_id.strip())
+
+            return AliasEntry(
+                alias=str(mars_result.get("name", "") or ""),
+                model_id=ModelId(model_id.strip()),
+                resolved_harness=resolved_harness,
+                description=str(mars_result.get("description", "") or "") or None,
+            )
+
+    # Step 2: Raw model ID -> pattern-based harness fallback
+    resolved_harness = pattern_fallback_harness(normalized)
+    return AliasEntry(alias="", model_id=ModelId(normalized), resolved_harness=resolved_harness)
 
 
 _MODELS_DEV_URL = "https://models.dev/api.json"
