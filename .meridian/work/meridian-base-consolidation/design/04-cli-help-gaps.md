@@ -158,6 +158,8 @@ These were considered and judged sufficient as-is:
 
 ## Implementation Notes for the Plan
 
-Each gap above is a one-file edit (or small handful) in `src/meridian/cli/`. The planner should bundle them into a single phase ("expand --help text") that runs *before* the skill deletions, so an agent following an in-progress consolidation never lands on a stale help text.
+Most gaps are one-file edits (or small handfuls) in `src/meridian/cli/`. **Gaps 8 and 9 cross repo boundaries — they are mars-side, not meridian-side.** The planner bundles them with the meridian-cli edits if mars work is in scope for this consolidation; otherwise, apply Gap 8 option 2 (preserve the resource under `__meridian-cli/resources/`) and verify Gap 9 only (no source edit if `mars version --help` already covers the workflow).
+
+The whole help-text expansion lands as one phase that runs *before* the skill deletions, so an agent following an in-progress consolidation never lands on a stale help text.
 
 Verification for that phase: run each updated `--help` and confirm the new content appears. No code tests needed — these are docstrings.

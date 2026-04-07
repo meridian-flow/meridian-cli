@@ -55,7 +55,8 @@ Read `00-overview.md` first, then jump to whichever piece you're touching. `01-t
 
 ## What This Design Does NOT Cover
 
-- No changes to `__meridian-spawn` or `__meridian-work-coordination` content beyond fixing dangling refs to skills that no longer exist.
+- No changes to `__meridian-work-coordination` content.
+- `__meridian-spawn` gets three small surgical changes only: (a) dangling-ref fix, (b) the four principle-restatement trims per D9, (c) the pre-existing `mars models -h` bug fix at line 57. No other content changes.
 - No changes to dev-workflow's review/coding/planning skills.
-- No changes to harness adapters, mars internals, or meridian's runtime — this is purely a documentation/skill-layering refactor.
-- No new meridian or mars commands — only `--help` text additions. If a gap is large enough to need a new flag, that becomes a separate work item.
+- No changes to harness adapters, mars internals, or meridian's runtime — this is primarily a documentation/skill-layering refactor. The only source-tree edits are `--help` docstring expansions in `src/meridian/cli/` and possibly mars (Gaps 8 and 9 in `04`).
+- No new meridian or mars commands — only `--help` text additions, with the open question of whether mars grows a `mars init --schema` flag for the TOML reference (Gap 8 option 1). If a gap is large enough to need a new flag, the planner decides whether to bundle it or defer to a separate work item.
