@@ -1,0 +1,122 @@
+diff --git a/src/meridian/lib/catalog/model_aliases.py b/src/meridian/lib/catalog/model_aliases.py
+index c723119..40c8619 100644
+--- a/src/meridian/lib/catalog/model_aliases.py
++++ b/src/meridian/lib/catalog/model_aliases.py
+@@ -358,23 +358,3 @@ def load_mars_descriptions(repo_root: Path | None = None) -> dict[str, str]:
+             descriptions[model_id.strip()] = description.strip()
+ 
+     return descriptions
+-
+-
+-def merge_alias_entries(
+-    *alias_lists: list[AliasEntry],
+-) -> list[AliasEntry]:
+-    merged: dict[str, AliasEntry] = {}
+-    for alias_list in alias_lists:
+-        for item in alias_list:
+-            merged[item.alias] = item
+-    return [merged[key] for key in sorted(merged)]
+-
+-
+-def load_alias_by_name(name: str, aliases: list[AliasEntry]) -> AliasEntry | None:
+-    normalized = name.strip()
+-    if not normalized:
+-        return None
+-    for alias_entry in aliases:
+-        if alias_entry.alias == normalized:
+-            return alias_entry
+-    return None
+diff --git a/src/meridian/lib/catalog/models.py b/src/meridian/lib/catalog/models.py
+index 31fecb1..b825c17 100644
+--- a/src/meridian/lib/catalog/models.py
++++ b/src/meridian/lib/catalog/models.py
+@@ -15,7 +15,6 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
+ 
+ from meridian.lib.catalog.model_aliases import (
+     AliasEntry,
+-    load_alias_by_name,
+     load_mars_aliases,
+     load_mars_descriptions,
+     run_mars_models_resolve,
+@@ -42,15 +41,6 @@ def load_merged_aliases(repo_root: Path | None = None) -> list[AliasEntry]:
+     return load_mars_aliases(resolved_root)
+ 
+ 
+-def resolve_alias(name: str, repo_root: Path | None = None) -> ModelId | None:
+-    """Resolve one alias to a model identifier."""
+-
+-    resolved = load_alias_by_name(name, load_merged_aliases(repo_root=repo_root))
+-    if resolved is None:
+-        return None
+-    return resolved.model_id
+-
+-
+ def resolve_model(name_or_alias: str, repo_root: Path | None = None) -> AliasEntry:
+     """Resolve alias to model id, or pass through a direct model identifier.
+ 
+@@ -562,6 +552,5 @@ __all__ = [
+     "load_mars_descriptions",
+     "load_merged_aliases",
+     "refresh_models_cache",
+-    "resolve_alias",
+     "resolve_model",
+ ]
+diff --git a/tests/lib/catalog/test_model_aliases.py b/tests/lib/catalog/test_model_aliases.py
+index 5c7ff19..9a15398 100644
+--- a/tests/lib/catalog/test_model_aliases.py
++++ b/tests/lib/catalog/test_model_aliases.py
+@@ -13,10 +13,8 @@ from meridian.lib.catalog.model_aliases import (
+     _mars_list_to_entries,
+     _mars_merged_to_entries,
+     entry,
+-    load_alias_by_name,
+     load_mars_aliases,
+     load_mars_descriptions,
+-    merge_alias_entries,
+     run_mars_models_resolve,
+ )
+ 
+@@ -117,43 +115,6 @@ class TestMarsMergedToEntries:
+         assert len(entries) == 0
+ 
+ 
+-# --- merge_alias_entries ---
+-
+-
+-class TestMergeAliasEntries:
+-    def test_later_lists_override(self) -> None:
+-        first = [entry(alias="opus", model_id="old-opus")]
+-        second = [entry(alias="opus", model_id="new-opus")]
+-        merged = merge_alias_entries(first, second)
+-        assert len(merged) == 1
+-        assert merged[0].model_id == "new-opus"
+-
+-    def test_merges_multiple_lists(self) -> None:
+-        a = [entry(alias="opus", model_id="m1")]
+-        b = [entry(alias="sonnet", model_id="m2")]
+-        merged = merge_alias_entries(a, b)
+-        assert len(merged) == 2
+-
+-
+-# --- load_alias_by_name ---
+-
+-
+-class TestLoadAliasByName:
+-    def test_found(self) -> None:
+-        aliases = [entry(alias="opus", model_id="claude-opus-4-6")]
+-        result = load_alias_by_name("opus", aliases)
+-        assert result is not None
+-        assert result.model_id == "claude-opus-4-6"
+-
+-    def test_not_found(self) -> None:
+-        aliases = [entry(alias="opus", model_id="claude-opus-4-6")]
+-        assert load_alias_by_name("haiku", aliases) is None
+-
+-    def test_empty_name(self) -> None:
+-        aliases = [entry(alias="opus", model_id="claude-opus-4-6")]
+-        assert load_alias_by_name("", aliases) is None
+-
+-
+ # --- run_mars_models_resolve ---
+ 
+ 

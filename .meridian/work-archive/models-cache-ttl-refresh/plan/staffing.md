@@ -8,6 +8,7 @@ across strong models with different focus areas.
 
 | Phase | Coder                        | Parallelizable? |
 |-------|------------------------------|-----------------|
+| 0     | one coder (deletions only)   | no (blocks 1)   |
 | 1     | one coder (tiny)             | no              |
 | 2     | one coder (load-bearing)     | no (blocks 3/4) |
 | 3     | one coder                    | parallel w/ 4   |
@@ -23,6 +24,32 @@ phase 2 is merged — they touch disjoint files (`cli/models.rs` +
 
 Reviews run after each phase's coder completes. Convergence (not a fixed
 pass count) decides when to move on.
+
+### Phase 0 (scoped dead-code sweep — low risk, safety-gated)
+
+Runs as three sub-steps, not a single coder pass. See
+`phase-0-dead-code-sweep.md`.
+
+- **Step 0.1 — `refactor-reviewer` (default model).** Read-only sweep
+  across the six in-scope files. Brief: identify dead code, unused
+  helpers, stale comments, dead branches, unreferenced types, leftover
+  scaffolding. Deletion candidates only — no new abstractions.
+- **Step 0.2 — `coder` (gpt-5.3-codex).** Applies the deletions (and
+  trivial inlining only). Constrained to deletions-only, no behavioral
+  changes, no files outside the in-scope list.
+- **Step 0.3 — reviewer fan-out (parallel, default model + opus).**
+    - **default model** — focus: "safe to delete given P1-P6 will need
+      these files." Passed the refactor findings, the coder diff, and
+      every downstream phase blueprint. Checks that no deletion removes
+      something the feature phases were going to import or extend.
+    - **opus** — focus: "design alignment with the dead-code-only
+      constraint." Passed the coder diff and `phase-0-dead-code-sweep.md`.
+      Checks nothing crept in that's actually a refactor.
+
+Two reviewers is right-sized for a low-risk deletions-only phase where
+the primary risk is "accidentally deleted something P1-P6 needed." The
+default-model reviewer owns the cross-phase safety check; opus owns the
+scope-envelope check. Convergence as usual.
 
 ### Phase 1 (small — low risk)
 

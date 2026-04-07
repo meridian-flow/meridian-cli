@@ -1,0 +1,97 @@
+diff --git a/src/config/mod.rs b/src/config/mod.rs
+index 8a0791e..3a8180e 100644
+--- a/src/config/mod.rs
++++ b/src/config/mod.rs
+@@ -133,7 +133,7 @@ pub struct OverrideEntry {
+ }
+ 
+ /// Global settings — extensible via additional fields.
+-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
++#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+ pub struct Settings {
+     /// Custom managed output directory (e.g. ".claude"). Default: ".agents".
+     #[serde(default, skip_serializing_if = "Option::is_none")]
+@@ -144,6 +144,23 @@ pub struct Settings {
+     pub targets: Option<Vec<String>>,
+     #[serde(default, skip_serializing_if = "ModelVisibility::is_empty")]
+     pub model_visibility: ModelVisibility,
++    #[serde(default = "default_models_cache_ttl_hours")]
++    pub models_cache_ttl_hours: u32,
++}
++
++impl Default for Settings {
++    fn default() -> Self {
++        Self {
++            managed_root: None,
++            targets: None,
++            model_visibility: ModelVisibility::default(),
++            models_cache_ttl_hours: default_models_cache_ttl_hours(),
++        }
++    }
++}
++
++fn default_models_cache_ttl_hours() -> u32 {
++    24
+ }
+ 
+ impl Settings {
+@@ -1544,6 +1561,59 @@ only_skills = true
+         assert_eq!(settings.managed_targets(), vec![".codex"]);
+     }
+ 
++    #[test]
++    fn settings_models_cache_ttl_defaults_to_24_when_omitted() {
++        let config: Config = toml::from_str(
++            r#"
++[dependencies.base]
++url = "https://github.com/org/base.git"
++"#,
++        )
++        .unwrap();
++        assert_eq!(config.settings.models_cache_ttl_hours, 24);
++    }
++
++    #[test]
++    fn settings_models_cache_ttl_parses_zero() {
++        let config: Config = toml::from_str(
++            r#"
++[settings]
++models_cache_ttl_hours = 0
++"#,
++        )
++        .unwrap();
++        assert_eq!(config.settings.models_cache_ttl_hours, 0);
++    }
++
++    #[test]
++    fn settings_models_cache_ttl_parses_custom_value() {
++        let config: Config = toml::from_str(
++            r#"
++[settings]
++models_cache_ttl_hours = 48
++"#,
++        )
++        .unwrap();
++        assert_eq!(config.settings.models_cache_ttl_hours, 48);
++    }
++
++    #[test]
++    fn settings_models_cache_ttl_roundtrip_preserves_value() {
++        let original = Config {
++            settings: Settings {
++                models_cache_ttl_hours: 48,
++                ..Settings::default()
++            },
++            ..Config::default()
++        };
++        let serialized = toml::to_string_pretty(&original).unwrap();
++        let roundtripped: Config = toml::from_str(&serialized).unwrap();
++        assert_eq!(
++            roundtripped.settings.models_cache_ttl_hours,
++            original.settings.models_cache_ttl_hours
++        );
++    }
++
+     #[test]
+     fn model_visibility_validate_rejects_include_and_exclude() {
+         let visibility = ModelVisibility {
