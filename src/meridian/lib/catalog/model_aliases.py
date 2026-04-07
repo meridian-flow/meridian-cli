@@ -101,11 +101,15 @@ def _run_mars_models_list(repo_root: Path | None = None) -> list[dict[str, objec
         cmd.extend(["--root", str(repo_root)])
 
     try:
+        # mars may do a cold models.dev fetch in ensure_fresh(Auto); mars caps each HTTP
+        # phase at 15s (connect + recv-response + recv-body), so worst-case cold fetch is
+        # ~45s. 60s leaves a small headroom for first-boot DNS, slow disks, and startup.
+        # Use the same timeout as run_mars_models_resolve since both paths can refresh.
         result = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=60,
         )
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         logger.debug("mars binary not available or timed out", exc_info=True)
@@ -176,7 +180,11 @@ def run_mars_models_resolve(
     if repo_root is not None:
         cmd.extend(["--root", str(repo_root)])
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        # mars may do a cold models.dev fetch in ensure_fresh(Auto); mars caps each HTTP
+        # phase at 15s (connect + recv-response + recv-body), so worst-case cold fetch is
+        # ~45s. 60s leaves a small headroom for first-boot DNS, slow disks, and startup.
+        # Use the same timeout as _run_mars_models_list since both paths can refresh.
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
     except FileNotFoundError as exc:
         raise RuntimeError(
             "Mars binary not found. Mars is required for model resolution. "
