@@ -45,16 +45,28 @@ across `meridian-base/` and `meridian-dev-workflow/` (the source submodules).
 
 ## `__meridian-cli` Adoption
 
-The new skill should be added to the `skills:` array of every profile that previously had a transitive dependency on the CLI reference content of any deleted skill. The conservative set:
+The new skill is added to every profile whose body invokes a meridian or mars CLI command beyond `meridian spawn` and `meridian work` (which `__meridian-spawn` and `__meridian-work-coordination` already cover canonically).
 
-| Profile | Add `__meridian-cli`? | Rationale |
+**Rule, in priority order:**
+
+1. **Always add** if the profile body mentions any of: `meridian session`, `meridian config`, `meridian doctor`, `meridian models`, `meridian mars`, `mars`, spawn-failure diagnosis, status-string interpretation, environment variables, or `.meridian/spawns/<id>/` artifact layout.
+2. **Always add** if the profile previously listed `__mars`, `__meridian-diagnostics`, or `__meridian-session-context` in its skills array (it depended transitively on the CLI reference content of those).
+3. **Skip** if the profile is the base orchestrator (`__meridian-orchestrator`) or base subagent (`__meridian-subagent`) — both stay minimal and load CLI skills ad-hoc.
+
+Applying the rule to the agents in `meridian-dev-workflow/agents/`:
+
+| Profile | Add `__meridian-cli`? | Why |
 |---|---|---|
-| `dev-orchestrator` | **Yes** | Diagnoses spawn failures, mines sessions, runs `meridian config`-style introspection |
-| `docs-orchestrator` | **Yes** | Mines sessions, manages work artifacts, runs reports |
-| `code-documenter` | **Yes** | Reads spawn reports and session logs |
-| `__meridian-orchestrator` (base) | **No** | Already minimal; loads CLI skills ad-hoc when needed |
-| `__meridian-subagent` (base) | **No** | Empty profile by design |
-| All other dev-workflow agents (reviewer, coder, planner, etc.) | **Sweep and decide per profile** | Most don't need it. The planner should grep the body for any meridian/mars CLI usage and add the skill only where it's actually called for. |
+| `dev-orchestrator` | **Yes** | Rule 1 + 2 — diagnoses spawns, mines sessions, runs `meridian config`-style introspection |
+| `docs-orchestrator` | **Yes** | Rule 1 + 2 — mines sessions, manages work artifacts |
+| `code-documenter` | **Yes** | Rule 1 + 2 — reads reports and session logs |
+| `impl-orchestrator` | **Yes** (verify) | Likely diagnoses failures during impl phases — verify by reading body |
+| `design-orchestrator` | **Yes** (verify) | Same |
+| `planner` / `architect` / `reviewer` / `coder` / `refactor-reviewer` / `verifier` / `tester` (smoke/browser/unit) / `explorer` / `investigator` / `tech-writer` | **Sweep per body — apply Rule 1** | Each profile gets a one-grep check for the keywords in Rule 1. The implementer enumerates the result; the planner does not need to pre-decide. |
+| `__meridian-orchestrator` (base) | **No** | Rule 3 |
+| `__meridian-subagent` (base) | **No** | Rule 3 |
+
+**Verification step in the implementation phase:** after applying the rule, grep every dev-workflow agent body for `meridian session`, `meridian config`, `meridian doctor`, `meridian mars`, `\.meridian/spawns`, `MERIDIAN_`, and confirm every match lives in a profile that has `__meridian-cli` in its skills array. Any mismatch is either a missed addition (fix) or a body-text reference that should be removed (also fix).
 
 ## README Updates
 

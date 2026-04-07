@@ -19,9 +19,13 @@
 - *Leave it in base, drop the `@explorer` references.* The workflow guidance becomes vague — "delegate to a cheap exploration spawn" is true but loses the concreteness that makes it actionable. The pattern is real workflow knowledge and deserves a real home.
 - *Move whole thing to dev-workflow.* Then base loses the CLI reference for `meridian session ...`, forcing every base-level user to learn it ad-hoc from `--help`. That's actually fine for a sufficiently rich `--help`, but the consolidation is more legible if `__meridian-cli` covers the whole CLI surface uniformly.
 
-## D3 — New dev-workflow skill name: working title `session-mining`, planner finalizes
+## D3 — New dev-workflow skill name: locked as `session-mining` (revised after review)
 
-**Decision:** Use `session-mining` as a working name in the design. The planner picks the final name in phase 1.
+**Decision (revised):** Lock the name as `session-mining` now, in this design. Do not defer to the planner.
+
+**Why revised:** Reviewer p1065 flagged that half-deferring naming creates a real coordination risk: doc `06-consumer-profile-updates.md` already uses `session-mining` as if it were the real name. If the planner picks something different, every consumer profile reference has to be updated separately, and the risk of inconsistent rename across files is high. Either commit now or block phase 1 on naming. Committing now is cheaper and lower-risk.
+
+**Original rationale (still valid):** `session-mining` describes what the skill is *for*, not what command it wraps. Alternatives `session-context` (too close to the deleted base skill — confusing), `transcript-mining` (correct but jargon-flavored), and `context-recovery` (broader than the actual skill) lose to it.
 
 **Why:** Naming this well requires balancing several constraints — it's not "session reading" (too narrow), not "context recovery" (too broad), not "transcript mining" (right shape but odd phrasing). `session-mining` captures the workflow it teaches without locking the planner out of a better choice. Nothing in the design depends on the specific name beyond consistency, so deferring is cheap.
 
@@ -71,10 +75,30 @@ There are no parallelization questions, no design uncertainties left unresolved,
 
 **If the dev-orchestrator disagrees** (e.g., they want a planner to lock the new skill name in phase 1, or to surface help-text edits I missed), spawning one is cheap and harmless. The decision is "default to skipping; spawn one if it adds value." Logged here so future review can second-guess if needed.
 
-## D8 — Don't break the dev-workflow skill at the file level by adding a new resources/ tree
+## D8 — No new `resources/` tree, with one possible exception for the mars TOML schema
 
-**Decision:** The new dev-workflow `session-mining` skill ships as a single SKILL.md, no resources/. Same for `__meridian-cli`.
+**Decision:** The new dev-workflow `session-mining` skill ships as a single SKILL.md, no resources/. Same for `__meridian-cli`, with one *possible* exception below.
 
 **Why:** Both skills are deliberately small. A `resources/` tree would invite the kind of depth that re-introduces the duplication we're cutting. If a future need pushes one of them past ~200 lines, that's the moment to revisit — not now.
 
 **Rejected:** Pre-creating `resources/architecture-overview.md` for `__meridian-cli`. Tempting because the runtime model is genuinely worth a longer doc, but it's a different skill (the eventual `__meridian` that D1 reserves the name for). Don't hide it under `__meridian-cli/resources/`.
+
+**Possible exception — mars-toml-reference.md:** The deleted `__mars/` skill linked to `resources/mars-toml-reference.md` containing the full `mars.toml` schema. Reviewer p1066 flagged that without explicit handling, the schema reference vanishes. `04-cli-help-gaps.md` Gap 8 enumerates three resolution options. The preferred option is for mars to render the schema via `--help` (option 1). If that's not viable in the consolidation timeframe, **this decision is amended to allow exactly one resource file at `__meridian-cli/resources/mars-toml-reference.md`** as a one-off exception. The exception does not generalize — every other piece of content stays in the SKILL body or out.
+
+## D9 — Trim duplicated principles from `__meridian-spawn` after `__meridian-cli` lands
+
+**Decision:** `__meridian-cli` is canonical for the principles in its §3 (JSON discipline, auto-recovery, env vars). `__meridian-spawn` trims its restatements (lines 14, 97, 117–118 in the current file) to one-line cross-references and relies on co-loading.
+
+**Why:** Reviewer p1066 identified that the new skill duplicates content already in `__meridian-spawn`. Without an explicit decision the duplication just happens silently and re-introduces the drift problem the consolidation is trying to solve. Canonicalizing in the smaller, principle-focused skill is the right altitude.
+
+**Safety condition:** before deleting any duplicated lines from `__meridian-spawn`, the implementer verifies that no profile loads `__meridian-spawn` without also loading `__meridian-cli`. The consumer-profile rule in `06` makes that true after the consolidation lands, but the verification step is mandatory because a missed profile would silently lose the principle content.
+
+**Rejected:**
+- *Accept the duplication.* Re-introduces drift, defeats the consolidation.
+- *Canonicalize in `__meridian-spawn` and trim `__meridian-cli`.* Wrong altitude — `__meridian-spawn` is about delegation, not CLI principles, and not every consumer of CLI principles is a delegator.
+
+## D10 — Apply the "what changes" rule to the consumer-profile sweep, don't punt
+
+**Decision (revised after review):** `06-consumer-profile-updates.md` provides an explicit rule for `__meridian-cli` adoption (every profile whose body invokes a CLI command beyond `meridian spawn` / `meridian work` gets the skill). The implementer applies the rule by grepping; the planner does not need to enumerate every profile by hand.
+
+**Why:** Reviewer p1065 flagged that the original "sweep and decide per profile" handed implementation-meaningful judgment to the implementer with no guidance. A rule lets the implementer apply the judgment mechanically and gives the verifier a grep target. This trades "design enumerates each profile" for "design provides a rule + verification check," which is the right altitude for a consolidation that touches a moving set of agent profiles.

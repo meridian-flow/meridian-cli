@@ -46,7 +46,7 @@ A single small table with one row per top-level command group, each row pointing
 
 Short subsections, each one paragraph, no command tables.
 
-**JSON output discipline.** Every meridian command emits structured JSON in agent mode. Parse `spawn_id` and `status` programmatically — never scrape human prose. `--format text` exists for human terminals, not for agents.
+**Output mode discipline.** Agent mode defaults to JSON; human terminals get text. Parse `spawn_id` and `status` programmatically from JSON — never scrape prose from `--format text` output. The same command emits different shapes in the two modes; an agent that doesn't know to expect JSON will silently fail when run interactively or vice versa.
 
 **Files as authority.** All state lives under `.meridian/` as JSONL events plus per-spawn artifact directories. There are no databases or services. If you can't see it on disk, it isn't there. Never edit `spawns.jsonl` or `sessions.jsonl` by hand — atomic writes assume an exclusive writer.
 
@@ -71,18 +71,33 @@ A short failure-mode table — only the patterns that aren't obvious from readin
 | Symptom | Likely cause | First move |
 |---|---|---|
 | `orphan_run` / `orphan_stale_harness` in show output | Harness died without finalizing | Auto-recovered on next read; relaunch |
+| `missing_wrapper_pid` / `missing_worker_pid` | Harness crashed on startup | `which claude` / `which codex`; reinstall if missing |
 | Exit 127 / 2 with empty report | Harness binary not on `$PATH` | `which claude` / `which codex`; install if missing |
 | Exit 143 / 137 | SIGTERM / SIGKILL — process killed externally | Check `dmesg` for OOM; otherwise treat as failed and retry |
+| Timeout exit | Exceeded the configured runtime budget | Increase timeout in config or break the task into smaller spawns |
 | Model error in `stderr.log` | API rejected the model | `meridian models list`; check API keys |
 | Spawn directory missing | Crash during launch | Relaunch — state is recoverable |
 
 The debugging sequence is one bullet list of pointers, not a procedure: `meridian spawn show` → `meridian spawn log` → `meridian session log` → `meridian doctor` → raw `spawns.jsonl` with `jq` as last resort. Each item is one line with the command name; no flag tables.
 
+**Spawn artifact layout.** Every spawn writes to `.meridian/spawns/<id>/`. The contents are stable and worth knowing because `--help` doesn't teach the directory layout:
+
+| File | Contents |
+|---|---|
+| `report.md` | Final report (if the spawn completed far enough to write one) |
+| `output.jsonl` | Raw harness stdout — read via `meridian spawn log`, not directly |
+| `stderr.log` | Harness stderr — errors, warnings, debug traces |
+| `prompt.md` | The prompt sent to the harness |
+| `harness.pid` | PID file for the harness process |
+| `heartbeat` | Touched periodically while spawn is alive |
+
+Status strings (`orphan_run`, `missing_wrapper_pid`, etc.) are defined in `src/meridian/lib/state/`. Implementation note: verify these literals against source before writing the SKILL body so the table doesn't drift silently.
+
 ### 6. Sessions in one section
 
 Two short paragraphs — the durable content from the CLI half of `__meridian-session-context`:
 
-`meridian session log <ref>` reads a session transcript. `<ref>` accepts a chat id (`c123`), spawn id (`p123`), or harness session id. Defaults to the latest compaction segment. `meridian session search <query> <ref>` runs a case-insensitive text search across all segments and emits navigation hints to jump to surrounding context.
+`meridian session log <ref>` reads a session transcript. `<ref>` accepts a chat id (`c123`), spawn id (`p123`), or harness session id. Defaults to the latest compaction segment (`-c 0`); to recover full pre-compaction history, walk older segments by incrementing `-c 1`, `-c 2`, … until empty. `meridian session search <query> <ref>` runs a case-insensitive text search across all segments and emits navigation hints to jump to surrounding context.
 
 `meridian work sessions <work_id>` lists every session that has touched a work item. Use `--all` to include archived sessions. Combined with parent-session inheritance, this is enough to walk an entire work item's conversation history.
 
@@ -115,8 +130,25 @@ Three pointers:
 - No model names hardcoded.
 - No agent names from any layer (no `@reviewer`, no `@explorer`, no `@dev-orchestrator`). The skill is layer-zero.
 - No prose that re-states what `--help` already says clearly. If a section feels like "the table from `--help` but in markdown", delete it and replace with a pointer.
-- ≤ 180 lines including frontmatter and the section headings above. The point of consolidation is fewer lines, not the same lines in fewer files.
+- ≤ 180 lines including frontmatter and the section headings above. Reviewer estimate against this outline lands around 140 lines (with the spawn-artifact table and additional failure rows already factored in), so the budget has room. The point of consolidation is fewer lines, not the same lines in fewer files.
+
+## Principle Duplication With `__meridian-spawn`
+
+The current `__meridian-spawn` SKILL.md duplicates several of the principles in §3 (JSON output discipline at line 14, auto-recovery at line 97, `$MERIDIAN_FS_DIR` / `$MERIDIAN_WORK_DIR` definitions at lines 117–118). The consolidation resolves this duplication explicitly:
+
+**Decision:** `__meridian-cli` is canonical for the principles. `__meridian-spawn` trims its restatements and relies on co-loading.
+
+This is safe because, after the consumer-profile updates in `06`, every profile that loads `__meridian-spawn` either also loads `__meridian-cli` or is the orchestrator base profile (which loads CLI skills ad-hoc). The implementer must verify that no profile loads `__meridian-spawn` without also loading `__meridian-cli` *before* deleting any duplicated lines from `__meridian-spawn`. If a profile is found that breaks the assumption, add `__meridian-cli` to it as part of the same phase.
+
+Specific edits to `__meridian-spawn/SKILL.md` once `__meridian-cli` is in place:
+
+- Trim line 14 ("All CLI output is JSON…") to a one-line cross-reference.
+- Trim line 97 ("Stuck spawns auto-recover…") to a one-line cross-reference.
+- Remove the env-var definitions on lines 117–118; let `__meridian-cli` own them.
+- **Bug fix while the file is open:** line 57 says `meridian mars models -h`. That command does not exist. The correct command is `meridian models -h`. Fix unconditionally — this is a pre-existing bug surfaced during review, and the cheap moment to fix it is in the same PR.
 
 ## What Goes in `resources/` (if anything)
 
 Nothing in v1. The whole skill is meant to be small. If a future addition needs depth (e.g. a long-form architecture overview), it goes under `resources/` and the SKILL body links to it — but resources are not part of the consolidation deliverable.
+
+The one open question is the `mars-toml-reference.md` schema file from the deleted `__mars/` skill — see Gap 8 in `04-cli-help-gaps.md`. If the planner picks resolution option 2 there (preserve the resource under `__meridian-cli/resources/`), this paragraph is the place to allow it as an exception, with a one-sentence justification.

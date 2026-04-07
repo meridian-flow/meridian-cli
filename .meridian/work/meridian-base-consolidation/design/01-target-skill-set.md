@@ -6,7 +6,7 @@ The disposition of every meridian-base skill, every cross-layer-relevant dev-wor
 
 | Skill | Action | Notes |
 |---|---|---|
-| `__meridian-spawn` | **Keep.** No body changes beyond removing the line that points consumers at `__meridian-session-context`. | Already principles-first. |
+| `__meridian-spawn` | **Keep, with body trims.** Remove the line pointing at `__meridian-session-context`. Trim the duplicated CLI principles (JSON discipline, auto-recovery, env vars) to cross-references — `__meridian-cli` becomes canonical (see D9). Fix the pre-existing bug at line 57 (`mars models -h` → `models -h`). | Already principles-first; the trims are about removing duplication with the new skill, not re-scoping. |
 | `__meridian-work-coordination` | **Keep.** No body changes. | Already principles-first. |
 | `__meridian-privilege-escalation` | **Keep.** No body changes. | Niche, dormant skill. |
 | `__meridian-cli` | **Create.** See `02-meridian-cli-skill.md` for body outline. | New singular CLI reference skill. |
@@ -27,7 +27,7 @@ The disposition of every meridian-base skill, every cross-layer-relevant dev-wor
 
 | Skill | Action | Notes |
 |---|---|---|
-| `session-mining` (working name) | **Create.** See `03-dev-workflow-moves.md` for body outline. | Replaces the workflow half of `__meridian-session-context`. Assumes `__meridian-cli` is loaded and does not redocument session CLI commands. |
+| `session-mining` | **Create.** See `03-dev-workflow-moves.md` for body outline. Name is locked (D3 revised). | Replaces the workflow half of `__meridian-session-context`. Assumes `__meridian-cli` is loaded and does not redocument session CLI commands. |
 | All other dev-workflow skills | No change. | |
 
 ## meridian-dev-workflow/agents/

@@ -12,8 +12,9 @@ Current top-level help lists only `mars`, `spawn`, `work`, `models`. Missing:
 
 - `session` — subcommand group exists (`session log`, `session search`)
 - `config` — subcommand group exists (`config get/set/show/init/reset`)
-- `report` — exists as a subcommand of `spawn` but worth surfacing
 - `doctor` — top-level command exists
+
+`report` is correctly *not* a top-level — it lives under `spawn`, and the existing parenthetical "`spawn    Create and manage subagent runs (includes report subgroup)`" already surfaces it. No change needed for `report`.
 
 **Add to top-level Commands list:**
 
@@ -22,8 +23,6 @@ session  Read and search harness session transcripts
 config   Repository config inspection and overrides
 doctor   Health check and orphan reconciliation
 ```
-
-Plus a one-line note that `meridian spawn report` exists for reports management.
 
 ## Gap 2 — `meridian doctor --help` is one line
 
@@ -69,16 +68,18 @@ subagent reads its parent's transcript, not its own.
 
 **Add to `meridian session search --help`:** an example showing the navigation hint output and noting the search is case-insensitive.
 
-## Gap 4 — `meridian work sessions --help` exists but doesn't say what it's for
+## Gap 4 — `meridian work sessions --help` is short but not broken (enrichment, not gap)
 
-Current help describes the flag (`--all`) but not the use case. Add a one-line preface:
+Current help already says: *"List sessions associated with a work item. Default shows active sessions; use --all for historical."* That is a real use-case description, not just a flag table.
+
+This entry is **enrichment, not a gap-fill.** Optional one-line addition that ties it to the broader workflow:
 
 ```
-List every session that has touched a work item, including
-prior runs that ended before this one started. Combined with
-`meridian session log`, this is the way to walk a work item's
-full conversation history.
+Combined with `meridian session log`, this is the way to walk
+a work item's full conversation history across multiple runs.
 ```
+
+Lower priority than Gaps 1–3 — the existing one-liner is good enough that the new `__meridian-cli` skill can legitimately point at it without this enrichment. Land it if cheap; skip if not.
 
 ## Gap 5 — `meridian spawn report --help` examples are wrong
 
@@ -113,7 +114,25 @@ or directly as `mars <subcommand>` if installed standalone.
 
 Subcommand-level help is good enough as-is. If a subcommand is missing examples, that's a mars-side improvement and can be filed separately — not a blocker for this consolidation.
 
-## Gap 8 — `meridian config --help` is bare
+## Gap 8 — `mars.toml` schema reference has no replacement home
+
+The deleted `__mars/` skill linked to `resources/mars-toml-reference.md` containing the full TOML schema. D8 in `decisions.md` says the new `__meridian-cli` ships without `resources/`. Without explicit action, the schema reference vanishes.
+
+Resolution options, in preference order:
+
+1. **Confirm `mars init --help` (or a new `mars schema` / `mars init --schema` flag) renders the schema.** Cleanest fix. If absent, this becomes a small mars source-tree edit. The planner picks whether to bundle the mars work or defer.
+2. **Preserve `mars-toml-reference.md` under `__meridian-cli/resources/`.** Bends D8 but keeps the consolidation moving. Requires amending the decision-log entry to allow this single resource if option 1 isn't viable.
+3. **Move the reference into `meridian-base/README.md` or a top-level docs file.** Least preferred — READMEs are not loaded at agent runtime, so an agent editing `mars.toml` cannot consult them.
+
+Status today: option 1's command does not exist. Default fallback is option 2 unless mars work gets bundled in.
+
+## Gap 9 — `mars version --help` should include the release workflow
+
+The deleted `__mars/` skill walked through the version-bump workflow: `mars version patch` → commits → tags → optional `--push`, plus the precondition that the working tree must be clean and the requirement for a `[package]` section in `mars.toml`. Confirm `mars version --help` covers this end-to-end. If only the bump verbs are listed without the surrounding workflow, add a short preface to that subcommand's help.
+
+Verification step before phase 1: run `mars version --help` and confirm. If adequate, no source edit. Otherwise this is a one-line docstring change in mars.
+
+## Gap 10 — `meridian config --help` is bare
 
 Current text lists subcommands without saying what config controls. Add a preface:
 
@@ -131,10 +150,11 @@ source annotation.
 
 These were considered and judged sufficient as-is:
 
-- `meridian models list` — its output already includes routing guidance.
+- `meridian models list` — its output already includes routing guidance. The `__meridian-cli` skill table routes agents past the bare `meridian models --help` group help directly to `list`, which is honest because that's where the useful content actually lives.
 - `meridian work --help` — subcommand list is complete and self-explanatory.
+- `meridian work sessions --help` — see Gap 4 (enrichment, not gap).
 - `meridian spawn show/list/log` — current help is sufficient for the new skill's purposes.
-- `mars` subcommand-level help — adequate for the "point and learn" pattern.
+- `mars` subcommand-level help — adequate for the "point and learn" pattern, except for the items called out in Gaps 8 and 9.
 
 ## Implementation Notes for the Plan
 

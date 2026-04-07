@@ -25,13 +25,13 @@ This policy is captured here once and referenced from `agent-creator` / `skill-c
 | `meridian-base/skills/__meridian-session-context/SKILL.md` | 65 | `meridian spawn -a explorer --skills __meridian-session-context` | **Generic** | Same — file deleted. |
 | `meridian-base/skills/__meridian-session-context/SKILL.md` | 69 | "If you are an @explorer yourself…" | **Generic** | Same — file deleted. |
 | `meridian-base/skills/agent-creator/SKILL.md` | 236 | "A @reviewer that only needs `git diff` and…" | **Example** | **Keep.** Illustrating tool-scoping principle with a concrete profile name. |
-| `meridian-base/skills/agent-creator/SKILL.md` | 257 | "the @dev-orchestrator spawns you with `--from`" | **Example** | **Keep.** Illustrating "don't assume your parent" by naming a plausible parent. |
+| `meridian-base/skills/agent-creator/SKILL.md` | 257 | "the @dev-orchestrator spawns you with `--from`" inside a quoted anti-pattern | **Example** | **Keep.** The phrase appears *inside* a quoted anti-pattern showing what NOT to write — so naming the agent is essential to the example, not incidental. Removing the name would defeat the anti-pattern. |
 | `meridian-base/skills/agent-creator/SKILL.md` | 261 | "the same @reviewer can be called from a dev orchestrator, a CI pipeline, or a…" | **Example** | **Keep.** Illustrating profile reuse across contexts. |
 | `meridian-base/skills/agent-creator/SKILL.md` | 297 | "canonical examples (minimal utility agent, @reviewer, orchestrator)" | **Example** | **Keep.** Literally enumerating example profiles. |
 | `meridian-base/skills/agent-creator/resources/example-profiles.md` | 45, 92 | Walkthrough of an example reviewer profile | **Example** | **Keep.** The whole resource file is example profiles. |
 | `meridian-base/skills/agent-creator/resources/anti-patterns.md` | 149 | "hardcoding a specific parent (@dev-orchestrator)" | **Example** | **Keep.** Naming the agent makes the anti-pattern concrete. |
 | `meridian-base/skills/skill-creator/SKILL.md` | 290 | "'refactor the @reviewer'" inside a quoted trigger phrase | **Example** | **Keep.** Quoted illustrative trigger phrase, not a prescription. |
-| `meridian-base/skills/skill-creator/resources/example-skills.md` | 140 | "@reviewers can read it once" | **Example** | **Keep.** Concrete example of who reads a skill. |
+| `meridian-base/skills/skill-creator/resources/example-skills.md` | 140 | "@reviewers can read it once" | **Example (borderline)** | **Keep.** The weakest "Keep" — delete-test gives a still-meaningful sentence ("agents can read it once"). Lives in an example walkthrough where the agent name keeps it tactile. Borderline but not worth changing. |
 | `meridian-base/skills/skill-creator/resources/anti-patterns.md` | 55 | `@reviewer` in an anti-pattern walkthrough | **Example** | **Keep.** Same logic as agent-creator anti-patterns. |
 
 ## Net Result

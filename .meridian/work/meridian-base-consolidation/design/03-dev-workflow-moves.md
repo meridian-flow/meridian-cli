@@ -28,7 +28,7 @@ description: "Workflow patterns for mining conversation history during dev work 
 
 **Recover from the parent session first.** Two short paragraphs: explain the inheritance mechanic (`$MERIDIAN_CHAT_ID` is the launching session, not the spawn's own), and why it's the highest-leverage starting point — most decisions an agent needs to honor were made in the conversation that spawned it. One example command line.
 
-**Delegate bulk reading, don't inline it.** When the question is "what was decided across this whole work item's history," spawn an explorer with `__meridian-cli` loaded and have it return a synthesis. Reading 200 messages inline burns context that the synthesizing agent needs for its actual work. One example spawn command. Note: if you *are* an explorer, mine directly instead of recursing.
+**Delegate bulk reading, don't inline it.** When the question is "what was decided across this whole work item's history," spawn an explorer with `__meridian-cli` loaded and have it return a synthesis. Reading 200 messages inline burns context that the synthesizing agent needs for its actual work. One example spawn command. The spawned explorer needs `__meridian-cli` (for the session commands) but does **not** need `session-mining` itself, because the explorer is doing the reading, not orchestrating further delegation. Note: if you *are* an explorer, mine directly instead of recursing.
 
 **Discover sessions per work item.** When the work item has been touched by multiple sessions over time (interrupted runs, reopens, multi-day work), use `meridian work sessions` to enumerate them before mining. Otherwise you only see the current session's history and miss prior decisions.
 
@@ -52,6 +52,6 @@ See `06-consumer-profile-updates.md` for the full diff. Summary of what changes 
 
 `__meridian-cli` should be loaded explicitly into any profile that previously got it transitively through `__meridian-session-context`. The planner enumerates which profiles need it; the dev-orchestrator/docs-orchestrator/code-documenter trio is the certain set, and a sweep over both submodules should confirm there are no others.
 
-## Naming Decision Deferred
+## Naming: Locked as `session-mining`
 
-The skill name `session-mining` is a working title chosen because it describes what the skill is *for*, not what command it wraps. Alternatives considered and the rationale for picking this one are in `decisions.md`. The planner is free to lock in the final name during phase 1; nothing else in this design depends on which name wins as long as one is chosen and applied consistently across the new SKILL.md, all consumer profiles, and any body-text mentions.
+After review, the working name `session-mining` is locked as the final name. Half-deferring naming creates a real coordination risk — different files would have ended up with different names — and the alternatives in the decision log don't beat it. The new SKILL file, all consumer profile skills arrays, and every body-text reference use `session-mining` consistently. The planner does not need to revisit this.
