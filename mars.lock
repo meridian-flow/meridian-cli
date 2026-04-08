@@ -10,7 +10,9 @@ version = "v0.0.10"
 commit = "02a26c74ad7fb1b392b39be985c7e4f6f53d5119"
 
 [dependencies.meridian-dev-workflow]
-path = "/home/jimyao/gitrepos/meridian-channel/meridian-dev-workflow"
+url = "https://github.com/haowjy/meridian-dev-workflow"
+version = "v0.0.6"
+commit = "32a1d31cb88955d79b607ad8ffbc32d369f47079"
 
 [items."agents/architect.md"]
 source = "meridian-dev-workflow"

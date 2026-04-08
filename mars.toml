@@ -2,7 +2,7 @@
 url = "https://github.com/haowjy/meridian-base"
 
 [dependencies.meridian-dev-workflow]
-path = "./meridian-dev-workflow"
+url = "https://github.com/haowjy/meridian-dev-workflow"
 
 [dependencies.anthropic-skills]
 url = "https://github.com/anthropics/skills"
