@@ -8,6 +8,7 @@ import subprocess
 import sys
 from collections.abc import Sequence
 from contextvars import ContextVar
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Literal, cast
 
@@ -33,8 +34,9 @@ from meridian.lib.core.util import FormatContext
 from meridian.lib.harness.registry import get_default_harness_registry
 from meridian.lib.launch import LaunchRequest, SessionMode, launch_primary
 from meridian.lib.ops.mars import (
+    UpgradeAvailability,
     check_upgrade_availability,
-    format_upgrade_hint_lines,
+    format_upgrade_availability,
     resolve_mars_executable,
 )
 from meridian.lib.ops.reference import resolve_session_reference
@@ -559,6 +561,107 @@ def _inject_upgrade_hint_into_sync_json(
     return rendered
 
 
+@dataclass(frozen=True)
+class _MarsPassthroughRequest:
+    command: tuple[str, ...]
+    mars_args: tuple[str, ...]
+    is_sync: bool
+    wants_json: bool
+    root_override: Path | None
+
+
+@dataclass(frozen=True)
+class _MarsPassthroughResult:
+    request: _MarsPassthroughRequest
+    returncode: int
+    stdout_text: str = ""
+    stderr_text: str = ""
+
+
+def _parse_mars_passthrough(
+    args: Sequence[str],
+    *,
+    output_format: str | None = None,
+    executable: str,
+) -> _MarsPassthroughRequest:
+    """Build an executable Mars passthrough request without side effects."""
+
+    mars_args = list(args)
+    is_sync = _mars_subcommand(mars_args) == "sync"
+    wants_json = _mars_requested_json(mars_args) or output_format == "json"
+    if wants_json and not _mars_requested_json(mars_args):
+        mars_args = ["--json", *mars_args]
+    return _MarsPassthroughRequest(
+        command=(executable, *mars_args),
+        mars_args=tuple(mars_args),
+        is_sync=is_sync,
+        wants_json=wants_json,
+        root_override=_mars_requested_root(mars_args),
+    )
+
+
+def _execute_mars_passthrough(request: _MarsPassthroughRequest) -> _MarsPassthroughResult:
+    """Execute a prepared Mars passthrough request."""
+
+    try:
+        if request.wants_json:
+            result = subprocess.run(
+                list(request.command),
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            return _MarsPassthroughResult(
+                request=request,
+                returncode=result.returncode,
+                stdout_text=result.stdout or "",
+                stderr_text=result.stderr or "",
+            )
+
+        result = subprocess.run(list(request.command), check=False)
+        return _MarsPassthroughResult(request=request, returncode=result.returncode)
+    except FileNotFoundError:
+        print(
+            "error: Failed to execute 'mars'. Install meridian with dependencies and retry.",
+            file=sys.stderr,
+        )
+        raise SystemExit(1) from None
+
+
+def _augment_sync_result(
+    result: _MarsPassthroughResult,
+    *,
+    output_format: str | None = None,
+) -> None:
+    """Add sync-specific upgrade availability output to passthrough results."""
+
+    _ = output_format
+    if not result.request.is_sync:
+        return
+
+    upgrades: UpgradeAvailability | None = None
+    if result.returncode in {0, 1}:
+        upgrades = check_upgrade_availability(result.request.root_override)
+
+    if result.request.wants_json:
+        stdout_text = result.stdout_text
+        if upgrades is not None and upgrades.count > 0 and stdout_text.strip():
+            stdout_text = _inject_upgrade_hint_into_sync_json(
+                stdout_text,
+                within_constraint=upgrades.within_constraint,
+                beyond_constraint=upgrades.beyond_constraint,
+            )
+        if stdout_text:
+            sys.stdout.write(stdout_text)
+        if result.stderr_text:
+            sys.stderr.write(result.stderr_text)
+        return
+
+    if upgrades is not None and upgrades.count > 0:
+        for line in format_upgrade_availability(upgrades, style="hint"):
+            print(line)
+
+
 def _run_mars_passthrough(
     args: Sequence[str],
     *,
@@ -572,69 +675,21 @@ def _run_mars_passthrough(
         )
         raise SystemExit(1)
 
-    mars_args = list(args)
-    subcommand = _mars_subcommand(mars_args)
-    is_sync = subcommand == "sync"
-    wants_json = _mars_requested_json(mars_args) or output_format == "json"
-    if wants_json and not _mars_requested_json(mars_args):
-        mars_args = ["--json", *mars_args]
-
-    try:
-        if wants_json:
-            result = subprocess.run(
-                [executable, *mars_args],
-                check=False,
-                capture_output=True,
-                text=True,
-            )
-        else:
-            result = subprocess.run([executable, *mars_args], check=False)
-    except FileNotFoundError:
-        print(
-            "error: Failed to execute 'mars'. Install meridian with dependencies and retry.",
-            file=sys.stderr,
-        )
-        raise SystemExit(1) from None
-
-    if wants_json:
-        json_result = cast("subprocess.CompletedProcess[str]", result)
-        stdout_text = json_result.stdout or ""
-        stderr_text = json_result.stderr or ""
-
-        if not is_sync:
-            if stdout_text:
-                sys.stdout.write(stdout_text)
-            if stderr_text:
-                sys.stderr.write(stderr_text)
-            raise SystemExit(result.returncode)
-    else:
-        stdout_text = ""
-        stderr_text = ""
-
-    if not is_sync:
+    request = _parse_mars_passthrough(
+        args,
+        output_format=output_format,
+        executable=executable,
+    )
+    result = _execute_mars_passthrough(request)
+    if not request.is_sync:
+        if request.wants_json:
+            if result.stdout_text:
+                sys.stdout.write(result.stdout_text)
+            if result.stderr_text:
+                sys.stderr.write(result.stderr_text)
         raise SystemExit(result.returncode)
 
-    root_override = _mars_requested_root(mars_args)
-    upgrades = None
-    if result.returncode in {0, 1}:
-        upgrades = check_upgrade_availability(root_override)
-
-    if wants_json:
-        if upgrades is not None and upgrades.count > 0 and stdout_text.strip():
-            stdout_text = _inject_upgrade_hint_into_sync_json(
-                stdout_text,
-                within_constraint=upgrades.within_constraint,
-                beyond_constraint=upgrades.beyond_constraint,
-            )
-        if stdout_text:
-            sys.stdout.write(stdout_text)
-        if stderr_text:
-            sys.stderr.write(stderr_text)
-
-    if not wants_json and upgrades is not None and upgrades.count > 0:
-        for line in format_upgrade_hint_lines(upgrades):
-            print(line)
-
+    _augment_sync_result(result, output_format=output_format)
     raise SystemExit(result.returncode)
 
 

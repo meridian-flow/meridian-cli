@@ -7,7 +7,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import cast
+from typing import Literal, cast
 
 from pydantic import BaseModel, ConfigDict
 
@@ -23,14 +23,6 @@ class UpgradeAvailability(BaseModel):
     @property
     def count(self) -> int:
         return len(self.within_constraint) + len(self.beyond_constraint)
-
-    @property
-    def is_empty(self) -> bool:
-        return self.count == 0
-
-    @property
-    def names(self) -> tuple[str, ...]:
-        return self.within_constraint + self.beyond_constraint
 
 
 def resolve_mars_executable() -> str | None:
@@ -140,15 +132,23 @@ def check_upgrade_availability(repo_root: Path | None = None) -> UpgradeAvailabi
     )
 
 
-def format_upgrade_hint_lines(availability: UpgradeAvailability) -> tuple[str, ...]:
-    """Render post-sync upgrade hints grouped by available action."""
+def format_upgrade_availability(
+    availability: UpgradeAvailability,
+    *,
+    style: Literal["hint", "warning"] = "hint",
+) -> tuple[str, ...]:
+    """Render upgrade availability grouped by available action."""
 
     lines: list[str] = []
+    with_prefix = style == "hint"
     if availability.within_constraint:
         within_count = len(availability.within_constraint)
         within_noun = "update" if within_count == 1 else "updates"
         within_deps = ", ".join(availability.within_constraint)
-        prefix = "hint: " if not lines else "      "
+        if with_prefix:
+            prefix = "hint: " if not lines else "      "
+        else:
+            prefix = "" if not lines else "      "
         lines.append(
             f"{prefix}{within_count} {within_noun} available within your pinned "
             f"constraint: {within_deps}."
@@ -158,7 +158,10 @@ def format_upgrade_hint_lines(availability: UpgradeAvailability) -> tuple[str, .
         beyond_count = len(availability.beyond_constraint)
         beyond_noun = "version" if beyond_count == 1 else "versions"
         beyond_deps = ", ".join(availability.beyond_constraint)
-        prefix = "hint: " if not lines else "      "
+        if with_prefix:
+            prefix = "hint: " if not lines else "      "
+        else:
+            prefix = "" if not lines else "      "
         lines.append(
             f"{prefix}{beyond_count} newer {beyond_noun} available beyond your pinned "
             f"constraint: {beyond_deps}."
@@ -172,6 +175,6 @@ def format_upgrade_hint_lines(availability: UpgradeAvailability) -> tuple[str, .
 __all__ = [
     "UpgradeAvailability",
     "check_upgrade_availability",
-    "format_upgrade_hint_lines",
+    "format_upgrade_availability",
     "resolve_mars_executable",
 ]

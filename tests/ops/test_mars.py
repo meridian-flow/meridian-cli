@@ -333,8 +333,8 @@ def test_check_upgrade_availability_returns_none_without_binary(
     assert mars.check_upgrade_availability() is None
 
 
-def test_format_upgrade_hint_lines_only_within_constraint() -> None:
-    lines = mars.format_upgrade_hint_lines(
+def test_format_upgrade_availability_hint_only_within_constraint() -> None:
+    lines = mars.format_upgrade_availability(
         mars.UpgradeAvailability(within_constraint=("meridian-base",))
     )
 
@@ -344,8 +344,8 @@ def test_format_upgrade_hint_lines_only_within_constraint() -> None:
     )
 
 
-def test_format_upgrade_hint_lines_only_beyond_constraint() -> None:
-    lines = mars.format_upgrade_hint_lines(
+def test_format_upgrade_availability_hint_only_beyond_constraint() -> None:
+    lines = mars.format_upgrade_availability(
         mars.UpgradeAvailability(beyond_constraint=("meridian-base",))
     )
 
@@ -355,8 +355,8 @@ def test_format_upgrade_hint_lines_only_beyond_constraint() -> None:
     )
 
 
-def test_format_upgrade_hint_lines_with_both_categories() -> None:
-    lines = mars.format_upgrade_hint_lines(
+def test_format_upgrade_availability_hint_with_both_categories() -> None:
+    lines = mars.format_upgrade_availability(
         mars.UpgradeAvailability(
             within_constraint=("foo", "bar"),
             beyond_constraint=("meridian-base",),
@@ -371,5 +371,22 @@ def test_format_upgrade_hint_lines_with_both_categories() -> None:
     )
 
 
-def test_format_upgrade_hint_lines_empty() -> None:
-    assert mars.format_upgrade_hint_lines(mars.UpgradeAvailability()) == ()
+def test_format_upgrade_availability_warning_omits_hint_prefix() -> None:
+    lines = mars.format_upgrade_availability(
+        mars.UpgradeAvailability(
+            within_constraint=("foo",),
+            beyond_constraint=("meridian-base",),
+        ),
+        style="warning",
+    )
+
+    assert lines == (
+        "1 update available within your pinned constraint: foo.",
+        "      Run `meridian mars upgrade` to apply.",
+        "      1 newer version available beyond your pinned constraint: meridian-base.",
+        "      Edit mars.toml to bump the version, then run `meridian mars sync`.",
+    )
+
+
+def test_format_upgrade_availability_empty() -> None:
+    assert mars.format_upgrade_availability(mars.UpgradeAvailability()) == ()

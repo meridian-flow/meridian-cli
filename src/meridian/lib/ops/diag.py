@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict
 from meridian.lib.core.spawn_lifecycle import is_active_spawn_status
 from meridian.lib.core.util import FormatContext
 from meridian.lib.launch.default_agent_policy import configured_default_agent_warning
-from meridian.lib.ops.mars import UpgradeAvailability, check_upgrade_availability
+from meridian.lib.ops.mars import check_upgrade_availability, format_upgrade_availability
 from meridian.lib.ops.runtime import build_runtime, resolve_state_root
 from meridian.lib.state import spawn_store
 from meridian.lib.state.session_store import cleanup_stale_sessions
@@ -29,9 +29,7 @@ class DoctorOutput(BaseModel):
     runs_checked: int
     agents_dir: str
     skills_dir: str
-    warnings: tuple[str, ...] = ()
-    outdated_dependencies_warning: UpgradeAvailability | None = None
-    updates_check_warning: str | None = None
+    warnings: tuple["DoctorWarning", ...] = ()
     repaired: tuple[str, ...] = ()
 
     def format_text(self, ctx: FormatContext | None = None) -> str:
@@ -49,8 +47,16 @@ class DoctorOutput(BaseModel):
         ]
         result = kv_block(pairs)
         for warning in self.warnings:
-            result += f"\nwarning: {warning}"
+            result += f"\nwarning: {warning.code}: {warning.message}"
         return result
+
+
+class DoctorWarning(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    code: str
+    message: str
+    payload: dict[str, object] | None = None
 
 
 def _count_runs(repo_root: Path) -> int:
@@ -73,7 +79,34 @@ def _repair_orphan_runs(repo_root: Path) -> int:
     return running_before - running_after
 
 
-def _legacy_install_artifacts_warning(repo_root: Path) -> str | None:
+def _configured_default_agent_doctor_warning(
+    *,
+    code: str,
+    repo_root: Path,
+    configured_agent: str,
+    builtin_default: str,
+    config_key: str,
+) -> DoctorWarning | None:
+    message = configured_default_agent_warning(
+        repo_root=repo_root,
+        configured_agent=configured_agent,
+        builtin_default=builtin_default,
+        config_key=config_key,
+    )
+    if message is None:
+        return None
+    return DoctorWarning(
+        code=code,
+        message=message,
+        payload={
+            "configured_agent": configured_agent,
+            "builtin_default": builtin_default,
+            "config_key": config_key,
+        },
+    )
+
+
+def _legacy_install_artifacts_warning(repo_root: Path) -> DoctorWarning | None:
     state_root = resolve_state_root(repo_root)
     candidates = (
         state_root / "agents.toml",
@@ -91,37 +124,14 @@ def _legacy_install_artifacts_warning(repo_root: Path) -> str | None:
         found_paths.append(display)
     if not found_paths:
         return None
-    return (
-        "Legacy meridian install artifacts from pre-mars versions were found: "
-        f"{', '.join(found_paths)}. They are safe to delete."
+    return DoctorWarning(
+        code="legacy_install_artifacts",
+        message=(
+            "Legacy meridian install artifacts from pre-mars versions were found: "
+            f"{', '.join(found_paths)}. They are safe to delete."
+        ),
+        payload={"paths": found_paths},
     )
-
-
-def _format_outdated_dependencies_warning(availability: UpgradeAvailability) -> str:
-    lines: list[str] = []
-    if availability.within_constraint:
-        within_count = len(availability.within_constraint)
-        within_noun = "dependency update" if within_count == 1 else "dependency updates"
-        within_names = ", ".join(availability.within_constraint)
-        prefix = "" if not lines else "      "
-        lines.append(
-            f"{prefix}{within_count} {within_noun} available within your pinned "
-            f"constraint: {within_names}."
-        )
-        lines.append("      Run `meridian mars upgrade` to apply.")
-    if availability.beyond_constraint:
-        beyond_count = len(availability.beyond_constraint)
-        beyond_noun = "version" if beyond_count == 1 else "versions"
-        beyond_names = ", ".join(availability.beyond_constraint)
-        prefix = "" if not lines else "      "
-        lines.append(
-            f"{prefix}{beyond_count} newer {beyond_noun} available beyond your pinned "
-            f"constraint: {beyond_names}."
-        )
-        lines.append(
-            "      Edit mars.toml to bump the version, then run `meridian mars sync`."
-        )
-    return "\n".join(lines)
 
 
 def doctor_sync(payload: DoctorInput) -> DoctorOutput:
@@ -142,12 +152,23 @@ def doctor_sync(payload: DoctorInput) -> DoctorOutput:
     agents_dirs = [agents_dir] if agents_dir.is_dir() else []
     skills_dirs = [skills_dir] if skills_dir.is_dir() else []
 
-    warnings: list[str] = []
+    warnings: list[DoctorWarning] = []
     if not skills_dirs:
-        warnings.append("No configured skills directories were found.")
+        warnings.append(
+            DoctorWarning(
+                code="missing_skills_directories",
+                message="No configured skills directories were found.",
+            )
+        )
     if not agents_dirs:
-        warnings.append("No configured agent profile directories were found.")
-    default_agent_warning = configured_default_agent_warning(
+        warnings.append(
+            DoctorWarning(
+                code="missing_agent_profile_directories",
+                message="No configured agent profile directories were found.",
+            )
+        )
+    default_agent_warning = _configured_default_agent_doctor_warning(
+        code="configured_primary_agent_unavailable",
         repo_root=runtime.repo_root,
         configured_agent=runtime.config.primary_agent,
         builtin_default="meridian-default-orchestrator",
@@ -155,7 +176,8 @@ def doctor_sync(payload: DoctorInput) -> DoctorOutput:
     )
     if default_agent_warning is not None:
         warnings.append(default_agent_warning)
-    subagent_warning = configured_default_agent_warning(
+    subagent_warning = _configured_default_agent_doctor_warning(
+        code="configured_subagent_unavailable",
         repo_root=runtime.repo_root,
         configured_agent=runtime.config.default_agent,
         builtin_default="meridian-subagent",
@@ -167,17 +189,26 @@ def doctor_sync(payload: DoctorInput) -> DoctorOutput:
     if legacy_install_artifacts is not None:
         warnings.append(legacy_install_artifacts)
 
-    outdated_dependencies_warning: UpgradeAvailability | None = None
-    updates_check_warning: str | None = None
     availability = check_upgrade_availability(runtime.repo_root)
     if availability is None:
-        updates_check_warning = (
-            "Could not check for dependency updates (`mars outdated --json` failed)."
+        warnings.append(
+            DoctorWarning(
+                code="updates_check_failed",
+                message="Could not check for dependency updates (`mars outdated --json` failed).",
+            )
         )
-        warnings.append(updates_check_warning)
     elif availability.count > 0:
-        outdated_dependencies_warning = availability
-        warnings.append(_format_outdated_dependencies_warning(availability))
+        warning_lines = format_upgrade_availability(availability, style="warning")
+        warnings.append(
+            DoctorWarning(
+                code="outdated_dependencies",
+                message="\n".join(warning_lines),
+                payload={
+                    "within_constraint": list(availability.within_constraint),
+                    "beyond_constraint": list(availability.beyond_constraint),
+                },
+            )
+        )
 
     running = [
         row.id
@@ -185,7 +216,13 @@ def doctor_sync(payload: DoctorInput) -> DoctorOutput:
         if is_active_spawn_status(row.status)
     ]
     if running:
-        warnings.append("Active spawns still present: " + ", ".join(running))
+        warnings.append(
+            DoctorWarning(
+                code="active_spawns_present",
+                message="Active spawns still present: " + ", ".join(running),
+                payload={"spawn_ids": running},
+            )
+        )
 
     return DoctorOutput(
         ok=not warnings,
@@ -194,8 +231,6 @@ def doctor_sync(payload: DoctorInput) -> DoctorOutput:
         agents_dir=agents_dir.as_posix(),
         skills_dir=skills_dir.as_posix(),
         warnings=tuple(warnings),
-        outdated_dependencies_warning=outdated_dependencies_warning,
-        updates_check_warning=updates_check_warning,
         repaired=tuple(sorted(set(repaired))),
     )
 

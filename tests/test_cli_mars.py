@@ -57,6 +57,140 @@ def test_resolve_mars_executable_uses_symlink_parent_not_resolved_parent(
     assert resolved == str(tool_bin / "mars")
 
 
+def test_parse_mars_passthrough_builds_sync_json_request() -> None:
+    request = cli_main._parse_mars_passthrough(
+        ["--root", "/tmp/demo", "sync"],
+        output_format="json",
+        executable="/usr/bin/mars",
+    )
+
+    assert request.command == ("/usr/bin/mars", "--json", "--root", "/tmp/demo", "sync")
+    assert request.mars_args == ("--json", "--root", "/tmp/demo", "sync")
+    assert request.is_sync is True
+    assert request.wants_json is True
+    assert request.root_override == Path("/tmp/demo")
+
+
+def test_execute_mars_passthrough_captures_json_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request = cli_main._MarsPassthroughRequest(
+        command=("/usr/bin/mars", "--json", "sync"),
+        mars_args=("--json", "sync"),
+        is_sync=True,
+        wants_json=True,
+        root_override=None,
+    )
+
+    def _fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        assert command == ["/usr/bin/mars", "--json", "sync"]
+        assert kwargs.get("capture_output") is True
+        assert kwargs.get("text") is True
+        return subprocess.CompletedProcess(
+            args=command,
+            returncode=7,
+            stdout='{"ok": false}\n',
+            stderr="warning",
+        )
+
+    monkeypatch.setattr(cli_main.subprocess, "run", _fake_run)
+
+    result = cli_main._execute_mars_passthrough(request)
+
+    assert result.returncode == 7
+    assert result.stdout_text == '{"ok": false}\n'
+    assert result.stderr_text == "warning"
+
+
+def test_execute_mars_passthrough_streams_text_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request = cli_main._MarsPassthroughRequest(
+        command=("/usr/bin/mars", "sync"),
+        mars_args=("sync",),
+        is_sync=True,
+        wants_json=False,
+        root_override=None,
+    )
+
+    def _fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        assert command == ["/usr/bin/mars", "sync"]
+        assert "capture_output" not in kwargs
+        assert "text" not in kwargs
+        return subprocess.CompletedProcess(args=command, returncode=3, stdout="", stderr="")
+
+    monkeypatch.setattr(cli_main.subprocess, "run", _fake_run)
+
+    result = cli_main._execute_mars_passthrough(request)
+
+    assert result.returncode == 3
+    assert result.stdout_text == ""
+    assert result.stderr_text == ""
+
+
+def test_augment_sync_result_prints_hint_lines_in_text_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    request = cli_main._MarsPassthroughRequest(
+        command=("/usr/bin/mars", "sync"),
+        mars_args=("sync",),
+        is_sync=True,
+        wants_json=False,
+        root_override=Path("/tmp/repo"),
+    )
+    result = cli_main._MarsPassthroughResult(request=request, returncode=0)
+    monkeypatch.setattr(
+        cli_main,
+        "check_upgrade_availability",
+        lambda *_args, **_kwargs: mars_ops.UpgradeAvailability(
+            within_constraint=("meridian-base",),
+        ),
+    )
+
+    cli_main._augment_sync_result(result, output_format="text")
+
+    captured = capsys.readouterr()
+    assert "hint: 1 update available within your pinned constraint: meridian-base." in (
+        captured.out
+    )
+    assert "Run `meridian mars upgrade` to apply." in captured.out
+
+
+def test_augment_sync_result_injects_hint_in_json_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    request = cli_main._MarsPassthroughRequest(
+        command=("/usr/bin/mars", "--json", "sync"),
+        mars_args=("--json", "sync"),
+        is_sync=True,
+        wants_json=True,
+        root_override=None,
+    )
+    result = cli_main._MarsPassthroughResult(
+        request=request,
+        returncode=0,
+        stdout_text='{"ok": true}\n',
+    )
+    monkeypatch.setattr(
+        cli_main,
+        "check_upgrade_availability",
+        lambda *_args, **_kwargs: mars_ops.UpgradeAvailability(
+            beyond_constraint=("meridian-base",),
+        ),
+    )
+
+    cli_main._augment_sync_result(result, output_format="json")
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["upgrade_hint"] == {
+        "within_constraint": [],
+        "beyond_constraint": ["meridian-base"],
+    }
+
+
 def test_run_mars_passthrough_sync_detects_exact_pin_beyond_constraint_in_text_mode(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
