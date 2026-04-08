@@ -250,7 +250,8 @@ The shell loads agents and skills out of `.agents/` via the existing
 agent format.** This is the seam where the biomedical persona attaches to a
 generic shell — see [agent-loading.md](./agent-loading.md) for how the
 resolved profile + skills feed into the long-lived Claude Code adapter via
-`--agents` and `--append-system-prompt`.
+`--append-system-prompt` (profile + skills merged) and `--mcp-config`
+(shell-owned tools).
 
 **Domain pivot story.** Pivoting away from biomedical = ship a new source
 submodule (e.g. `meridian-legal-agents/`) with its own agents + skills +

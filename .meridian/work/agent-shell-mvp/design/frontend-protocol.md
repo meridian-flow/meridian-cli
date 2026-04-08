@@ -98,11 +98,19 @@ control frame **before any other traffic**. The frontend treats it as a
       "supports_interactive_tools": true,
       "supports_binary_mesh_frames": true
     },
+    "resumed": false,
     "serverProtocolVersion": "1.0.0",
     "minClientProtocolVersion": "1.0.0"
   }
 }
 ```
+
+`resumed` is `true` if this `SESSION_HELLO` is the result of a reconnect
+that landed inside the in-memory replay window (V0) or rehydrated a
+durably persisted session (V1). It is `false` for fresh sessions and for
+reconnects that arrived after the replay window expired (in which case
+the client should treat the prior session as cancelled — see §9.3 and
+§10).
 
 The frontend MUST receive `SESSION_HELLO` before sending any client→server
 command. If the first inbound frame is anything else, the client logs a
@@ -121,9 +129,10 @@ Meridian-specific heartbeat layered on top.
 On reconnect the client re-opens the same URL and waits for a fresh
 `SESSION_HELLO`. V0 has one session per backend process and one work item per
 process. Reconnect within the server's 30-second in-memory replay window uses
-the same `sessionId` and replays buffered events from the client's last seen
-`seq`. After that window, the server emits `SESSION_RESYNC` and the client
-dispatches `RESET` against the current live session view.
+the same `sessionId`, sets `SESSION_HELLO.resumed = true`, and replays
+buffered events from the client's last seen `seq`. After that window, the
+server emits `SESSION_HELLO` with `resumed = false` followed by
+`SESSION_RESYNC`, and the client dispatches `RESET`.
 
 ```json
 {
@@ -131,17 +140,35 @@ dispatches `RESET` against the current live session view.
   "op": "session_resync",
   "payload": {
     "sessionId": "sess_01HZX...",
+    "abandonedTurnId": "turn_42",
     "stateDigest": {
-      "activeTurnId": "turn_42",
-      "lastSeqByTurn": { "turn_42": 137 }
+      "activeTurnId": null,
+      "lastSeqByTurn": {}
     }
   }
 }
 ```
 
-V1 may add durable resume on top of the same shape. The reconnect requirement
-that matters now is simple: the client always includes its last seen `seq`,
-and the server either replays buffered events or emits `SESSION_RESYNC`.
+**V0 SESSION_RESYNC semantics: the active turn is abandoned, not rehydrated.**
+The in-memory replay buffer is the only source of truth for streamed
+text/tool/output content; once it's gone, the client cannot reconstruct
+the partial turn from a digest. The `abandonedTurnId` field tells the
+client which turn to mark `cancelled` in its local activity stream so
+the user can re-send. This is intentional and acceptable for V0 — the
+work-item file layout still records any tool side effects, so the user
+hasn't lost work, only the conversation transcript for that one turn.
+
+V1 with durable session persistence may rehydrate the active turn instead
+of abandoning it. That path uses the same `SESSION_RESYNC` envelope but
+populates `stateDigest.lastSeqByTurn` with the resume cursor and omits
+`abandonedTurnId`; the client backfills via `subscribe_turn` rather than
+resetting. The wire shape accommodates both paths so V1 doesn't need a
+new event type.
+
+The reconnect requirement that matters now is simple: the client always
+includes its last seen `seq`, and the server either replays buffered events
+(within the 30s window, `resumed=true`), or emits `SESSION_RESYNC` with
+`abandonedTurnId` (after the window, `resumed=false`).
 
 ## 3. Message envelope
 
@@ -495,6 +522,15 @@ frontend-v2 main. agent-shell V0 must:
 3. Add `SESSION_HELLO` handling at the `WsClient`/provider layer (out of band
    from `StreamState`).
 4. Add a default `_unknown` branch that logs and returns state unchanged.
+5. **Mid-turn composer state.** Add reducer cases for:
+   - dispatching `INJECT_USER_MESSAGE` (composer enters "injecting" state),
+   - `MESSAGE_QUEUED` (composer shows the pending pill — "queued for next
+     turn"),
+   - `INTERRUPT_ACK` (clear any in-flight inject UI when the harness
+     confirms an interrupt landed).
+   These are necessary because mid-turn injection is now V0 tier-1 (every
+   adapter ships with a non-`none` `mid_turn_injection` mode); see
+   `event-flow.md` §6 for the wire flow.
 
 This is a small, well-scoped change to `reducer.ts` and `types.ts`. It is the
 ONLY mandatory frontend-v2 reducer change for V0.
@@ -590,6 +626,16 @@ The point of this design is **the transition from one harness to another
 does not require frontend code changes**. The mid-turn composer is enabled
 on every adapter from V0 (Claude Code is `queue`); when Codex or OpenCode
 land in V1 the only thing that changes is the per-mode hint string.
+
+#### Layering note: shell-level vs adapter-level capabilities
+
+`supports_interactive_tools` and `supports_binary_mesh_frames` are
+**shell-level** capabilities, not properties of any particular `HarnessAdapter`
+— they describe what the meridian shell + gateway can do, not what the
+underlying harness supports. They are therefore **not** fields on
+`HarnessCapabilities` (`harness-abstraction.md` §3.2). The gateway merges
+shell-level flags onto the adapter-level flags before emitting
+`SESSION_HELLO`. The merged blob is what the frontend sees.
 
 Claude Code adapter capabilities for V0:
 

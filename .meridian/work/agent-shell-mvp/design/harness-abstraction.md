@@ -311,18 +311,23 @@ class HarnessSender(Protocol):
 
     async def send_user_message(
         self,
-        text: str,
+        content: tuple[ContentBlock, ...],
         *,
-        attachments: tuple[Attachment, ...] = (),
+        message_id: str,
+        previous_turn_id: str | None = None,
         command_id: str | None = None,
     ) -> CommandAck:
-        """Standard user turn input. Always supported."""
+        """Standard user turn input. Always supported. `content` is a
+        content-block array (text + image + file blocks) carried verbatim
+        from the frontend wire shape; the adapter packages it for its
+        harness's native transport."""
         ...
 
     async def inject_user_message(
         self,
-        text: str,
+        content: tuple[ContentBlock, ...],
         *,
+        message_id: str,
         command_id: str | None = None,
     ) -> CommandAck:
         """User message while a turn is in flight. Tier-1 capability —
@@ -390,10 +395,17 @@ class HarnessSender(Protocol):
         ...
 ```
 
-`Attachment` is a small carrier (path + mime type) — see
-[frontend-protocol.md](./frontend-protocol.md) for shape. It is **not**
-content-block-shaped; the adapter is responsible for packaging it however its
-underlying transport requires.
+`ContentBlock` is a tagged union of `{type:"text", text:str}`,
+`{type:"image", source:{path, mime}}`, and `{type:"file", source:{path, mime}}`
+— matching the frontend wire shape in `frontend-protocol.md` §5.1 exactly.
+The normalized `UserMessage` carries this array verbatim; the translator is
+rename-only (see `event-flow.md` §2) and does not repackage it. Each adapter
+then packages the content-block array into its harness's native transport:
+Claude Code emits NDJSON `user` messages with the same block shape, Codex
+`app-server` maps blocks to JSON-RPC `turn/start` args, OpenCode serializes
+to its HTTP `parts` array. Attachments are thus **part of** the content-block
+array, not a parallel carrier — one type survives the full path from browser
+to harness.
 
 `command_id` is caller-supplied so the backend can correlate `CommandAck`
 and downstream events back to a specific UI action. Adapters must never
@@ -703,13 +715,15 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class UserMessage:
-    text: str
-    attachments: tuple[Attachment, ...] = ()
+    message_id: str
+    content: tuple[ContentBlock, ...]        # text + image + file blocks
+    previous_turn_id: str | None = None
     command_id: str | None = None
 
 @dataclass(frozen=True)
 class MidTurnInject:
-    text: str
+    message_id: str
+    content: tuple[ContentBlock, ...]
     command_id: str | None = None
 
 @dataclass(frozen=True)
@@ -865,7 +879,6 @@ claude --input-format stream-json
        --verbose
        -p ""
        --model <model>
-       [--agents <adhoc-payload>]
        [--append-system-prompt <system-prompt>]
        [--mcp-config <tool-config.json>]
        [--permission-mode <mode>]    # capability-gated, see §7.4
@@ -995,7 +1008,12 @@ features, but the adapter reports only what is actually implemented:
    `--permission-mode bypassPermissions` in V0.
 3. `supports_session_persistence=False`, `supports_session_resume=False`, and
    `supports_session_fork=False`. V0 is single-process and drop-on-restart,
-   regardless of any Claude-internal session artifacts.
+   regardless of any Claude-internal session artifacts. **However**, the
+   adapter still **captures Claude's internal session id** from the first
+   `system.init` NDJSON frame and persists it on `SessionState`. This is
+   zero-cost in V0 (just a field write) and unblocks V1's `claude --resume
+   <id>` story without requiring an adapter rewrite. The capability flag
+   stays false until V1 actually wires the resume path.
 
 The abstract methods stay in the interface from day one. Unsupported V0
 methods raise `CapabilityNotSupported`, which keeps the interface stable while
@@ -1121,6 +1139,15 @@ server; the adapter filters by `session_id == self._sid`. This is one of
 the few opencode-specific quirks worth flagging — it leaks server-wide
 state into a per-session adapter, and the filter must be tight.
 
+**Scaling note (V0 only).** With one OpenCode session per shell process the
+per-adapter SSE subscription is fine. When/if a single shell hosts multiple
+concurrent OpenCode sessions (V1+), the per-session subscription pattern
+becomes O(N²) — every adapter holds a SSE stream of all sessions and
+discards N-1 of them. The V1+ fix is to **hoist `/global/event` into a
+process-singleton** and fan out by `session_id` to per-session queues.
+Out of scope for V0; flagged here so the V1 reviewer doesn't need to
+re-derive it.
+
 ### 8.5 Capability declaration
 
 ```python
@@ -1213,7 +1240,7 @@ async def start(self, params: StartParams) -> SessionHandle:
 | `approve_tool(req_id)` | Reply to the in-flight `item/*/requestApproval` request with `{decision:"approve"}` |
 | `deny_tool(req_id)` | Reply to the in-flight `item/*/requestApproval` request with `{decision:"deny"}` |
 | `cancel_tool(...)` | Not supported. Capability `cancel_tool=False`. |
-| `submit_tool_result(...)` | Not directly applicable — codex `app-server` runs its own command/file/MCP execution and reports via `item/commandExecution`, `item/fileChange`, `item/mcpToolCall`. The shell's `ToolExecutionCoordinator` only intercepts the meridian-shell-owned tools (python kernel, interactive viewers); codex-internal tools flow back to codex without round-tripping through us. |
+| `submit_tool_result(tool_call_id, result_payload, status)` | Shell-owned tools (`python` kernel, interactive PyVista viewers, etc.) are registered with the codex thread as **MCP tools** at `thread/start` time, mirroring the `--mcp-config` path that ClaudeCodeAdapter uses. The codex `item/mcpToolCall` notification is the inbound side; the adapter responds to the in-flight MCP tool request with the normalized result payload via the same JSON-RPC reply channel. This keeps the shell-owned tool contract identical across all three adapters: `ToolExecutionCoordinator` runs the tool and calls `submit_tool_result()`, the adapter picks the wire mechanism (Claude `tool_result` stdin frame, codex MCP reply, opencode `POST /tool_result`). Codex-internal commands (`item/commandExecution`, `item/fileChange`) that the model invokes outside our MCP surface flow back to codex without round-tripping through us — those are not shell-owned tools and never reach `ToolExecutionCoordinator`. |
 
 ### 9.4 Receiver → JSON-RPC notifications
 
@@ -1251,6 +1278,40 @@ CodexAppServerAdapter.capabilities = HarnessCapabilities(
     display_name            = "Codex",
 )
 ```
+
+### 9.5.1 The shell-owned tool bridge (the load-bearing part)
+
+The biomedical workflow depends on a **persistent Python kernel that
+survives across turns** (4 GB DICOM volumes do not get re-loaded per cell).
+Codex `app-server` runs its own command/file execution out of the box, but
+the shell needs Codex's invocation of `python` (and the interactive
+viewers) to land in our `ToolExecutionCoordinator` so the persistent kernel
+and `result_helper` capture flow stay intact.
+
+**The bridge is MCP.** At `thread/start` time, the adapter registers the
+shell-owned tools (`python`, `bash`, `pick_points_on_mesh`,
+`pick_box_on_volume`, etc.) as MCP tools advertised to the codex thread.
+When Codex invokes one of these, it surfaces as an `item/mcpToolCall`
+notification, the adapter routes it through the normalized `ToolCallStart` /
+`ToolCallEnd` events, `ToolExecutionCoordinator` runs the tool against the
+persistent kernel, and the result returns via `submit_tool_result()` →
+the adapter's MCP reply on the same JSON-RPC channel.
+
+This is the same shape as ClaudeCodeAdapter's `--mcp-config` path: shell
+tools live behind one MCP surface that every adapter can register. Codex's
+own command/file execution (`item/commandExecution`, `item/fileChange`)
+remains for things the model calls **outside** our MCP surface — those are
+not shell-owned tools and never reach `ToolExecutionCoordinator`.
+
+**Why this matters for the V1 swap claim.** The "adding a new adapter is
+one file" promise only holds if the new harness honors this MCP bridge.
+Codex `app-server` does (it has first-class MCP support). A hypothetical
+future harness that does not expose an MCP-equivalent registration surface
+cannot serve as a tier-1 adapter for the biomedical use case without
+inventing a substitute bridge — that would be a much bigger lift than one
+new adapter file. The interface stays neutral; the bridge requirement is
+documented honestly here so future adapter authors know what they're
+signing up for.
 
 ### 9.6 Known gaps from companion's integration (acceptable for V1)
 
@@ -1337,8 +1398,13 @@ failure modes below has a concrete handling rule, not "TODO".
 ### 11.2 Harness hangs (no output for N seconds)
 
 - The adapter emits `HarnessHeartbeat` on a 5s timer if it hasn't emitted
-  any other event. The gateway forwards heartbeats to the frontend so the
-  WebSocket stays warm and the user sees an "agent is thinking" indicator.
+  any other event. **Heartbeats do not consume `seq` in the gateway's
+  reconnect buffer** — the gateway compresses runs of heartbeats and the
+  frontend reducer treats `HarnessHeartbeat` as silent (no state mutation,
+  just a "still alive" tick). This keeps the 30s reconnect window from
+  filling with heartbeat noise on long-running tool calls. The gateway
+  forwards a heartbeat to the WebSocket so the connection stays warm and
+  the user sees an "agent is thinking" indicator.
 - If silence exceeds a configurable threshold (default 120s), `health()`
   flips to `DEGRADED` and the gateway sends a soft warning. We do **not**
   auto-kill — biomedical analysis legitimately takes minutes for some tool

@@ -71,7 +71,7 @@ Frontend-side wire **commands** (browser → backend):
 
 | Wire command | Payload |
 |---|---|
-| `SEND_USER_MESSAGE` | `{ text, attachments?, turnId? }` |
+| `SEND_USER_MESSAGE` | `{ messageId, content: [ContentBlock...], turnHints?: { previousTurnId? } }` — see `frontend-protocol.md` §5.1 for the canonical shape. `content` is an array so the composer can attach images/files alongside text. |
 | `CANCEL_TURN` | `{ turnId }` |
 | `APPROVE_TOOL` | `{ toolCallId, decision: "allow" \| "deny", remember? }` |
 | `INJECT_USER_MESSAGE` (V0, tier-1) | `{ turnId, text }` — backend dispatches to `HarnessSender.inject_user_message()`; the adapter's `mid_turn_injection` mode (`queue` / `interrupt_restart` / `http_post`) determines wire mechanism |
@@ -149,7 +149,6 @@ sequenceDiagram
   participant XL as FrontendTranslator
   participant RT as EventRouter
   participant TO as TurnOrchestrator
-  participant RT as EventRouter
   participant TC as ToolExecutionCoordinator
   participant CCA as ClaudeCodeAdapter
   participant CC as claude subprocess<br/>(stream-json)
@@ -157,7 +156,7 @@ sequenceDiagram
   participant FS as work-item dir
 
   U->>FE: types question, hits send
-  FE->>WS: SEND_USER_MESSAGE<br/>{text, turnId?}
+  FE->>WS: SEND_USER_MESSAGE<br/>{messageId, content[], turnHints?}
   WS->>XL: WireCommand
   XL->>TO: NormalizedCommand.UserMessage
   TO->>RT: resolve active adapter
@@ -223,16 +222,20 @@ sequenceDiagram
 1. **Keystroke.** Dad types `Run preprocessing on the femur DICOM stack` and
    hits enter.
 2. **Composer dispatch.** The chat composer calls the WS client's
-   `sendUserMessage(text)` action. The client wraps it in the AG-UI envelope
+   `sendUserMessage(content)` action. The client wraps it in the AG-UI envelope
    `{ kind:"control", op:"send_user_message", resource:"turn",
    subId:<currentSubId>, seq:N, payload:{type:"SEND_USER_MESSAGE",
-   text, turnId:null} }` and writes it to the open WebSocket.
+   messageId:"msg_user_7", content:[{type:"text", text:"..."}],
+   turnHints:{previousTurnId:"turn_41"}} }` and writes it to the open
+   WebSocket. The canonical shape is defined in `frontend-protocol.md` §5.1.
 3. **WS Gateway receive.** FastAPI receives the frame, decodes envelope,
    validates `seq` is monotonic for the `subId`, and hands the inner payload
    to the translator with the `subId`/session context attached.
 4. **Translator inbound.** `FrontendTranslator.handle_wire_command` matches on
    `payload.type == "SEND_USER_MESSAGE"` and constructs
-   `NormalizedCommand.UserMessage(text=...)`.
+   `NormalizedCommand.UserMessage(message_id=..., content=[...],
+   previous_turn_id=...)`, passing the content-block array through unchanged
+   (translator is rename-only; see §2).
 5. **Turn orchestration.** `TurnOrchestrator` allocates `turn_id`, records the
    active turn in `SessionState`, resolves the session's bound adapter through
    `EventRouter`, and calls `adapter.sender.send_user_message(...)`.
@@ -531,6 +534,31 @@ the same UX renders with an "interrupting current turn" indicator instead.
 The composer's **Stop** button still goes through §7 if the user wants to
 cancel rather than queue.
 
+### 6.2.1 Local tool cancellation in `interrupt_restart` mode
+
+When the active adapter's mode is `interrupt_restart` (Codex), an
+`INJECT_USER_MESSAGE` cancels the current turn before starting the new
+one. **Any in-flight shell-owned tool must be cancelled in lockstep**, or
+a stale `tool_result` from the old tool will land after the new turn has
+already started.
+
+The `TurnOrchestrator` enforces this:
+
+1. Receive `INJECT_USER_MESSAGE` for a turn whose adapter is `interrupt_restart`.
+2. If `ToolExecutionCoordinator` is currently executing a tool for this
+   turn, dispatch a local cancel through the same channel as §7's
+   interrupt flow (kernel `kernel.interrupt()`, interactive subprocess
+   SIGTERM). Wait for the local tool to acknowledge.
+3. Call `adapter.inject_user_message(text)`. The adapter sends
+   `turn/interrupt` then `turn/start`.
+4. Any late `tool_result` from the cancelled tool is dropped at the
+   coordinator (it sees the turn id is no longer active).
+
+`queue` and `http_post` modes do **not** cancel in-flight local tools —
+the queued/posted message is delivered when the harness next picks it up,
+which respects the in-flight tool's natural completion. Only
+`interrupt_restart` triggers the local-cancel cascade.
+
 ### 6.3 CLI side: `meridian spawn inject` is a V0 command
 
 `meridian spawn inject <spawn_id> "message"` is a V0 CLI command per
@@ -654,7 +682,11 @@ no-op on:
 | `SESSION_RESUMED` | After reconnect, signals that a prior session has been rehydrated |
 | `MESSAGE_HISTORY` | Bulk history snapshot on resume (used by Companion-style replay) |
 | `SESSION_RESYNC` | Reconnect buffer expired; frontend must reset to the current server view |
-| `MESSAGE_QUEUED` | Mid-turn injection queue ack (see §6.3) |
+
+> Note: `MESSAGE_QUEUED` is **V0 tier-1**, not a V1 hook. The Claude V0
+> adapter (mode `queue`) emits it as the ack for an inbound
+> `INJECT_USER_MESSAGE`. See §6 for the wire shape. *(Corrected by p1135;
+> earlier draft listed it as V1-only.)*
 
 V1 will likely persist sessions to a SQLite store under
 `.meridian/work/<id>/sessions/` (matching the meridian-channel files-as-authority
@@ -685,9 +717,21 @@ is the spec to come back to.
 - **V0**: Multiple tabs share the **same session** because the work item is
   the process identity. SessionManager fans out events to all subscribers
   bound to that process.
-- **Risk**: both tabs sending `SEND_USER_MESSAGE` to the same session. V0
-  takes the §6 `agent_busy` path if a turn is active; otherwise last command
-  wins.
+- **Risk**: both tabs sending `SEND_USER_MESSAGE` to the same session.
+- **V0 rule**: `SEND_USER_MESSAGE` is only valid while the session has **no
+  active turn**. If a turn is active, the TurnOrchestrator rejects the
+  command with a typed error (`INVALID_STATE: turn_active; use
+  INJECT_USER_MESSAGE`) and the frontend surfaces it as a composer hint.
+  The `agent_busy` path from §6 is reserved for adapters whose
+  `mid_turn_injection="none"` — no V0 adapter ships in that mode, so in
+  practice V0 always has a valid path: `SEND_USER_MESSAGE` when idle,
+  `INJECT_USER_MESSAGE` when a turn is active. The second tab picks the
+  right verb based on its own SESSION_HELLO-derived view of turn state.
+- **Race window**: if two tabs both dispatch `SEND_USER_MESSAGE` while both
+  still believe the session is idle, the orchestrator processes them
+  sequentially — the first allocates a turn, the second sees the active
+  turn and is rejected as above. The second tab's user can retry as an
+  inject.
 - **Recommendation**: V0 ships with a soft warning ("Another tab is connected
   to this session") rather than a hard mutex.
 

@@ -164,9 +164,22 @@ The @planner should decompose this into ordered phases. Suggested shape — not 
 
 ### V1 (post-validation)
 - OpenCode adapter (HTTP/ACP) + flip capability flags
-- Mid-turn injection, permission gating, session persistence
+- Codex `app-server` adapter (JSON-RPC stdio), including shell-owned tool
+  bridge via MCP (see harness-abstraction §9.5.1)
+- Permission gating, session persistence (Claude resume by captured session id)
 - No-terminal launcher bundle
 - Work-item picker / multi-work-item routing
+- **Phase V1-Q7: route `meridian spawn` through the session HarnessAdapter
+  family.** Not trivial. Today, `meridian spawn` is single-shot (process
+  exits → read `report.md`); session adapters are event-streamed
+  (stdout notifications, lifecycle `start`/`interrupt`/`finish`). Every
+  dev-orchestration caller (planner/coder/reviewer/verifier) currently
+  depends on the single-shot contract transparently. Unifying requires:
+  (a) a "single-shot over session adapter" shim that blocks until a
+  `RunFinished` event and writes a synthesized `report.md`; (b) rethinking
+  `spawn wait` semantics; (c) a compatibility pass across the entire
+  dev-orchestration caller set. Scope this as a dedicated V1 phase, not
+  a line item inside another phase. See Q7 for the motivation.
 
 ### Parallelism opportunities for @planner
 - Phase 3 (frontend) can start in parallel with Phase 2 (backend harness) once the wire protocol is frozen at end of Phase 1.
@@ -184,7 +197,7 @@ The @planner should decompose this into ordered phases. Suggested shape — not 
 
 ## 4. Residual risks to carry into implementation
 
-1. **Claude stream-json is partly reverse-engineered.** Phase 2 must budget for protocol discovery and build a parity test harness early.
+1. **Claude stream-json is partly reverse-engineered, including the Q6 mid-turn `queue` mode.** Phase 2 must budget for protocol discovery and build a parity test harness early. **Phase 1.5 verification spike (added by p1135 review):** before locking Q6 as V0, run a one-day spike on a real `claude --input-format stream-json` subprocess that exercises (a) `-p ""` + first NDJSON handshake, (b) writing a second `user` NDJSON line during a tool-call streaming window, (c) writing a `user` NDJSON line during text streaming. If any leg fails, ClaudeCodeAdapter ships V0 with `mid_turn_injection="none"` instead of `"queue"` — the abstraction still holds, but the V0 composer affordance flips to disabled-mid-turn until codex or opencode lands. The Phase 1.5 spike protects Q6 from being cargo-culted from companion's reverse-engineering.
 2. **Biomedical skill corpus is the product, not the plumbing.** The current `data-analyst` profile is a thin persona. Phase 7 is the actual validation bottleneck.
 3. **PyVista/VTK stability over long sessions is assumed.** Add explicit crash-recovery paths in Phase 6.
 4. **No-terminal launcher deferred.** Dad's first session will be developer-mediated. Revisit after Phase 7.

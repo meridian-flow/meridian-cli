@@ -142,9 +142,9 @@ Reuses meridian-channel's existing `.agents/` machinery (mars sync,
 `launch/prompt.py`). The shell does **not** invent a parallel agent registry.
 At session start the backend resolves the configured agent profile (e.g.
 `data-analyst`), pulls its skill set, and feeds the result through the harness
-adapter's existing prompt-policy lanes (Claude Code: profile body via
-`--agents`, skills via `--append-system-prompt`; opencode: agent + skills via
-the HTTP `system` field on session creation). This is the seam where the
+adapter's existing prompt-policy lanes (Claude Code: profile body and skills
+merged into `--append-system-prompt`, shell tools via `--mcp-config`; opencode:
+agent + skills via the HTTP `system` field on session creation). This is the seam where the
 biomedical persona and biomedical skills attach to a generic shell.
 
 ### Interactive tool protocol — [interactive-tool-protocol.md](./interactive-tool-protocol.md)
@@ -218,8 +218,8 @@ Concrete walkthrough. Numbers cross-reference §3 components.
 4. `ClaudeCodeAdapter` writes a stream-json `user` message to its long-lived
    `claude --input-format stream-json` subprocess's stdin. The subprocess was
    started at session creation (§3 agent loading) with the data-analyst profile
-   wired in via `--agents` and biomedical skills wired in via
-   `--append-system-prompt`.
+   and biomedical skills merged into `--append-system-prompt`, plus shell-owned
+   tools exposed via `--mcp-config`.
 5. Claude Code emits stream-json events back on stdout — `message_start`,
    `content_block_start`, `content_block_delta` (assistant text), then
    `tool_use` blocks for `python` calls.
