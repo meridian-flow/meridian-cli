@@ -33,6 +33,7 @@ class HarnessCapabilities(BaseModel):
     supports_native_agents: bool = False
     supports_programmatic_tools: bool = False
     supports_primary_launch: bool = False
+    supports_bidirectional: bool = False
     reference_input_mode: Literal["inline", "paths"] = "paths"
 
 
