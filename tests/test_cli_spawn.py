@@ -1,6 +1,7 @@
 import importlib
 import io
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -384,3 +385,64 @@ def test_spawn_continue_with_explicit_prompt_is_allowed(
     assert captured["prompt"] == "new prompt"
     assert emitted[0].status == "dry-run"
     assert emitted[0].command == "spawn.continue"
+
+
+def test_spawn_create_reads_passthrough_from_global_options(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, tuple[str, ...]] = {}
+
+    def _fake_spawn_create_sync(
+        payload: SpawnCreateInput,
+        *,
+        sink=None,
+    ) -> SpawnActionOutput:
+        _ = sink
+        captured["passthrough"] = payload.passthrough_args
+        return SpawnActionOutput(command="spawn.create", status="dry-run")
+
+    monkeypatch.setattr(spawn_cli, "spawn_create_sync", _fake_spawn_create_sync)
+    monkeypatch.setattr(spawn_cli, "current_output_sink", lambda: None)
+    monkeypatch.setattr(
+        spawn_cli,
+        "get_global_options",
+        lambda: SimpleNamespace(harness=None, passthrough_args=("--add-dir", "/foo")),
+    )
+    monkeypatch.setattr(spawn_cli.sys, "stdin", _FakeStdin("", is_tty=True))
+
+    spawn_cli._spawn_create(lambda _payload: None, prompt="literal prompt")
+
+    assert captured["passthrough"] == ("--add-dir", "/foo")
+
+
+def test_spawn_continue_reads_passthrough_from_global_options(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, tuple[str, ...]] = {}
+
+    def _fake_spawn_continue_sync(
+        payload: SpawnContinueInput,
+        *,
+        sink=None,
+    ) -> SpawnActionOutput:
+        _ = sink
+        captured["passthrough"] = payload.passthrough_args
+        return SpawnActionOutput(command="spawn.continue", status="dry-run")
+
+    monkeypatch.setattr(spawn_cli, "spawn_continue_sync", _fake_spawn_continue_sync)
+    monkeypatch.setattr(spawn_cli, "current_output_sink", lambda: None)
+    monkeypatch.setattr(
+        spawn_cli,
+        "get_global_options",
+        lambda: SimpleNamespace(harness=None, passthrough_args=("--add-dir", "/foo")),
+    )
+    monkeypatch.setattr(spawn_cli.sys, "stdin", _FakeStdin("", is_tty=True))
+
+    spawn_cli._spawn_create(
+        lambda _payload: None,
+        continue_from="p1",
+        prompt="new prompt",
+        dry_run=True,
+    )
+
+    assert captured["passthrough"] == ("--add-dir", "/foo")

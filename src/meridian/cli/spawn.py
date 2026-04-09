@@ -128,12 +128,6 @@ def _spawn_create(
             allow_leading_hyphen=True,
         ),
     ] = None,
-    *passthrough: Annotated[
-        str,
-        Parameter(
-            help="Extra arguments passed directly to the harness (place after --).",
-        ),
-    ],
     template_vars: Annotated[
         tuple[str, ...],
         Parameter(
@@ -272,6 +266,9 @@ def _spawn_create(
         Parameter(name="--fork", help="Fork from a session or spawn reference."),
     ] = None,
 ) -> None:
+    # Passthrough lives on GlobalOptions, not a function parameter — see
+    # _split_passthrough_args() for why cyclopts can't handle ``--`` correctly.
+    passthrough = get_global_options().passthrough_args
     global_harness = get_global_options().harness
     resolved_continue_from = (continue_from or "").strip() or None
 

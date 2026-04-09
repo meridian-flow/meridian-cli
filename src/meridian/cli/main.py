@@ -88,6 +88,7 @@ class GlobalOptions(BaseModel):
     no_input: bool = False
     output_explicit: bool = False
     force_human: bool = False
+    passthrough_args: tuple[str, ...] = ()
     sink: OutputSink | None = None
 
 
@@ -316,6 +317,23 @@ def _extract_global_options(argv: Sequence[str]) -> tuple[list[str], GlobalOptio
     )
 
 
+def _split_passthrough_args(argv: Sequence[str]) -> tuple[list[str], tuple[str, ...]]:
+    """Split args at ``--`` so cyclopts never sees passthrough tokens.
+
+    Workaround for a cyclopts bug: tokens after ``--`` are supposed to be
+    positional-only, but cyclopts still assigns them to unfilled named
+    parameters (e.g. ``--prompt`` absorbs ``--add-dir``).  We strip ``--``
+    and everything after it before cyclopts parses, stash the passthrough
+    tokens on ``GlobalOptions.passthrough_args``, and have handlers read
+    them from there instead of from a ``*passthrough`` function parameter.
+    """
+
+    if "--" not in argv:
+        return list(argv), ()
+    sep_idx = list(argv).index("--")
+    return list(argv[:sep_idx]), tuple(argv[sep_idx + 1 :])
+
+
 def agent_mode_enabled() -> bool:
     return int(os.getenv("MERIDIAN_DEPTH", "0")) > 0
 
@@ -343,14 +361,6 @@ app = App(
 
 @app.default
 def root(
-    *passthrough: Annotated[
-        str,
-        Parameter(
-            help="Harness passthrough arguments.",
-            allow_leading_hyphen=True,
-            show=False,
-        ),
-    ],
     json_mode: Annotated[
         bool,
         Parameter(name="--json", help="Emit command output as JSON.", show=False),
@@ -478,7 +488,8 @@ def root(
         sandbox=sandbox,
         timeout=timeout,
         dry_run=dry_run,
-        passthrough=passthrough,
+        # See _split_passthrough_args() for why this reads from GlobalOptions.
+        passthrough=get_global_options().passthrough_args,
     )
 
 
@@ -1198,6 +1209,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     configure_logging(json_mode=json_mode, verbosity=verbose_count)
 
     cleaned_args, options = _extract_global_options(args)
+    if not (cleaned_args and cleaned_args[0] == "mars"):
+        cleaned_args, passthrough_args = _split_passthrough_args(cleaned_args)
+        options = options.model_copy(update={"passthrough_args": passthrough_args})
     agent_mode = (
         agent_mode_enabled() and not options.force_human and not _interactive_terminal_attached()
     )
