@@ -16,6 +16,8 @@ from ag_ui.core import (
     RunStartedEvent,
     StepFinishedEvent,
     TextMessageContentEvent,
+    TextMessageEndEvent,
+    TextMessageStartEvent,
     ToolCallArgsEvent,
     ToolCallEndEvent,
     ToolCallResultEvent,
@@ -69,9 +71,13 @@ class CodexAGUIMapper:
             if event.event_type == "item/mcpToolCall":
                 return self._translate_mcp_tool_call(event.payload)
             if event.event_type == "turn/completed":
-                self._active_text_message_id = None
+                events: list[BaseEvent] = []
+                if self._active_text_message_id is not None:
+                    events.append(TextMessageEndEvent(message_id=self._active_text_message_id))
+                    self._active_text_message_id = None
                 step_name = _coerce_str(event.payload.get("turnId")) or "turn"
-                return [StepFinishedEvent(step_name=step_name)]
+                events.append(StepFinishedEvent(step_name=step_name))
+                return events
             return []
         except Exception:
             logger.warning("Failed translating Codex event", exc_info=True)
@@ -83,9 +89,14 @@ class CodexAGUIMapper:
             logger.warning("Codex item/agentMessage missing text payload")
             return []
 
+        events: list[BaseEvent] = []
         if self._active_text_message_id is None:
-            self._active_text_message_id = str(uuid4())
-        return [TextMessageContentEvent(message_id=self._active_text_message_id, delta=text)]
+            self._active_text_message_id = _new_message_id()
+            events.append(
+                TextMessageStartEvent(message_id=self._active_text_message_id, role="assistant")
+            )
+        events.append(TextMessageContentEvent(message_id=self._active_text_message_id, delta=text))
+        return events
 
     def _translate_reasoning(self, payload: dict[str, object]) -> list[BaseEvent]:
         text = _extract_text(payload)
@@ -161,6 +172,10 @@ def _coerce_str(value: object) -> str | None:
         if normalized:
             return normalized
     return None
+
+
+def _new_message_id() -> str:
+    return f"msg-{uuid4().hex[:8]}"
 
 
 def _stringify(value: object) -> str:

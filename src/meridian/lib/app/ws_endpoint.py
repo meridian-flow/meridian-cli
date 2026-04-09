@@ -13,6 +13,7 @@ from ag_ui.core import BaseEvent, RunErrorEvent
 
 from meridian.lib.app.agui_mapping import get_agui_mapper
 from meridian.lib.app.agui_mapping.base import AGUIMapper
+from meridian.lib.app.agui_mapping.extensions import make_capabilities_event
 from meridian.lib.core.types import SpawnId
 from meridian.lib.harness.connections.base import HarnessEvent
 from meridian.lib.streaming.spawn_manager import SpawnManager
@@ -55,14 +56,13 @@ async def spawn_websocket(websocket: WebSocketClient, spawn_id: str, manager: Sp
 
     await websocket.accept()
 
-    typed_spawn_id = SpawnId(spawn_id)
-    connection = manager.get_connection(typed_spawn_id)
+    connection = manager.get_connection(SpawnId(spawn_id))
     if connection is None:
         await _send_error(websocket, f"spawn {spawn_id} not found")
         await websocket.close()
         return
 
-    event_queue = manager.subscribe(typed_spawn_id)
+    event_queue = manager.subscribe(SpawnId(spawn_id))
     if event_queue is None:
         await _send_error(websocket, "another client is already connected")
         await websocket.close()
@@ -72,11 +72,12 @@ async def spawn_websocket(websocket: WebSocketClient, spawn_id: str, manager: Sp
 
     try:
         await _send_event(websocket, mapper.make_run_started(spawn_id))
+        await _send_event(websocket, make_capabilities_event(connection.capabilities))
 
         outbound_task = asyncio.create_task(
             _outbound_loop(websocket, event_queue, mapper, spawn_id)
         )
-        inbound_task = asyncio.create_task(_inbound_loop(websocket, typed_spawn_id, manager))
+        inbound_task = asyncio.create_task(_inbound_loop(websocket, SpawnId(spawn_id), manager))
 
         done, pending = await asyncio.wait(
             {outbound_task, inbound_task},
@@ -96,7 +97,7 @@ async def spawn_websocket(websocket: WebSocketClient, spawn_id: str, manager: Sp
                     if not _is_websocket_disconnect(exc):
                         logger.debug("WebSocket loop exited with error", exc_info=True)
     finally:
-        manager.unsubscribe(typed_spawn_id)
+        manager.unsubscribe(SpawnId(spawn_id))
 
 
 async def _outbound_loop(
@@ -189,7 +190,12 @@ def _is_websocket_disconnect(exc: BaseException) -> bool:
     return exc.__class__.__name__ == "WebSocketDisconnect"
 
 
-def register_ws_routes(app: object, manager: SpawnManager) -> None:
+def register_ws_routes(
+    app: object,
+    manager: SpawnManager,
+    *,
+    validate_spawn_id: Callable[[str], SpawnId] | None = None,
+) -> None:
     """Register WebSocket routes for app streaming APIs."""
 
     typed_app = cast("FastAPIApp", app)
@@ -197,7 +203,22 @@ def register_ws_routes(app: object, manager: SpawnManager) -> None:
     async def _spawn_ws_route(websocket: object, spawn_id: str) -> None:
         typed_websocket = cast("WebSocketClient", websocket)
         try:
-            await spawn_websocket(typed_websocket, spawn_id, manager)
+            typed_spawn_id = (
+                validate_spawn_id(spawn_id) if validate_spawn_id is not None else SpawnId(spawn_id)
+            )
+        except Exception as exc:
+            if _is_websocket_disconnect(exc):
+                logger.debug("WebSocket disconnected", extra={"spawn_id": spawn_id})
+                return
+            detail = getattr(exc, "detail", None)
+            if isinstance(detail, str):
+                await typed_websocket.accept()
+                await _send_error(typed_websocket, detail)
+                await typed_websocket.close()
+                return
+            raise
+        try:
+            await spawn_websocket(typed_websocket, str(typed_spawn_id), manager)
         except Exception as exc:
             if _is_websocket_disconnect(exc):
                 logger.debug("WebSocket disconnected", extra={"spawn_id": spawn_id})

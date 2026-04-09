@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import asdict
@@ -16,6 +17,8 @@ from meridian.lib.core.types import HarnessId, SpawnId
 from meridian.lib.harness.connections.base import ConnectionConfig
 from meridian.lib.state import spawn_store
 from meridian.lib.streaming.spawn_manager import SpawnManager
+
+_SPAWN_ID_RE = re.compile(r"^p\d+$")
 
 
 class _AppState(Protocol):
@@ -124,6 +127,11 @@ def create_app(spawn_manager: SpawnManager) -> object:
             next_spawn_index += 1
             return spawn_id
 
+    def _validate_spawn_id(raw: str) -> SpawnId:
+        if not _SPAWN_ID_RE.match(raw):
+            raise http_exception_cls(status_code=400, detail=f"invalid spawn ID: {raw}")
+        return SpawnId(raw)
+
     async def create_spawn(body: SpawnCreateRequest) -> dict[str, object]:
         prompt = body.prompt.strip()
         if not prompt:
@@ -162,7 +170,7 @@ def create_app(spawn_manager: SpawnManager) -> object:
         return {
             "spawn_id": str(config.spawn_id),
             "harness": connection.harness_id.value,
-            "status": connection.state,
+            "state": connection.state,
             "capabilities": asdict(connection.capabilities),
         }
 
@@ -171,7 +179,8 @@ def create_app(spawn_manager: SpawnManager) -> object:
         return [{"spawn_id": str(spawn_id)} for spawn_id in spawns]
 
     async def get_spawn(spawn_id: str) -> dict[str, object]:
-        connection = spawn_manager.get_connection(SpawnId(spawn_id))
+        typed_spawn_id = _validate_spawn_id(spawn_id)
+        connection = spawn_manager.get_connection(typed_spawn_id)
         if connection is None:
             raise http_exception_cls(
                 status_code=404,
@@ -184,6 +193,7 @@ def create_app(spawn_manager: SpawnManager) -> object:
         }
 
     async def inject_message(spawn_id: str, body: InjectRequest) -> dict[str, bool]:
+        typed_spawn_id = _validate_spawn_id(spawn_id)
         text = body.text.strip()
         if not text:
             raise http_exception_cls(
@@ -191,7 +201,7 @@ def create_app(spawn_manager: SpawnManager) -> object:
                 detail="text is required",
             )
 
-        result = await spawn_manager.inject(SpawnId(spawn_id), text, source="rest")
+        result = await spawn_manager.inject(typed_spawn_id, text, source="rest")
         if not result.success:
             raise http_exception_cls(
                 status_code=400,
@@ -200,7 +210,8 @@ def create_app(spawn_manager: SpawnManager) -> object:
         return {"ok": True}
 
     async def cancel_spawn(spawn_id: str) -> dict[str, bool]:
-        result = await spawn_manager.cancel(SpawnId(spawn_id), source="rest")
+        typed_spawn_id = _validate_spawn_id(spawn_id)
+        result = await spawn_manager.cancel(typed_spawn_id, source="rest")
         if not result.success:
             raise http_exception_cls(
                 status_code=400,
@@ -208,15 +219,19 @@ def create_app(spawn_manager: SpawnManager) -> object:
             )
         return {"ok": True}
 
-    app.post("/api/spawn")(create_spawn)
-    app.get("/api/spawn")(list_spawns)
-    app.get("/api/spawn/{spawn_id}")(get_spawn)
-    app.post("/api/spawn/{spawn_id}/inject")(inject_message)
-    app.delete("/api/spawn/{spawn_id}")(cancel_spawn)
+    app.post("/api/spawns")(create_spawn)
+    app.get("/api/spawns")(list_spawns)
+    app.get("/api/spawns/{spawn_id}")(get_spawn)
+    app.post("/api/spawns/{spawn_id}/inject")(inject_message)
+    app.delete("/api/spawns/{spawn_id}")(cancel_spawn)
 
     from meridian.lib.app.ws_endpoint import register_ws_routes
 
-    register_ws_routes(app_obj, spawn_manager)
+    register_ws_routes(
+        app_obj,
+        spawn_manager,
+        validate_spawn_id=_validate_spawn_id,
+    )
 
     frontend_dist = Path(__file__).resolve().parents[4] / "frontend" / "dist"
     if frontend_dist.is_dir():

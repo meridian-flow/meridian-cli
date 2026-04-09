@@ -1,6 +1,6 @@
 # Implementation Status
 
-Last updated: 2026-04-09 (Phase 3A commit)
+Last updated: 2026-04-09 (all phases complete, final review)
 
 ## Phase 1 — Bidirectional Streaming Foundation
 
@@ -26,14 +26,14 @@ Last updated: 2026-04-09 (Phase 3A commit)
 | Sub-step | Status | Notes |
 |---|---|---|
 | 3A: React Scaffold | done | Committed — Round 7 (D57 two-layer WS client) |
-| 3B: Activity Stream | not started | Round 8 — next |
-| 3C: Composer + Capabilities | not started | Round 9 |
+| 3B: Activity Stream | done | Committed — Round 8 (chunk events, D56 verified) |
+| 3C: Composer + Capabilities | done | Committed — Round 9 (capability-aware composer) |
 
 ## Final Review
 
 | Review | Status | Notes |
 |---|---|---|
-| Design alignment (gpt-5.4) | not started | After all phases complete |
-| Security + correctness (opus) | not started | |
-| API surface (gpt-5.2) | not started | |
-| Structural hygiene (refactor-reviewer) | not started | |
+| Design alignment (gpt-5.4) | in progress | Round 10 — fan-out |
+| Security + correctness (opus) | in progress | Round 10 — fan-out |
+| API surface (gpt-5.2) | in progress | Round 10 — fan-out |
+| Structural hygiene (refactor-reviewer) | in progress | Round 10 — fan-out |

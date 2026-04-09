@@ -73,7 +73,7 @@ function App() {
 
     async function loadSpawnMetadata() {
       try {
-        const response = await fetch(`/api/spawn/${spawnId}`)
+        const response = await fetch(`/api/spawns/${spawnId}`)
         if (!response.ok) {
           return
         }

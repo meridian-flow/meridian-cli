@@ -10,9 +10,13 @@ from uuid import uuid4
 from ag_ui.core import (
     BaseEvent,
     ReasoningMessageContentEvent,
+    ReasoningMessageEndEvent,
+    ReasoningMessageStartEvent,
     RunFinishedEvent,
     RunStartedEvent,
     TextMessageContentEvent,
+    TextMessageEndEvent,
+    TextMessageStartEvent,
     ToolCallArgsEvent,
     ToolCallEndEvent,
     ToolCallResultEvent,
@@ -50,21 +54,27 @@ class OpenCodeAGUIMapper:
                 self._run_counter = 1
             run_id = f"{spawn_id}-run-{self._run_counter}"
         self._current_run_id = None
+        self._text_message_id = None
+        self._reasoning_message_id = None
         return RunFinishedEvent(thread_id=spawn_id, run_id=run_id)
 
     def translate(self, event: HarnessEvent) -> list[BaseEvent]:
         try:
             if event.event_type == "agent_message_chunk":
-                return self._translate_agent_message_chunk(event.payload)
+                return self._close_reasoning_message() + self._translate_agent_message_chunk(
+                    event.payload
+                )
             if event.event_type == "agent_thought_chunk":
-                return self._translate_agent_thought_chunk(event.payload)
+                return self._close_text_message() + self._translate_agent_thought_chunk(
+                    event.payload
+                )
             if event.event_type == "tool_call":
-                return self._translate_tool_call(event.payload)
+                return self._close_open_messages() + self._translate_tool_call(event.payload)
             if event.event_type == "tool_call_update":
-                return self._translate_tool_call_update(event.payload)
+                return self._close_open_messages() + self._translate_tool_call_update(event.payload)
             if event.event_type in {"user_message_chunk", "session_info_update"}:
-                return []
-            return []
+                return self._close_open_messages()
+            return self._close_open_messages()
         except Exception:
             logger.warning("Failed translating OpenCode event", exc_info=True)
             return []
@@ -75,9 +85,12 @@ class OpenCodeAGUIMapper:
             logger.warning("OpenCode agent_message_chunk missing text payload")
             return []
 
+        events: list[BaseEvent] = []
         if self._text_message_id is None:
-            self._text_message_id = str(uuid4())
-        return [TextMessageContentEvent(message_id=self._text_message_id, delta=text)]
+            self._text_message_id = _new_message_id()
+            events.append(TextMessageStartEvent(message_id=self._text_message_id, role="assistant"))
+        events.append(TextMessageContentEvent(message_id=self._text_message_id, delta=text))
+        return events
 
     def _translate_agent_thought_chunk(self, payload: dict[str, object]) -> list[BaseEvent]:
         text = _extract_text(payload)
@@ -85,9 +98,19 @@ class OpenCodeAGUIMapper:
             logger.warning("OpenCode agent_thought_chunk missing text payload")
             return []
 
+        events: list[BaseEvent] = []
         if self._reasoning_message_id is None:
-            self._reasoning_message_id = str(uuid4())
-        return [ReasoningMessageContentEvent(message_id=self._reasoning_message_id, delta=text)]
+            self._reasoning_message_id = _new_message_id()
+            events.append(
+                ReasoningMessageStartEvent(
+                    message_id=self._reasoning_message_id,
+                    role="reasoning",
+                )
+            )
+        events.append(
+            ReasoningMessageContentEvent(message_id=self._reasoning_message_id, delta=text)
+        )
+        return events
 
     def _translate_tool_call(self, payload: dict[str, object]) -> list[BaseEvent]:
         tool_call_id = _extract_tool_call_id(payload)
@@ -135,6 +158,23 @@ class OpenCodeAGUIMapper:
             )
         ]
 
+    def _close_open_messages(self) -> list[BaseEvent]:
+        return self._close_text_message() + self._close_reasoning_message()
+
+    def _close_text_message(self) -> list[BaseEvent]:
+        if self._text_message_id is None:
+            return []
+        message_id = self._text_message_id
+        self._text_message_id = None
+        return [TextMessageEndEvent(message_id=message_id)]
+
+    def _close_reasoning_message(self) -> list[BaseEvent]:
+        if self._reasoning_message_id is None:
+            return []
+        message_id = self._reasoning_message_id
+        self._reasoning_message_id = None
+        return [ReasoningMessageEndEvent(message_id=message_id)]
+
 
 def _coerce_str(value: object) -> str | None:
     if isinstance(value, str):
@@ -142,6 +182,10 @@ def _coerce_str(value: object) -> str | None:
         if normalized:
             return normalized
     return None
+
+
+def _new_message_id() -> str:
+    return f"msg-{uuid4().hex[:8]}"
 
 
 def _stringify(value: object) -> str:

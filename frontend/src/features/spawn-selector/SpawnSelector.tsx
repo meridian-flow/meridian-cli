@@ -41,7 +41,7 @@ export function SpawnSelector({ onSpawnCreated }: SpawnSelectorProps) {
     setError(null)
 
     try {
-      const response = await fetch("/api/spawn", {
+      const response = await fetch("/api/spawns", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

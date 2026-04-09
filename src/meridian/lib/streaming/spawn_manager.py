@@ -253,6 +253,16 @@ class SpawnManager:
         session = self._sessions.get(spawn_id)
         if session is None or session.subscriber is None:
             return
+        if event is None:
+            # Preserve the terminal sentinel even under backpressure.
+            while True:
+                try:
+                    session.subscriber.put_nowait(None)
+                    return
+                except asyncio.QueueFull:
+                    with suppress(asyncio.QueueEmpty):
+                        session.subscriber.get_nowait()
+                    continue
         with suppress(asyncio.QueueFull):
             session.subscriber.put_nowait(event)
 
