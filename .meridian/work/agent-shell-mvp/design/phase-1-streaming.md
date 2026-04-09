@@ -87,16 +87,21 @@ class SpawnSession:
         """
         ...
 
-    async def _drain_loop(self, spawn_id: SpawnId, connection: HarnessConnection) -> None:
+    async def _drain_loop(self, spawn_id: SpawnId, receiver: HarnessReceiver) -> None:
         """Durable drain: reads events from harness, persists to output.jsonl,
         fans out to any connected subscriber queues.
 
+        Takes HarnessReceiver (not the full HarnessConnection) — the drain
+        only needs to iterate events, not send messages or check capabilities.
+        This keeps the ISP boundary honest and makes the drain testable with
+        a mock receiver.
+
         This task runs for the lifetime of the spawn and is the ONLY consumer
-        of connection.events(). It never stops because a UI client disconnected.
+        of receiver.events(). It never stops because a UI client disconnected.
         """
         output_path = self._state_root / "spawns" / str(spawn_id) / "output.jsonl"
         async with aiofiles.open(output_path, "a") as f:
-            async for event in connection.events():
+            async for event in receiver.events():
                 # Always persist first
                 line = json.dumps({
                     "event_type": event.event_type,
