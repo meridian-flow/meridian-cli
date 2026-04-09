@@ -63,6 +63,8 @@ The endpoint parses each frame, routes to the appropriate `SpawnManager` method:
 
 ### Endpoint implementation
 
+The WebSocket endpoint is a **consumer of the SpawnManager's fan-out mechanism**, not a direct reader of `connection.events()`. The durable drain task in `SpawnManager` owns the event iterator; this endpoint subscribes to a queue that the drain feeds.
+
 ```python
 # src/meridian/lib/app/ws_endpoint.py
 
@@ -76,8 +78,9 @@ async def spawn_websocket(
 ):
     """WebSocket handler for one spawn's event stream.
 
+    Subscribes to the SpawnManager's fan-out queue for this spawn.
     Runs two concurrent tasks:
-    1. Outbound: read HarnessEvents → map to AG-UI → send as JSON frames
+    1. Outbound: read from subscriber queue → map to AG-UI → send as JSON frames
     2. Inbound: read client frames → parse → route to SpawnManager
     """
     await websocket.accept()
@@ -88,10 +91,18 @@ async def spawn_websocket(
         await websocket.close()
         return
 
+    # Subscribe to the drain's fan-out. Returns None if another client
+    # is already subscribed (MVP: one client per spawn).
+    event_queue = manager.subscribe(SpawnId(spawn_id))
+    if event_queue is None:
+        await websocket.send_json({"type": "RUN_ERROR", "message": "another client is already connected to this spawn"})
+        await websocket.close()
+        return
+
     mapper = get_agui_mapper(connection.harness_id)
 
     async def outbound():
-        """Read harness events and send AG-UI events to the client."""
+        """Read from subscriber queue and send AG-UI events to the client."""
         try:
             # Emit RUN_STARTED
             run_started = mapper.make_run_started(spawn_id)
@@ -99,7 +110,17 @@ async def spawn_websocket(
                 run_started.model_dump_json(by_alias=True, exclude_none=True)
             )
 
-            async for harness_event in connection.events():
+            # Emit capabilities custom event
+            caps_event = mapper.make_capabilities_event(connection.capabilities)
+            await websocket.send_text(
+                caps_event.model_dump_json(by_alias=True, exclude_none=True)
+            )
+
+            while True:
+                harness_event = await event_queue.get()
+                if harness_event is None:
+                    break  # Sentinel: stream ended
+
                 agui_events = mapper.translate(harness_event)
                 for agui_event in agui_events:
                     await websocket.send_text(
@@ -112,12 +133,17 @@ async def spawn_websocket(
                 run_finished.model_dump_json(by_alias=True, exclude_none=True)
             )
         except WebSocketDisconnect:
-            pass  # Client disconnected — spawn continues running
+            pass  # Client disconnected — drain task continues independently
         except Exception as e:
-            run_error = RunErrorEvent(message=str(e))
-            await websocket.send_text(
-                run_error.model_dump_json(by_alias=True, exclude_none=True)
-            )
+            try:
+                run_error = RunErrorEvent(message=str(e))
+                await websocket.send_text(
+                    run_error.model_dump_json(by_alias=True, exclude_none=True)
+                )
+            except WebSocketDisconnect:
+                pass
+        finally:
+            manager.unsubscribe(SpawnId(spawn_id))
 
     async def inbound():
         """Read client frames and route to SpawnManager."""
@@ -132,7 +158,7 @@ async def spawn_websocket(
                 elif msg_type == "cancel":
                     await manager.cancel(SpawnId(spawn_id))
         except WebSocketDisconnect:
-            pass  # Client disconnected
+            pass  # Client disconnected — drain task continues independently
 
     # Run both tasks concurrently
     outbound_task = asyncio.create_task(outbound())
@@ -148,6 +174,8 @@ async def spawn_websocket(
         with suppress(asyncio.CancelledError):
             await task
 ```
+
+**Key property**: when the client disconnects, the `outbound` and `inbound` tasks end, but the SpawnManager's drain task continues draining events to `output.jsonl`. The spawn is not affected by client lifecycle. Lost events are available in `meridian spawn log <spawn_id>`.
 
 ## AG-UI Event Mapping
 

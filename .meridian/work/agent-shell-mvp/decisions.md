@@ -1127,3 +1127,119 @@ Everything else — Codex/OpenCode parity *in the UI*, permission gating, sessio
 **Alternatives rejected**:
 - *Use REASONING_* events* — would require updating frontend-v2's reducer, which adds Phase 3 scope for no user-visible benefit.
 - *Use raw AG-UI ThinkingStartEvent.message_id as-is* — breaks frontend-v2 compatibility which expects `thinkingId`.
+
+---
+
+## D49 — Durable drain architecture: one reader per spawn, fan-out to UI clients
+2026-04-09, informed by review round 1 (p1182 BLOCKER, p1183 BLOCKER)
+
+**Decision**: The `SpawnManager` runs one durable drain task per spawn that always reads `connection.events()` and persists to `output.jsonl`, independent of any UI client. UI clients subscribe to an `asyncio.Queue` fed by the drain task. They never own the event iterator.
+
+**Why**: Reviewers p1183 (feasibility) and p1182 (design alignment) both identified that the original design's Phase 2 endpoint read `connection.events()` directly in the WebSocket handler's outbound task. A client disconnect would end that task, which stops consuming `connection.events()` — violating the requirement that spawns continue running when the browser disconnects. Output backpressure from a dead WebSocket could stall the harness stream.
+
+The fix is architectural: separate the drain (persistence + fan-out source) from the presentation (UI WebSocket). The drain task is the sole consumer of `connection.events()`. It persists every event to `output.jsonl` before fanning out to subscriber queues. UI clients are consumers of the fan-out, not owners of the drain.
+
+**What this means**:
+- `SpawnManager._drain_loop()` runs for the lifetime of each spawn
+- `SpawnManager.subscribe()` / `unsubscribe()` manage per-spawn subscriber queues
+- Phase 2 endpoint calls `manager.subscribe(spawn_id)` on connect, `manager.unsubscribe(spawn_id)` on disconnect
+- MVP: one subscriber per spawn (second connection rejected). Fan-out to multiple subscribers is post-MVP.
+
+**Alternatives rejected**:
+- *Read events directly in WS handler*: fails the disconnect requirement — reviewer blocker.
+- *Buffer everything in memory, write to disk on spawn completion*: OOM risk on long-running spawns.
+- *Two readers (one for disk, one for WS)*: `AsyncIterator` is single-consumer; would require `asyncio.Queue` tee anyway.
+
+---
+
+## D50 — Universal bidirectionality: no "bidirectional" spawn mode
+2026-04-09, informed by review round 1 (p1182 BLOCKER)
+
+**Decision**: There is no `kind="bidirectional"` or `launch_mode="bidirectional"` in the spawn store. Every spawn launched after Phase 1 gets a `HarnessConnection` and a control socket. Bidirectionality is universal and always-on per D41 — not a flag, not a mode, not a new invocation shape.
+
+**Why**: Reviewer p1182 identified that the original design introduced `kind="bidirectional"` / `launch_mode="bidirectional"` as a separate spawn mode, which contradicts D41's requirement that "every harness adapter gains the ability to write to the subprocess's input channel... Not a flag. Not a mode." The design's `spawn inject` error message "not a bidirectional spawn" confirmed the violation — existing dev-workflow spawns would not be steerable.
+
+The fix: existing `kind` and `launch_mode` values are unchanged. The presence of `control.sock` in the spawn artifact directory is the discoverable indicator that a spawn accepts injection. Fire-and-forget callers that never use `send_*()` or the control socket get exactly the same behavior as before.
+
+**What changed in design docs**: `phase-1-streaming.md` spawn state recording section, `overview.md` relationship section, `edge-cases.md` inject error messages.
+
+**Alternatives rejected**:
+- *Keep bidirectional as a mode, update D41*: contradicts the user's explicit framing in c1135 and the requirements doc. The universality of the foundation is the point.
+- *Only add control sockets to spawns started via `meridian app`*: partial universality is worse than no universality — it means `meridian spawn inject` sometimes works and sometimes doesn't with no clear reason.
+
+---
+
+## D51 — Inbound action recording for files-as-authority compliance
+2026-04-09, informed by review round 1 (p1182 BLOCKER)
+
+**Decision**: All inbound steering actions (`user_message`, `interrupt`, `cancel`) are durably recorded to `.meridian/spawns/<spawn_id>/inbound.jsonl` before being routed to the harness. Each record includes action type, data, timestamp, and source (websocket vs control_socket).
+
+**Why**: Reviewer p1182 identified that the original design persisted raw harness output, stderr, heartbeat, and connection metadata, but inbound steering actions were routed live to `SpawnManager` with no durable append path. This violated the files-as-authority principle for the most important user interventions — if a user steers a run mid-turn, that decision disappeared from the authority-bearing record.
+
+**What this means**: `SpawnManager.inject()`, `.interrupt()`, and `.cancel()` each call `_record_inbound()` after successful delivery. The `source` field distinguishes WebSocket UI from CLI control socket. `meridian spawn show` can display the inbound action history alongside outbound events.
+
+**Alternatives rejected**:
+- *Log inbound actions only to stderr.log*: not structured, not queryable, mixes with harness stderr.
+- *Embed inbound actions in output.jsonl*: conflates two different streams (harness output vs user input). Separate files make replay and audit clearer.
+- *Record only in memory*: fails the durability requirement.
+
+---
+
+## D52 — Claude transport: --sdk-url primary with explicit compatibility contract and hybrid fallback
+2026-04-09, informed by review round 1 (p1183 BLOCKER, p1184 BLOCKER)
+
+**Decision**: The Claude adapter uses `--sdk-url` as its primary bidirectional transport but with an explicit compatibility contract: version gating, protocol mismatch detection, feature flag, and a concrete hybrid fallback path (stdout NDJSON receive + HTTP POST send).
+
+**Why**: Reviewers p1183 and p1184 both flagged `--sdk-url` as high-risk because it's reverse-engineered. p1184 noted an inconsistency with `findings-harness-protocols.md` which mentions stable stdio NDJSON. The original design acknowledged the risk but didn't specify the fallback concretely enough to implement.
+
+The resolution: `--sdk-url` is the right choice for MVP because it gives true bidirectional WS with the simplest event model. But the adapter must fail gracefully and detectably when Claude CLI versions change. The hybrid fallback (receive from stdout NDJSON, send via HTTP POST to `CLAUDE_CODE_POST_FOR_SESSION_INGRESS_V2`) is a concrete alternative that reuses existing fire-and-forget capture infrastructure.
+
+**What this means in design**: `harness-abstraction.md` Claude section now specifies version gating, protocol mismatch detection, feature flag, and hybrid fallback details.
+
+**Alternatives rejected**:
+- *Use stdio NDJSON as primary*: loses true bidirectional WS simplicity. stdout capture works for receive but injection via HTTP POST has higher latency and no message ordering guarantee relative to the output stream.
+- *Use --sdk-url with no fallback*: single point of failure on an undocumented API.
+- *Defer Claude bidirectional entirely*: contradicts D41's "all three harnesses."
+
+---
+
+## D53 — Connection state machine for LSP compliance
+2026-04-09, informed by review round 1 (p1184 CONCERN-2)
+
+**Decision**: `HarnessConnection` exposes a `state` property returning `ConnectionState` (a `Literal` enum: created, starting, connected, stopping, stopped, failed). State transitions are documented. `send_*()` methods raise `ConnectionNotReady` if state != "connected". `events()` yields nothing after "stopped" or "failed".
+
+**Why**: Reviewer p1184 identified that without a state machine, adapters would invent their own answers to invalid-state transitions (send before start, send after death, iterate after stop). One adapter would raise, another would silently discard, another would deadlock — an LSP violation that makes adapters non-substitutable. The state machine is a contract, not an implementation — adapters implement it, callers rely on it.
+
+**What changed**: `harness-abstraction.md` now defines `ConnectionState`, transition rules, behavioral contracts per state, and `ConnectionNotReady` exception.
+
+**Alternatives rejected**:
+- *Document behavior per-method without a state enum*: still leaves room for adapter divergence since there's no single property to check.
+- *Leave it to implementers*: guarantees LSP violation when three adapters each handle edge cases differently.
+
+---
+
+## D54 — Capabilities on HarnessConnection composite, not HarnessReceiver
+2026-04-09, informed by review round 1 (p1184 CONCERN-1)
+
+**Decision**: `ConnectionCapabilities` is a property on `HarnessConnection` (the composite protocol), not on `HarnessReceiver`. `HarnessReceiver` is a pure event stream with no capability metadata.
+
+**Why**: Reviewer p1184 identified an ISP violation: capabilities like `supports_interrupt`, `supports_cancel`, and `runtime_model_switch` describe sender-side and lifecycle-side behavior. A consumer that only needs to receive events (log writer, metrics collector) shouldn't depend on an interface exposing send-side capability metadata.
+
+**What changed**: `harness-abstraction.md` moved `capabilities` property from `HarnessReceiver` to `HarnessConnection`.
+
+**Alternatives rejected**:
+- *Keep capabilities on HarnessReceiver*: ISP violation — forces receive-only consumers to see send-side metadata.
+- *Split into EventCapabilities (on Receiver) and SendCapabilities (on Connection)*: over-engineering for MVP. If a receiver-only consumer genuinely needs event-format info (e.g., whether thinking events appear), that can be extracted later.
+
+---
+
+## D55 — Single capability source: HarnessCapabilities gets only supports_bidirectional boolean
+2026-04-09, informed by review round 1 (p1184 CONCERN-4)
+
+**Decision**: The existing `HarnessCapabilities` on `SubprocessHarness` gets only `supports_bidirectional: bool = False`. No `mid_turn_injection` enum on the fire-and-forget side. All bidirectional capability metadata lives exclusively in `ConnectionCapabilities` on `HarnessConnection`.
+
+**Why**: Reviewer p1184 identified dual-source divergence risk: the original design had `mid_turn_injection` on both `HarnessCapabilities` and `ConnectionCapabilities`. If they disagree, which is authoritative? Eliminating the duplicate ensures one place to look for injection semantics.
+
+**Alternatives rejected**:
+- *Mirror mid_turn_injection on both*: dual-source divergence when they inevitably drift.
+- *Put everything on ConnectionCapabilities only*: need the boolean on `HarnessCapabilities` so code can check "does this harness support bidirectional at all?" without constructing a connection.

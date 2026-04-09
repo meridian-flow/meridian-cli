@@ -34,12 +34,16 @@ This document enumerates failure modes, boundary conditions, and error propagati
 
 **Rationale**: The spawn may be doing useful work (writing files, running tests). Killing it because the viewer disconnected would lose that work. The spawn will finish naturally, and `meridian spawn show` / `meridian spawn log` will show the results.
 
+**Phase 1 behavior**: The durable drain task continues reading `connection.events()` and persisting to `output.jsonl` regardless of UI client state. The drain task is owned by `SpawnManager`, not by any UI client.
+
 **Phase 2 behavior**:
 1. The `inbound` task gets a `WebSocketDisconnect` exception
-2. The outbound task continues reading harness events (but has no client to send to — events are logged to `output.jsonl` regardless)
-3. When the harness finishes, the spawn is finalized normally
+2. The `outbound` task gets a `WebSocketDisconnect` when it next tries to send
+3. Both tasks end; `finally` block calls `manager.unsubscribe(spawn_id)` to remove the subscriber queue
+4. The drain task in `SpawnManager` continues draining events to `output.jsonl` — it does not depend on any subscriber existing
+5. When the harness finishes, the spawn is finalized normally
 
-**Reconnect**: Not supported in MVP. If the user opens a new browser tab to `meridian app`, they can see active spawns in the spawn list and reconnect by clicking one. The reconnected WebSocket will NOT replay events from before the disconnect — it streams from the current point forward. Lost events are available in `meridian spawn log <spawn_id>`.
+**Reconnect**: Not supported in MVP. If the user opens a new browser tab to `meridian app`, they can see active spawns in the spawn list and reconnect by clicking one. The reconnected WebSocket subscribes to the drain's fan-out for new events — it does NOT replay events from before the disconnect. Lost events are available in `meridian spawn log <spawn_id>`.
 
 ## Inbound Message During Mid-Tool-Execution
 
@@ -128,11 +132,16 @@ Additionally, `meridian spawn inject` connecting to a stale socket will get `Con
 
 **Scenario**: Two browser tabs connect to `/ws/spawn/{spawn_id}` simultaneously.
 
-**MVP behavior**: Both receive the same event stream (each has its own outbound task reading from the same `events()` iterator). However, asyncio's `AsyncIterator` is typically single-consumer. 
+**MVP behavior**: One UI client per spawn. The second connection is rejected with a clear error:
+```json
+{"type": "RUN_ERROR", "message": "another client is already connected to this spawn"}
+```
 
-**Implementation detail**: The `SpawnManager` should fan out events to multiple consumers via an asyncio broadcast mechanism (e.g., each WebSocket endpoint gets a separate `asyncio.Queue` that the connection task feeds). This adds complexity but is straightforward with `asyncio.Queue`.
+The first client holds the subscription. The drain task feeds events to exactly one subscriber queue.
 
-**If fan-out is too complex for MVP**: Only one WebSocket client per spawn. The endpoint rejects the second connection with a clear error. The first client holds the connection.
+**Why not multi-client fan-out for MVP**: The drain architecture supports fan-out (multiple queues fed by the drain task), but the MVP is single-user localhost. Adding multi-subscriber bookkeeping, per-subscriber backpressure, and subscriber lifecycle management is complexity without a user need. The subscriber set in `SpawnManager` is designed to extend to `dict[SpawnId, list[Queue]]` post-MVP when the use case materializes.
+
+**Post-MVP**: Extend `subscribe()` to support multiple concurrent subscribers per spawn. Each gets an independent `asyncio.Queue` fed by the drain task.
 
 ## Port Conflicts
 

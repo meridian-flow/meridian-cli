@@ -121,7 +121,8 @@ src/meridian/
 │           └── opencode.py     # OpenCode wire → AG-UI
 ├── cli/
 │   ├── app.py                  # NEW — `meridian app` CLI command
-│   └── spawn_inject.py         # NEW — `meridian spawn inject` CLI command
+│   ├── spawn_inject.py         # NEW — `meridian spawn inject` CLI command
+│   └── streaming_serve.py      # NEW — `meridian streaming serve` headless runner
 frontend/                       # NEW — Phase 3 React app (copied from frontend-v2)
 ├── src/
 ├── package.json
@@ -138,10 +139,11 @@ pyproject.toml                  # Updated: new deps (fastapi, uvicorn, websocket
 
 **New code:**
 - `src/meridian/lib/harness/connections/` — per-harness bidirectional connection implementations
-- `src/meridian/lib/streaming/` — spawn manager and control socket
+- `src/meridian/lib/streaming/` — spawn manager (with durable drain + inbound recording) and control socket
 - `src/meridian/lib/app/` — FastAPI server and AG-UI mapping
 - `src/meridian/cli/app.py` — `meridian app` entry point
 - `src/meridian/cli/spawn_inject.py` — `meridian spawn inject` entry point
+- `src/meridian/cli/streaming_serve.py` — `meridian streaming serve` headless runner
 - `frontend/` — React UI adapted from frontend-v2
 
 ### Dependencies Added
@@ -182,10 +184,11 @@ The user interacts with spawns through the React UI. The UI can:
 
 ## Relationship to Existing `meridian spawn`
 
-The existing `meridian spawn` command continues to work exactly as it does today for fire-and-forget spawns. The bidirectional layer is additive:
+After Phase 1, **every spawn gains input-channel writability** — not a flag, not a mode, not a new invocation shape. The existing `meridian spawn` command continues to work exactly as it does today. Fire-and-forget callers that never call `send_*()` or connect to the control socket get exactly the same behavior as before. The bidirectional capability is universal and always available.
 
-- `meridian spawn -a agent -p "task"` → fire-and-forget, uses existing `SubprocessHarness` path
+- `meridian spawn -a agent -p "task"` → works as before; additionally has a control socket for injection if desired
 - `meridian spawn inject <spawn_id> "message"` → **new**, sends a message to a running spawn via Phase 1's control layer
+- `meridian streaming serve` → **new**, headless Phase 1 runner for testing without FastAPI
 - `meridian app` → **new**, starts the full web UI
 
-A spawn started via `meridian app` is also visible to `meridian spawn list`, `meridian spawn show`, and `meridian spawn log` — it writes to the same `.meridian/` state as any other spawn. The bidirectional layer adds the control socket and connection metadata; the rest of the spawn lifecycle (state tracking, artifact storage, session recording) uses the existing infrastructure.
+All spawns — whether started via `meridian app`, `meridian streaming serve`, or the existing `meridian spawn` — are visible to `meridian spawn list`, `meridian spawn show`, and `meridian spawn log`. They write to the same `.meridian/` state. The bidirectional layer adds the control socket, inbound action log, and connection metadata; the rest of the spawn lifecycle (state tracking, artifact storage, session recording) uses the existing infrastructure.

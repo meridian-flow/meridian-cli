@@ -1,31 +1,60 @@
 # Phase 1 — Bidirectional Streaming Foundation
 
-Phase 1 delivers the universal bidirectional streaming layer. Every spawn — Claude Code, Codex, OpenCode — can stream inputs as well as outputs. This is the foundation that Phase 2 and 3 build on.
+Phase 1 delivers the universal bidirectional streaming layer. Every spawn — Claude Code, Codex, OpenCode — gains input-channel writability while it's reading from the output. **Not a flag. Not a mode. Not a new invocation shape.** The underlying mechanism is universal and always available; fire-and-forget spawns still work exactly as they do today if the caller ignores the input side.
+
+This is the foundation that Phase 2 and 3 build on.
 
 ## Deliverables
 
 1. **`HarnessConnection` implementations** for all three tier-1 harnesses (see [harness-abstraction.md](harness-abstraction.md))
-2. **`SpawnManager`** — in-process registry of active bidirectional connections
+2. **`SpawnManager`** — in-process registry of active connections with durable event drain
 3. **Control socket** — per-spawn Unix domain socket for cross-process `inject`
 4. **`meridian spawn inject <spawn_id> "message"`** — CLI command for mid-turn injection
-5. **Smoke tests** — per-harness manual smoke test guides
+5. **Headless runner** — `meridian streaming serve` for Phase 1-only testing without FastAPI
+6. **Smoke tests** — per-harness manual smoke test guides
 
 ## SpawnManager
 
-The `SpawnManager` is the central coordination point for all bidirectional spawns. It lives at `src/meridian/lib/streaming/spawn_manager.py`.
+The `SpawnManager` is the central coordination point for all spawns. It lives at `src/meridian/lib/streaming/spawn_manager.py`.
+
+### Durable drain architecture
+
+The most critical architectural property: **one durable reader per spawn that always drains the harness transport into `output.jsonl`, independent of any UI client.** UI clients are strictly consumers of a fan-out mechanism — they never own the drain.
+
+```
+┌──────────────┐     events()     ┌─────────────────┐
+│   Harness    │ ───────────────► │  Drain Task     │ ──► output.jsonl (always)
+│  Connection  │                  │  (1 per spawn)  │ ──► Queue A → WS client 1
+└──────────────┘                  │                  │ ──► Queue B → WS client 2
+                                  └─────────────────┘ ──► Queue N → future clients
+```
+
+This design means:
+- **Client disconnect cannot stall the harness stream.** The drain task reads `connection.events()` regardless of whether any UI is connected.
+- **Output is always persisted.** Every `HarnessEvent` is appended to `output.jsonl` before fan-out to clients.
+- **Reconnecting clients** can read `output.jsonl` for history and subscribe to the live fan-out for new events.
+- **`meridian spawn log`** works for bidirectional spawns exactly as it does for fire-and-forget spawns.
+
+### Fan-out mechanism
+
+Each connected UI client gets an `asyncio.Queue` that the drain task feeds. When a client disconnects, its queue is removed from the subscriber set. The drain task never blocks on a slow consumer — if a queue is full (bounded at 1000 events), events are dropped for that subscriber with a warning logged.
+
+**MVP simplification**: one UI client per spawn. If a second WebSocket client connects to the same spawn, the endpoint returns an error (`{"type": "RUN_ERROR", "message": "another client is already connected to this spawn"}`). Fan-out to multiple concurrent clients is post-MVP.
 
 ```python
 class SpawnManager:
-    """Registry of active bidirectional harness connections.
+    """Registry of active harness connections with durable event drain.
 
-    Owns the lifecycle of HarnessConnection instances. Each bidirectional
-    spawn gets one connection. The SpawnManager starts the connection,
-    registers it, serves the control socket, and tears it down when the
-    spawn finishes.
+    Owns the lifecycle of HarnessConnection instances. Each spawn gets
+    one connection, one drain task, one control socket. The SpawnManager
+    starts the connection, begins draining events to output.jsonl,
+    and tears everything down when the spawn finishes.
     """
 
     def __init__(self, state_root: Path, repo_root: Path):
         self._connections: dict[SpawnId, HarnessConnection] = {}
+        self._drain_tasks: dict[SpawnId, asyncio.Task] = {}
+        self._subscribers: dict[SpawnId, asyncio.Queue[HarnessEvent | None]] = {}
         self._control_servers: dict[SpawnId, asyncio.AbstractServer] = {}
         self._state_root = state_root
         self._repo_root = repo_root
@@ -34,40 +63,134 @@ class SpawnManager:
         self,
         config: ConnectionConfig,
     ) -> HarnessConnection:
-        """Launch a new bidirectional spawn.
+        """Launch a new spawn with bidirectional streaming.
 
         1. Resolves the connection class from config.harness_id
         2. Records the spawn in spawn_store (status: "running")
         3. Creates the HarnessConnection and calls start()
-        4. Starts the control socket listener
-        5. Registers the connection
+        4. Starts the durable drain task
+        5. Starts the control socket listener
+        6. Registers the connection
 
-        Returns the connection for the caller to iterate events from.
+        Returns the connection for the caller to query capabilities.
         """
         ...
 
+    async def _drain_loop(self, spawn_id: SpawnId, connection: HarnessConnection) -> None:
+        """Durable drain: reads events from harness, persists to output.jsonl,
+        fans out to any connected subscriber queues.
+
+        This task runs for the lifetime of the spawn and is the ONLY consumer
+        of connection.events(). It never stops because a UI client disconnected.
+        """
+        output_path = self._state_root / "spawns" / str(spawn_id) / "output.jsonl"
+        async with aiofiles.open(output_path, "a") as f:
+            async for event in connection.events():
+                # Always persist first
+                line = json.dumps({
+                    "event_type": event.event_type,
+                    "payload": event.payload,
+                    "harness_id": event.harness_id,
+                    "ts": time.time(),
+                }) + "\n"
+                await f.write(line)
+                await f.flush()
+
+                # Then fan out to subscribers (non-blocking)
+                queue = self._subscribers.get(spawn_id)
+                if queue is not None:
+                    try:
+                        queue.put_nowait(event)
+                    except asyncio.QueueFull:
+                        pass  # Drop event for slow subscriber; it's in output.jsonl
+
+            # Signal end-of-stream to subscribers
+            queue = self._subscribers.get(spawn_id)
+            if queue is not None:
+                await queue.put(None)  # Sentinel
+
+    def subscribe(self, spawn_id: SpawnId) -> asyncio.Queue[HarnessEvent | None] | None:
+        """Subscribe a UI client to a spawn's event stream.
+
+        Returns a Queue that will receive HarnessEvents, or None if the
+        spawn doesn't exist. Returns error if a subscriber already exists
+        (MVP: one client per spawn).
+
+        The sentinel value None signals end-of-stream.
+        """
+        if spawn_id not in self._connections:
+            return None
+        if spawn_id in self._subscribers:
+            return None  # Already has a subscriber — reject
+        queue: asyncio.Queue[HarnessEvent | None] = asyncio.Queue(maxsize=1000)
+        self._subscribers[spawn_id] = queue
+        return queue
+
+    def unsubscribe(self, spawn_id: SpawnId) -> None:
+        """Remove a UI client's subscription."""
+        self._subscribers.pop(spawn_id, None)
+
     async def inject(self, spawn_id: SpawnId, message: str) -> InjectResult:
         """Send a user message to a running spawn.
+
+        Also records the inbound action to the spawn's inbound.jsonl file
+        for audit trail (see Inbound Action Recording below).
 
         Returns InjectResult indicating success, or an error if the spawn
         is not found, not running, or the adapter rejected the message.
         """
         connection = self._connections.get(spawn_id)
         if connection is None:
-            return InjectResult(success=False, error="spawn not found or not bidirectional")
+            return InjectResult(success=False, error="spawn not found")
         try:
             await connection.send_user_message(message)
+            await self._record_inbound(spawn_id, "user_message", {"text": message})
             return InjectResult(success=True)
+        except ConnectionNotReady as e:
+            return InjectResult(success=False, error=f"connection not ready: {e}")
         except Exception as e:
             return InjectResult(success=False, error=str(e))
 
     async def interrupt(self, spawn_id: SpawnId) -> InjectResult:
         """Interrupt the current turn of a running spawn."""
-        ...
+        connection = self._connections.get(spawn_id)
+        if connection is None:
+            return InjectResult(success=False, error="spawn not found")
+        try:
+            await connection.send_interrupt()
+            await self._record_inbound(spawn_id, "interrupt", {})
+            return InjectResult(success=True)
+        except ConnectionNotReady as e:
+            return InjectResult(success=False, error=f"connection not ready: {e}")
+        except Exception as e:
+            return InjectResult(success=False, error=str(e))
 
     async def cancel(self, spawn_id: SpawnId) -> InjectResult:
         """Cancel a running spawn entirely."""
-        ...
+        connection = self._connections.get(spawn_id)
+        if connection is None:
+            return InjectResult(success=False, error="spawn not found")
+        try:
+            await connection.send_cancel()
+            await self._record_inbound(spawn_id, "cancel", {})
+            return InjectResult(success=True)
+        except Exception as e:
+            return InjectResult(success=False, error=str(e))
+
+    async def _record_inbound(self, spawn_id: SpawnId, action: str, data: dict) -> None:
+        """Record an inbound steering action to the spawn's inbound.jsonl.
+
+        See 'Inbound Action Recording' section below.
+        """
+        inbound_path = self._state_root / "spawns" / str(spawn_id) / "inbound.jsonl"
+        record = json.dumps({
+            "action": action,
+            "data": data,
+            "ts": time.time(),
+            "source": "control_socket",  # or "websocket" — set by caller context
+        }) + "\n"
+        async with aiofiles.open(inbound_path, "a") as f:
+            await f.write(record)
 
     async def get_connection(self, spawn_id: SpawnId) -> HarnessConnection | None:
         """Get the connection for a spawn, or None if not found."""
@@ -81,6 +204,41 @@ class SpawnManager:
         """Stop all spawns and clean up. Called on process exit."""
         ...
 ```
+
+## Inbound Action Recording (Files-as-Authority)
+
+All inbound steering actions — `user_message`, `interrupt`, `cancel` — are durably recorded to `.meridian/spawns/<spawn_id>/inbound.jsonl` before being routed to the harness. This satisfies the files-as-authority principle: the most important user interventions during a spawn are recoverable from the filesystem.
+
+Format:
+```json
+{"action": "user_message", "data": {"text": "reconsider the auth approach"}, "ts": 1712680000.0, "source": "websocket"}
+{"action": "interrupt", "data": {}, "ts": 1712680010.0, "source": "control_socket"}
+{"action": "cancel", "data": {}, "ts": 1712680020.0, "source": "websocket"}
+```
+
+The `source` field distinguishes whether the action came from a WebSocket UI client or a `meridian spawn inject` CLI call (via control socket). This audit trail is critical for dogfooding — when a user steers a run mid-turn, that decision must survive in the authority-bearing record.
+
+## Headless Runner
+
+Phase 1 must be independently testable without Phase 2 (FastAPI). A headless runner command starts a `SpawnManager`, launches a bidirectional spawn, and keeps the control socket alive:
+
+```bash
+meridian streaming serve --harness claude --agent my-agent -p "initial prompt"
+# → Starts SpawnManager, launches spawn, prints spawn_id
+# → Control socket at .meridian/spawns/<id>/control.sock
+# → Events drain to output.jsonl
+# → Ctrl-C sends cancel + graceful shutdown
+```
+
+This command:
+1. Creates a `SpawnManager` instance
+2. Starts a spawn with the specified harness/agent/prompt
+3. Runs the drain task (events → output.jsonl)
+4. Serves the control socket for `meridian spawn inject`
+5. Blocks until the spawn completes or Ctrl-C
+6. Prints a summary on exit
+
+Without this command, Phase 1's "test independently via `meridian spawn inject`" claim only holds if FastAPI (`meridian app`) is the sole long-running owner of `SpawnManager`, which would make Phase 1 not independently testable.
 
 ## Control Socket
 
@@ -171,8 +329,8 @@ async def inject_message(spawn_id: str, message: str) -> None:
     socket_path = resolve_spawn_log_dir(repo_root, SpawnId(spawn_id)) / "control.sock"
 
     if not socket_path.exists():
-        # Spawn exists but no control socket → not a bidirectional spawn
-        print(f"Error: spawn {spawn_id} has no control socket (not a bidirectional spawn)")
+        # Spawn exists but no control socket → spawn not running or already finished
+        print(f"Error: spawn {spawn_id} has no control socket (spawn not running or already finished)")
         sys.exit(1)
 
     reader, writer = await asyncio.open_unix_connection(str(socket_path))
@@ -203,9 +361,9 @@ meridian spawn inject <spawn_id> --cancel
 
 ## Integration With Existing Spawn Infrastructure
 
-### Spawn state recording
+### Spawn state recording — universal, not a mode
 
-Bidirectional spawns use the same `spawn_store` as fire-and-forget spawns:
+Per D41, bidirectionality is universal — not a flag, not a mode, not a new invocation shape. There is no `kind="bidirectional"` or `launch_mode="bidirectional"` that distinguishes "special" spawns. Every spawn launched after Phase 1 gets a `HarnessConnection` and a control socket. The existing `kind` and `launch_mode` values are unchanged.
 
 ```python
 # In SpawnManager.start_spawn():
@@ -215,24 +373,25 @@ spawn_id = spawn_store.start_spawn(
     model=config.model,
     agent=config.agent,
     harness=str(config.harness_id),
-    kind="bidirectional",           # New kind value
+    kind="spawn",                    # Same as existing — NOT "bidirectional"
     prompt=config.prompt,
     execution_cwd=str(config.repo_root),
-    launch_mode="bidirectional",    # New launch mode
+    launch_mode="background",        # Same as existing
     work_id=work_id,
     status="running",
 )
 ```
 
-The `kind="bidirectional"` and `launch_mode="bidirectional"` values distinguish these from fire-and-forget spawns in `meridian spawn list` and health checks.
+Fire-and-forget callers that never call `send_*()` or connect to the control socket get exactly the same behavior as before. The presence of `control.sock` in the artifact directory indicates the spawn accepts injection — callers discover this by checking `control.sock` existence, not by reading a `kind` field.
 
 ### Artifact storage
 
-Bidirectional spawns write to the same artifact directory:
-- `.meridian/spawns/<spawn_id>/output.jsonl` — raw harness events (for replay/debugging)
+All spawns write to the same artifact directory:
+- `.meridian/spawns/<spawn_id>/output.jsonl` — raw harness events, durably drained (for replay/debugging)
 - `.meridian/spawns/<spawn_id>/stderr.log` — harness stderr
 - `.meridian/spawns/<spawn_id>/heartbeat` — liveness signal
-- `.meridian/spawns/<spawn_id>/control.sock` — **new**: control socket
+- `.meridian/spawns/<spawn_id>/control.sock` — **new**: control socket (presence = injectable)
+- `.meridian/spawns/<spawn_id>/inbound.jsonl` — **new**: durable record of all inject/interrupt/cancel actions
 - `.meridian/spawns/<spawn_id>/connection.json` — **new**: connection metadata (harness, capabilities, transport details)
 
 ### Heartbeat
@@ -257,7 +416,7 @@ The `SpawnManager` maintains the heartbeat file for each active connection, usin
 
 ### What's extended
 
-**`harness/adapter.py`** — `HarnessCapabilities` gains new fields:
+**`harness/adapter.py`** — `HarnessCapabilities` gains one new boolean:
 
 ```python
 class HarnessCapabilities(BaseModel):
@@ -266,35 +425,35 @@ class HarnessCapabilities(BaseModel):
     supports_stdin_prompt: bool = False
     # ... etc ...
 
-    # NEW: bidirectional connection support
+    # NEW: indicates a HarnessConnection implementation exists
     supports_bidirectional: bool = False
-    mid_turn_injection: Literal["queue", "interrupt_restart", "http_post", "none"] = "none"
 ```
 
-Each existing adapter (`ClaudeAdapter`, `CodexAdapter`, `OpenCodeAdapter`) gets `supports_bidirectional=True` and the appropriate `mid_turn_injection` value added to their `capabilities` property.
+Each existing adapter (`ClaudeAdapter`, `CodexAdapter`, `OpenCodeAdapter`) gets `supports_bidirectional=True` added to their `capabilities` property. **No `mid_turn_injection` enum on this side** — that semantic detail lives exclusively in `ConnectionCapabilities` on `HarnessConnection` (see harness-abstraction.md, Capability model boundary).
 
-**`state/spawn_store.py`** — `start_spawn()` accepts `kind="bidirectional"` and `launch_mode="bidirectional"`. Minimal change — these are just string values in the JSONL record.
+**`state/spawn_store.py`** — no schema changes. Spawns use existing `kind` and `launch_mode` values. The bidirectional layer is additive infrastructure, not a new spawn category.
 
 ### What's new
 
 | New file | Purpose |
 |---|---|
 | `harness/connections/__init__.py` | Connection registry |
-| `harness/connections/base.py` | `HarnessConnection` ABC, `HarnessEvent`, `ConnectionConfig`, `ConnectionCapabilities` |
+| `harness/connections/base.py` | `HarnessConnection` ABC, `HarnessEvent`, `ConnectionConfig`, `ConnectionCapabilities`, `ConnectionState` |
 | `harness/connections/claude_ws.py` | `ClaudeConnection` — WS server adapter |
 | `harness/connections/codex_ws.py` | `CodexConnection` — WS client adapter |
 | `harness/connections/opencode_http.py` | `OpenCodeConnection` — HTTP adapter |
 | `streaming/__init__.py` | Package init |
-| `streaming/spawn_manager.py` | `SpawnManager` |
+| `streaming/spawn_manager.py` | `SpawnManager` with durable drain + fan-out + inbound recording |
 | `streaming/control_socket.py` | `ControlSocketServer` |
-| `streaming/types.py` | `ControlMessage`, `InjectResult` |
+| `streaming/types.py` | `ControlMessage`, `InjectResult`, `ConnectionNotReady` |
 | `cli/spawn_inject.py` | `meridian spawn inject` command |
+| `cli/streaming_serve.py` | `meridian streaming serve` headless runner |
 
 ### What's NOT touched
 
-The entire `launch/` directory is untouched. The bidirectional path is a parallel code path, not a modification of the existing launch path. This is deliberate — the fire-and-forget path is battle-tested and powers all existing meridian spawns. Phase 1 adds a new path alongside it, not a replacement.
+The entire `launch/` directory is untouched. The bidirectional path is a parallel code path, not a modification of the existing launch path. This is deliberate — the fire-and-forget path is battle-tested and powers all existing meridian spawns. Phase 1 adds bidirectional capability alongside it.
 
-The existing `SubprocessHarness` adapters (`ClaudeAdapter`, `CodexAdapter`, `OpenCodeAdapter`) are not modified beyond adding the `supports_bidirectional` and `mid_turn_injection` capability flags. Their command-building, report extraction, and session management logic stays as-is.
+The existing `SubprocessHarness` adapters (`ClaudeAdapter`, `CodexAdapter`, `OpenCodeAdapter`) are not modified beyond adding the `supports_bidirectional` boolean capability flag. Their command-building, report extraction, and session management logic stays as-is.
 
 ## Phase 1 Gate: Smoke Tests
 
@@ -303,23 +462,32 @@ Each harness gets a smoke test guide (markdown) verifying the end-to-end bidirec
 ### Claude Code smoke test
 
 ```
-1. Start a bidirectional Claude spawn:
-   meridian app  (or a test harness that starts SpawnManager directly)
+1. Start a bidirectional Claude spawn via headless runner:
+   meridian streaming serve --harness claude -p "List the files in the current directory"
+   → Prints spawn_id, e.g. p200
 
 2. In another terminal, verify the spawn is running:
-   meridian spawn list  →  shows spawn with kind="bidirectional"
+   meridian spawn list  →  shows spawn p200 with status="running"
 
-3. Inject a mid-turn message:
-   meridian spawn inject <spawn_id> "What files have you read so far?"
+3. Verify events are draining to output.jsonl:
+   tail -f .meridian/spawns/p200/output.jsonl
+   → Should see harness events appearing in real time
 
-4. Verify in the spawn's output.jsonl that:
+4. Inject a mid-turn message:
+   meridian spawn inject p200 "What files have you read so far?"
+
+5. Verify in inbound.jsonl that the inject was recorded:
+   cat .meridian/spawns/p200/inbound.jsonl
+   → {"action": "user_message", "data": {"text": "What files..."}, ...}
+
+6. Verify in output.jsonl that:
    - The user message was delivered (a "user" type event appears)
    - Claude responded to the injected message (an "assistant" type event follows)
 
-5. Inject an interrupt:
-   meridian spawn inject <spawn_id> --interrupt
+7. Inject an interrupt:
+   meridian spawn inject p200 --interrupt
 
-6. Verify the spawn handled the interrupt gracefully.
+8. Verify the spawn handled the interrupt gracefully.
 ```
 
 ### Codex smoke test

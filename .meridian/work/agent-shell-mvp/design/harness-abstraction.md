@@ -27,6 +27,10 @@ class ConnectionCapabilities:
     Consumers use this to render the right affordances. The UI shows
     "message queued for next turn" for Claude, "this will interrupt
     the current turn" for Codex, and a normal send button for OpenCode.
+
+    Lives on HarnessConnection (the composite), NOT on HarnessReceiver.
+    Consumers that only receive events (log writers, metrics collectors)
+    shouldn't need to know about send-side capability metadata.
     """
     mid_turn_injection: Literal["queue", "interrupt_restart", "http_post"]
     supports_steer: bool          # Can append to in-flight turn without restart
@@ -34,6 +38,36 @@ class ConnectionCapabilities:
     supports_cancel: bool         # Can terminate the entire spawn
     runtime_model_switch: bool    # Can change model after launch
     structured_reasoning: bool    # Emits thinking/reasoning events
+
+# ─── Connection state machine ───────────────────────────────────
+
+ConnectionState = Literal[
+    "created",     # Constructed, not yet started
+    "starting",    # start() called, transport establishing
+    "connected",   # Transport up, events flowing, send_*() valid
+    "stopping",    # stop() or send_cancel() called, tearing down
+    "stopped",     # Clean shutdown complete
+    "failed",      # Unrecoverable error (process crash, transport death)
+]
+
+# Transition rules:
+#   created  → starting  (start() called)
+#   starting → connected (transport established, harness ready)
+#   starting → failed    (timeout, process crash during startup)
+#   connected → stopping (stop() or send_cancel() called)
+#   connected → failed   (harness process dies unexpectedly)
+#   stopping → stopped   (clean shutdown complete)
+#   stopping → failed    (shutdown timeout, SIGKILL needed)
+#
+# Behavioral contracts per state:
+#   send_*() methods raise ConnectionNotReady if state != "connected"
+#   events() yields remaining buffered events in "stopping", then completes
+#   events() yields nothing in "stopped" or "failed" (immediate StopAsyncIteration)
+#   health() returns True only in "connected" state
+
+class ConnectionNotReady(Exception):
+    """Raised when send_*() is called on a connection not in 'connected' state."""
+    pass
 
 # ─── Event types from harness ────────────────────────────────────
 
@@ -44,9 +78,14 @@ class HarnessEvent:
     Each adapter emits HarnessEvents with harness-specific event_type
     strings and raw payloads. The Phase 2 AG-UI mapper consumes these
     and transforms them into ag_ui.core event objects.
+
+    The harness_id field makes events self-describing — if events are
+    logged, replayed, or routed through a queue, the mapper can dispatch
+    on harness_id without holding external state.
     """
     event_type: str                    # Harness-specific: "assistant", "tool_use", "item/agentMessage", etc.
     payload: dict[str, object]         # Raw JSON payload from the harness wire format
+    harness_id: str                    # Which harness produced this event ("claude", "codex", "opencode")
     raw_text: str | None = None        # Original wire text (for debugging / logging)
 
 # ─── Segregated interfaces (ISP) ────────────────────────────────
@@ -57,6 +96,8 @@ class HarnessLifecycle(Protocol):
     async def start(self, config: "ConnectionConfig") -> None:
         """Launch the harness subprocess and establish the bidirectional channel.
 
+        Transitions: created → starting → connected (or → failed on timeout).
+
         For Claude: start a WS server, launch `claude --sdk-url`, wait for connection.
         For Codex: launch `codex app-server`, connect as WS client, complete handshake.
         For OpenCode: launch `opencode serve`, wait for HTTP readiness.
@@ -66,13 +107,23 @@ class HarnessLifecycle(Protocol):
     async def stop(self) -> None:
         """Gracefully shut down the harness subprocess.
 
+        Transitions: connected → stopping → stopped (or → failed on timeout).
+
         Sends appropriate shutdown signal, waits for process exit with timeout,
         then SIGKILL if necessary. Cleans up transport resources (close WS, etc.).
         """
         ...
 
     async def health(self) -> bool:
-        """Return True if the harness subprocess is alive and the transport is connected."""
+        """Return True if the harness subprocess is alive and the transport is connected.
+
+        Returns True only when state == "connected".
+        """
+        ...
+
+    @property
+    def state(self) -> ConnectionState:
+        """Current connection state. See ConnectionState for transition rules."""
         ...
 
 
@@ -81,6 +132,8 @@ class HarnessSender(Protocol):
 
     async def send_user_message(self, text: str) -> None:
         """Deliver a user message to the running harness.
+
+        Raises ConnectionNotReady if state != "connected".
 
         Semantics vary by harness (see ConnectionCapabilities.mid_turn_injection):
         - Claude (queue): sends {"type": "user", "content": text} over WS;
@@ -94,6 +147,8 @@ class HarnessSender(Protocol):
     async def send_interrupt(self) -> None:
         """Interrupt the current turn without terminating the spawn.
 
+        Raises ConnectionNotReady if state != "connected".
+
         - Claude: sends interrupt signal; Claude stops current generation.
         - Codex: sends turn/interrupt JSON-RPC.
         - OpenCode: POSTs cancel to the session endpoint.
@@ -101,7 +156,18 @@ class HarnessSender(Protocol):
         ...
 
     async def send_cancel(self) -> None:
-        """Cancel the entire spawn. After this, the connection is dead."""
+        """Cancel the entire spawn. Transitions connection to "stopping".
+
+        After this call completes, the connection is in "stopping" or "stopped"
+        state. The caller should then call stop() to finalize teardown.
+
+        Lifecycle: send_cancel() signals intent to the harness (it may finish
+        current tool execution then exit). stop() tears down the transport and
+        kills the process if it hasn't exited.
+
+        Normal shutdown: send_cancel() → wait for events() to complete → stop()
+        Forced shutdown: stop() directly (skips graceful cancel signal)
+        """
         ...
 
 
@@ -114,12 +180,10 @@ class HarnessReceiver(Protocol):
         Yields HarnessEvent objects until the harness finishes, errors, or
         the connection is closed. The iterator completes (StopAsyncIteration)
         when the harness process exits.
-        """
-        ...
 
-    @property
-    def capabilities(self) -> ConnectionCapabilities:
-        """Capabilities of this connection. Available immediately after start()."""
+        In "stopping" state: yields remaining buffered events, then completes.
+        In "stopped" or "failed" state: immediate StopAsyncIteration.
+        """
         ...
 ```
 
@@ -130,8 +194,12 @@ class HarnessConnection(HarnessLifecycle, HarnessSender, HarnessReceiver, Protoc
     """Complete bidirectional harness connection.
 
     A HarnessConnection is the unit of work for Phase 1. The SpawnManager
-    holds one per active bidirectional spawn. Phase 2's WebSocket endpoint
-    reads from its events() iterator and writes through its send_*() methods.
+    holds one per active spawn. Phase 2's WebSocket endpoint reads from
+    its events() iterator and writes through its send_*() methods.
+
+    Capabilities and harness_id live here (on the composite), not on
+    HarnessReceiver. Consumers that only need to receive events
+    (e.g., log writers) use HarnessReceiver without capability metadata.
     """
 
     @property
@@ -142,6 +210,11 @@ class HarnessConnection(HarnessLifecycle, HarnessSender, HarnessReceiver, Protoc
     @property
     def spawn_id(self) -> "SpawnId":
         """Which spawn this connection belongs to."""
+        ...
+
+    @property
+    def capabilities(self) -> ConnectionCapabilities:
+        """Capabilities of this connection. Available after state reaches 'connected'."""
         ...
 ```
 
@@ -164,7 +237,11 @@ class ConnectionConfig:
     continue_session_id: str | None = None  # For session resume
     timeout_seconds: float | None = None  # Spawn timeout
 
-    # Phase 1 transport config
+    # Transport config — these fields are Claude-specific (WS server).
+    # Known SRP violation: transport knobs belong in adapter-private config.
+    # Acceptable for 3 harnesses with 2 transport fields; if a 4th harness
+    # needs transport config (e.g., gRPC port), refactor to a
+    # transport_config: dict[str, Any] or per-adapter dataclass.
     ws_bind_host: str = "127.0.0.1"      # For Claude: WS server bind address
     ws_port: int = 0                       # 0 = auto-assign
 ```
@@ -207,7 +284,16 @@ class ConnectionConfig:
 
 **Mid-turn semantics**: `queue` — message queues until current turn completes, then Claude processes it as the next turn.
 
-**Stability risk**: `--sdk-url` is reverse-engineered from the companion project, not officially documented by Anthropic. Hybrid fallback available: receive events over WS (read-only), send messages via HTTP POST to `CLAUDE_CODE_POST_FOR_SESSION_INGRESS_V2`. The design should monitor for breakage and switch to the hybrid path if `--sdk-url` stops working.
+**Stability risk and mitigation**: `--sdk-url` is reverse-engineered from the companion project, not officially documented by Anthropic. The adapter must implement an explicit compatibility contract:
+
+1. **Version gating**: document exact Claude CLI versions tested (minimum version, known-working versions). On startup, check `claude --version` and warn if untested.
+2. **Protocol mismatch detection**: if the WS connection is established but the first message doesn't match expected NDJSON format, log the raw bytes and fail with a specific `ProtocolMismatchError` (not a generic timeout).
+3. **Feature flag**: `--sdk-url` is behind a `claude_bidirectional_transport` config flag, defaulting to "on" for known-good versions and "off" for unknown versions.
+4. **Hybrid fallback (concrete)**: if `--sdk-url` fails or is disabled, fall back to:
+   - **Receive**: launch with `--output-format stream-json --verbose`, capture NDJSON from stdout (same as existing fire-and-forget capture in `stream_capture.py`).
+   - **Send**: HTTP POST to `CLAUDE_CODE_POST_FOR_SESSION_INGRESS_V2` (requires session ID discovery from the harness's environment or startup output).
+   - **Limitation**: hybrid mode may have higher latency for injection and cannot guarantee message ordering relative to the output stream.
+5. **Detection of breakage**: if three consecutive WS sends get no response within 5s, log a warning and surface it in `meridian spawn show` output.
 
 ### Codex — `CodexConnection`
 
@@ -316,18 +402,23 @@ These are **separate concerns, not a replacement**. A harness has both:
 - A `HarnessConnection` implementation (for bidirectional spawns)
 
 The `ConnectionConfig` may use information from the `SubprocessHarness` (e.g., model resolution, agent profile loading) but the connection itself doesn't depend on the subprocess harness protocol. This separation means:
-- Existing spawns (`meridian spawn -a agent -p "task"`) use the `SubprocessHarness` path unchanged
-- Bidirectional spawns (`meridian app`, `meridian spawn inject`) use the `HarnessConnection` path
+- Every spawn uses the `HarnessConnection` path (bidirectional is universal — see phase-1-streaming.md)
+- Fire-and-forget semantics are preserved: callers that never call `send_*()` get the same behavior as before
 - Both paths share the same spawn state infrastructure (`.meridian/spawns/`, `spawn_store`, heartbeat, etc.)
+
+### Capability model boundary
+
+`HarnessCapabilities` (on `SubprocessHarness`) gains only a boolean `supports_bidirectional: bool = False` to indicate whether a `HarnessConnection` implementation exists for this harness. **No `mid_turn_injection` enum on the fire-and-forget side.** Code that needs injection semantics always goes through `ConnectionCapabilities` on `HarnessConnection`. This eliminates dual-source divergence — there is one place to look for bidirectional capability metadata, and it's `ConnectionCapabilities`.
 
 ## Thread Safety and Concurrency Model
 
 All `HarnessConnection` methods are async and must be called from the same asyncio event loop. The connection is **not thread-safe** — it is owned by one `SpawnManager` task.
 
 Concurrency within one connection:
-- One task reads from `events()` (the outbound path)
-- The same or other tasks call `send_user_message()` / `send_interrupt()` / `send_cancel()` (the inbound path)
+- One task reads from `events()` (the outbound path — owned by the durable drain task, see phase-1-streaming.md)
+- Other tasks call `send_user_message()` / `send_interrupt()` / `send_cancel()` (the inbound path)
 - The adapter implementation must handle concurrent send/receive internally (typically via an asyncio Lock on the transport)
+- State transitions are enforced by the adapter: `send_*()` methods raise `ConnectionNotReady` if `state != "connected"`, so callers don't need to implement defensive state-checking logic
 
 Concurrency across connections:
 - `SpawnManager` holds a `dict[SpawnId, HarnessConnection]` and dispatches inject requests by spawn ID
