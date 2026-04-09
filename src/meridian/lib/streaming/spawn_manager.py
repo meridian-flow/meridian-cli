@@ -96,17 +96,16 @@ class SpawnManager:
         return connection
 
     async def _drain_loop(self, spawn_id: SpawnId, receiver: HarnessReceiver) -> None:
-        """Durably append each harness event and fan out to the active subscriber."""
+        """Durably append each harness event and fan out to the active subscriber.
+
+        Writes the raw event payload (not a wrapper) to output.jsonl so that
+        harness-specific artifact extractors (e.g. ClaudeAdapter.extract_report)
+        can read it in the expected stream-json format.
+        """
 
         try:
             async for event in receiver.events():
-                payload = {
-                    "event_type": event.event_type,
-                    "payload": event.payload,
-                    "harness_id": event.harness_id,
-                    "ts": time.time(),
-                }
-                await self._append_jsonl(self._output_log_path(spawn_id), payload)
+                await self._append_jsonl(self._output_log_path(spawn_id), event.payload)
                 self._fan_out_event(spawn_id, event)
         finally:
             self._fan_out_event(spawn_id, None)
