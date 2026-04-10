@@ -326,7 +326,7 @@ class OpenCodeConnection:
         last_error: str | None = None
         for path in self._CREATE_SESSION_PATHS:
             for variant in payload_variants:
-                status, body = await self._post_json(path, variant)
+                status, body, _ = await self._post_json(path, variant)
                 if status in self._SUCCESS_STATUSES:
                     session_id = _extract_session_id(body)
                     if session_id is None:
@@ -390,9 +390,14 @@ class OpenCodeConnection:
         for template in path_templates:
             path = template.format(session_id=session_id)
             for payload in payload_variants:
-                status, body = await self._post_json(path, payload)
+                status, body, content_type = await self._post_json(
+                    path,
+                    payload,
+                    skip_body_on_statuses=accepted_statuses,
+                    tolerate_incomplete_body=True,
+                )
                 if status in accepted_statuses:
-                    if _looks_like_html(_summarize_body(body)):
+                    if "text/html" in content_type or _looks_like_html(_summarize_body(body)):
                         last_error = (
                             f"OpenCode session endpoint returned HTML on {path}: "
                             f"status={status}"
@@ -419,14 +424,39 @@ class OpenCodeConnection:
         raise RuntimeError(last_error or "OpenCode session action failed")
 
     async def _post_json(
-        self, path: str, payload: Mapping[str, object]
-    ) -> tuple[int, object | None]:
+        self,
+        path: str,
+        payload: Mapping[str, object],
+        *,
+        skip_body_on_statuses: frozenset[int] | None = None,
+        tolerate_incomplete_body: bool = False,
+    ) -> tuple[int, object | None, str]:
         client = await self._ensure_http_client()
         async with client.post(self._url(path), json=dict(payload)) as response:
             status = int(response.status)
-            text_body = await response.text()
+            content_type = str(response.headers.get("Content-Type", "")).lower()
+            if skip_body_on_statuses is not None and status in skip_body_on_statuses:
+                response.release()
+                return status, None, content_type
+            try:
+                text_body = await response.text()
+            except Exception as exc:
+                aiohttp = self._ensure_aiohttp()
+                client_payload_error = getattr(aiohttp, "ClientPayloadError", None)
+                if (
+                    tolerate_incomplete_body
+                    and client_payload_error is not None
+                    and isinstance(exc, client_payload_error)
+                ):
+                    logger.warning(
+                        "Ignoring incomplete OpenCode response body on %s (status=%s)",
+                        path,
+                        status,
+                    )
+                    return status, None, content_type
+                raise
         parsed_body = _parse_response_body(text_body)
-        return status, parsed_body
+        return status, parsed_body, content_type
 
     async def _open_event_stream(self) -> Any:
         client = await self._ensure_http_client()
