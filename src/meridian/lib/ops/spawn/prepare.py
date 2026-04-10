@@ -357,6 +357,7 @@ def build_create_payload(
     return PreparedSpawnPlan(
         model=policies.model,
         harness_id=str(harness.id),
+        effort=resolved.effort,
         warning=warning,
         prompt=composed_prompt,
         skills=resolved_skills.skill_names,

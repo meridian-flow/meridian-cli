@@ -43,6 +43,7 @@ class PreparedSpawnPlan(BaseModel):
 
     model: str
     harness_id: str
+    effort: str | None = None
     prompt: str
     agent_name: str | None
     skills: tuple[str, ...]

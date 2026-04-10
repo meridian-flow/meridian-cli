@@ -857,6 +857,7 @@ async def execute_with_streaming(
     run_params = SpawnParams(
         prompt=run.prompt,
         model=run.model if str(run.model).strip() else None,
+        effort=plan.effort,
         skills=plan.skills,
         agent=plan.agent_name,
         adhoc_agent_payload=plan.adhoc_agent_payload,
