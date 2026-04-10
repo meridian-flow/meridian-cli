@@ -30,6 +30,8 @@ Use `/dev-artifacts` for the artifact convention and `/architecture` for design 
 
 **Design docs** — hierarchical docs describing the target system state. An overview always exists as the entry point — without it, downstream agents consuming the design have no orientation on which doc to read first or how they relate. Below that, depth matches complexity. Each doc covers one concept fully — an agent reading any single doc should understand that concept without loading everything else. Every design package must explicitly enumerate edge cases, failure modes, and boundary conditions; a design without this is incomplete.
 
+**Scenarios folder (`scenarios/`)** — you seed this during design by converting every enumerated edge case into a concrete, testable scenario with an ID and a tester role. See `/dev-artifacts` for the folder layout, scenario file format, and lifecycle. Your design phase is not complete until every edge case the design enumerates has a corresponding scenario file, and every gap flagged in any audit or investigation report in your context has a scenario. Missing scenarios = missing tests later = bugs that the design already warned about.
+
 **Decision log** — approaches considered, tradeoffs evaluated, what was rejected and why. Record decisions as you make them using `/decision-log` skill, not retroactively — the reasoning is freshest at the moment of choice and disappears after compaction.
 
 Use `/dev-artifacts` skill for where each of these goes and how they flow to downstream agents.

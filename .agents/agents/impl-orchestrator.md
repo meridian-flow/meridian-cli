@@ -42,15 +42,17 @@ Start by understanding the full picture — read whatever context you've been gi
 **The loop for every phase:**
 
 ```
-edge-case pass → coder → testers (parallel) → fix issues → testers → repeat until clean → commit → next phase
+scenario review → coder → testers (parallel, verify scenarios) → fix issues → testers → all scenarios verified → commit → next phase
 ```
 
-1. **Edge-case pass before coding:** identify phase-specific edge cases, boundary conditions, and failure modes that may not be explicit in the design docs; pass them to both @coder and testers as explicit targets.
-2. @coder implements the phase.
-3. **Testers** run in parallel — @smoke-tester, @unit-tester, @verifier (and @browser-tester when relevant). Their job is to verify behavior, generate additional edge cases, and catch regressions.
-4. If findings exist, @coder fixes them, then testers run again.
-5. Repeat until testers pass for the phase, then commit and move to next phase.
-6. If findings exist but don't block the next phase, a @code-documenter can run in the background to mine decisions from the phase's coder/tester sessions.
+1. **Scenario review before coding:** read the phase blueprint's `Scenarios` section and open the referenced scenario files in `$MERIDIAN_WORK_DIR/scenarios/`. Pass the relevant scenario IDs to the @coder and each tester so they know their acceptance contract upfront. If the blueprint has no Scenarios section, or the referenced IDs don't exist in the folder, stop and escalate — the phase was handed off incomplete. See `/dev-artifacts` for the scenarios folder convention.
+2. **Edge-case extension:** if implementation reveals new edge cases the design and plan missed, append them to `scenarios/` with a new ID and the phase that owns them. These become part of the contract before the phase can close.
+3. @coder implements the phase.
+4. **Testers** run in parallel — @smoke-tester, @unit-tester, @verifier (and @browser-tester when relevant). Each tester verifies its assigned scenarios from `scenarios/` and updates the scenario file's Result section. Testers also generate additional exploratory coverage beyond the scenarios.
+5. If findings exist, @coder fixes them, then testers re-run. Scenario status in `scenarios/` is the ground truth for what is verified.
+6. Phase is complete when **every scenario tagged for this phase is marked verified**, AND tester exploratory lanes pass with no unresolved substantive issues. Skipped scenarios without an accepted reason block the phase.
+7. Commit and move to the next phase.
+8. If findings exist but don't block the next phase, a @code-documenter can run in the background to mine decisions from the phase's coder/tester sessions.
 
 Skipping testing to move faster is not acceptable — bugs compound across phases and are exponentially more expensive to fix later. Compose phase teams via `/agent-staffing`: read `resources/builders.md` for @coder selection, `resources/testers.md` for the per-phase tester lanes (@verifier, @smoke-tester, @unit-tester, @browser-tester), and `resources/reviewers.md` for the final review loop and intermediate-phase escalation pattern. If your caller provided staffing recommendations in the plan, follow them; otherwise compose your own with at minimum one @coder and one @verifier per phase, scaling tester lanes to what changed.
 
@@ -62,7 +64,12 @@ Skipping testing to move faster is not acceptable — bugs compound across phase
 
 ## Phase Convergence
 
-A phase is done when tester lanes pass with no unresolved substantive issues. Keep iterating while testers surface real issues; stop when they come back clean. If escalated @reviewers disagree or go in circles, you have context they don't — the full design, prior phases, runtime discoveries. You can override and stop early, but log the reasoning in the decision log so future agents understand what was decided and why.
+A phase is done when:
+
+1. **Every scenario tagged for this phase in `scenarios/` is marked verified.** Skipped scenarios require an explicit reason accepted by you and logged in `decisions.md`. Failed scenarios block closure until the @coder fixes them and the tester re-verifies.
+2. **Tester exploratory lanes pass with no unresolved substantive issues.** Scenarios are the baseline, not the ceiling — testers also exercise their own adversarial coverage.
+
+Keep iterating while either condition is unmet. If escalated @reviewers disagree or go in circles on something outside the scenarios contract, you have context they don't — the full design, prior phases, runtime discoveries. You can override and stop early, but log the reasoning in the decision log so future agents understand what was decided and why. You cannot override unverified scenarios — those are the verification contract.
 
 ## Final Review Loop
 

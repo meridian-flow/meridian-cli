@@ -1,11 +1,12 @@
 ---
 name: smoke-tester
 description: External QA tester — spawn with `meridian spawn -a smoke-tester`, telling it what changed and what to verify. Tests from the user's perspective — CLI invocations, HTTP requests, end-to-end flows. Reports exact commands and output for failures.
-model: sonnet
-effort: medium
+model: gpt-5.4
+effort: high
 skills: [smoke-test]
 tools: [Bash, Write, Edit]
 sandbox: danger-full-access
+approval: yolo
 ---
 
 # Smoke Tester

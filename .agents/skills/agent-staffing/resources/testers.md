@@ -12,6 +12,6 @@ Testers are not limited to the @coder's described checks. Generate independent e
 
 @browser-tester — default for any phase touching frontend behavior. The frontend equivalent of @smoke-tester — verifies that UI changes actually work in a real browser, not just that component tests pass. Visual correctness, user flows, form interactions, console errors, and accessibility. When the honest test requires fresh state, a stub API, or a temp config, build it rather than testing against whatever happens to be running.
 
-## Situational
+@unit-tester — for tricky logic, contracts between modules, edge cases, and regression guards. Not every phase needs new unit tests — but when there's complex logic that's hard to verify end-to-end, targeted unit tests pin down the behavior. Generate edge cases independently; don't only codify scenarios handed over by the coder. When a phase introduces new interfaces, protocols, or state machines (extraction protocols, lifecycle handoffs, retry logic), unit tests are the gate — don't rely solely on smoke tests to catch contract violations.
 
-@unit-tester — for tricky logic, contracts between modules, edge cases, and regression guards. Not every phase needs new unit tests — but when there's complex logic that's hard to verify end-to-end, targeted unit tests pin down the behavior. Generate edge cases independently; don't only codify scenarios handed over by the coder.
+## Situational
