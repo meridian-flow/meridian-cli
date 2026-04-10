@@ -103,6 +103,9 @@ class HarnessConnection(HarnessLifecycle, HarnessSender, HarnessReceiver, Protoc
     @property
     def session_id(self) -> str | None: ...
 
+    @property
+    def subprocess_pid(self) -> int | None: ...
+
 
 __all__ = [
     "ConnectionCapabilities",

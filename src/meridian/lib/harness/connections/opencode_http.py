@@ -118,6 +118,13 @@ class OpenCodeConnection:
     def session_id(self) -> str | None:
         return self._session_id
 
+    @property
+    def subprocess_pid(self) -> int | None:
+        process = self._process
+        if process is None:
+            return None
+        return process.pid
+
     async def start(self, config: ConnectionConfig, params: SpawnParams) -> None:
         if self._state != "created":
             raise RuntimeError(f"Cannot start OpenCode connection from state '{self._state}'")

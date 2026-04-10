@@ -18,11 +18,12 @@ from pydantic import BaseModel, ConfigDict, Field
 from meridian.lib.core.context import RuntimeContext
 from meridian.lib.core.domain import Spawn, SpawnStatus
 from meridian.lib.core.sink import OutputSink
-from meridian.lib.core.types import ModelId, SpawnId
+from meridian.lib.core.types import HarnessId, ModelId, SpawnId
 from meridian.lib.harness.adapter import PermissionResolver
 from meridian.lib.launch.cwd import resolve_child_execution_cwd
 from meridian.lib.launch.runner import execute_with_finalization
 from meridian.lib.launch.session_scope import session_scope
+from meridian.lib.launch.streaming_runner import execute_with_streaming
 from meridian.lib.ops.work_attachment import ensure_explicit_work_item
 from meridian.lib.safety.permissions import (
     PermissionConfig,
@@ -448,6 +449,27 @@ async def _execute_existing_spawn(
         execution_cwd=resolved_execution_cwd,
     ) as session_context:
         resolved_plan = plan.model_copy(update={"agent_name": session_context.resolved_agent_name})
+        resolved_harness_id = HarnessId(resolved_plan.harness_id)
+        harness = runtime.harness_registry.get_subprocess_harness(resolved_harness_id)
+        run_env_overrides = _spawn_child_env(
+            str(spawn.spawn_id),
+            work_id=session_context.work_id or spawn_record.work_id,
+            state_root=state_root,
+            autocompact=plan.autocompact,
+            ctx=resolved_context,
+        )
+        if harness.capabilities.supports_bidirectional:
+            return await execute_with_streaming(
+                spawn,
+                plan=resolved_plan,
+                repo_root=runtime.repo_root,
+                state_root=state_root,
+                artifacts=runtime.artifacts,
+                registry=runtime.harness_registry,
+                cwd=runtime.repo_root,
+                env_overrides=run_env_overrides,
+                harness_session_id_observer=session_context.harness_session_id_observer,
+            )
         return await execute_with_finalization(
             spawn,
             plan=resolved_plan,
@@ -456,13 +478,7 @@ async def _execute_existing_spawn(
             artifacts=runtime.artifacts,
             registry=runtime.harness_registry,
             cwd=runtime.repo_root,
-            env_overrides=_spawn_child_env(
-                str(spawn.spawn_id),
-                work_id=session_context.work_id or spawn_record.work_id,
-                state_root=state_root,
-                autocompact=plan.autocompact,
-                ctx=resolved_context,
-            ),
+            env_overrides=run_env_overrides,
             harness_session_id_observer=session_context.harness_session_id_observer,
         )
 
@@ -737,28 +753,49 @@ def execute_spawn_blocking(
         resolved_plan = prepared.model_copy(
             update={"agent_name": session_context.resolved_agent_name}
         )
-        exit_code = asyncio.run(
-            execute_with_finalization(
-                spawn,
-                plan=resolved_plan,
-                repo_root=runtime.repo_root,
-                state_root=context.state_root,
-                artifacts=runtime.artifacts,
-                registry=runtime.harness_registry,
-                cwd=runtime.repo_root,
-                env_overrides=_spawn_child_env(
-                    str(spawn.spawn_id),
-                    work_id=session_context.work_id or context.work_id,
-                    state_root=context.state_root,
-                    autocompact=prepared.autocompact,
-                    ctx=resolved_context,
-                ),
-                event_observer=event_observer,
-                stream_stdout_to_terminal=stream_stdout_to_terminal,
-                stream_stderr_to_terminal=payload.stream,
-                harness_session_id_observer=session_context.harness_session_id_observer,
-            )
+        resolved_harness_id = HarnessId(resolved_plan.harness_id)
+        harness = runtime.harness_registry.get_subprocess_harness(resolved_harness_id)
+        run_env_overrides = _spawn_child_env(
+            str(spawn.spawn_id),
+            work_id=session_context.work_id or context.work_id,
+            state_root=context.state_root,
+            autocompact=prepared.autocompact,
+            ctx=resolved_context,
         )
+        if harness.capabilities.supports_bidirectional:
+            exit_code = asyncio.run(
+                execute_with_streaming(
+                    spawn,
+                    plan=resolved_plan,
+                    repo_root=runtime.repo_root,
+                    state_root=context.state_root,
+                    artifacts=runtime.artifacts,
+                    registry=runtime.harness_registry,
+                    cwd=runtime.repo_root,
+                    env_overrides=run_env_overrides,
+                    event_observer=event_observer,
+                    stream_stdout_to_terminal=stream_stdout_to_terminal,
+                    stream_stderr_to_terminal=payload.stream,
+                    harness_session_id_observer=session_context.harness_session_id_observer,
+                )
+            )
+        else:
+            exit_code = asyncio.run(
+                execute_with_finalization(
+                    spawn,
+                    plan=resolved_plan,
+                    repo_root=runtime.repo_root,
+                    state_root=context.state_root,
+                    artifacts=runtime.artifacts,
+                    registry=runtime.harness_registry,
+                    cwd=runtime.repo_root,
+                    env_overrides=run_env_overrides,
+                    event_observer=event_observer,
+                    stream_stdout_to_terminal=stream_stdout_to_terminal,
+                    stream_stderr_to_terminal=payload.stream,
+                    harness_session_id_observer=session_context.harness_session_id_observer,
+                )
+            )
     duration = time.monotonic() - started
     row = read_spawn_row(runtime.repo_root, str(spawn.spawn_id))
     # Report is read on-demand via `spawn show`, not inlined here.
