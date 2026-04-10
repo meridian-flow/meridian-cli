@@ -218,3 +218,42 @@
 **Decision:** Completed sessions show metadata only (harness, model, agent, status, timestamps). No historical thread content. Event replay from `output.jsonl` is a future enhancement.
 
 **Reasoning:** Replay requires reading the full `output.jsonl`, re-processing through the streaming reducer, handling partial/interrupted events, and performance consideration for long sessions. The architecture supports adding replay later without changes to session URLs, component structure, or the streaming protocol — the reducer already processes events incrementally, so feeding historical events is the same code path.
+
+## D27: Effort is creation-time only (reviewers p1362, p1364)
+
+**Decision:** The effort level is set when the session is created and cannot be changed mid-session. The `POST /api/sessions/{sid}/effort` endpoint is removed from the design.
+
+**Reasoning:** Both the gpt-5.4 alignment reviewer and gpt-5.2 feasibility reviewer identified that effort injection mid-session is not feasible with the current harness architecture. Claude maps effort to `--budget-tokens` CLI flag at spawn start. Codex maps to `--model-reasoning-effort` at spawn start. Neither harness adapter supports changing effort after the process launches. `SpawnManager.inject()` sends a user message — injecting an effort-change "command" as a user message would pollute the conversation and is unlikely to change the harness's behavior.
+
+**Rejected:**
+- **Inject effort via text command** — would pollute the conversation with a non-user message. Harness adapters don't parse injected messages as configuration changes.
+- **Add a new harness capability for runtime effort** — significant new architecture across all adapters, out of scope for v1.
+- **Effort via control socket** — the control socket routes through `SpawnManager.inject()` which sends a user message. Same problem.
+
+## D28: Extract SessionConfigBar from Composer (reviewer p1363)
+
+**Decision:** Session configuration controls (HarnessToggle, ModelButton, EffortSelector, AgentSelector) are extracted into a separate `SessionConfigBar` component with its own `useSessionConfig` hook. The Composer stays focused on text authoring (textarea + send/interrupt/cancel).
+
+**Reasoning:** The opus structural reviewer (p1363) flagged that loading session configuration onto the Composer would make it a god component with mixed responsibilities — text input, harness selection, model browsing, effort control, and agent selection. Extracting `SessionConfigBar` gives it one job (config controls) and keeps Composer's existing single job (text authoring). The `useSessionConfig` hook provides a single source of truth for the bidirectional harness ↔ model state.
+
+**Rejected:**
+- **Keep controls in Composer** — creates a component with 6+ concerns. Violates single responsibility.
+- **Inline state management per control** — the bidirectional harness/model sync requires coordinated state. Without a single hook, the sync logic would be split across components.
+
+## D29: Rename SpawnChannel → SessionChannel (reviewer p1363)
+
+**Decision:** Rename `SpawnChannel` to `SessionChannel` and its file from `spawn-channel.ts` to `session-channel.ts`. The class API is identical — only the URL builder and naming change.
+
+**Reasoning:** The opus structural reviewer (p1363) flagged the naming confusion: `useThreadStreaming(sessionId)` creating a `SpawnChannel(sessionId)` is misleading because `sessionId !== spawnId`. The session-to-spawn resolution happens server-side. The frontend works exclusively with session IDs, so the transport class should reflect that.
+
+## D30: repo_root optional in POST /api/sessions for v1 (resolving D22 conflict)
+
+**Decision:** `repo_root` is optional in `POST /api/sessions`. If omitted, the backend uses the server's launch context. This resolves the conflict between the UI redesign doc (which says frontend omits repo_root) and the session-registry doc (which says repo_root is required).
+
+**Reasoning:** The gpt-5.4 alignment reviewer and gpt-5.2 feasibility reviewer both identified this contract conflict. Making `repo_root` optional with a server default satisfies both: the v1 single-repo frontend omits it, and future multi-repo frontends can send it explicitly. The session registry still records `repo_root` on every entry for artifact path resolution (spawn IDs are only unique within a repo).
+
+## D31: Session schema extended with agent and effort fields (reviewer p1362)
+
+**Decision:** The session JSONL entry and `GET /api/sessions/{id}` response include `agent` and `effort` fields alongside the existing `harness` and `model`.
+
+**Reasoning:** The gpt-5.4 alignment reviewer identified that the locked SessionConfigBar in SessionView needs to display the session's agent and effort, but the session registry only stored harness and model. Without these fields, there's no read path for the selected agent or effort level after navigation/reload. Adding them to the session entry is trivial — they're recorded at creation time and never change.

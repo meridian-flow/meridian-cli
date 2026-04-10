@@ -68,26 +68,23 @@ App.tsx                              ← Shell: sidebar + router
 │   │   └── SessionGroup...
 │   └── SidebarFooter                ← Theme toggle, settings
 ├── MainPane                         ← Route-dependent content
-│   ├── EmptyState                   ← Route: / (no active session)
-│   │   ├── Logo + tagline
-│   │   └── Composer                 ← Can start typing immediately
+│   ├── LandingPage                  ← Route: / (no active session)
+│   │   ├── EmptyState               ← Logo + tagline (centered above)
+│   │   ├── SessionConfigBar         ← Config controls (harness, model, effort, agent)
+│   │   └── Composer                 ← Text input + send (pinned bottom)
 │   └── SessionView                  ← Route: /s/:sessionId
-│       ├── SessionHeader            ← Harness, model, status, connection
+│       ├── SessionHeader            ← Harness, model, agent, status, connection
 │       ├── ThreadView               ← Existing activity stream
 │       ├── StreamingIndicator       ← Existing
-│       └── Composer                 ← Enhanced with controls
-│           ├── ComposerControls     ← Control row above textarea
-│           │   ├── HarnessToggle    ← 3 icon tabs
-│           │   ├── ModelButton      ← Opens ModelBrowser
-│           │   ├── EffortSelector   ← Segmented control
-│           │   └── AgentSelector    ← Profile dropdown
-│           ├── ComposerTextarea     ← Existing auto-resize textarea
-│           └── ComposerActions      ← Send / Interrupt / Cancel
+│       ├── SessionConfigBar         ← Config controls (locked: harness, model, agent; active: effort)
+│       └── Composer                 ← Text input + send/interrupt/cancel
 └── ModelBrowser                     ← Dialog overlay (portal)
     ├── HarnessTabStrip              ← Left sidebar within dialog
     └── ModelGrid                    ← Scrollable model cards
         └── ModelCard[]
 ```
+
+**Key structural decision (reviewer-driven):** Session configuration controls (HarnessToggle, ModelButton, EffortSelector, AgentSelector) are extracted into `SessionConfigBar` — separate from `Composer`. The Composer stays focused on text authoring (textarea + send/interrupt/cancel). `SessionConfigBar` owns all config state and renders above the Composer in both landing page and session view contexts. This avoids the Composer becoming a god component with mixed responsibilities.
 
 ## File Structure
 
@@ -108,14 +105,16 @@ frontend/src/
 │   ├── session/                         ← NEW (absorbs spawn-selector logic)
 │   │   ├── SessionView.tsx              ← Route component for /s/:id
 │   │   └── SessionHeader.tsx            ← Replaces SpawnHeader
+│   ├── session-config/                  ← NEW (extracted from Composer per review)
+│   │   ├── SessionConfigBar.tsx         ← Container: config controls row
+│   │   ├── HarnessToggle.tsx            ← 3 icon toggle group
+│   │   ├── ModelButton.tsx              ← Compact model display + click to open browser
+│   │   ├── EffortSelector.tsx           ← Segmented control
+│   │   ├── AgentSelector.tsx            ← Profile dropdown
+│   │   └── useSessionConfig.ts          ← Hook: owns harness/model/effort/agent state
 │   ├── threads/
 │   │   ├── composer/
-│   │   │   ├── Composer.tsx             ← MODIFY: add controls row
-│   │   │   ├── ComposerControls.tsx     ← NEW: harness + model + effort + agent
-│   │   │   ├── HarnessToggle.tsx        ← NEW: 3 icon toggle group
-│   │   │   ├── ModelButton.tsx          ← NEW: compact model display + click
-│   │   │   ├── EffortSelector.tsx       ← NEW: segmented control
-│   │   │   ├── AgentSelector.tsx        ← NEW: profile dropdown
+│   │   │   ├── Composer.tsx             ← MODIFY: remove config controls (moved to session-config)
 │   │   │   └── CapabilityBadge.tsx      ← Existing
 │   │   └── components/
 │   │       ├── ThreadView.tsx           ← Unchanged
@@ -135,7 +134,8 @@ frontend/src/
 │   └── use-agent-profiles.ts            ← NEW: fetch agent profiles from API
 └── lib/
     ├── ws/
-    │   ├── spawn-channel.ts             ← MODIFY: session-based WS URL
+    │   ├── session-channel.ts           ← RENAME from spawn-channel.ts: session-based WS URL
+    │   ├── spawn-channel.ts             ← REMOVE (replaced by session-channel.ts)
     │   └── ...                          ← Unchanged
     └── utils.ts                         ← Unchanged
 ```
@@ -272,19 +272,57 @@ The logo and tagline are vertically centered in the available space above the co
 
 The Composer on the landing page is fully functional — all controls (harness, model, effort, agent) are available. Submitting creates a new session via `POST /api/sessions` and navigates to `/s/{sessionId}`.
 
-## Composer Controls
+## Session Config Bar
 
-The composer expands from the current simple textarea+buttons to include a controls row above the input:
+The session configuration controls live in `SessionConfigBar`, a dedicated component above the Composer. This separation keeps the Composer focused on text authoring while the config bar handles session setup:
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
-│  [Claude | Codex | OC]  [claude-opus-4-6 v]  [Med v]  [---]  │   ← controls row
+│  [Claude | Codex | OC]  [claude-opus-4-6 v]  [Med v]  [---]  │   ← SessionConfigBar
+├────────────────────────────────────────────────────────────────┤
 │                                                                │
-│  Describe what you'd like to work on...                        │   ← textarea
+│  Describe what you'd like to work on...                        │   ← Composer (textarea)
 │                                                                │
-│  Enter to send · Shift+Enter newline           [Cancel] [Send] │   ← actions
+│  Enter to send · Shift+Enter newline           [Cancel] [Send] │   ← Composer (actions)
 └────────────────────────────────────────────────────────────────┘
 ```
+
+### State Ownership: useSessionConfig Hook
+
+All config state is owned by a single `useSessionConfig` hook, which both `SessionConfigBar` and `LandingPage`/`SessionView` consume:
+
+```tsx
+interface SessionConfig {
+  harness: HarnessId
+  model: CatalogModel | null
+  effort: EffortLevel
+  agent: string | null
+}
+
+function useSessionConfig(initialConfig?: Partial<SessionConfig>) {
+  // State
+  const [harness, setHarness] = useState<HarnessId>(initialConfig?.harness ?? "claude")
+  const [model, setModel] = useState<CatalogModel | null>(initialConfig?.model ?? null)
+  const [effort, setEffort] = useState<EffortLevel>(initialConfig?.effort ?? "medium")
+  const [agent, setAgent] = useState<string | null>(initialConfig?.agent ?? null)
+
+  // When harness changes, clear model (models are harness-specific)
+  function selectHarness(next: HarnessId) {
+    setHarness(next)
+    setModel(null)
+  }
+
+  // When model is selected from browser, sync harness to match
+  function selectModel(next: CatalogModel) {
+    setModel(next)
+    setHarness(next.harness as HarnessId)
+  }
+
+  return { harness, model, effort, agent, selectHarness, selectModel, setEffort, setAgent }
+}
+```
+
+This hook is the single source of truth for the bidirectional harness ↔ model synchronization. Both `HarnessToggle` and `ModelBrowser` read from and write to this hook, eliminating ambiguity about which component owns state.
 
 ### HarnessToggle
 
@@ -332,9 +370,9 @@ A segmented control with 4 levels. Uses a `ToggleGroup` with `type="single"`:
 
 Default: `medium`.
 
-**Effort is changeable mid-session.** Unlike harness/model/agent, the effort level can be adjusted at any time. Changing effort mid-session sends the appropriate command via the effort injection endpoint.
+**Effort is creation-time only (v1).** The effort level is set when the session is created and cannot be changed mid-session. This is a harness constraint: Claude and Codex map effort to CLI flags at spawn creation time (`--budget-tokens` for Claude, `--model-reasoning-effort` for Codex). There is no reliable mechanism to change effort mid-session — injecting a text command would pollute the conversation, and the harness adapters don't support runtime effort changes.
 
-Effort-to-harness mapping (sent at session creation as a `SpawnParams.effort` value, and mid-session via `POST /api/sessions/{sid}/effort`):
+Effort-to-harness mapping (sent at session creation as `SpawnParams.effort`):
 
 | Level | Claude | Codex |
 |-------|--------|-------|
@@ -344,6 +382,8 @@ Effort-to-harness mapping (sent at session creation as a `SpawnParams.effort` va
 | max | no budget limit | `effort=max` |
 
 The exact mapping values are harness-adapter concerns — the frontend sends the level string, the backend maps it.
+
+**After session starts:** The effort selector becomes read-only (locked), same as harness, model, and agent.
 
 ### AgentSelector
 
@@ -368,26 +408,30 @@ The select items show:
 
 **After session starts:** The agent selector becomes disabled (locked). Agent profiles set the system prompt and skills at session creation — changing mid-session is not supported.
 
-### Composer State Machine
+### Config + Composer State Machine
 
-The controls have two modes based on session state:
+The config bar and composer have two modes based on session state:
 
-**Pre-session (empty state / new chat):** All controls are interactive. Submitting the composer creates a session with the selected harness, model, effort, and agent.
+**Pre-session (landing page / new chat):** All config controls are interactive. Submitting the composer creates a session with the selected harness, model, effort, and agent, then navigates to `/s/{sessionId}`.
 
-**Active session:** Harness, model, and agent are locked (read-only display). Effort remains changeable. The textarea and action buttons work as they do today (send, interrupt, cancel based on capabilities).
+**Active session:** All config controls are locked (read-only display). The textarea and action buttons work as they do today (send, interrupt, cancel based on harness capabilities).
 
 ```
-Controls state:
-┌─────────────────────────────────────────────────┐
-│              Pre-session    Active session       │
-│ Harness      interactive    locked (display)     │
-│ Model        interactive    locked (display)     │
-│ Effort       interactive    interactive          │
-│ Agent        interactive    locked (display)     │
-│ Textarea     interactive    interactive          │
-│ Send         interactive    interactive          │
-└─────────────────────────────────────────────────┘
+Control state by mode:
+┌──────────────────────────────────────────────────┐
+│                Pre-session    Active session      │
+│ SessionConfigBar:                                │
+│   Harness      interactive    locked (display)   │
+│   Model        interactive    locked (display)   │
+│   Effort       interactive    locked (display)   │
+│   Agent        interactive    locked (display)   │
+│ Composer:                                        │
+│   Textarea     interactive    interactive        │
+│   Send         interactive    interactive        │
+└──────────────────────────────────────────────────┘
 ```
+
+**No WebSocket on the landing page.** Streaming starts in SessionView after navigation. The landing page is purely a session creation form.
 
 ## Model Browser
 
@@ -466,39 +510,51 @@ When the user picks a model from harness X in the browser, the HarnessToggle in 
 function SessionView({ params }: { params: { sessionId: string } }) {
   const sessionId = params.sessionId
 
-  // Load session metadata (harness, model, agent, status, repo)
+  // Load session metadata (harness, model, agent, effort, status)
   const session = useSessionMetadata(sessionId)
 
-  // Connect to WebSocket stream
+  // Connect to WebSocket stream (only if session is active)
   const { state, capabilities, channel, cancel, connectionState } =
-    useThreadStreaming(sessionId)
+    useThreadStreaming(session?.status === "running" ? sessionId : null)
 
-  // Session is "locked" — controls are read-only
-  const isSessionActive = session?.status === "running"
+  // Session config from metadata (locked/read-only)
+  const config = useSessionConfig({
+    harness: session?.harness,
+    model: session?.model,
+    effort: session?.effort,
+    agent: session?.agent,
+  })
+
+  const isActive = session?.status === "running"
 
   return (
     <div className="flex h-full flex-col">
       <SessionHeader session={session} connectionState={connectionState} />
+
       <div className="min-h-0 flex-1">
-        <ThreadView items={state.items} error={state.error} />
+        {isActive ? (
+          <ThreadView items={state.items} error={state.error} />
+        ) : (
+          <CompletedSessionView session={session} />
+        )}
       </div>
+
       {state.isStreaming ? <StreamingIndicator /> : null}
+
+      <SessionConfigBar config={config} locked={true} />
       <Composer
         channel={channel}
         capabilities={capabilities}
         isStreaming={state.isStreaming}
-        disabled={!isSessionActive || connectionState !== "open"}
+        disabled={!isActive || connectionState !== "open"}
         onCancel={cancel}
-        // Locked config from session
-        harness={session?.harness}
-        model={session?.model}
-        agent={session?.agent}
-        locked={true}
       />
     </div>
   )
 }
 ```
+
+**CompletedSessionView:** For completed/failed/cancelled sessions, shows a centered metadata card with status, harness, model, agent, effort, created_at, and duration. No thread content (event replay deferred to v2). This handles the case where a user navigates to a session that has finished — they see what happened (succeeded/failed) and the session's configuration.
 
 ### SessionHeader
 
@@ -632,39 +688,92 @@ export function useThreadStreaming(sessionId: string | null)
 // WS URL: /api/sessions/{sessionId}/ws
 ```
 
-The `SpawnChannel` class updates its URL builder accordingly. The protocol (AG-UI events, control messages) is unchanged.
+The `SpawnChannel` class is renamed to `SessionChannel` (file: `lib/ws/session-channel.ts`). The class API is identical — only the URL builder changes from `/api/spawns/{id}/ws` to `/api/sessions/{id}/ws`. The AG-UI event protocol and control messages are unchanged.
+
+Renaming rationale: the hook takes a `sessionId` and creates a `SessionChannel(sessionId)`. Using the old name `SpawnChannel(sessionId)` is confusing because `sessionId !== spawnId`. The session-to-spawn resolution happens server-side — the frontend works exclusively with session IDs.
 
 ## Session Creation Flow
 
-When the user submits the Composer from the empty state:
+When the user submits the Composer from the landing page:
 
-1. Composer collects: `harness`, `model`, `effort`, `agent`, `prompt`
-2. `POST /api/sessions` with:
+1. `SessionConfigBar` provides: `harness`, `model`, `effort`, `agent`
+2. Composer provides: `prompt`
+3. `POST /api/sessions` with:
    ```json
    {
      "harness": "claude",
      "prompt": "Fix the login bug...",
      "model": "claude-opus-4-6",
      "agent": "coder",
-     "effort": "medium",
-     "repo_root": "/home/user/my-project"
+     "effort": "medium"
    }
    ```
-3. Response returns `{ session_id, spawn_id, ... }`
-4. Navigate to `/s/{session_id}` via wouter's `useLocation`
-5. `SessionView` mounts, reads sessionId from params
-6. `useThreadStreaming(sessionId)` opens WebSocket
-7. Sidebar poll picks up the new session within 5 seconds
+   Note: `repo_root` is **not sent by the frontend**. The backend uses the server's launch context (see below).
+4. Response returns `{ session_id, spawn_id, ... }`
+5. Navigate to `/s/{session_id}` via wouter's `useLocation`
+6. `SessionView` mounts, reads sessionId from params
+7. `useThreadStreaming(sessionId)` opens WebSocket
+8. Sidebar poll picks up the new session within 5 seconds
+
+### LandingPage Code Sketch
+
+```tsx
+function LandingPage() {
+  const [, navigate] = useLocation()
+  const config = useSessionConfig()  // owns harness/model/effort/agent state
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleSubmit(prompt: string) {
+    setIsSubmitting(true)
+    setError(null)
+    try {
+      const response = await fetch("/api/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          harness: config.harness,
+          model: config.model?.model_id ?? null,
+          effort: config.effort,
+          agent: config.agent,
+          prompt,
+        }),
+      })
+      if (!response.ok) { /* handle error */ }
+      const { session_id } = await response.json()
+      navigate(`/s/${session_id}`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create session")
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex flex-1 items-center justify-center">
+        <EmptyState />
+      </div>
+      <SessionConfigBar config={config} locked={false} />
+      <Composer
+        onSubmit={handleSubmit}
+        disabled={isSubmitting}
+        isStreaming={false}
+      />
+    </div>
+  )
+}
+```
 
 ### Repo Root Resolution
 
-The `repo_root` is determined by the server's launch context. When `meridian app` is invoked from a repo directory, the server knows its repo_root. For v1 (single-repo), the frontend does not need a repo selector — the backend uses the server's repo_root for all session creation.
+The `repo_root` is determined by the server's launch context. `meridian app` is invoked from a repo directory, so the server knows its `repo_root`. For v1 (single-repo), the frontend does not send `repo_root` — the backend uses the server's `repo_root` for all session creation.
 
-Multi-repo support (repo selector in the composer, dashboard grouping by repo) is designed in the session-registry doc but deferred for the UI. The frontend simply omits `repo_root` from the POST request, and the backend uses its default.
+**Resolving the contract conflict:** The session-registry doc (D22) says `repo_root` is required in `POST /api/sessions` for the multi-repo model. For v1, the endpoint accepts an **optional** `repo_root` — if omitted, the backend uses the server's launch context. This satisfies both the single-repo frontend (omits it) and future multi-repo frontends (sends it explicitly). The session registry still records `repo_root` on every entry for artifact path resolution.
 
 ## New Backend Endpoints
 
-Three new REST endpoints beyond those in session-registry.md:
+Two new REST endpoints beyond those in session-registry.md:
 
 ### `GET /api/models` — Model Catalog
 
@@ -674,7 +783,7 @@ Returns available models for the model browser.
 @app.get("/api/models")
 async def list_models():
     from meridian.lib.ops.catalog import models_list_sync, ModelsListInput
-    result = models_list_sync(ModelsListInput(show_all=False, show_superseded=False))
+    result = models_list_sync(ModelsListInput(all=False, show_superseded=False))
     return {"models": [m.model_dump() for m in result.models]}
 ```
 
@@ -706,48 +815,46 @@ async def list_agents():
 
 Returns summary fields only — the full agent body (system prompt) is not sent to the frontend.
 
-### `POST /api/sessions/{session_id}/effort` — Set Effort Level
+### Removed: `POST /api/sessions/{session_id}/effort`
 
-Changes the effort/thinking level for an active session.
-
-```python
-@app.post("/api/sessions/{session_id}/effort")
-async def set_effort(session_id: str, body: EffortRequest):
-    session = session_registry.get(session_id)
-    if not session:
-        raise HTTPException(404)
-
-    # Map effort level to harness-specific command
-    command = map_effort_to_command(session.harness, body.level)
-
-    # Inject via control socket
-    result = await spawn_manager.inject(
-        session.spawn_id,
-        command,
-        source="app_effort",
-    )
-    return {"ok": result.success}
-```
-
-Request: `{ "level": "low" | "medium" | "high" | "max" }`
-
-The `map_effort_to_command()` function is a harness adapter concern. It translates effort levels to harness-specific slash commands or configuration changes. This mapping lives in the harness adapter layer, not in the API handler.
+**This endpoint was removed from the design.** Effort is creation-time only (see D27 in decisions.md). The harness adapters map effort to CLI flags at spawn creation — there is no reliable mechanism to change effort mid-session. Injecting a text command would pollute the conversation, and the adapters don't support runtime effort changes.
 
 ### Session Creation Changes
 
-The existing `POST /api/sessions` (from session-registry.md) gains two new optional fields in the request body:
+The existing `POST /api/sessions` (from session-registry.md) gains new optional fields in the request body:
 
 ```python
-class SessionCreateRequest:
+class SessionCreateRequest(BaseModel):
     harness: str
     prompt: str
     model: str | None = None
     agent: str | None = None
-    effort: str | None = None       # NEW — passed to SpawnParams.effort
-    repo_root: str | None = None    # From session-registry.md
+    effort: str | None = None       # NEW — passed to SpawnParams.effort at creation time
+    repo_root: str | None = None    # Optional for v1 — backend uses server's repo_root if omitted
 ```
 
 The `effort` field is passed through to `SpawnParams.effort`, which the harness adapter uses at spawn creation time.
+
+The `repo_root` field is optional for v1 — if omitted, the backend uses the server's launch context. Future multi-repo frontends can send it explicitly.
+
+### Session Registry Schema Extension
+
+The session JSONL entry gains `agent` and `effort` fields to support the locked config display in `SessionView`:
+
+```json
+{
+  "session_id": "a7f3b2c1",
+  "spawn_id": "p42",
+  "repo_root": "/home/user/project",
+  "harness": "claude",
+  "model": "claude-opus-4-6",
+  "agent": "coder",
+  "effort": "medium",
+  "created_at": "2026-04-09T14:30:00Z"
+}
+```
+
+The `GET /api/sessions/{id}` response includes these fields so the `SessionView` can populate the locked `SessionConfigBar` without additional API calls.
 
 ## State Flow Diagram
 
@@ -791,7 +898,7 @@ Sidebar (always visible):
 | Session persistence | None — refresh loses everything | Sessions persist via registry |
 | Harness selection | Radix Select dropdown | Toggle group with icons |
 | Model selection | None (hardcoded/default) | Model browser dialog with cards |
-| Effort control | None | Segmented control (lo/med/hi/max) |
+| Effort control | None | Segmented control (lo/med/hi/max, creation-time only) |
 | Agent selection | None | Profile dropdown from .agents/ |
 | Spawn creation | SpawnSelector card form | Composer on landing page |
 | Branding | Top header bar | Sidebar header |
@@ -855,13 +962,12 @@ No other new dependencies. The model browser, harness toggle, effort selector, a
 | Selected model's harness differs from HarnessToggle | HarnessToggle updates to match the model's harness. This is by design — picking a model from a different harness switches the harness. |
 | Model catalog changes after initial fetch | No live refresh — catalog is fetched once per app mount. User must reload the page to see new models. This is acceptable because the model catalog changes rarely. |
 
-### Effort Injection Edge Cases
+### Effort Selector Edge Cases
 
 | Scenario | Behavior |
 |----------|----------|
-| Effort change fails mid-session | EffortSelector reverts to previous value. Toast notification shows "Failed to change effort level." |
-| Effort change while spawn is between turns | The injection is queued (Claude) or applied immediately (Codex). The EffortSelector shows the new value optimistically. |
-| Harness doesn't support effort mapping | EffortSelector is hidden for unsupported harnesses. If all harnesses eventually support it, this becomes a no-op. Currently: Claude and Codex support effort; OpenCode TBD. |
+| Harness doesn't support effort mapping | EffortSelector is hidden for unsupported harnesses. Currently: Claude and Codex support effort; OpenCode TBD. |
+| Effort set at creation, then session viewed later | EffortSelector shows the creation-time value from session metadata (locked/read-only). |
 
 ### Agent Selector Edge Cases
 
@@ -968,10 +1074,10 @@ Each async boundary has a defined loading → ready → error transition:
 
 Suggested phasing for implementation:
 
-1. **Routing + layout shell** — Add wouter, restructure App.tsx to sidebar + main pane, create empty Sidebar/EmptyState/SessionView shells. Verify routing works.
-2. **Sidebar + session list** — `GET /api/sessions` endpoint, `useSessionList` hook, SessionList/SessionItem components. Verify session navigation.
-3. **Session view** — Extract session logic from App.tsx into SessionView. SessionHeader replaces SpawnHeader + StatusBar. Switch useThreadStreaming to session-based addressing.
-4. **Composer controls** — HarnessToggle, ModelButton (without browser), EffortSelector, AgentSelector. Wire to session creation. `GET /api/agents` endpoint.
-5. **Model browser** — `GET /api/models` endpoint, `useModelCatalog` hook, ModelBrowser dialog with HarnessTabStrip + ModelCard grid.
-6. **Effort injection** — `POST /api/sessions/{sid}/effort` endpoint, wire EffortSelector to inject mid-session.
-7. **Polish** — Empty state design, transitions, loading states, error states, cleanup SpawnSelector/SpawnHeader.
+1. **Routing + layout shell** — Add wouter, restructure App.tsx to sidebar + main pane, create empty Sidebar/EmptyState/SessionView shells. Rename `SpawnChannel` → `SessionChannel`. Verify routing works.
+2. **Backend session API** — Session registry (`AppSessionRegistry`), `POST/GET /api/sessions`, `GET /api/sessions/{id}`, `WS /api/sessions/{id}/ws`, `GET /api/agents`. Optional `repo_root` with server default.
+3. **Sidebar + session list** — `useSessionList` hook, SessionList/SessionItem/SessionGroup components. Verify session navigation.
+4. **Session view** — Extract session logic from App.tsx into SessionView + CompletedSessionView. SessionHeader replaces SpawnHeader + StatusBar. Switch `useThreadStreaming` to session-based addressing.
+5. **Session config bar** — `useSessionConfig` hook, `SessionConfigBar` with HarnessToggle, ModelButton (without browser), EffortSelector, AgentSelector. Wire to session creation via LandingPage.
+6. **Model browser** — `GET /api/models` endpoint, `useModelCatalog` hook, ModelBrowser dialog with HarnessTabStrip + ModelCard grid.
+7. **Polish** — Empty state design, loading skeletons, error states, keyboard navigation, cleanup SpawnSelector/SpawnHeader/StatusBar.
