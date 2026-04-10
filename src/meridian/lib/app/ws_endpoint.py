@@ -10,9 +10,9 @@ from collections.abc import Awaitable, Callable, Mapping
 from contextlib import suppress
 from typing import NotRequired, Protocol, TypedDict, cast
 
-from ag_ui.core import BaseEvent, RunErrorEvent
 from starlette.websockets import WebSocket
 
+from ag_ui.core import BaseEvent, RunErrorEvent
 from meridian.lib.app.agui_mapping import get_agui_mapper
 from meridian.lib.app.agui_mapping.base import AGUIMapper
 from meridian.lib.app.agui_mapping.extensions import make_capabilities_event
@@ -119,7 +119,7 @@ async def _outbound_loop(
 
         for translated in mapper.translate(event):
             await _send_event(websocket, translated)
-            if isinstance(translated, RunErrorEvent):
+            if getattr(translated, "type", None) == "RUN_ERROR":
                 error_emitted = True
 
 

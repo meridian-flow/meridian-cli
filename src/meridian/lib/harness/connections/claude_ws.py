@@ -30,6 +30,12 @@ _PROCESS_KILL_GRACE_SECONDS: Final[float] = 10.0
 _VERSION_CHECK_TIMEOUT_SECONDS: Final[float] = 5.0
 _TESTED_VERSION_PREFIXES: Final[tuple[str, ...]] = ("1.", "2.")
 _HARNESS_NAME: Final[str] = HarnessId.CLAUDE.value
+_BLOCKED_CHILD_ENV_VARS: Final[frozenset[str]] = frozenset(
+    {
+        "CLAUDECODE",
+        "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE",
+    }
+)
 
 
 class ClaudeConnection(HarnessConnection):
@@ -281,7 +287,11 @@ class ClaudeConnection(HarnessConnection):
         if config.extra_args:
             command.extend(config.extra_args)
 
-        env = inherit_child_env(os.environ, config.env_overrides)
+        env = inherit_child_env(
+            os.environ,
+            config.env_overrides,
+            blocked=_BLOCKED_CHILD_ENV_VARS,
+        )
 
         self._process = await asyncio.create_subprocess_exec(
             *command,

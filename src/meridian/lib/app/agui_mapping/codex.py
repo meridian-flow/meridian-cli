@@ -24,7 +24,6 @@ from ag_ui.core import (
     ToolCallResultEvent,
     ToolCallStartEvent,
 )
-
 from meridian.lib.app.agui_mapping.extensions import make_run_error_event
 from meridian.lib.harness.connections.base import HarnessEvent
 
@@ -152,8 +151,9 @@ class CodexAGUIMapper:
         if tool_call_id is None:
             # _translate_tool_lifecycle generated a deterministic fallback for this call.
             generated = lifecycle_events[0]
-            if isinstance(generated, ToolCallStartEvent):
-                tool_call_id = generated.tool_call_id
+            generated_tool_call_id = getattr(generated, "tool_call_id", None)
+            if isinstance(generated_tool_call_id, str) and generated_tool_call_id.strip():
+                tool_call_id = generated_tool_call_id
             else:
                 tool_call_id = f"tool-{uuid4()}"
 
