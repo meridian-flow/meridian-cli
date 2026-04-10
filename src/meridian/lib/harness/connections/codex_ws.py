@@ -141,6 +141,7 @@ class CodexConnection(HarnessConnection):
         self._process: Process | None = None
         self._ws: Any | None = None
         self._reader_task: asyncio.Task[None] | None = None
+        self._send_lock = asyncio.Lock()
         self._stderr_handle: BufferedWriter | None = None
 
         self._next_request_id = 1
@@ -397,7 +398,7 @@ class CodexConnection(HarnessConnection):
             request_id=request_id,
         )
         try:
-            await ws.send(json.dumps(payload))
+            await self._send_json(payload)
             response = await asyncio.wait_for(
                 response_future,
                 timeout=timeout_seconds or _DEFAULT_REQUEST_TIMEOUT_SECONDS,
@@ -429,7 +430,7 @@ class CodexConnection(HarnessConnection):
         if params is not None:
             payload["params"] = params
         trace_wire_send(self._tracer, "ws_send_notify", json.dumps(payload), method=method)
-        await ws.send(json.dumps(payload))
+        await self._send_json(payload)
 
     async def _read_messages_loop(self) -> None:
         ws = self._ws
@@ -449,6 +450,11 @@ class CodexConnection(HarnessConnection):
                     trace_parse_error(self._tracer, "codex", raw_text, error="malformed_json_rpc")
                     continue
 
+                method = parsed.get("method")
+                if "id" in parsed and isinstance(method, str):
+                    await self._handle_server_request(parsed)
+                    continue
+
                 if "id" in parsed:
                     response_id = _coerce_int(parsed.get("id"))
                     if response_id is None:
@@ -463,7 +469,6 @@ class CodexConnection(HarnessConnection):
                         future.set_result(parsed)
                     continue
 
-                method = parsed.get("method")
                 if not isinstance(method, str):
                     continue
 
@@ -541,6 +546,94 @@ class CodexConnection(HarnessConnection):
         self._ws = None
         with contextlib.suppress(Exception):
             await ws.close()
+
+    async def _send_json(self, payload: dict[str, object]) -> None:
+        ws = self._ws
+        if ws is None:
+            raise RuntimeError("Codex websocket is not connected")
+        async with self._send_lock:
+            await ws.send(json.dumps(payload))
+
+    async def _send_jsonrpc_result(self, request_id: object, result: dict[str, object]) -> None:
+        payload = {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": result,
+        }
+        trace_wire_send(
+            self._tracer,
+            "ws_send_result",
+            json.dumps(payload),
+            request_id=request_id,
+        )
+        await self._send_json(payload)
+
+    async def _send_jsonrpc_error(
+        self,
+        request_id: object,
+        *,
+        code: int,
+        message: str,
+    ) -> None:
+        payload = {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "error": {
+                "code": code,
+                "message": message,
+            },
+        }
+        trace_wire_send(
+            self._tracer,
+            "ws_send_error",
+            json.dumps(payload),
+            request_id=request_id,
+            error_code=code,
+        )
+        await self._send_json(payload)
+
+    async def _handle_server_request(self, message: dict[str, object]) -> None:
+        request_id = message.get("id")
+        method = message.get("method")
+        params_obj = message.get("params")
+        payload = cast("dict[str, object]", params_obj) if isinstance(params_obj, dict) else {}
+
+        if not isinstance(method, str):
+            return
+
+        if self._tracer is not None:
+            self._tracer.emit(
+                "wire",
+                "ws_recv_server_request",
+                direction="inbound",
+                data={"method": method},
+            )
+
+        if method == "item/commandExecution/requestApproval":
+            await self._send_jsonrpc_result(request_id, {"decision": "accept"})
+            return
+
+        if method == "item/fileChange/requestApproval":
+            await self._send_jsonrpc_result(request_id, {"decision": "accept"})
+            return
+
+        if method == "item/tool/requestUserInput":
+            await self._send_jsonrpc_result(request_id, {"answers": {}})
+            return
+
+        await self._event_queue.put(
+            HarnessEvent(
+                event_type="warning/unsupportedServerRequest",
+                payload={"method": method, "params": payload},
+                harness_id=self.harness_id.value,
+                raw_text=None,
+            )
+        )
+        await self._send_jsonrpc_error(
+            request_id,
+            code=-32601,
+            message=f"Meridian codex_ws adapter does not support server request '{method}'",
+        )
 
     def _fail_pending_requests(self, error: Exception) -> None:
         for request_id in list(self._pending_requests.keys()):
