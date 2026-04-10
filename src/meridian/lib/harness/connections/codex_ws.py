@@ -11,10 +11,12 @@ import os
 import socket
 from asyncio.subprocess import Process
 from collections.abc import AsyncIterator
+from io import BufferedWriter
 from typing import Any, cast
 
 from aiohttp import ClientSession, WSMsgType
 
+from meridian import __version__
 from meridian.lib.core.types import HarnessId, SpawnId
 from meridian.lib.harness.connections.base import (
     ConnectionCapabilities,
@@ -25,6 +27,7 @@ from meridian.lib.harness.connections.base import (
     HarnessEvent,
 )
 from meridian.lib.launch.env import inherit_child_env
+from meridian.lib.state.paths import resolve_spawn_log_dir
 
 _MAX_INITIAL_PROMPT_BYTES = 50 * 1024
 _DEFAULT_CONNECT_TIMEOUT_SECONDS = 10.0
@@ -120,6 +123,7 @@ class CodexConnection(HarnessConnection):
         self._process: Process | None = None
         self._ws: Any | None = None
         self._reader_task: asyncio.Task[None] | None = None
+        self._stderr_handle: BufferedWriter | None = None
 
         self._next_request_id = 1
         self._pending_requests: dict[int, asyncio.Future[dict[str, object]]] = {}
@@ -169,6 +173,9 @@ class CodexConnection(HarnessConnection):
         ws_url = f"ws://{host}:{port}"
 
         env = inherit_child_env(os.environ, config.env_overrides)
+        spawn_dir = resolve_spawn_log_dir(config.repo_root, config.spawn_id)
+        spawn_dir.mkdir(parents=True, exist_ok=True)
+        self._stderr_handle = (spawn_dir / "stderr.log").open("ab")
 
         try:
             self._process = await asyncio.create_subprocess_exec(
@@ -180,7 +187,7 @@ class CodexConnection(HarnessConnection):
                 cwd=str(config.repo_root),
                 env=env,
                 stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
+                stderr=self._stderr_handle,
             )
 
             self._ws = await self._connect_with_retry(
@@ -191,7 +198,13 @@ class CodexConnection(HarnessConnection):
 
             await self._request(
                 "initialize",
-                {"capabilities": {}},
+                {
+                    "capabilities": {},
+                    "clientInfo": {
+                        "name": "meridian",
+                        "version": __version__,
+                    },
+                },
                 timeout_seconds=self._connect_timeout(),
             )
             await self._notify("initialized")
@@ -203,7 +216,7 @@ class CodexConnection(HarnessConnection):
                     "cwd": str(config.repo_root),
                 },
             )
-            self._thread_id = _extract_str(thread_result, "threadId")
+            self._thread_id = _extract_thread_id(thread_result)
 
             initial_prompt = _truncate_utf8(config.prompt, _MAX_INITIAL_PROMPT_BYTES)
             if initial_prompt != config.prompt:
@@ -220,7 +233,13 @@ class CodexConnection(HarnessConnection):
                     )
                 )
 
-            await self._request("turn/start", {"prompt": initial_prompt})
+            await self._request(
+                "turn/start",
+                {
+                    "threadId": self._require_thread_id("turn/start"),
+                    "input": _build_text_user_input(initial_prompt),
+                },
+            )
 
             self._state = "connected"
         except Exception:
@@ -249,13 +268,20 @@ class CodexConnection(HarnessConnection):
             await self._request(
                 "turn/steer",
                 {
-                    "prompt": text,
+                    "threadId": self._require_thread_id("turn/steer"),
+                    "input": _build_text_user_input(text),
                     "expectedTurnId": self._current_turn_id,
                 },
             )
             return
 
-        await self._request("turn/start", {"prompt": text})
+        await self._request(
+            "turn/start",
+            {
+                "threadId": self._require_thread_id("turn/start"),
+                "input": _build_text_user_input(text),
+            },
+        )
 
     async def send_interrupt(self) -> None:
         self._require_connected("send_interrupt")
@@ -263,7 +289,13 @@ class CodexConnection(HarnessConnection):
         if not self._current_turn_id:
             return
 
-        await self._request("turn/interrupt", {"turnId": self._current_turn_id})
+        await self._request(
+            "turn/interrupt",
+            {
+                "threadId": self._require_thread_id("turn/interrupt"),
+                "turnId": self._current_turn_id,
+            },
+        )
 
     async def send_cancel(self) -> None:
         self._require_connected("send_cancel")
@@ -439,6 +471,7 @@ class CodexConnection(HarnessConnection):
         self._fail_pending_requests(RuntimeError("Codex connection stopped"))
         self._current_turn_id = None
         self._thread_id = None
+        self._close_log_handles()
 
         if mark_stopped:
             self._state = "stopped"
@@ -459,11 +492,22 @@ class CodexConnection(HarnessConnection):
             if not future.done():
                 future.set_exception(error)
 
+    def _close_log_handles(self) -> None:
+        if self._stderr_handle is not None:
+            self._stderr_handle.close()
+            self._stderr_handle = None
+
     def _require_connected(self, operation: str) -> None:
         if self._state != "connected":
             raise ConnectionNotReady(
                 f"Codex connection is not connected; cannot {operation} from state '{self._state}'"
             )
+
+    def _require_thread_id(self, operation: str) -> str:
+        thread_id = self._thread_id
+        if thread_id is None:
+            raise RuntimeError(f"Codex thread ID is unavailable; cannot {operation}")
+        return thread_id
 
     def _connect_timeout(self) -> float:
         timeout_seconds = self._config.timeout_seconds if self._config is not None else None
@@ -476,10 +520,12 @@ class CodexConnection(HarnessConnection):
             self._current_turn_id = None
             return
 
-        if method == "thread/start":
-            self._thread_id = _extract_str(payload, "threadId")
+        if method in {"thread/start", "thread/started"}:
+            thread_id = _extract_thread_id(payload)
+            if thread_id is not None:
+                self._thread_id = thread_id
 
-        turn_id = _extract_str(payload, "turnId")
+        turn_id = _extract_turn_id(payload)
         if turn_id is not None:
             self._current_turn_id = turn_id
 
@@ -501,6 +547,30 @@ def _coerce_text(raw_message: object) -> str:
     if isinstance(raw_message, bytes):
         return raw_message.decode("utf-8", errors="replace")
     return str(raw_message)
+
+
+def _build_text_user_input(text: str) -> list[dict[str, str]]:
+    return [{"type": "text", "text": text}]
+
+
+def _extract_thread_id(payload: dict[str, object]) -> str | None:
+    thread_id = _extract_str(payload, "threadId")
+    if thread_id is not None:
+        return thread_id
+    thread_obj = payload.get("thread")
+    if isinstance(thread_obj, dict):
+        return _extract_str(cast("dict[str, object]", thread_obj), "id")
+    return None
+
+
+def _extract_turn_id(payload: dict[str, object]) -> str | None:
+    turn_id = _extract_str(payload, "turnId")
+    if turn_id is not None:
+        return turn_id
+    turn_obj = payload.get("turn")
+    if isinstance(turn_obj, dict):
+        return _extract_str(cast("dict[str, object]", turn_obj), "id")
+    return None
 
 
 def _parse_jsonrpc(raw_text: str) -> dict[str, object] | None:

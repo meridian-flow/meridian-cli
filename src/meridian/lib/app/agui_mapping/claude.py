@@ -23,7 +23,6 @@ from ag_ui.core import (
     ToolCallResultEvent,
     ToolCallStartEvent,
 )
-
 from meridian.lib.app.agui_mapping.extensions import make_run_error_event
 from meridian.lib.harness.connections.base import HarnessEvent
 
@@ -50,10 +49,12 @@ class ClaudeAGUIMapper:
         self._active_tool_call_id: str | None = None
 
         self._last_tool_call_id: str | None = None
+        self._saw_stream_event = False
 
     def make_run_started(self, spawn_id: str) -> RunStartedEvent:
         self._run_counter += 1
         self._current_run_id = f"{spawn_id}-run-{self._run_counter}"
+        self._saw_stream_event = False
         return RunStartedEvent(thread_id=spawn_id, run_id=self._current_run_id)
 
     def make_run_finished(self, spawn_id: str) -> RunFinishedEvent:
@@ -76,16 +77,58 @@ class ClaudeAGUIMapper:
                     message = str(message)
                 return [self.make_run_error(message)]
             if event.event_type == "stream_event":
+                self._saw_stream_event = True
                 return self._translate_stream_event(event.payload)
+            if event.event_type == "assistant":
+                return self._translate_assistant_event(event.payload)
             if event.event_type in {"tool_use_summary", "tool_progress"}:
                 return self._translate_tool_result(event.payload)
             if event.event_type == "result":
-                # Endpoint-level lifecycle/error handling owns result semantics.
-                return []
+                return self._translate_result_event(event.payload)
             return []
         except Exception:
             logger.warning("Failed translating Claude event", exc_info=True)
             return []
+
+    def _translate_assistant_event(self, payload: dict[str, object]) -> list[BaseEvent]:
+        # stream_event carries richer block deltas; assistant fallback prevents blank UI
+        # when Claude only emits final assistant payloads.
+        if self._saw_stream_event:
+            return []
+
+        text = _extract_assistant_text(payload)
+        if text is None:
+            return []
+
+        message_id = str(uuid4())
+        return [
+            TextMessageStartEvent(message_id=message_id, role="assistant"),
+            TextMessageContentEvent(message_id=message_id, delta=text),
+            TextMessageEndEvent(message_id=message_id),
+        ]
+
+    def _translate_result_event(self, payload: dict[str, object]) -> list[BaseEvent]:
+        self._saw_stream_event = False
+
+        is_error = bool(payload.get("is_error"))
+        subtype = _coerce_str(payload.get("subtype"))
+        errors_obj = payload.get("errors")
+        error_items = cast("list[object]", errors_obj) if isinstance(errors_obj, list) else None
+        has_errors = bool(
+            error_items
+            and any(isinstance(item, str) and item.strip() for item in error_items)
+        )
+
+        if not is_error and subtype != "error_during_execution" and not has_errors:
+            return []
+
+        if error_items is not None:
+            for item in error_items:
+                if isinstance(item, str) and item.strip():
+                    return [self.make_run_error(item.strip())]
+
+        message = _coerce_str(payload.get("message")) or "Claude reported an execution error"
+        return [self.make_run_error(message)]
 
     def _translate_stream_event(self, payload: dict[str, object]) -> list[BaseEvent]:
         stream_event_obj = payload.get("event")
@@ -366,6 +409,59 @@ def _extract_delta_text(delta: dict[str, object], *, candidates: tuple[str, ...]
         if isinstance(value, str):
             return value
     return None
+
+
+def _extract_assistant_text(payload: dict[str, object]) -> str | None:
+    direct = (
+        payload.get("text")
+        or payload.get("message")
+        or payload.get("result")
+    )
+    if isinstance(direct, str):
+        normalized = direct.strip()
+        if normalized:
+            return normalized
+
+    content = payload.get("content")
+    text_from_content = _extract_text_from_content(content)
+    if text_from_content is not None:
+        return text_from_content
+
+    message_obj = payload.get("message")
+    if isinstance(message_obj, dict):
+        message_payload = cast("dict[str, object]", message_obj)
+        nested_content = message_payload.get("content")
+        text_from_nested = _extract_text_from_content(nested_content)
+        if text_from_nested is not None:
+            return text_from_nested
+        nested_text = message_payload.get("text")
+        if isinstance(nested_text, str):
+            normalized = nested_text.strip()
+            if normalized:
+                return normalized
+
+    return None
+
+
+def _extract_text_from_content(content: object) -> str | None:
+    if isinstance(content, str):
+        normalized = content.strip()
+        return normalized or None
+    if not isinstance(content, list):
+        return None
+
+    segments: list[str] = []
+    for block in cast("list[object]", content):
+        if not isinstance(block, dict):
+            continue
+        typed_block = cast("dict[str, object]", block)
+        if typed_block.get("type") == "text":
+            text_value = typed_block.get("text")
+            if isinstance(text_value, str) and text_value:
+                segments.append(text_value)
+    if not segments:
+        return None
+    return "".join(segments)
 
 
 def _stringify(value: object) -> str:

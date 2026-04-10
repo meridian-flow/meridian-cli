@@ -10,6 +10,7 @@ import os
 import socket
 import time
 from collections.abc import AsyncIterator, Mapping
+from io import BufferedWriter
 from typing import Any, ClassVar, cast
 
 from meridian.lib.core.types import HarnessId, SpawnId
@@ -21,6 +22,7 @@ from meridian.lib.harness.connections.base import (
     HarnessEvent,
 )
 from meridian.lib.launch.env import inherit_child_env
+from meridian.lib.state.paths import resolve_spawn_log_dir
 
 logger = logging.getLogger(__name__)
 
@@ -44,25 +46,28 @@ class OpenCodeConnection:
         "stopped": frozenset(),
         "failed": frozenset(("stopping", "stopped")),
     }
-    _HEALTH_PATHS: ClassVar[tuple[str, ...]] = ("/health", "/api/health")
+    _HEALTH_PATHS: ClassVar[tuple[str, ...]] = ("/global/health", "/health", "/api/health")
     _CREATE_SESSION_PATHS: ClassVar[tuple[str, ...]] = ("/session", "/sessions")
     _MESSAGE_PATH_TEMPLATES: ClassVar[tuple[str, ...]] = (
         "/session/{session_id}/message",
         "/sessions/{session_id}/message",
     )
-    _EVENT_PATH_TEMPLATES: ClassVar[tuple[str, ...]] = (
+    _EVENT_PATHS: ClassVar[tuple[str, ...]] = (
+        "/event",
+        "/global/event",
         "/session/{session_id}/events",
-        "/sessions/{session_id}/events",
-        "/session/{session_id}/stream",
-        "/sessions/{session_id}/stream",
     )
     _INTERRUPT_PATH_TEMPLATES: ClassVar[tuple[str, ...]] = (
+        "/session/{session_id}/abort",
+        "/sessions/{session_id}/abort",
         "/session/{session_id}/interrupt",
         "/sessions/{session_id}/interrupt",
         "/session/{session_id}/cancel",
         "/sessions/{session_id}/cancel",
     )
     _CANCEL_PATH_TEMPLATES: ClassVar[tuple[str, ...]] = (
+        "/session/{session_id}/abort",
+        "/sessions/{session_id}/abort",
         "/session/{session_id}/cancel",
         "/sessions/{session_id}/cancel",
         "/session/{session_id}/stop",
@@ -75,6 +80,7 @@ class OpenCodeConnection:
     _EVENT_RETRY_DELAY_SECONDS: ClassVar[float] = 0.25
     _STARTUP_TIMEOUT_SECONDS: ClassVar[float] = 30.0
     _STOP_GRACE_SECONDS: ClassVar[float] = 5.0
+    _EVENT_ACCEPT_HEADER: ClassVar[dict[str, str]] = {"Accept": "text/event-stream"}
 
     def __init__(self) -> None:
         self._state: ConnectionState = "created"
@@ -83,6 +89,7 @@ class OpenCodeConnection:
         self._process: asyncio.subprocess.Process | None = None
         self._client: Any | None = None
         self._aiohttp_module: Any | None = None
+        self._stderr_handle: BufferedWriter | None = None
         self._base_url: str | None = None
         self._session_id: str | None = None
         self._event_path: str | None = None
@@ -122,8 +129,10 @@ class OpenCodeConnection:
 
         try:
             await self._launch_process(config)
-            await self._wait_for_health(timeout_seconds=startup_timeout)
-            self._session_id = await self._create_session(config)
+            self._session_id = await self._create_session_with_retry(
+                config,
+                timeout_seconds=startup_timeout,
+            )
             await self._post_session_message(config.prompt)
         except Exception:
             self._set_failed()
@@ -143,11 +152,10 @@ class OpenCodeConnection:
         self._transition("stopped")
 
     def health(self) -> bool:
-        if self._state == "connected":
-            return True
-        if self._state == "starting":
-            return self._last_health_ok
-        return False
+        if self._state not in {"starting", "connected"}:
+            return False
+        process_running = self._process is not None and self._process.returncode is None
+        return process_running and self._last_health_ok
 
     async def send_user_message(self, text: str) -> None:
         self._require_connected()
@@ -157,7 +165,12 @@ class OpenCodeConnection:
         self._require_connected()
         await self._post_session_action(
             path_templates=self._INTERRUPT_PATH_TEMPLATES,
-            payload_variants=({"reason": "interrupt"}, {"type": "interrupt"}, {}),
+            payload_variants=(
+                {"response": "abort"},
+                {"reason": "interrupt"},
+                {"type": "interrupt"},
+                {},
+            ),
             accepted_statuses=self._INTERRUPT_SUCCESS_STATUSES,
         )
 
@@ -166,7 +179,12 @@ class OpenCodeConnection:
         self._transition("stopping")
         await self._post_session_action(
             path_templates=self._CANCEL_PATH_TEMPLATES,
-            payload_variants=({"reason": "cancel"}, {"type": "cancel"}, {}),
+            payload_variants=(
+                {"response": "abort"},
+                {"reason": "cancel"},
+                {"type": "cancel"},
+                {},
+            ),
             accepted_statuses=self._INTERRUPT_SUCCESS_STATUSES,
         )
 
@@ -241,46 +259,46 @@ class OpenCodeConnection:
         self._base_url = f"http://127.0.0.1:{port}"
         command = ["opencode", "serve", "--port", str(port), *config.extra_args]
         env = inherit_child_env(os.environ, config.env_overrides)
+        spawn_dir = resolve_spawn_log_dir(config.repo_root, config.spawn_id)
+        spawn_dir.mkdir(parents=True, exist_ok=True)
+        self._stderr_handle = (spawn_dir / "stderr.log").open("ab")
         self._process = await asyncio.create_subprocess_exec(
             *command,
             cwd=str(config.repo_root),
             env=env,
             stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
+            stderr=self._stderr_handle,
         )
 
-    async def _wait_for_health(self, *, timeout_seconds: float) -> None:
+    async def _create_session_with_retry(
+        self,
+        config: ConnectionConfig,
+        *,
+        timeout_seconds: float,
+    ) -> str:
         deadline = time.monotonic() + max(timeout_seconds, 0.1)
+        last_error: Exception | None = None
         while True:
             if self._process_exited():
                 raise RuntimeError("OpenCode process exited before becoming healthy")
-            if await self._health_endpoint_ready():
+            try:
+                session_id = await self._create_session(config)
                 self._last_health_ok = True
-                return
+                return session_id
+            except Exception as exc:
+                last_error = exc
             if time.monotonic() >= deadline:
                 raise TimeoutError(
-                    f"OpenCode health endpoint did not become ready within {timeout_seconds:.1f}s"
-                )
+                    f"OpenCode session endpoint did not become ready within "
+                    f"{timeout_seconds:.1f}s"
+                ) from last_error
             await asyncio.sleep(0.2)
-
-    async def _health_endpoint_ready(self) -> bool:
-        if self._base_url is None:
-            return False
-
-        client = await self._ensure_http_client()
-        for path in self._HEALTH_PATHS:
-            try:
-                async with client.get(self._url(path)) as response:
-                    if int(response.status) == 200:
-                        return True
-            except Exception:
-                continue
-        return False
 
     async def _create_session(self, config: ConnectionConfig) -> str:
         payload: dict[str, object] = {}
         if config.model is not None:
             payload["model"] = config.model
+            payload["modelID"] = config.model
         if config.agent is not None:
             payload["agent"] = config.agent
         if config.skills:
@@ -299,8 +317,15 @@ class OpenCodeConnection:
                     session_id = _extract_session_id(body)
                     if session_id is None:
                         detail = _summarize_body(body)
+                        if _looks_like_html(detail):
+                            last_error = (
+                                f"OpenCode session endpoint returned HTML on {path}: "
+                                f"status={status}"
+                            )
+                            break
                         raise RuntimeError(
-                            f"OpenCode session creation succeeded without session id: {detail}"
+                            f"OpenCode session creation response missing session id on {path}: "
+                            f"{detail}"
                         )
                     return session_id
                 if status in self._PAYLOAD_RETRY_STATUSES:
@@ -323,9 +348,18 @@ class OpenCodeConnection:
         raise RuntimeError(last_error or "OpenCode session creation failed")
 
     async def _post_session_message(self, text: str) -> None:
+        part_payload: dict[str, object] = {
+            "parts": [{"type": "text", "text": text}],
+        }
         await self._post_session_action(
             path_templates=self._MESSAGE_PATH_TEMPLATES,
-            payload_variants=({"text": text}, {"message": text}, {"content": text}),
+            payload_variants=(
+                part_payload,
+                {**part_payload, "noReply": False},
+                {"text": text},
+                {"message": text},
+                {"content": text},
+            ),
             accepted_statuses=self._SUCCESS_STATUSES,
         )
 
@@ -344,6 +378,12 @@ class OpenCodeConnection:
             for payload in payload_variants:
                 status, body = await self._post_json(path, payload)
                 if status in accepted_statuses:
+                    if _looks_like_html(_summarize_body(body)):
+                        last_error = (
+                            f"OpenCode session endpoint returned HTML on {path}: "
+                            f"status={status}"
+                        )
+                        continue
                     return
                 if status in self._PAYLOAD_RETRY_STATUSES:
                     last_error = (
@@ -380,16 +420,29 @@ class OpenCodeConnection:
         paths: list[str] = []
         if self._event_path is not None:
             paths.append(self._event_path)
-        for template in self._EVENT_PATH_TEMPLATES:
+        for template in self._EVENT_PATHS:
             path = template.format(session_id=session_id)
             if path not in paths:
                 paths.append(path)
 
         last_error: str | None = None
         for path in paths:
-            response = await client.get(self._url(path), timeout=None)
+            response = await client.get(
+                self._url(path),
+                headers=self._EVENT_ACCEPT_HEADER,
+                timeout=None,
+            )
             status = int(response.status)
             if status in self._SUCCESS_STATUSES:
+                content_type = str(response.headers.get("Content-Type", "")).lower()
+                if "text/html" in content_type:
+                    body = await response.text()
+                    response.release()
+                    last_error = (
+                        f"OpenCode event endpoint returned HTML on {path}: "
+                        f"status={status} body={_summarize_body(body)}"
+                    )
+                    continue
                 self._event_path = path
                 return response
 
@@ -476,6 +529,10 @@ class OpenCodeConnection:
         else:
             payload = {"value": cast("object", parsed)}
 
+        nested_payload = payload.get("payload")
+        if isinstance(nested_payload, dict):
+            payload = cast("dict[str, object]", nested_payload)
+
         raw_event_type = payload.get("type", event_type_hint or "unknown")
         event_type = raw_event_type if isinstance(raw_event_type, str) else "unknown"
         return HarnessEvent(
@@ -522,6 +579,7 @@ class OpenCodeConnection:
         self._session_id = None
         self._event_path = None
         self._last_health_ok = False
+        self._close_log_handles()
 
     def _url(self, path: str) -> str:
         if self._base_url is None:
@@ -551,6 +609,11 @@ class OpenCodeConnection:
         if self._state == "stopped":
             return
         self._transition("failed")
+
+    def _close_log_handles(self) -> None:
+        if self._stderr_handle is not None:
+            self._stderr_handle.close()
+            self._stderr_handle = None
 
     def _transition(self, next_state: ConnectionState) -> None:
         if next_state == self._state:
@@ -619,3 +682,8 @@ def _summarize_body(body: object | None) -> str:
     except TypeError:
         return repr(body)[:200]
     return serialized[:200]
+
+
+def _looks_like_html(body_summary: str) -> bool:
+    normalized = body_summary.strip().lower()
+    return normalized.startswith("<!doctype html") or normalized.startswith("<html")
