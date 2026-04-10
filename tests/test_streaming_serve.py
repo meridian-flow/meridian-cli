@@ -53,16 +53,6 @@ async def test_streaming_serve_shutdown_finalizes_once_as_cancelled(
             error: str | None = None,
         ) -> None:
             shutdown_calls.append((status, exit_code, error))
-            from meridian.lib.state import spawn_store
-
-            spawn_store.finalize_spawn(
-                self._state_root,
-                "p1",
-                status=cast("object", status),
-                exit_code=exit_code,
-                error=error,
-                duration_secs=1.0,
-            )
 
     async def _wait_for_shutdown(shutdown_event: asyncio.Event) -> str:
         _ = shutdown_event

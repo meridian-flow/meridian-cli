@@ -9,7 +9,7 @@ from typing import cast
 
 import pytest
 
-from meridian.lib.core.types import HarnessId
+from meridian.lib.core.types import HarnessId, SpawnId
 from meridian.lib.harness.connections.base import (
     ConnectionCapabilities,
     ConnectionConfig,
@@ -60,12 +60,13 @@ async def _wait_until(predicate: Callable[[], bool], *, attempts: int = 200) -> 
 
 
 @pytest.mark.asyncio
-async def test_spawn_manager_natural_completion_writes_envelope_and_finalizes(
+async def test_spawn_manager_natural_completion_writes_envelope_and_completion_outcome(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     repo_root = tmp_path
     state_root = resolve_state_paths(repo_root).root_dir
+    release_completion = asyncio.Event()
 
     class FakeControlSocketServer:
         def __init__(self, spawn_id: str, socket_path: Path, manager: SpawnManager) -> None:
@@ -124,6 +125,7 @@ async def test_spawn_manager_natural_completion_writes_envelope_and_finalizes(
                 harness_id="codex",
                 payload={"type": "item.completed", "item": {"type": "agent_message", "text": "hi"}},
             )
+            await release_completion.wait()
 
     monkeypatch.setattr(spawn_manager_module, "ControlSocketServer", FakeControlSocketServer)
     monkeypatch.setattr(
@@ -144,10 +146,18 @@ async def test_spawn_manager_natural_completion_writes_envelope_and_finalizes(
     )
     manager = SpawnManager(state_root=state_root, repo_root=repo_root)
     await manager.start_spawn(_build_config(spawn_id, repo_root))
+    completion_task = asyncio.create_task(manager.wait_for_completion(spawn_id))
+    release_completion.set()
+    completion = await completion_task
+    assert completion is not None
     await _wait_until(
         lambda: get_spawn(state_root, spawn_id) is not None
         and manager.get_connection(spawn_id) is None
     )
+    assert completion.status == "succeeded"
+    assert completion.exit_code == 0
+    assert completion.error is None
+    assert completion.duration_secs >= 0.0
 
     output = _read_output_lines(state_root, spawn_id)
     assert output == [
@@ -159,16 +169,16 @@ async def test_spawn_manager_natural_completion_writes_envelope_and_finalizes(
     ]
 
     spawn_events = _read_spawn_events(state_root)
-    assert [event["event"] for event in spawn_events] == ["start", "finalize"]
+    assert [event["event"] for event in spawn_events] == ["start"]
 
     row = get_spawn(state_root, spawn_id)
     assert row is not None
-    assert row.status == "succeeded"
-    assert row.exit_code == 0
+    assert row.status == "running"
+    assert row.exit_code is None
 
 
 @pytest.mark.asyncio
-async def test_spawn_manager_stop_spawn_finalizes_cancelled(
+async def test_spawn_manager_stop_spawn_returns_cancelled_outcome_without_finalize(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -252,21 +262,30 @@ async def test_spawn_manager_stop_spawn_finalizes_cancelled(
     )
     manager = SpawnManager(state_root=state_root, repo_root=repo_root)
     await manager.start_spawn(_build_config(spawn_id, repo_root))
+    completion_task = asyncio.create_task(manager.wait_for_completion(spawn_id))
 
-    await manager.stop_spawn(spawn_id, status="cancelled", exit_code=1)
+    outcome = await manager.stop_spawn(spawn_id, status="cancelled", exit_code=1)
+    completion = await completion_task
+    assert outcome is not None
+    assert completion is not None
+    assert outcome == completion
+    assert outcome.status == "cancelled"
+    assert outcome.exit_code == 1
+    assert outcome.error is None
+    assert outcome.duration_secs >= 0.0
 
     spawn_events = _read_spawn_events(state_root)
-    assert [event["event"] for event in spawn_events] == ["start", "finalize"]
+    assert [event["event"] for event in spawn_events] == ["start"]
 
     row = get_spawn(state_root, spawn_id)
     assert row is not None
-    assert row.status == "cancelled"
-    assert row.exit_code == 1
+    assert row.status == "running"
+    assert row.exit_code is None
     assert manager.get_connection(spawn_id) is None
 
 
 @pytest.mark.asyncio
-async def test_spawn_manager_stop_spawn_race_with_natural_cleanup_finalizes_once(
+async def test_spawn_manager_stop_spawn_race_uses_natural_completion_outcome_once(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -351,36 +370,29 @@ async def test_spawn_manager_stop_spawn_race_with_natural_cleanup_finalizes_once
     manager = SpawnManager(state_root=state_root, repo_root=repo_root)
     original_cleanup = manager._cleanup_completed_session
 
-    async def gated_cleanup(
-        spawn_id: str,
-        *,
-        status: str,
-        exit_code: int,
-        error: str | None = None,
-    ) -> None:
+    async def gated_cleanup(spawn_id: SpawnId) -> None:
         cleanup_started.set()
         await release_cleanup.wait()
-        await original_cleanup(
-            spawn_id,
-            status=cast("object", status),
-            exit_code=exit_code,
-            error=error,
-        )
+        await original_cleanup(spawn_id)
 
     monkeypatch.setattr(manager, "_cleanup_completed_session", gated_cleanup)
 
     await manager.start_spawn(_build_config(spawn_id, repo_root))
     await cleanup_started.wait()
 
-    await manager.stop_spawn(spawn_id, status="cancelled", exit_code=1)
+    completion = await manager.wait_for_completion(spawn_id)
+    outcome = await manager.stop_spawn(spawn_id, status="cancelled", exit_code=1)
     release_cleanup.set()
     await asyncio.sleep(0)
+    assert completion is not None
+    assert completion.status == "succeeded"
+    assert completion.exit_code == 0
+    assert outcome == completion
 
     spawn_events = _read_spawn_events(state_root)
-    assert [event["event"] for event in spawn_events] == ["start", "finalize"]
-    assert spawn_events[-1]["status"] == "succeeded"
+    assert [event["event"] for event in spawn_events] == ["start"]
 
     row = get_spawn(state_root, spawn_id)
     assert row is not None
-    assert row.status == "succeeded"
-    assert row.exit_code == 0
+    assert row.status == "running"
+    assert row.exit_code is None

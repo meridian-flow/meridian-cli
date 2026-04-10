@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from meridian.lib.core.types import HarnessId, SpawnId
 from meridian.lib.harness.connections.base import ConnectionCapabilities, HarnessEvent
-from meridian.lib.streaming.spawn_manager import SpawnManager, SpawnSession
+from meridian.lib.streaming.spawn_manager import DrainOutcome, SpawnManager, SpawnSession
 
 
 def _install_runtime_stubs(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -439,7 +439,8 @@ async def test_drain_loop_fans_out_threshold_event_before_exit(tmp_path: Path) -
     manager = SpawnManager(state_root=tmp_path, repo_root=tmp_path)
     spawn_id = SpawnId("p1")
     subscriber: asyncio.Queue[HarnessEvent | None] = asyncio.Queue()
-    cleanup_calls: list[tuple[str, int, str | None]] = []
+    cleanup_calls: list[SpawnId] = []
+    completion_future: asyncio.Future[DrainOutcome] = asyncio.get_running_loop().create_future()
 
     class FakeControlServer:
         async def stop(self) -> None:
@@ -501,13 +502,9 @@ async def test_drain_loop_fans_out_threshold_event_before_exit(tmp_path: Path) -
 
     async def fake_cleanup(
         cleanup_spawn_id: SpawnId,
-        *,
-        status: str,
-        exit_code: int,
-        error: str | None = None,
     ) -> None:
         assert cleanup_spawn_id == spawn_id
-        cleanup_calls.append((status, exit_code, error))
+        cleanup_calls.append(cleanup_spawn_id)
         manager._sessions.pop(spawn_id, None)
 
     manager._sessions[spawn_id] = SpawnSession(
@@ -516,6 +513,7 @@ async def test_drain_loop_fans_out_threshold_event_before_exit(tmp_path: Path) -
         subscriber=subscriber,
         control_server=cast("Any", FakeControlServer()),
         started_monotonic=0.0,
+        completion_future=completion_future,
     )
 
     manager._append_jsonl = cast("Any", fail_append)
@@ -523,6 +521,12 @@ async def test_drain_loop_fans_out_threshold_event_before_exit(tmp_path: Path) -
 
     await manager._drain_loop(spawn_id, cast("Any", FakeConnection()))
     await asyncio.gather(*manager._cleanup_tasks)
+    assert completion_future.done()
+    outcome = completion_future.result()
+    assert outcome.status == "failed"
+    assert outcome.exit_code == 1
+    assert outcome.error == "Aborted drain loop after repeated output persistence failures"
+    assert outcome.duration_secs >= 0.0
 
     delivered: list[int] = []
     while True:
@@ -532,6 +536,4 @@ async def test_drain_loop_fans_out_threshold_event_before_exit(tmp_path: Path) -
         delivered.append(cast("int", event.payload["index"]))
 
     assert delivered == list(range(10))
-    assert cleanup_calls == [
-        ("failed", 1, "Aborted drain loop after repeated output persistence failures")
-    ]
+    assert cleanup_calls == [spawn_id]

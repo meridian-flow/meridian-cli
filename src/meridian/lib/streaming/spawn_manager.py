@@ -14,7 +14,6 @@ from typing import TYPE_CHECKING, cast
 
 from meridian.lib.core.domain import SpawnStatus
 from meridian.lib.core.types import SpawnId
-from meridian.lib.state import spawn_store
 from meridian.lib.state.atomic import append_text_line
 from meridian.lib.streaming.control_socket import ControlSocketServer
 from meridian.lib.streaming.types import InjectResult
@@ -30,6 +29,16 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True)
+class DrainOutcome:
+    """Terminal drain result for one spawn session."""
+
+    status: SpawnStatus
+    exit_code: int
+    error: str | None = None
+    duration_secs: float = 0.0
+
+
 @dataclass
 class SpawnSession:
     """Live resources associated with one running spawn."""
@@ -39,6 +48,7 @@ class SpawnSession:
     subscriber: asyncio.Queue[HarnessEvent | None] | None
     control_server: ControlSocketServer
     started_monotonic: float
+    completion_future: asyncio.Future[DrainOutcome]
 
 
 class SpawnManager:
@@ -76,6 +86,7 @@ class SpawnManager:
         connection_factory = cast("Callable[[], HarnessConnection]", connection_class)
         connection = connection_factory()
         started_monotonic = time.monotonic()
+        completion_future: asyncio.Future[DrainOutcome] = asyncio.get_running_loop().create_future()
         await connection.start(config)
 
         drain_task = asyncio.create_task(self._drain_loop(spawn_id, connection))
@@ -101,6 +112,7 @@ class SpawnManager:
             subscriber=None,
             control_server=control_server,
             started_monotonic=started_monotonic,
+            completion_future=completion_future,
         )
         return connection
 
@@ -154,17 +166,30 @@ class SpawnManager:
             raise
         finally:
             self._fan_out_event(spawn_id, None)
-            if not drain_cancelled and spawn_id in self._sessions:
-                status = "failed" if drain_error is not None else "succeeded"
-                exit_code = 1 if drain_error is not None else 0
-                error = str(drain_error) if drain_error is not None else None
-                cleanup_task = asyncio.create_task(
-                    self._cleanup_completed_session(
-                        spawn_id,
-                        status=status,
-                        exit_code=exit_code,
-                        error=error,
+            session = self._sessions.get(spawn_id)
+            if session is not None:
+                if drain_cancelled:
+                    outcome = DrainOutcome(
+                        status="cancelled",
+                        exit_code=1,
+                        duration_secs=max(0.0, time.monotonic() - session.started_monotonic),
                     )
+                elif drain_error is not None:
+                    outcome = DrainOutcome(
+                        status="failed",
+                        exit_code=1,
+                        error=str(drain_error),
+                        duration_secs=max(0.0, time.monotonic() - session.started_monotonic),
+                    )
+                else:
+                    outcome = DrainOutcome(
+                        status="succeeded",
+                        exit_code=0,
+                        duration_secs=max(0.0, time.monotonic() - session.started_monotonic),
+                    )
+                self._resolve_completion_future(session, outcome)
+                cleanup_task = asyncio.create_task(
+                    self._cleanup_completed_session(spawn_id)
                 )
                 self._cleanup_tasks.add(cleanup_task)
                 cleanup_task.add_done_callback(self._cleanup_tasks.discard)
@@ -184,6 +209,14 @@ class SpawnManager:
         session = self._sessions.get(spawn_id)
         if session is not None:
             session.subscriber = None
+
+    async def wait_for_completion(self, spawn_id: SpawnId) -> DrainOutcome | None:
+        """Await one spawn's terminal drain outcome, if still tracked."""
+
+        session = self._sessions.get(spawn_id)
+        if session is None:
+            return None
+        return await session.completion_future
 
     async def inject(
         self,
@@ -279,27 +312,22 @@ class SpawnManager:
         status: SpawnStatus = "cancelled",
         exit_code: int = 1,
         error: str | None = None,
-    ) -> None:
+    ) -> DrainOutcome | None:
         """Stop one managed spawn and clean up all associated resources."""
 
         session = self._sessions.get(spawn_id)
         if session is None:
-            return
+            return None
 
-        finalized_status: SpawnStatus = status
-        finalized_exit_code = exit_code
-        finalized_error = error
-        if session.drain_task.done() and not session.drain_task.cancelled():
-            with suppress(Exception):
-                drain_exc = session.drain_task.exception()
-                if drain_exc is None:
-                    finalized_status = "succeeded"
-                    finalized_exit_code = 0
-                    finalized_error = None
-                else:
-                    finalized_status = "failed"
-                    finalized_exit_code = 1
-                    finalized_error = str(drain_exc)
+        outcome = self._resolve_completion_future(
+            session,
+            DrainOutcome(
+                status=status,
+                exit_code=exit_code,
+                error=error,
+                duration_secs=max(0.0, time.monotonic() - session.started_monotonic),
+            ),
+        )
 
         with suppress(Exception):
             await session.connection.stop()
@@ -313,13 +341,7 @@ class SpawnManager:
 
         self._fan_out_event(spawn_id, None)
         self._sessions.pop(spawn_id, None)
-        self._finalize_spawn(
-            spawn_id,
-            session=session,
-            status=finalized_status,
-            exit_code=finalized_exit_code,
-            error=finalized_error,
-        )
+        return outcome
 
     async def shutdown(
         self,
@@ -373,14 +395,7 @@ class SpawnManager:
     def _inbound_log_path(self, spawn_id: SpawnId) -> Path:
         return self._spawn_dir(spawn_id) / "inbound.jsonl"
 
-    async def _cleanup_completed_session(
-        self,
-        spawn_id: SpawnId,
-        *,
-        status: SpawnStatus,
-        exit_code: int,
-        error: str | None = None,
-    ) -> None:
+    async def _cleanup_completed_session(self, spawn_id: SpawnId) -> None:
         """Clean up resources after a receiver drain loop exits naturally."""
 
         session = self._sessions.pop(spawn_id, None)
@@ -388,33 +403,18 @@ class SpawnManager:
             return
         with suppress(Exception):
             await session.control_server.stop()
-        self._finalize_spawn(
-            spawn_id,
-            session=session,
-            status=status,
-            exit_code=exit_code,
-            error=error,
-        )
 
-    def _finalize_spawn(
+    def _resolve_completion_future(
         self,
-        spawn_id: SpawnId,
-        *,
         session: SpawnSession,
-        status: SpawnStatus,
-        exit_code: int,
-        error: str | None = None,
-    ) -> None:
-        duration_secs = max(0.0, time.monotonic() - session.started_monotonic)
-        with suppress(Exception):
-            spawn_store.finalize_spawn(
-                self._state_root,
-                spawn_id,
-                status=status,
-                exit_code=exit_code,
-                duration_secs=duration_secs,
-                error=error,
-            )
+        outcome: DrainOutcome,
+    ) -> DrainOutcome:
+        if not session.completion_future.done():
+            with suppress(asyncio.InvalidStateError):
+                session.completion_future.set_result(outcome)
+        if session.completion_future.done() and not session.completion_future.cancelled():
+            return session.completion_future.result()
+        return outcome
 
 
-__all__ = ["SpawnManager", "SpawnSession"]
+__all__ = ["DrainOutcome", "SpawnManager", "SpawnSession"]

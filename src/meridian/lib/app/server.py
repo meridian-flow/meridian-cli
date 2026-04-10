@@ -77,11 +77,15 @@ class InjectRequest(BaseModel):
 def create_app(spawn_manager: SpawnManager) -> object:
     """Create the FastAPI application for Meridian app."""
 
+    background_finalize_tasks: set[asyncio.Task[None]] = set()
+
     @asynccontextmanager
     async def lifespan(_: object) -> AsyncIterator[None]:
         # SpawnManager lifecycle is owned by caller for startup.
         yield
         await spawn_manager.shutdown()
+        if background_finalize_tasks:
+            await asyncio.gather(*tuple(background_finalize_tasks), return_exceptions=True)
 
     try:
         fastapi_module = import_module("fastapi")
@@ -112,6 +116,19 @@ def create_app(spawn_manager: SpawnManager) -> object:
     state_root = spawn_manager.state_root
     repo_root = spawn_manager.repo_root
     spawn_id_lock = asyncio.Lock()
+
+    async def _background_finalize(spawn_id: SpawnId) -> None:
+        outcome = await spawn_manager.wait_for_completion(spawn_id)
+        if outcome is None:
+            return
+        spawn_store.finalize_spawn(
+            state_root,
+            spawn_id,
+            status=outcome.status,
+            exit_code=outcome.exit_code,
+            duration_secs=outcome.duration_secs,
+            error=outcome.error,
+        )
 
     async def reserve_spawn_id(
         *,
@@ -187,6 +204,9 @@ def create_app(spawn_manager: SpawnManager) -> object:
                 status_code=400,
                 detail=str(exc),
             ) from exc
+        finalize_task = asyncio.create_task(_background_finalize(spawn_id))
+        background_finalize_tasks.add(finalize_task)
+        finalize_task.add_done_callback(background_finalize_tasks.discard)
 
         return {
             "spawn_id": str(config.spawn_id),

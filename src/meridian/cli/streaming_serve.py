@@ -111,12 +111,10 @@ async def streaming_serve(
     terminal_reason = "shutdown_requested"
     had_error = False
     failure_message: str | None = None
-    manager_started = False
     completion_task: asyncio.Task[str] | None = None
     shutdown_task: asyncio.Task[str] | None = None
     try:
         await manager.start_spawn(config)
-        manager_started = True
         print(f"Started spawn {spawn_id} (harness={harness_id.value})")
         print(f"Control socket: {socket_path}")
         print(f"Events: {output_path}")
@@ -158,18 +156,28 @@ async def streaming_serve(
             shutdown_exit_code = 0
         elif had_error:
             shutdown_status = "failed"
-        await manager.shutdown(
-            status=shutdown_status,
-            exit_code=shutdown_exit_code,
-            error=failure_message,
-        )
-        if not manager_started:
-            spawn_store.finalize_spawn(
-                state_root,
-                spawn_id,
+        shutdown_error: Exception | None = None
+        try:
+            await manager.shutdown(
                 status=shutdown_status,
                 exit_code=shutdown_exit_code,
-                duration_secs=max(0.0, time.monotonic() - start_monotonic),
-                error=failure_message if shutdown_status == "failed" else None,
+                error=failure_message,
             )
+        except Exception as exc:  # pragma: no cover - defensive path
+            shutdown_error = exc
+            shutdown_status = "failed"
+            shutdown_exit_code = 1
+            if failure_message is None:
+                failure_message = str(exc)
+
+        spawn_store.finalize_spawn(
+            state_root,
+            spawn_id,
+            status=shutdown_status,
+            exit_code=shutdown_exit_code,
+            duration_secs=max(0.0, time.monotonic() - start_monotonic),
+            error=failure_message if shutdown_status == "failed" else None,
+        )
+        if shutdown_error is not None:
+            raise shutdown_error
         print(f"Stopped spawn {spawn_id} ({terminal_reason})")
