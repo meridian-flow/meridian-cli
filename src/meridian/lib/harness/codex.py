@@ -23,11 +23,6 @@ from meridian.lib.harness.adapter import (
     SpawnParams,
 )
 from meridian.lib.harness.common import (
-    FlagEffect,
-    FlagStrategy,
-    PromptMode,
-    StrategyMap,
-    build_harness_command,
     extract_codex_report,
     extract_session_id_from_artifacts_with_patterns,
     extract_usage_from_artifacts,
@@ -41,17 +36,6 @@ logger = logging.getLogger(__name__)
 CODEX_ROLLOUT_FILENAME_RE = re.compile(
     r"^rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-(?P<session_id>[0-9a-fA-F-]{36})\.jsonl$"
 )
-
-
-def _codex_effort_transform(value: object, args: list[str]) -> None:
-    normalized = str(value).strip()
-    if not normalized:
-        return
-    args.extend(["-c", f'model_reasoning_effort="{normalized}"'])
-
-
-def _codex_continue_fork_transform(value: object, args: list[str]) -> None:
-    _ = value, args
 
 
 def _fsync_directory(path: Path) -> None:
@@ -273,22 +257,6 @@ def _owns_session(repo_root: Path, session_ref: str) -> bool:
 class CodexAdapter(BaseSubprocessHarness):
     """SubprocessHarness implementation for `codex`."""
 
-    STRATEGIES: ClassVar[StrategyMap] = {
-        "model": FlagStrategy(effect=FlagEffect.CLI_FLAG, cli_flag="--model"),
-        "effort": FlagStrategy(
-            effect=FlagEffect.TRANSFORM,
-            transform=_codex_effort_transform,
-        ),
-        "agent": FlagStrategy(effect=FlagEffect.DROP),
-        "skills": FlagStrategy(effect=FlagEffect.DROP),
-        "continue_harness_session_id": FlagStrategy(effect=FlagEffect.DROP),
-        "continue_fork": FlagStrategy(
-            effect=FlagEffect.TRANSFORM,
-            transform=_codex_continue_fork_transform,
-        ),
-        "appended_system_prompt": FlagStrategy(effect=FlagEffect.DROP),
-    }
-    PROMPT_MODE: ClassVar[PromptMode] = PromptMode.POSITIONAL
     BASE_COMMAND: ClassVar[tuple[str, ...]] = ("codex", "exec", "--json")
     PRIMARY_BASE_COMMAND: ClassVar[tuple[str, ...]] = ("codex",)
     SESSION_ID_KEYS: ClassVar[tuple[str, ...]] = (
@@ -344,43 +312,39 @@ class CodexAdapter(BaseSubprocessHarness):
         )
 
     def build_command(self, run: SpawnParams, perms: PermissionResolver) -> list[str]:
-        harness_session_id = (run.continue_harness_session_id or "").strip()
-        if run.interactive:
+        spec = self.resolve_launch_spec(run, perms)
+        harness_session_id = (spec.continue_session_id or "").strip()
+        if spec.interactive:
             # Prompt injection here is a compatibility workaround: Codex does
             # not expose a true system prompt channel, so Meridian appends a
             # user-visible guard for fresh sessions only.
-            guarded_prompt = run.prompt
+            guarded_prompt = spec.prompt
             if guarded_prompt and not harness_session_id:
                 guarded_prompt = f"{guarded_prompt}\n\nDO NOT DO ANYTHING. WAIT FOR USER INPUT."
-            command_run = (
-                run.model_copy(update={"prompt": guarded_prompt})
-                if guarded_prompt != run.prompt
-                else run
-            )
-            base_command = self.PRIMARY_BASE_COMMAND
-            subcommand = ("resume", harness_session_id) if harness_session_id else ()
+            command = list(self.PRIMARY_BASE_COMMAND)
         else:
             # Codex supports prompt-from-stdin via "-" and this avoids argv length limits.
-            command_run = run.model_copy(update={"prompt": "-"})
+            command = list(self.BASE_COMMAND)
             # Codex -o writes the agent's final response to a file, giving us a clean
             # report without fragile JSONL parsing.
-            if run.report_output_path:
-                command_run = command_run.model_copy(
-                    update={
-                        "extra_args": (*command_run.extra_args, "-o", run.report_output_path),
-                    },
-                )
-            base_command = self.BASE_COMMAND
-            subcommand = ("resume", harness_session_id) if harness_session_id else ()
-        return build_harness_command(
-            base_command=base_command,
-            subcommand=subcommand,
-            prompt_mode=self.PROMPT_MODE,
-            run=command_run,
-            strategies=self.STRATEGIES,
-            perms=perms,
-            harness_id=self.id,
-        )
+            guarded_prompt = "-"
+        if spec.model is not None:
+            command.extend(["--model", spec.model])
+        if spec.effort is not None:
+            normalized_effort = str(spec.effort).strip()
+            if normalized_effort:
+                command.extend(["-c", f'model_reasoning_effort="{normalized_effort}"'])
+        permission_resolver = spec.permission_resolver or perms
+        command.extend(permission_resolver.resolve_flags(self.id))
+        if harness_session_id:
+            command.extend(["resume", harness_session_id])
+        extra_args = list(spec.extra_args)
+        if not spec.interactive and spec.report_output_path:
+            extra_args.extend(["-o", spec.report_output_path])
+        command.extend(extra_args)
+        if guarded_prompt:
+            command.append(guarded_prompt)
+        return command
 
     def mcp_config(self, run: SpawnParams) -> McpConfig | None:
         # MCP injection is off by default — agents use the CLI instead.

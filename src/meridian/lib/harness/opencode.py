@@ -18,11 +18,6 @@ from meridian.lib.harness.adapter import (
     SpawnParams,
 )
 from meridian.lib.harness.common import (
-    FlagEffect,
-    FlagStrategy,
-    PromptMode,
-    StrategyMap,
-    build_harness_command,
     extract_opencode_report,
     extract_session_id_from_artifacts_with_patterns,
     extract_usage_from_artifacts,
@@ -41,19 +36,6 @@ OPENCODE_SESSION_CREATED_RE = re.compile(
 
 def _strip_opencode_prefix(model: str) -> str:
     return model[len("opencode-") :] if model.startswith("opencode-") else model
-
-
-def _opencode_model_transform(value: object, args: list[str]) -> None:
-    if value is None:
-        return
-    args.extend(["--model", _strip_opencode_prefix(str(value))])
-
-
-def _opencode_effort_transform(value: object, args: list[str]) -> None:
-    normalized = str(value).strip()
-    if not normalized:
-        return
-    args.extend(["--variant", normalized])
 
 
 def _detect_primary_session_id(
@@ -138,19 +120,6 @@ def _owns_session(repo_root: Path, session_ref: str) -> bool:
 class OpenCodeAdapter(BaseSubprocessHarness):
     """SubprocessHarness implementation for `opencode`."""
 
-    STRATEGIES: ClassVar[StrategyMap] = {
-        "model": FlagStrategy(effect=FlagEffect.TRANSFORM, transform=_opencode_model_transform),
-        "effort": FlagStrategy(
-            effect=FlagEffect.TRANSFORM,
-            transform=_opencode_effort_transform,
-        ),
-        "agent": FlagStrategy(effect=FlagEffect.DROP),
-        "skills": FlagStrategy(effect=FlagEffect.DROP),
-        "continue_harness_session_id": FlagStrategy(effect=FlagEffect.DROP),
-        "continue_fork": FlagStrategy(effect=FlagEffect.DROP),
-        "appended_system_prompt": FlagStrategy(effect=FlagEffect.DROP),
-    }
-    PROMPT_MODE: ClassVar[PromptMode] = PromptMode.POSITIONAL
     BASE_COMMAND: ClassVar[tuple[str, ...]] = ("opencode", "run")
     PRIMARY_BASE_COMMAND: ClassVar[tuple[str, ...]] = ("opencode",)
     SESSION_ID_KEYS: ClassVar[tuple[str, ...]] = (
@@ -209,21 +178,27 @@ class OpenCodeAdapter(BaseSubprocessHarness):
         )
 
     def build_command(self, run: SpawnParams, perms: PermissionResolver) -> list[str]:
-        base_command = self.PRIMARY_BASE_COMMAND if run.interactive else self.BASE_COMMAND
-        command_run = run if run.interactive else run.model_copy(update={"prompt": "-"})
-        command = build_harness_command(
-            base_command=base_command,
-            prompt_mode=self.PROMPT_MODE,
-            run=command_run,
-            strategies=self.STRATEGIES,
-            perms=perms,
-            harness_id=self.id,
-        )
-        harness_session_id = (run.continue_harness_session_id or "").strip()
+        spec = self.resolve_launch_spec(run, perms)
+        command = list(self.PRIMARY_BASE_COMMAND if spec.interactive else self.BASE_COMMAND)
+        if spec.model is not None:
+            command.extend(["--model", spec.model])
+        if spec.effort is not None:
+            normalized_effort = str(spec.effort).strip()
+            if normalized_effort:
+                command.extend(["--variant", normalized_effort])
+        permission_resolver = spec.permission_resolver or perms
+        command.extend(permission_resolver.resolve_flags(self.id))
+        command.extend(spec.extra_args)
+        if spec.interactive:
+            if spec.prompt:
+                command.append(spec.prompt)
+        else:
+            command.append("-")
+        harness_session_id = (spec.continue_session_id or "").strip()
         if not harness_session_id:
             return command
         command.extend(["--session", harness_session_id])
-        if run.continue_fork:
+        if spec.continue_fork:
             command.append("--fork")
         return command
 

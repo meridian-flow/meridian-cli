@@ -20,11 +20,6 @@ from meridian.lib.harness.adapter import (
     SpawnParams,
 )
 from meridian.lib.harness.common import (
-    FlagEffect,
-    FlagStrategy,
-    PromptMode,
-    StrategyMap,
-    build_harness_command,
     extract_claude_report,
     extract_session_id_from_artifacts,
     extract_usage_from_artifacts,
@@ -194,35 +189,9 @@ def _tool_call_from_payload(payload: dict[str, object]) -> ToolCall | None:
     return ToolCall(tool_name=tool_name, input=tool_input, output=output_text)
 
 
-def _claude_effort_transform(value: object, args: list[str]) -> None:
-    normalized = str(value).strip()
-    if not normalized:
-        return
-    mapped = {
-        "low": "low",
-        "medium": "medium",
-        "high": "high",
-        "xhigh": "max",
-    }.get(normalized, normalized)
-    args.extend(["--effort", mapped])
-
-
 class ClaudeAdapter(BaseSubprocessHarness):
     """SubprocessHarness implementation for `claude`."""
 
-    STRATEGIES: ClassVar[StrategyMap] = {
-        "model": FlagStrategy(effect=FlagEffect.CLI_FLAG, cli_flag="--model"),
-        "effort": FlagStrategy(
-            effect=FlagEffect.TRANSFORM,
-            transform=_claude_effort_transform,
-        ),
-        "agent": FlagStrategy(effect=FlagEffect.CLI_FLAG, cli_flag="--agent"),
-        "skills": FlagStrategy(effect=FlagEffect.DROP),
-        "continue_harness_session_id": FlagStrategy(effect=FlagEffect.DROP),
-        "continue_fork": FlagStrategy(effect=FlagEffect.DROP),
-        "appended_system_prompt": FlagStrategy(effect=FlagEffect.DROP),
-    }
-    PROMPT_MODE: ClassVar[PromptMode] = PromptMode.FLAG
     BASE_COMMAND: ClassVar[tuple[str, ...]] = (
         "claude",
         "-p",
@@ -288,32 +257,32 @@ class ClaudeAdapter(BaseSubprocessHarness):
         )
 
     def build_command(self, run: SpawnParams, perms: PermissionResolver) -> list[str]:
-        if run.interactive:
-            base_command = self.PRIMARY_BASE_COMMAND
-            command_run = run.model_copy(update={"prompt": ""})
-        else:
-            base_command = self.BASE_COMMAND
-            command_run = run.model_copy(update={"prompt": "-"})
-        command = build_harness_command(
-            base_command=base_command,
-            prompt_mode=self.PROMPT_MODE,
-            run=command_run,
-            strategies=self.STRATEGIES,
-            perms=perms,
-            harness_id=self.id,
-        )
+        spec = self.resolve_launch_spec(run, perms)
+        command = list(self.PRIMARY_BASE_COMMAND if spec.interactive else self.BASE_COMMAND)
+        if not spec.interactive:
+            command.append("-")
+        if spec.model is not None:
+            command.extend(["--model", spec.model])
+        if spec.effort is not None:
+            normalized_effort = str(spec.effort).strip()
+            if normalized_effort:
+                command.extend(["--effort", normalized_effort])
+        if spec.agent_name is not None:
+            command.extend(["--agent", str(spec.agent_name)])
+        permission_resolver = spec.permission_resolver or perms
+        command.extend(permission_resolver.resolve_flags(self.id))
+        command.extend(spec.extra_args)
         # Inject skill content for --append-system-prompt (workaround for issue #29902).
-        if run.appended_system_prompt:
-            command.extend(["--append-system-prompt", run.appended_system_prompt])
+        if spec.appended_system_prompt:
+            command.extend(["--append-system-prompt", spec.appended_system_prompt])
         # Ad-hoc agent payload for native skill loading via Claude --agents flag
-        adhoc_payload = run.adhoc_agent_payload.strip()
-        if adhoc_payload:
-            command.extend(["--agents", adhoc_payload])
-        harness_session_id = (run.continue_harness_session_id or "").strip()
+        if spec.agents_payload:
+            command.extend(["--agents", spec.agents_payload])
+        harness_session_id = (spec.continue_session_id or "").strip()
         if not harness_session_id:
             return command
         command.extend(["--resume", harness_session_id])
-        if run.continue_fork:
+        if spec.continue_fork:
             command.append("--fork-session")
         return command
 
