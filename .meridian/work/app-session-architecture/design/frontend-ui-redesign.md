@@ -76,7 +76,7 @@ App.tsx                              ← Shell: sidebar + router
 │       ├── SessionHeader            ← Harness, model, agent, status, connection
 │       ├── ThreadView               ← Existing activity stream
 │       ├── StreamingIndicator       ← Existing
-│       ├── SessionConfigBar         ← Config controls (locked: harness, model, agent; active: effort)
+│       ├── SessionConfigBar         ← Config controls (all locked: harness, model, effort, agent)
 │       └── Composer                 ← Text input + send/interrupt/cancel
 └── ModelBrowser                     ← Dialog overlay (portal)
     ├── HarnessTabStrip              ← Left sidebar within dialog
@@ -114,7 +114,7 @@ frontend/src/
 │   │   └── useSessionConfig.ts          ← Hook: owns harness/model/effort/agent state
 │   ├── threads/
 │   │   ├── composer/
-│   │   │   ├── Composer.tsx             ← MODIFY: remove config controls (moved to session-config)
+│   │   │   ├── Composer.tsx             ← MODIFY: two modes (onSubmit for landing, channel for session)
 │   │   │   └── CapabilityBadge.tsx      ← Existing
 │   │   └── components/
 │   │       ├── ThreadView.tsx           ← Unchanged
@@ -292,37 +292,54 @@ The session configuration controls live in `SessionConfigBar`, a dedicated compo
 All config state is owned by a single `useSessionConfig` hook, which both `SessionConfigBar` and `LandingPage`/`SessionView` consume:
 
 ```tsx
-interface SessionConfig {
+interface SessionConfigState {
   harness: HarnessId
-  model: CatalogModel | null
+  modelId: string | null         // model_id string (NOT CatalogModel — session metadata supplies a string)
   effort: EffortLevel
   agent: string | null
 }
 
-function useSessionConfig(initialConfig?: Partial<SessionConfig>) {
-  // State
+interface SessionConfigActions {
+  selectHarness: (harness: HarnessId) => void
+  selectModel: (modelId: string, harness: HarnessId) => void
+  setEffort: (level: EffortLevel) => void
+  setAgent: (agent: string | null) => void
+}
+
+function useSessionConfig(initialConfig?: Partial<SessionConfigState>) {
   const [harness, setHarness] = useState<HarnessId>(initialConfig?.harness ?? "claude")
-  const [model, setModel] = useState<CatalogModel | null>(initialConfig?.model ?? null)
+  const [modelId, setModelId] = useState<string | null>(initialConfig?.modelId ?? null)
   const [effort, setEffort] = useState<EffortLevel>(initialConfig?.effort ?? "medium")
   const [agent, setAgent] = useState<string | null>(initialConfig?.agent ?? null)
+
+  // Re-sync when session metadata loads (handles async hydration on direct URL visit)
+  useEffect(() => {
+    if (initialConfig?.harness) setHarness(initialConfig.harness)
+    if (initialConfig?.modelId !== undefined) setModelId(initialConfig.modelId)
+    if (initialConfig?.effort) setEffort(initialConfig.effort)
+    if (initialConfig?.agent !== undefined) setAgent(initialConfig.agent)
+  }, [initialConfig?.harness, initialConfig?.modelId, initialConfig?.effort, initialConfig?.agent])
 
   // When harness changes, clear model (models are harness-specific)
   function selectHarness(next: HarnessId) {
     setHarness(next)
-    setModel(null)
+    setModelId(null)
   }
 
   // When model is selected from browser, sync harness to match
-  function selectModel(next: CatalogModel) {
-    setModel(next)
-    setHarness(next.harness as HarnessId)
+  function selectModel(nextModelId: string, nextHarness: HarnessId) {
+    setModelId(nextModelId)
+    setHarness(nextHarness)
   }
 
-  return { harness, model, effort, agent, selectHarness, selectModel, setEffort, setAgent }
+  return { harness, modelId, effort, agent, selectHarness, selectModel, setEffort, setAgent }
 }
 ```
 
-This hook is the single source of truth for the bidirectional harness ↔ model synchronization. Both `HarnessToggle` and `ModelBrowser` read from and write to this hook, eliminating ambiguity about which component owns state.
+Key design decisions in this hook:
+- **`modelId` is a string, not `CatalogModel`** — session metadata supplies a model ID string, not a full catalog object. The ModelBrowser resolves model IDs to catalog entries for display; the hook stores the ID.
+- **`useEffect` re-syncs from `initialConfig`** — handles the async hydration case where SessionView loads session metadata after mount (direct URL visit, page reload). The initial render uses defaults; the effect updates when metadata arrives.
+- **Bidirectional harness ↔ model sync** — `selectHarness` clears the model (models are harness-specific). `selectModel` sets both model and harness (the model's harness is authoritative). This eliminates ambiguity about which component owns the sync.
 
 ### HarnessToggle
 
@@ -433,6 +450,32 @@ Control state by mode:
 
 **No WebSocket on the landing page.** Streaming starts in SessionView after navigation. The landing page is purely a session creation form.
 
+### Composer Interface
+
+The Composer has two operating modes with different prop interfaces:
+
+**Landing page mode** (`onSubmit` callback):
+```tsx
+<Composer
+  onSubmit={handleSubmit}      // (prompt: string) => void — parent handles session creation
+  disabled={isSubmitting}
+  isStreaming={false}
+/>
+```
+
+**Session mode** (`channel`-based, like current implementation):
+```tsx
+<Composer
+  channel={channel}             // SessionChannel ref — sends via WS
+  capabilities={capabilities}   // harness capabilities (queue/steer/direct)
+  isStreaming={state.isStreaming}
+  disabled={!isActive || connectionState !== "open"}
+  onCancel={cancel}
+/>
+```
+
+Implementation: the Composer component accepts a union of these props. When `onSubmit` is provided, sending calls the callback. When `channel` is provided, sending uses `channel.current?.sendMessage()`. The textarea, auto-resize, Enter/Shift+Enter, and interrupt/cancel buttons are shared across both modes. This is a modest refactor of the existing Composer — adding an `onSubmit` path alongside the existing channel path, not a rewrite.
+
 ## Model Browser
 
 The model browser is a `Dialog` (existing shadcn component) that opens when the user clicks the ModelButton. It provides a browsable catalog of available models.
@@ -518,11 +561,12 @@ function SessionView({ params }: { params: { sessionId: string } }) {
     useThreadStreaming(session?.status === "running" ? sessionId : null)
 
   // Session config from metadata (locked/read-only)
+  // useSessionConfig re-syncs via useEffect when session metadata loads
   const config = useSessionConfig({
-    harness: session?.harness,
-    model: session?.model,
-    effort: session?.effort,
-    agent: session?.agent,
+    harness: session?.harness as HarnessId | undefined,
+    modelId: session?.model ?? null,
+    effort: session?.effort as EffortLevel | undefined,
+    agent: session?.agent ?? null,
   })
 
   const isActive = session?.status === "running"
@@ -733,7 +777,7 @@ function LandingPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           harness: config.harness,
-          model: config.model?.model_id ?? null,
+          model: config.modelId,
           effort: config.effort,
           agent: config.agent,
           prompt,
@@ -767,9 +811,13 @@ function LandingPage() {
 
 ### Repo Root Resolution
 
-The `repo_root` is determined by the server's launch context. `meridian app` is invoked from a repo directory, so the server knows its `repo_root`. For v1 (single-repo), the frontend does not send `repo_root` — the backend uses the server's `repo_root` for all session creation.
+**v1 is single-repo.** The server is launched from a specific repo via `meridian app`, and that repo's `repo_root` and `state_root` are known at startup (matching the current `SpawnManager(state_root, repo_root)` constructor). All sessions belong to this repo.
 
-**Resolving the contract conflict:** The session-registry doc (D22) says `repo_root` is required in `POST /api/sessions` for the multi-repo model. For v1, the endpoint accepts an **optional** `repo_root` — if omitted, the backend uses the server's launch context. This satisfies both the single-repo frontend (omits it) and future multi-repo frontends (sends it explicitly). The session registry still records `repo_root` on every entry for artifact path resolution.
+The frontend does not send `repo_root` in `POST /api/sessions`. The backend uses its startup `repo_root` for all session creation, spawn artifact paths, and agent profile scanning.
+
+**Relationship to D17/D18 (machine-scoped server):** Decisions D17-D20 in the decision log describe a future architecture where one server handles multiple repos. That architecture is **not implemented** — the current server (`server.py`) takes a `SpawnManager(state_root, repo_root)` with single global paths. This frontend redesign targets the current single-repo server. When the machine-scoped server is implemented, the frontend will gain a repo selector and send `repo_root` explicitly. The session registry already records `repo_root` per entry, so the data model is forward-compatible.
+
+**API contract for v1:** `POST /api/sessions` accepts `repo_root` as optional. If omitted (which it always is for v1), the backend uses the server's repo_root. If provided, it must match the server's repo_root (validated), or be rejected with 400. This prevents the frontend from creating sessions in a repo the server can't serve.
 
 ## New Backend Endpoints
 
@@ -1056,7 +1104,7 @@ Each async boundary has a defined loading → ready → error transition:
 - Session view with header, thread, composer
 - Composer controls: harness toggle, model browser, effort selector, agent selector
 - Client-side routing with wouter
-- New backend endpoints: sessions CRUD, models catalog, agents list, effort injection
+- New backend endpoints: sessions CRUD, models catalog, agents list
 - SPA static file serving with fallback
 - Session persistence across page reloads (via session registry)
 

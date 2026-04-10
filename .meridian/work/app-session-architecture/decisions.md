@@ -257,3 +257,17 @@
 **Decision:** The session JSONL entry and `GET /api/sessions/{id}` response include `agent` and `effort` fields alongside the existing `harness` and `model`.
 
 **Reasoning:** The gpt-5.4 alignment reviewer identified that the locked SessionConfigBar in SessionView needs to display the session's agent and effort, but the session registry only stored harness and model. Without these fields, there's no read path for the selected agent or effort level after navigation/reload. Adding them to the session entry is trivial — they're recorded at creation time and never change.
+
+## D32: v1 targets existing single-repo server, not D17/D18 machine-scoped model (convergence review p1371)
+
+**Decision:** This frontend redesign targets the current single-repo server architecture where `SpawnManager(state_root, repo_root)` has global paths. Decisions D17-D20 (machine-scoped server, multi-repo SpawnManager, compound spawn keys) are future architecture not yet implemented.
+
+**Reasoning:** The convergence reviewer (p1371) identified that D30's "optional repo_root with server default" only works with the existing per-repo server model, not the D17/D18 machine-scoped model. Rather than implement the full multi-repo backend to make the frontend work, we build the frontend against the current architecture. The session registry already records `repo_root` per entry, so data is forward-compatible when the machine-scoped server is built.
+
+**Constraint discovered:** The `GET /api/agents` endpoint also depends on a known `repo_root` (to find `.agents/agents/`). In the single-repo model, this is the server's `repo_root`. In a future multi-repo model, it would need a repo parameter.
+
+## D33: Composer dual-mode interface — onSubmit + channel (convergence review p1371)
+
+**Decision:** The Composer component accepts a union of two prop interfaces: `onSubmit` (callback for landing page mode) and `channel` (SessionChannel ref for active session mode). Both modes share the textarea, auto-resize, Enter/Shift+Enter, and action button UI.
+
+**Reasoning:** The convergence reviewer identified that the LandingPage code sketch uses `onSubmit(prompt)` while the SessionView uses the existing `channel`-based interface, creating two incompatible calling conventions that the design didn't address. Making this a documented union type (not two separate components) keeps the Composer as a single component with consistent UX in both contexts — the only difference is how the send action is routed.
