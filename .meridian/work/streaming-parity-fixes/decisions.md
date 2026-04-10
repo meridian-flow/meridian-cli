@@ -71,6 +71,7 @@ if expected != accounted:
 - `project_opencode_streaming.py`
 
 Use `project_opencode_spec_to_session_payload` (not `...http_payload`).
+Keep reserved-flag constants and stripping helper centralized in `src/meridian/lib/harness/projections/_reserved_flags.py`.
 
 **Why.** Consistent axis and lower blast radius.
 
@@ -92,11 +93,11 @@ Use `project_opencode_spec_to_session_payload` (not `...http_payload`).
 
 **Addresses.** M3.
 
-## D10 — `_AgentNameMixin` scope
+## D10 — `agent_name` declaration scope
 
-**Decision.** `_AgentNameMixin` is shared by `ClaudeLaunchSpec` and `OpenCodeLaunchSpec`.
+**Decision.** Inline `agent_name: str | None = None` directly on `ClaudeLaunchSpec` and `OpenCodeLaunchSpec`; do not keep a shared mixin at two call sites.
 
-**Why.** Same semantic field, avoid duplicated declarations.
+**Why.** Abstraction threshold not met (2 consumers). Re-extract only when a third semantically aligned consumer exists.
 
 **Addresses.** L3 (not L5).
 
@@ -260,3 +261,16 @@ If either exceeds budget after v2, raise L11 decomposition back into active scop
 - F35: Standardized OpenCode session payload function name to `project_opencode_spec_to_session_payload`.
 - F36: Renamed all design/scenario references from `NoOpPermissionResolver` to `UnsafeNoOpPermissionResolver`.
 - F37: Added `UnsafeNoOpPermissionResolver` warning-suppression note for unit-test fixtures.
+
+## Revision Pass 2 (post p1429/p1430)
+
+- G1: Completed `typed-harness.md` import topology DAG with all v2 modules (`harness/errors.py`, `harness/claude_preflight.py`, `harness/bundle.py`, `launch/constants.py`, `launch/context.py`, `launch/text_utils.py`, `projections/_guards.py`, `projections/_reserved_flags.py`) and explicit upward edges; linked from overview §5.
+- G2: Added `typed-harness.md` §Bundle Registry with canonical `HarnessBundle[SpecT]`, `_REGISTRY`, and `get_harness_bundle(harness_id)` contract; referenced registry consumption from shared-core context assembly.
+- G3: Pinned reserved-flag constants/strip helper to `projections/_reserved_flags.py`; updated `permission-pipeline.md` and `transport-projections.md` imports/policy examples to use the canonical path.
+- G4: Set `launch/launch_types.py` as single home for `ResolvedLaunchSpec` base body and `continue_fork` validator; replaced duplicated base block in `launch-spec.md` with a direct reference.
+- G5: Added `launch/text_utils.py` to module-layout sections and documented its shared responsibilities in `runner-shared-core.md` and `overview.md`.
+- G6: Removed `PreflightResult.extra_cwd_overrides`; shared-core env merge now uses `plan.env_overrides`, runtime overrides, and `preflight.extra_env` only.
+- G7: Removed `LaunchContext.permission_config` duplicate state; context consumers now read `ctx.perms.config`.
+- G8: Reworked Codex streaming accounting to per-consumer accounted sets tied to concrete consumer functions/modules, with explicit aggregation and clarified `interactive` ownership in env-building consumer.
+- G9: Inlined `agent_name` on `ClaudeLaunchSpec` and `OpenCodeLaunchSpec`; deleted `_AgentNameMixin` in design samples and updated D10 accordingly.
+- G10: Simplified Codex streaming drift check by removing one-off `_SPEC_DELEGATED_FIELDS` indirection and validating with `delegated=frozenset()`.

@@ -28,7 +28,7 @@ v1 introduced `ResolvedLaunchSpec` but left load-bearing enforcement optional:
 
 ### 1. Typed harness boundaries
 
-- Shared leaf types in `src/meridian/lib/harness/launch_types.py`
+- Shared leaf types in `src/meridian/lib/launch/launch_types.py`
 - Generic adapter/connection contracts in `src/meridian/lib/harness/adapter.py` and `connections/base.py`
 - Runtime dispatch guard in `SpawnManager.start_spawn`
 
@@ -61,8 +61,12 @@ Each module runs `_check_projection_drift(...)` at import time.
 
 - `src/meridian/lib/launch/context.py` owns `prepare_launch_context(...)`
 - shared runner constants in `src/meridian/lib/launch/constants.py`
+- shared launch text helpers in `src/meridian/lib/launch/text_utils.py`
+- typed harness registry in `src/meridian/lib/harness/bundle.py`
 - Claude-specific preflight in `src/meridian/lib/harness/claude_preflight.py` via `adapter.preflight(...)`
 - no `if harness_id == ...` branches in shared launch context
+
+Import topology (including `_guards.py`, `_reserved_flags.py`, `bundle.py`, `context.py`, `constants.py`, and `text_utils.py`) is authoritative in [typed-harness.md §Import Topology](typed-harness.md#import-topology) and is the verification source for E31/S031.
 
 ## Policy Clarifications
 

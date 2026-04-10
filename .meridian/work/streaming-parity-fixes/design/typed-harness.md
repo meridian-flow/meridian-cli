@@ -4,13 +4,14 @@
 
 Bind each adapter and connection to a concrete launch-spec subtype so harness dispatch cannot silently downcast into generic behavior. Runtime and static enforcement are both explicit.
 
-## Leaf Types (`launch_types.py`)
+## Module: `launch/launch_types.py`
 
 ```python
-# src/meridian/lib/harness/launch_types.py
+# src/meridian/lib/launch/launch_types.py
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Generic, Protocol, TypeVar
+from pydantic import BaseModel, ConfigDict, model_validator
 
 SpecT = TypeVar("SpecT", bound="ResolvedLaunchSpec")
 
@@ -21,17 +22,70 @@ class PermissionResolver(Protocol):
 
 
 class ResolvedLaunchSpec(BaseModel):
-    ...
+    """Transport-neutral resolved configuration for one harness launch."""
+
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
+
+    # Identity
+    model: str | None = None
+
+    # Execution parameters
+    effort: str | None = None
+    prompt: str = ""
+
+    # Session continuity
+    continue_session_id: str | None = None
+    continue_fork: bool = False
+
+    # Permissions
+    permission_resolver: PermissionResolver
+
+    # Passthrough args
+    extra_args: tuple[str, ...] = ()
+
+    # Interactive mode
+    interactive: bool = False
+
+    @model_validator(mode="after")
+    def _validate_continue_fork_requires_session(self) -> "ResolvedLaunchSpec":
+        if self.continue_fork and not self.continue_session_id:
+            raise ValueError("continue_fork=True requires continue_session_id")
+        return self
 
 
 @dataclass(frozen=True)
 class PreflightResult:
     expanded_passthrough_args: tuple[str, ...]
     extra_env: dict[str, str] = field(default_factory=dict)
-    extra_cwd_overrides: dict[str, str] = field(default_factory=dict)
 ```
 
 `adapter.py` and `launch_spec.py` both import from this leaf module to avoid cycles.
+
+## Bundle Registry
+
+```python
+# src/meridian/lib/harness/bundle.py
+from dataclasses import dataclass
+from typing import Generic
+from meridian.lib.launch.launch_types import SpecT, ResolvedLaunchSpec
+from meridian.lib.harness.adapter import HarnessAdapter
+from meridian.lib.harness.connections.base import HarnessConnection
+
+@dataclass(frozen=True)
+class HarnessBundle(Generic[SpecT]):
+    harness_id: str
+    adapter: HarnessAdapter[SpecT]
+    spec_cls: type[SpecT]
+    connection_cls: type[HarnessConnection[SpecT]]
+
+_REGISTRY: dict[str, HarnessBundle] = {}  # populated by harness modules at import time
+
+def get_harness_bundle(harness_id: str) -> HarnessBundle:
+    try:
+        return _REGISTRY[harness_id]
+    except KeyError:
+        raise KeyError(f"unknown harness: {harness_id}") from None
+```
 
 ## Adapter Contract
 
@@ -132,14 +186,68 @@ Inside concrete `Connection.start(...)` methods, behavior-switching `isinstance`
 ## Import Topology
 
 ```
-launch_types.py   (SpawnParams, PermissionResolver, SpecT, ResolvedLaunchSpec, PreflightResult)
+launch/launch_types.py
     ↑
-    ├── adapter.py       (HarnessAdapter[SpecT], BaseSubprocessHarness)
-    └── launch_spec.py   (Claude/Codex/OpenCodeLaunchSpec)
+    ├── harness/adapter.py
+    ├── harness/launch_spec.py
+    └── harness/bundle.py
          ↑
-         └── projections/*.py
-              ↑
-              └── connections/*.py and harness adapters
+         └── launch/context.py
+
+launch/constants.py
+    ↑
+    ├── launch/context.py
+    ├── harness/claude_preflight.py
+    └── harness/projections/project_codex_streaming.py
+
+launch/text_utils.py
+    ↑
+    ├── harness/claude_preflight.py
+    └── harness/projections/project_claude.py
+
+harness/projections/_guards.py
+    ↑
+    ├── harness/projections/project_claude.py
+    ├── harness/projections/project_codex_subprocess.py
+    ├── harness/projections/project_codex_streaming.py
+    ├── harness/projections/project_opencode_subprocess.py
+    └── harness/projections/project_opencode_streaming.py
+
+harness/projections/_reserved_flags.py
+    ↑
+    ├── harness/projections/project_claude.py
+    └── harness/projections/project_codex_streaming.py
+
+harness/adapter.py
+    ↑
+    ├── harness/claude.py (uses harness/claude_preflight.py)
+    ├── harness/codex.py
+    └── harness/opencode.py
+
+harness/launch_spec.py
+    ↑
+    ├── harness/projections/project_claude.py
+    ├── harness/projections/project_codex_subprocess.py
+    ├── harness/projections/project_codex_streaming.py
+    ├── harness/projections/project_opencode_subprocess.py
+    └── harness/projections/project_opencode_streaming.py
+
+harness/connections/base.py
+    ↑
+    ├── harness/connections/subprocess.py
+    ├── harness/connections/claude_streaming.py
+    ├── harness/connections/codex_streaming.py
+    └── harness/connections/opencode_streaming.py
+
+harness/errors.py
+    ↑
+    ├── runner.py
+    └── streaming_runner.py
+
+launch/context.py
+    ↑
+    ├── runner.py
+    └── streaming_runner.py
 ```
 
 This is the acyclic dependency DAG used by S031.

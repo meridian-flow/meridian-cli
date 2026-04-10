@@ -8,58 +8,22 @@ This doc complements [typed-harness.md](typed-harness.md), [transport-projection
 
 ## Locations
 
-- `src/meridian/lib/harness/launch_types.py` — shared leaf types (`SpawnParams`, `PermissionResolver`, `SpecT`, `ResolvedLaunchSpec`, `PreflightResult`)
+- `src/meridian/lib/launch/launch_types.py` — shared leaf types (`SpawnParams`, `PermissionResolver`, `SpecT`, `ResolvedLaunchSpec`, `PreflightResult`)
 - `src/meridian/lib/harness/launch_spec.py` — harness-specific spec subclasses + factory helpers + `SpawnParams` accounting guard
 
 ## Hierarchy
 
 ### Base — `ResolvedLaunchSpec`
 
-```python
-class ResolvedLaunchSpec(BaseModel):
-    """Transport-neutral resolved configuration for one harness launch."""
-
-    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
-
-    # Identity
-    model: str | None = None
-
-    # Execution parameters
-    effort: str | None = None
-    prompt: str = ""
-
-    # Session continuity
-    continue_session_id: str | None = None
-    continue_fork: bool = False
-
-    # Permissions
-    permission_resolver: PermissionResolver
-
-    # Passthrough args
-    extra_args: tuple[str, ...] = ()
-
-    # Interactive mode
-    interactive: bool = False
-
-    @model_validator(mode="after")
-    def _validate_continue_fork_requires_session(self) -> "ResolvedLaunchSpec":
-        if self.continue_fork and not self.continue_session_id:
-            raise ValueError("continue_fork=True requires continue_session_id")
-        return self
-```
-
-The `continue_fork` validator is on the base class so it applies uniformly to Claude, Codex, and OpenCode.
+Base class `ResolvedLaunchSpec` lives in `launch_types.py` — see [typed-harness.md](typed-harness.md), section `Module: launch/launch_types.py`. This includes the base `continue_fork` validator, so it applies uniformly to Claude, Codex, and OpenCode.
 
 ### Claude — `ClaudeLaunchSpec`
 
 ```python
-class _AgentNameMixin(BaseModel):
-    agent_name: str | None = None
-
-
-class ClaudeLaunchSpec(_AgentNameMixin, ResolvedLaunchSpec):
+class ClaudeLaunchSpec(ResolvedLaunchSpec):
     """Claude-specific resolved launch spec."""
 
+    agent_name: str | None = None
     agents_payload: str | None = None
     appended_system_prompt: str | None = None
 ```
@@ -80,9 +44,10 @@ class CodexLaunchSpec(ResolvedLaunchSpec):
 ### OpenCode — `OpenCodeLaunchSpec`
 
 ```python
-class OpenCodeLaunchSpec(_AgentNameMixin, ResolvedLaunchSpec):
+class OpenCodeLaunchSpec(ResolvedLaunchSpec):
     """OpenCode-specific resolved launch spec."""
 
+    agent_name: str | None = None
     skills: tuple[str, ...] = ()
 ```
 

@@ -116,65 +116,68 @@ This module replaces `codex_appserver.py` + `codex_jsonrpc.py` and exports:
 
 Transport-wide completeness is enforced by the union of all consumers in the streaming path, not only one projection function.
 
-Each consumer module exports `_ACCOUNTED_FIELDS`.
+Codex streaming was merged to one module (`project_codex_streaming.py`), so accounted sets are per-consumer-function constants defined next to each consumer and aggregated once.
+
+| Accounted set | Consumer | Source module |
+|---|---|---|
+| `_APP_SERVER_ARG_FIELDS` | `project_codex_spec_to_appserver_command(...)` | `harness/projections/project_codex_streaming.py` |
+| `_JSONRPC_PARAM_FIELDS` | `project_codex_spec_to_thread_request(...)` | `harness/projections/project_codex_streaming.py` |
+| `_METHOD_SELECTION_FIELDS` | `_select_thread_method(...)` | `harness/projections/project_codex_streaming.py` |
+| `_PROMPT_SENDER_FIELDS` | `_build_user_input_payload(...)` | `harness/projections/project_codex_streaming.py` |
+| `_ENV_FIELDS` | `build_codex_stream_env(...)` | `harness/projections/project_codex_streaming.py` |
 
 ```python
-# project_codex_streaming.py
-_APP_SERVER_ACCOUNTED_FIELDS: frozenset[str] = frozenset({
+# src/meridian/lib/harness/projections/project_codex_streaming.py
+_APP_SERVER_ARG_FIELDS: frozenset[str] = frozenset({
     "permission_resolver",
     "extra_args",
-    # delegated to artifact extraction, not app-server wire
+    # consumed for debug-only "ignored by wire" audit behavior
     "report_output_path",
 })
 
-_JSONRPC_ACCOUNTED_FIELDS: frozenset[str] = frozenset({
+_JSONRPC_PARAM_FIELDS: frozenset[str] = frozenset({
     "model",
     "effort",
 })
 
-_METHOD_SELECTION_ACCOUNTED_FIELDS: frozenset[str] = frozenset({
+_METHOD_SELECTION_FIELDS: frozenset[str] = frozenset({
     "continue_session_id",
     "continue_fork",
 })
 
-_PROMPT_SENDER_ACCOUNTED_FIELDS: frozenset[str] = frozenset({
+_PROMPT_SENDER_FIELDS: frozenset[str] = frozenset({
     "prompt",
 })
 
-_ENV_ACCOUNTED_FIELDS: frozenset[str] = frozenset({
+_ENV_FIELDS: frozenset[str] = frozenset({
+    # interactive mode is consumed by build_codex_stream_env(...)
+    # to shape long-lived app-server environment behavior.
     "interactive",
 })
 
-_SPEC_DELEGATED_FIELDS: frozenset[str] = frozenset({
-    "report_output_path",
-})
-
 _ACCOUNTED_FIELDS = (
-    _APP_SERVER_ACCOUNTED_FIELDS
-    | _JSONRPC_ACCOUNTED_FIELDS
-    | _METHOD_SELECTION_ACCOUNTED_FIELDS
-    | _PROMPT_SENDER_ACCOUNTED_FIELDS
-    | _ENV_ACCOUNTED_FIELDS
+    _APP_SERVER_ARG_FIELDS
+    | _JSONRPC_PARAM_FIELDS
+    | _METHOD_SELECTION_FIELDS
+    | _PROMPT_SENDER_FIELDS
+    | _ENV_FIELDS
 )
-
-if not _SPEC_DELEGATED_FIELDS <= _ACCOUNTED_FIELDS:
-    missing_consumers = _SPEC_DELEGATED_FIELDS - _ACCOUNTED_FIELDS
-    raise ImportError(
-        f"Codex streaming delegated fields have no consumer: {sorted(missing_consumers)}"
-    )
 
 _check_projection_drift(
     CodexLaunchSpec,
-    projected=_ACCOUNTED_FIELDS - _SPEC_DELEGATED_FIELDS,
-    delegated=_SPEC_DELEGATED_FIELDS,
+    projected=_ACCOUNTED_FIELDS,
+    delegated=frozenset(),
 )
 ```
-
-A field listed as delegated in one function must still appear in at least one consumer `_ACCOUNTED_FIELDS` set across the transport.
 
 ### App-Server Command Example
 
 ```python
+from meridian.lib.harness.projections._reserved_flags import (
+    _RESERVED_CODEX_ARGS,
+    strip_reserved_passthrough,
+)
+
 def project_codex_spec_to_appserver_command(
     spec: CodexLaunchSpec,
     *,
@@ -198,10 +201,10 @@ def project_codex_spec_to_appserver_command(
             path=spec.report_output_path,
         )
 
-    filtered_extra = _strip_reserved_passthrough(
-        spec.extra_args,
+    filtered_extra = strip_reserved_passthrough(
+        args=list(spec.extra_args),
         reserved=_RESERVED_CODEX_ARGS,
-        harness="codex",
+        logger=logger,
     )
     if filtered_extra:
         logger.debug("Forwarding passthrough args to codex app-server", extra_args=list(filtered_extra))
@@ -226,6 +229,19 @@ Passthrough debug logging lives in `project_opencode_spec_to_serve_command` (not
 ## Reserved Flags Policy
 
 Projection modules strip reserved passthrough args and emit warning logs per stripped arg.
+
+```python
+# src/meridian/lib/harness/projections/_reserved_flags.py
+_RESERVED_CLAUDE_ARGS = frozenset({...})
+_RESERVED_CODEX_ARGS = frozenset({...})
+
+def strip_reserved_passthrough(
+    args: list[str],
+    reserved: frozenset[str],
+    *,
+    logger: logging.Logger,
+) -> list[str]: ...
+```
 
 - Codex reserved args: `sandbox`, `sandbox_mode`, `approval_policy`, `full-auto`, `ask-for-approval`
 - Claude reserved args: `--allowedTools`, `--disallowedTools` (merged/deduped, not overridden)

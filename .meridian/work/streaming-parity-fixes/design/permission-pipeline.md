@@ -60,6 +60,7 @@ Explicit opt-out is available only via server knob:
 Projection layers strip user passthrough args that attempt to override enforced permission policy.
 
 ```python
+# src/meridian/lib/harness/projections/_reserved_flags.py
 _RESERVED_CODEX_ARGS: frozenset[str] = frozenset({
     "sandbox",
     "sandbox_mode",
@@ -72,6 +73,13 @@ _RESERVED_CLAUDE_ARGS: frozenset[str] = frozenset({
     "--allowedTools",
     "--disallowedTools",
 })
+
+def strip_reserved_passthrough(
+    args: list[str],
+    reserved: frozenset[str],
+    *,
+    logger: logging.Logger,
+) -> list[str]: ...
 ```
 
 Rules:

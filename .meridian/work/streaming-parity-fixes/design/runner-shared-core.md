@@ -23,7 +23,11 @@ Out of scope:
 
 - `src/meridian/lib/launch/context.py` — `LaunchContext`, `prepare_launch_context(...)`
 - `src/meridian/lib/launch/constants.py` — shared constants
+- `src/meridian/lib/launch/text_utils.py` — shared text helpers (`dedupe_nonempty`, `split_csv_entries`) consumed by launch/preflight and projection code paths
+- `src/meridian/lib/harness/bundle.py` — typed harness registry (`HarnessBundle`, `get_harness_bundle`)
 - `src/meridian/lib/harness/claude_preflight.py` — Claude-only preflight helpers used by `ClaudeAdapter.preflight`
+
+`launch/text_utils.py` is the single home for launch-related string normalization used across harness boundaries (CSV-ish passthrough parsing and stable dedupe behavior) so runner/preflight/projection logic does not reimplement subtly different parsing.
 
 ### LaunchContext
 
@@ -36,7 +40,6 @@ class LaunchContext:
     child_cwd: Path
     env: dict[str, str]
     env_overrides: dict[str, str]
-    permission_config: PermissionConfig
     report_output_path: Path
 ```
 
@@ -53,6 +56,7 @@ def prepare_launch_context(
     report_output_path: Path,
     harness_id: HarnessId,
 ) -> LaunchContext:
+    # Registry provides adapter/spec/connection pairing by harness_id.
     bundle = get_harness_bundle(harness_id)
     adapter = bundle.adapter
     perms = plan.execution.permission_resolver
@@ -95,7 +99,6 @@ def prepare_launch_context(
     merged_overrides = dict(plan.env_overrides)
     merged_overrides.update(runtime_overrides)
     merged_overrides.update(preflight.extra_env)
-    merged_overrides.update(preflight.extra_cwd_overrides)
 
     env = build_harness_child_env(
         base_env=os.environ,
@@ -112,7 +115,6 @@ def prepare_launch_context(
         child_cwd=child_cwd,
         env=env,
         env_overrides=merged_overrides,
-        permission_config=perms.config,
         report_output_path=report_output_path,
     )
 ```
@@ -123,6 +125,7 @@ The shared core does not branch on `harness_id` for harness-specific logic. Harn
 
 - Both runners call `prepare_launch_context(...)` once.
 - For identical inputs, `LaunchContext` is equal across callers.
+- Permission config is read via `ctx.perms.config` (no duplicated `LaunchContext.permission_config` field).
 - Dispatch cast/typing enforcement lives in `SpawnManager.start_spawn` (see [typed-harness.md](typed-harness.md)); `prepare_launch_context` does not perform connection dispatch.
 
 ## Interaction with Other Docs
