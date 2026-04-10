@@ -3,8 +3,8 @@
 ## Setup
 
 ```bash
-git clone https://github.com/haowjy/meridian-channel.git
-cd meridian-channel
+git clone https://github.com/meridian-flow/meridian-cli.git
+cd meridian-cli
 uv sync --extra dev
 ```
 

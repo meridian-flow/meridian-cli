@@ -1,6 +1,6 @@
 # Meridian Install Guide for LLM Agents
 
-Use this guide when the user asks you to install and set up `meridian-channel`.
+Use this guide when the user asks you to install and set up `meridian-cli`.
 Execute commands exactly, ask the user at decision points, and report command output succinctly.
 
 ## Step 0: Prerequisites
@@ -30,14 +30,14 @@ python3 --version
 Run the recommended install:
 
 ```bash
-uv tool install meridian-channel
+uv tool install meridian-cli
 ```
 
 From source (for development or pre-release):
 
 ```bash
-git clone https://github.com/haowjy/meridian-channel.git
-cd meridian-channel
+git clone https://github.com/meridian-flow/meridian-cli.git
+cd meridian-cli
 uv tool install --force . --no-cache --reinstall
 ```
 
@@ -72,13 +72,13 @@ Ask the user: `Would you like to install the dev workflow agents and skills? Thi
 If yes, add the dev workflow package (includes core primitives as a dependency):
 
 ```bash
-meridian mars add haowjy/meridian-dev-workflow
+meridian mars add meridian-flow/meridian-dev-workflow
 ```
 
 If they only want the core coordination primitives (without the dev team):
 
 ```bash
-meridian mars add haowjy/meridian-base
+meridian mars add meridian-flow/meridian-base
 ```
 
 ## Step 4: Shell Completion (Optional)

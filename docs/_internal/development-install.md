@@ -1,6 +1,6 @@
 # Development Install and Test
 
-This page is the developer workflow for installing `meridian-channel` from source and testing changes.
+This page is the developer workflow for installing `meridian-cli` from source and testing changes.
 
 ## Prerequisites
 
@@ -9,8 +9,8 @@ This page is the developer workflow for installing `meridian-channel` from sourc
 - One harness CLI available for end-to-end checks (Claude CLI, Codex CLI, or OpenCode)
 
 ```bash
-git clone https://github.com/haowjy/meridian-channel.git
-cd meridian-channel
+git clone https://github.com/meridian-flow/meridian-cli.git
+cd meridian-cli
 ```
 
 ## 1) Install Developer Dependencies

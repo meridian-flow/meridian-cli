@@ -1,9 +1,9 @@
 # meridian
 
-[PyPI](https://pypi.org/project/meridian-channel/)
-[Python](https://pypi.org/project/meridian-channel/)
+[PyPI](https://pypi.org/project/meridian-cli/)
+[Python](https://pypi.org/project/meridian-cli/)
 [License](LICENSE)
-[CI](https://github.com/haowjy/meridian-channel/actions)
+[CI](https://github.com/meridian-flow/meridian-cli/actions)
 
 > **Alpha** — API may change between releases.
 
@@ -54,16 +54,16 @@ that agents use to coordinate other agents.
 
 ## Agent Packages
 
-**[meridian-dev-workflow](https://github.com/haowjy/meridian-dev-workflow)** — A full dev team: architects, coders, reviewers, testers, researchers, documenters, and the orchestrators that coordinate them. Includes skills for design methodology, implementation planning, code review, and structural hygiene. This is what most users want.
+**[meridian-dev-workflow](https://github.com/meridian-flow/meridian-dev-workflow)** — A full dev team: architects, coders, reviewers, testers, researchers, documenters, and the orchestrators that coordinate them. Includes skills for design methodology, implementation planning, code review, and structural hygiene. This is what most users want.
 
-**[meridian-base](https://github.com/haowjy/meridian-base)** — Core coordination primitives: the base orchestrator, subagent, and skills for spawning, state tracking, and session context. Included as a dependency of meridian-dev-workflow.
+**[meridian-base](https://github.com/meridian-flow/meridian-base)** — Core coordination primitives: the base orchestrator, subagent, and skills for spawning, state tracking, and session context. Included as a dependency of meridian-dev-workflow.
 
-Packages are managed by **[mars](https://github.com/haowjy/mars-agents)**, an agent package manager that installs agent profiles and skills from git sources into your project's `.agents/` directory.
+Packages are managed by **[mars](https://github.com/meridian-flow/mars-agents)**, an agent package manager that installs agent profiles and skills from git sources into your project's `.agents/` directory.
 
 ## Install
 
 ```bash
-uv tool install meridian-channel
+uv tool install meridian-cli
 ```
 
 Verify:
@@ -76,15 +76,15 @@ meridian doctor
 Alternative install methods
 
 ```bash
-pipx install meridian-channel    # if you prefer pipx
-pip install meridian-channel     # into a Python environment
+pipx install meridian-cli    # if you prefer pipx
+pip install meridian-cli     # into a Python environment
 ```
 
 From source:
 
 ```bash
-git clone https://github.com/haowjy/meridian-channel.git
-cd meridian-channel
+git clone https://github.com/meridian-flow/meridian-cli.git
+cd meridian-cli
 uv tool install --force . --no-cache --reinstall
 ```
 
@@ -104,7 +104,7 @@ If `meridian` is not on your PATH: `uv tool update-shell`
 ```bash
 cd your-project
 meridian init --link .claude
-meridian mars add haowjy/meridian-dev-workflow
+meridian mars add meridian-flow/meridian-dev-workflow
 ```
 
 This initializes `.meridian/`, links `.agents/` into `.claude/` so Claude Code
@@ -114,7 +114,7 @@ reviewers, testers, architect, etc.) plus core coordination primitives.
 For just the core primitives:
 
 ```bash
-meridian mars add haowjy/meridian-base
+meridian mars add meridian-flow/meridian-base
 ```
 
 To link into other tool directories (e.g. Cursor):

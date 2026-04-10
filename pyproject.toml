@@ -1,5 +1,5 @@
 [project]
-name = "meridian-channel"
+name = "meridian-cli"
 dynamic = ["version"]
 description = "Orchestrate CLI + MCP server for multi-model agent workflows"
 readme = "README.md"
@@ -21,7 +21,7 @@ dependencies = [
   "aiohttp>=3.11",
   "coolname>=4.0.0",
   "cyclopts>=3.0",
-  "mars-agents==0.0.9",
+  "mars-agents==0.0.13",
   "mcp>=1.0",
   "pydantic>=2.12",
   "pydantic-settings>=2.13",
@@ -30,9 +30,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/haowjy/meridian-channel"
-Repository = "https://github.com/haowjy/meridian-channel"
-Issues = "https://github.com/haowjy/meridian-channel/issues"
+Homepage = "https://github.com/meridian-flow/meridian-cli"
+Repository = "https://github.com/meridian-flow/meridian-cli"
+Issues = "https://github.com/meridian-flow/meridian-cli/issues"
 
 [project.scripts]
 meridian = "meridian.cli.main:main"

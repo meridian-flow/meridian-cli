@@ -1,4 +1,4 @@
-# Development Guide: meridian-channel
+# Development Guide: meridian-cli
 
 No real users, no real user data. No backwards compatibility needed — completely change the schema to get it right.
 
@@ -126,4 +126,4 @@ Commit after each step that passes tests. Don't accumulate changes across multip
 
 ## Related Repos
 
-- **mars-agents** (`../mars-agents/`): Standalone agent package manager for `.agents/`. Rust CLI, binary name `mars`. Meridian invokes it via `meridian mars ...` for project package setup and sync. Design spec in `.meridian/work/agent-package-management/design/`. Repo: `haowjy/mars-agents`.
+- **mars-agents** (`../mars-agents/`): Standalone agent package manager for `.agents/`. Rust CLI, binary name `mars`. Meridian invokes it via `meridian mars ...` for project package setup and sync. Design spec in `.meridian/work/agent-package-management/design/`. Repo: `meridian-flow/mars-agents`.
