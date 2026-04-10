@@ -425,6 +425,88 @@ async def _report_watchdog(
     return True
 
 
+async def run_streaming_spawn(
+    *,
+    config: ConnectionConfig,
+    params: SpawnParams,
+    state_root: Path,
+    repo_root: Path,
+    spawn_id: SpawnId,
+    stream_to_terminal: bool = False,
+) -> DrainOutcome:
+    """Run one streaming spawn to completion without spawn-store finalization."""
+
+    manager = SpawnManager(state_root=state_root, repo_root=repo_root)
+    heartbeat_path = state_root / "spawns" / str(spawn_id) / "heartbeat"
+
+    loop = asyncio.get_running_loop()
+    shutdown_event = asyncio.Event()
+    received_signal: list[signal.Signals | None] = [None]
+    installed_signals = _install_signal_handlers(loop, shutdown_event, received_signal)
+
+    completion_task: asyncio.Task[DrainOutcome | None] | None = None
+    signal_task: asyncio.Task[bool] | None = None
+    consume_task: asyncio.Task[None] | None = None
+    subscriber: asyncio.Queue[HarnessEvent | None] | None = None
+    try:
+        async with heartbeat_scope(heartbeat_path):
+            connection = await manager.start_spawn(config, params)
+            if connection.subprocess_pid is not None:
+                atomic_write_text(
+                    state_root / "spawns" / str(spawn_id) / "harness.pid",
+                    f"{connection.subprocess_pid}\n",
+                )
+
+            subscriber = manager.subscribe(spawn_id)
+            if subscriber is None:
+                raise RuntimeError("failed to subscribe to spawn stream")
+
+            completion_task = asyncio.create_task(manager.wait_for_completion(spawn_id))
+            consume_task = asyncio.create_task(
+                _consume_subscriber_events(
+                    subscriber=subscriber,
+                    budget_tracker=None,
+                    budget_signal=asyncio.Event(),
+                    budget_breach_holder=[None],
+                    event_observer=None,
+                    stream_stdout_to_terminal=stream_to_terminal,
+                )
+            )
+            signal_task = asyncio.create_task(shutdown_event.wait())
+
+            done, _ = await asyncio.wait(
+                {
+                    cast("asyncio.Task[object]", completion_task),
+                    cast("asyncio.Task[object]", signal_task),
+                },
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if signal_task in done and shutdown_event.is_set():
+                signal_exit = signal_to_exit_code(received_signal[0]) or 130
+                await manager.stop_spawn(
+                    spawn_id,
+                    status="cancelled",
+                    exit_code=signal_exit,
+                    error="cancelled",
+                )
+
+            outcome = await completion_task
+            if outcome is None:
+                raise RuntimeError("streaming spawn completed without drain outcome")
+            return outcome
+    finally:
+        if subscriber is not None:
+            manager.unsubscribe(spawn_id)
+        for task in (completion_task, signal_task, consume_task):
+            if task is not None and not task.done():
+                task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await task
+        _remove_signal_handlers(loop, installed_signals)
+        with suppress(Exception):
+            await manager.shutdown(status="cancelled", exit_code=1, error="shutdown")
+
+
 async def _run_streaming_attempt(
     *,
     run: Spawn,
@@ -1038,4 +1120,5 @@ async def execute_with_streaming(
 __all__ = [
     "DEFAULT_GUARDRAIL_TIMEOUT_SECONDS",
     "execute_with_streaming",
+    "run_streaming_spawn",
 ]

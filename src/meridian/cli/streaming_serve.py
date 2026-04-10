@@ -2,59 +2,17 @@
 
 from __future__ import annotations
 
-import asyncio
-import signal
 import time
-from collections.abc import Iterable
 from uuid import uuid4
 
 from meridian.lib.core.domain import SpawnStatus
 from meridian.lib.core.types import HarnessId, ModelId
 from meridian.lib.harness.adapter import SpawnParams
-from meridian.lib.harness.connections.base import ConnectionConfig, HarnessEvent
+from meridian.lib.harness.connections.base import ConnectionConfig
+from meridian.lib.launch.streaming_runner import run_streaming_spawn
 from meridian.lib.ops.runtime import resolve_runtime_root_and_config
 from meridian.lib.state import spawn_store
 from meridian.lib.state.paths import resolve_state_paths
-from meridian.lib.streaming.spawn_manager import SpawnManager
-
-
-def _install_signal_handlers(
-    loop: asyncio.AbstractEventLoop,
-    shutdown_event: asyncio.Event,
-) -> list[signal.Signals]:
-    installed: list[signal.Signals] = []
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        try:
-            loop.add_signal_handler(sig, shutdown_event.set)
-            installed.append(sig)
-        except (NotImplementedError, RuntimeError):
-            continue
-    return installed
-
-
-def _remove_signal_handlers(
-    loop: asyncio.AbstractEventLoop,
-    signals: Iterable[signal.Signals],
-) -> None:
-    for sig in signals:
-        try:
-            loop.remove_signal_handler(sig)
-        except Exception:
-            continue
-
-
-async def _wait_for_connection_close(
-    queue: asyncio.Queue[HarnessEvent | None],
-) -> str:
-    while True:
-        event = await queue.get()
-        if event is None:
-            return "connection_closed"
-
-
-async def _wait_for_shutdown(shutdown_event: asyncio.Event) -> str:
-    await shutdown_event.wait()
-    return "shutdown_requested"
 
 
 async def streaming_serve(
@@ -68,6 +26,13 @@ async def streaming_serve(
     normalized_harness = harness.strip().lower()
     if not normalized_harness:
         raise ValueError("harness is required")
+    normalized_prompt = prompt.strip()
+    if not normalized_prompt:
+        raise ValueError("prompt is required")
+    normalized_model = model.strip() if model is not None else None
+    if model is not None and not normalized_model:
+        raise ValueError("model cannot be empty")
+    normalized_agent = agent.strip() if agent is not None else None
 
     try:
         harness_id = HarnessId(normalized_harness)
@@ -82,8 +47,8 @@ async def streaming_serve(
     spawn_id = spawn_store.start_spawn(
         state_root,
         chat_id=str(uuid4()),
-        model=(model.strip() if model is not None else "") or "unknown",
-        agent=(agent.strip() if agent is not None else "") or "unknown",
+        model=normalized_model or "unknown",
+        agent=normalized_agent or "unknown",
         harness=harness_id.value,
         kind="streaming",
         prompt=prompt,
@@ -91,98 +56,52 @@ async def streaming_serve(
         status="running",
     )
 
-    manager = SpawnManager(state_root=state_root, repo_root=repo_root)
     config = ConnectionConfig(
         spawn_id=spawn_id,
         harness_id=harness_id,
-        model=(model.strip() or None) if model is not None else None,
+        model=normalized_model or None,
         prompt=prompt,
         repo_root=repo_root,
         env_overrides={},
     )
     params = SpawnParams(
         prompt=prompt,
-        model=ModelId(model.strip()) if model and model.strip() else None,
-        agent=agent.strip() if agent else None,
+        model=ModelId(normalized_model) if normalized_model else None,
+        agent=normalized_agent,
     )
 
     output_path = state_root / "spawns" / str(spawn_id) / "output.jsonl"
     socket_path = state_root / "spawns" / str(spawn_id) / "control.sock"
 
-    loop = asyncio.get_running_loop()
-    shutdown_event = asyncio.Event()
-    installed_signals = _install_signal_handlers(loop, shutdown_event)
+    print(f"Started spawn {spawn_id} (harness={harness_id.value})")
+    print(f"Control socket: {socket_path}")
+    print(f"Events: {output_path}")
 
-    terminal_reason = "shutdown_requested"
-    had_error = False
+    outcome_status: SpawnStatus = "failed"
+    outcome_exit_code = 1
     failure_message: str | None = None
-    completion_task: asyncio.Task[str] | None = None
-    shutdown_task: asyncio.Task[str] | None = None
     try:
-        await manager.start_spawn(config, params)
-        print(f"Started spawn {spawn_id} (harness={harness_id.value})")
-        print(f"Control socket: {socket_path}")
-        print(f"Events: {output_path}")
-
-        subscriber = manager.subscribe(spawn_id)
-        if subscriber is None:
-            raise RuntimeError("failed to attach spawn event subscriber")
-
-        completion_task = asyncio.create_task(_wait_for_connection_close(subscriber))
-        shutdown_task = asyncio.create_task(_wait_for_shutdown(shutdown_event))
-
-        done, pending = await asyncio.wait(
-            (completion_task, shutdown_task),
-            return_when=asyncio.FIRST_COMPLETED,
+        outcome = await run_streaming_spawn(
+            config=config,
+            params=params,
+            state_root=state_root,
+            repo_root=repo_root,
+            spawn_id=spawn_id,
         )
-        for pending_task in pending:
-            pending_task.cancel()
-
-        terminal_reason = next(iter(done)).result()
-    except KeyboardInterrupt:
-        terminal_reason = "keyboard_interrupt"
-        had_error = True
-        failure_message = "keyboard interrupt"
+        outcome_status = outcome.status
+        outcome_exit_code = outcome.exit_code
+        if outcome_status == "failed":
+            failure_message = outcome.error
     except Exception as exc:
-        had_error = True
         failure_message = str(exc)
         raise
     finally:
-        if completion_task is not None and not completion_task.done():
-            completion_task.cancel()
-        if shutdown_task is not None and not shutdown_task.done():
-            shutdown_task.cancel()
-        manager.unsubscribe(spawn_id)
-        _remove_signal_handlers(loop, installed_signals)
-        shutdown_status: SpawnStatus = "cancelled"
-        shutdown_exit_code = 1
-        if terminal_reason == "connection_closed" and not had_error:
-            shutdown_status = "succeeded"
-            shutdown_exit_code = 0
-        elif had_error:
-            shutdown_status = "failed"
-        shutdown_error: Exception | None = None
-        try:
-            await manager.shutdown(
-                status=shutdown_status,
-                exit_code=shutdown_exit_code,
-                error=failure_message,
-            )
-        except Exception as exc:  # pragma: no cover - defensive path
-            shutdown_error = exc
-            shutdown_status = "failed"
-            shutdown_exit_code = 1
-            if failure_message is None:
-                failure_message = str(exc)
-
         spawn_store.finalize_spawn(
             state_root,
             spawn_id,
-            status=shutdown_status,
-            exit_code=shutdown_exit_code,
+            status=outcome_status,
+            exit_code=outcome_exit_code,
             duration_secs=max(0.0, time.monotonic() - start_monotonic),
-            error=failure_message if shutdown_status == "failed" else None,
+            error=failure_message if outcome_status == "failed" else None,
         )
-        if shutdown_error is not None:
-            raise shutdown_error
-        print(f"Stopped spawn {spawn_id} ({terminal_reason})")
+        print(f"Stopped spawn {spawn_id} (status={outcome_status}, exit={outcome_exit_code})")

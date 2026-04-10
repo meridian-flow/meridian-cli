@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 from pathlib import Path
 from typing import cast
@@ -10,6 +9,7 @@ import pytest
 from meridian.cli import streaming_serve as streaming_serve_module
 from meridian.lib.state.paths import resolve_state_paths
 from meridian.lib.state.spawn_store import get_spawn
+from meridian.lib.streaming.spawn_manager import DrainOutcome
 
 
 def _read_spawn_events(state_root: Path) -> list[dict[str, object]]:
@@ -28,55 +28,22 @@ async def test_streaming_serve_shutdown_finalizes_once_as_cancelled(
 ) -> None:
     repo_root = tmp_path
     state_root = resolve_state_paths(repo_root).root_dir
-    shutdown_calls: list[tuple[str, int, str | None]] = []
+    helper_calls: list[tuple[str, str]] = []
 
-    class FakeManager:
-        def __init__(self, *, state_root: Path, repo_root: Path) -> None:
-            self._state_root = state_root
-            self._repo_root = repo_root
+    async def _run_streaming_spawn(**kwargs: object) -> DrainOutcome:
+        helper_calls.append((str(kwargs["spawn_id"]), str(kwargs["state_root"])))
+        return DrainOutcome(status="cancelled", exit_code=1)
 
-        async def start_spawn(self, config: object, params: object | None = None) -> None:
-            _ = config, params
-
-        def subscribe(self, spawn_id: str) -> asyncio.Queue[object | None]:
-            _ = spawn_id
-            return asyncio.Queue()
-
-        def unsubscribe(self, spawn_id: str) -> None:
-            _ = spawn_id
-
-        async def shutdown(
-            self,
-            *,
-            status: str = "cancelled",
-            exit_code: int = 1,
-            error: str | None = None,
-        ) -> None:
-            shutdown_calls.append((status, exit_code, error))
-
-    async def _wait_for_shutdown(shutdown_event: asyncio.Event) -> str:
-        _ = shutdown_event
-        return "shutdown_requested"
-
-    async def _wait_forever(queue: asyncio.Queue[object | None]) -> str:
-        _ = queue
-        await asyncio.sleep(3600)
-        return "connection_closed"
-
-    monkeypatch.setattr(streaming_serve_module, "SpawnManager", FakeManager)
+    monkeypatch.setattr(streaming_serve_module, "run_streaming_spawn", _run_streaming_spawn)
     monkeypatch.setattr(
         streaming_serve_module,
         "resolve_runtime_root_and_config",
         lambda repo_root=None, *, sink=None: (repo_root or tmp_path, None),
     )
-    monkeypatch.setattr(streaming_serve_module, "_install_signal_handlers", lambda *_: [])
-    monkeypatch.setattr(streaming_serve_module, "_remove_signal_handlers", lambda *_: None)
-    monkeypatch.setattr(streaming_serve_module, "_wait_for_shutdown", _wait_for_shutdown)
-    monkeypatch.setattr(streaming_serve_module, "_wait_for_connection_close", _wait_forever)
 
     await streaming_serve_module.streaming_serve("codex", "hello")
 
-    assert shutdown_calls == [("cancelled", 1, None)]
+    assert helper_calls == [("p1", str(state_root))]
     events = _read_spawn_events(state_root)
     assert [event["event"] for event in events] == ["start", "finalize"]
     assert events[-1]["status"] == "cancelled"
@@ -95,38 +62,16 @@ async def test_streaming_serve_start_failure_finalizes_failed_once(
     repo_root = tmp_path
     state_root = resolve_state_paths(repo_root).root_dir
 
-    class FakeManager:
-        def __init__(self, *, state_root: Path, repo_root: Path) -> None:
-            _ = state_root, repo_root
+    async def _run_streaming_spawn(**kwargs: object) -> DrainOutcome:
+        _ = kwargs
+        raise RuntimeError("boom")
 
-        async def start_spawn(self, config: object, params: object | None = None) -> None:
-            _ = config, params
-            raise RuntimeError("boom")
-
-        def subscribe(self, spawn_id: str) -> None:
-            _ = spawn_id
-            return None
-
-        def unsubscribe(self, spawn_id: str) -> None:
-            _ = spawn_id
-
-        async def shutdown(
-            self,
-            *,
-            status: str = "cancelled",
-            exit_code: int = 1,
-            error: str | None = None,
-        ) -> None:
-            _ = status, exit_code, error
-
-    monkeypatch.setattr(streaming_serve_module, "SpawnManager", FakeManager)
+    monkeypatch.setattr(streaming_serve_module, "run_streaming_spawn", _run_streaming_spawn)
     monkeypatch.setattr(
         streaming_serve_module,
         "resolve_runtime_root_and_config",
         lambda repo_root=None, *, sink=None: (repo_root or tmp_path, None),
     )
-    monkeypatch.setattr(streaming_serve_module, "_install_signal_handlers", lambda *_: [])
-    monkeypatch.setattr(streaming_serve_module, "_remove_signal_handlers", lambda *_: None)
 
     with pytest.raises(RuntimeError, match="boom"):
         await streaming_serve_module.streaming_serve("codex", "hello")
