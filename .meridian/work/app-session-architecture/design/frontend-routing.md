@@ -254,12 +254,13 @@ The existing proxy config already covers all `/api/...` paths, so no change is n
 2. Server serves `index.html` (SPA fallback)
 3. `wouter` reads URL, renders `SessionView` with `sessionId = "a7f3b2c1"`
 4. Component loads session metadata via `GET /api/sessions/a7f3b2c1`
-5. If spawn is active → connect WebSocket for live streaming
-6. If spawn is terminal → show final state, no WebSocket
-7. If session not found → show error, link back to dashboard
+5. If spawn is active in current server process → connect WebSocket for live streaming
+6. If spawn is terminal → show terminal status badge (succeeded/failed/cancelled), prompt, and harness info. No WebSocket connection attempted. Full event replay from `output.jsonl` is a future enhancement — v1 shows metadata only for completed sessions.
+7. If spawn was active but server restarted since it started → show stale status from spawn store. No live streaming available (the SpawnManager connection doesn't survive restarts). Future: replay from output.jsonl.
+8. If session not found → show "Session not found" error with link back to dashboard
 
 ### Multiple Tabs
 
-Each session URL works independently in its own tab. The dashboard can be open in one tab while sessions are open in others. No shared state between tabs — each tab maintains its own WebSocket connection and React state.
+The dashboard and different session views can be open in separate tabs. No shared state between tabs — each tab maintains its own React state.
 
-Note: SpawnManager's subscriber model allows only one WebSocket subscriber per spawn. If two tabs open the same session, the second gets a "another client is already connected" error. This is existing behavior and acceptable for a local dev tool.
+**Limitation: one live viewer per session.** SpawnManager's subscriber model allows only one WebSocket subscriber per spawn. If two tabs open the same session URL, the first tab gets live streaming; the second receives an "another client is already connected" error via the WebSocket and falls back to showing session metadata without live events. This is existing SpawnManager behavior and acceptable for a local dev tool.

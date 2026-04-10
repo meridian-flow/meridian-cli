@@ -82,3 +82,43 @@
 **Reasoning:** `.meridian/` already has `sessions.jsonl` for CLI sessions (a completely different concept). Using `.meridian/app/sessions.jsonl` avoids naming collision and groups all app-specific state under a clear namespace. The `app/` directory is created on first `meridian app` invocation.
 
 **Constraint discovered:** The existing `.meridian/.gitignore` uses a `*` (ignore everything) pattern with explicit `!` exclusions for tracked files. This means `.meridian/app/` is automatically ignored — no gitignore changes needed.
+
+## D9: Startup serialization — flock across the entire startup flow
+
+**Decision:** Add `.meridian/app/server.flock` held from stale-check through socket bind and lockfile write. Released before uvicorn starts accepting requests.
+
+**Reasoning:** Reviewer (p1260) identified that two concurrent `meridian app` invocations could both miss the lockfile, both probe the same port, and race at bind. The startup flock serializes the entire startup sequence — the first invocation holds the lock through bind and lockfile creation, the second finds the lockfile and opens the browser to the existing server. This follows the existing `fcntl.flock` pattern used by `spawns.jsonl.flock` and `sessions.jsonl.flock`.
+
+**Rejected:** Per-step locking (flock only around lockfile write) — doesn't prevent the port probe race because two processes can both find the port available before either writes the lockfile.
+
+## D10: Bind-and-hold port selection (eliminates probe-to-bind race)
+
+**Decision:** Bind a TCP socket during startup, hold it open through lockfile creation, and pass the file descriptor to uvicorn. No gap between port availability check and server bind.
+
+**Reasoning:** Reviewer (p1260) identified the probe-then-bind race. By binding immediately and holding the socket, the port is owned by this process from the moment it's confirmed available. The actual port number is read from `sock.getsockname()` after bind, ensuring the lockfile contains the correct port.
+
+**Rejected:** Probe-then-bind (original design) — accepted but dismissed race window. The bind-and-hold approach is equally simple and eliminates the race entirely.
+
+## D11: Draining flag for clean shutdown
+
+**Decision:** Set an `asyncio.Event` draining flag on SIGTERM. `POST /api/sessions` checks this flag and returns 503 during shutdown. Wait for in-flight creates to complete before SpawnManager.shutdown().
+
+**Reasoning:** Reviewer (p1260) identified that `SpawnManager.shutdown()` only walks `_sessions`, but a spawn being created in `start_spawn()` isn't in `_sessions` until setup completes. The draining flag prevents new creates from starting, and the wait ensures in-flight ones complete before shutdown proceeds.
+
+## D12: Session creation failure compensation
+
+**Decision:** If session JSONL persistence fails after the spawn is already started, call `SpawnManager.stop_spawn()` to cancel the orphaned spawn and return 500.
+
+**Reasoning:** Reviewer (p1260) identified that the "atomic" claim for `POST /api/sessions` was misleading — it's actually two sequential operations (start spawn, write session). If the second fails, we'd have a running spawn with no session URL. The compensating action (stop the spawn) ensures no orphaned spawns exist.
+
+## D13: Rename SessionRegistry → AppSessionRegistry
+
+**Decision:** Use `AppSessionRegistry` and `AppSessionEntry` as class names. Module lives at `src/meridian/lib/app/session_registry.py`.
+
+**Reasoning:** Reviewer (p1260) noted naming collision risk with existing `SpawnSession` in `spawn_manager.py` and CLI `sessions.jsonl`. The `App` prefix makes the scope unambiguous and keeps the URL-alias layer clearly in `lib/app/`, separate from the state layer in `lib/state/`.
+
+## D14: v1 session URLs — metadata only for non-live sessions
+
+**Decision:** For v1, session URLs for completed or server-restarted spawns show metadata (status, harness, prompt) but no event replay. Full replay from `output.jsonl` is a future enhancement.
+
+**Reasoning:** Reviewer (p1260) identified that the design promised bookmarkable URLs without defining history hydration. Building output.jsonl replay is significant scope. For v1, showing terminal status and metadata is sufficient — the URL is still navigable and informative, just not a full transcript. The architecture supports adding replay later without URL changes.

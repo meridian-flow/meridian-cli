@@ -43,14 +43,14 @@ No update or delete events are needed. Sessions are immutable — the spawn behi
 
 ```python
 @dataclass
-class SessionEntry:
+class AppSessionEntry:
     session_id: str
     spawn_id: SpawnId
     harness: str
     model: str | None
     created_at: str
 
-class SessionRegistry:
+class AppSessionRegistry:
     def __init__(self, state_root: Path):
         self._state_root = state_root
         self._sessions: dict[str, SessionEntry] = {}  # session_id → entry
@@ -73,7 +73,7 @@ class SessionRegistry:
         """Return all sessions, ordered by creation time."""
 ```
 
-The registry is instantiated once per server and shared across all request handlers via `app.state`.
+The registry is instantiated once per server and shared across all request handlers via `app.state`. The class lives in `src/meridian/lib/app/session_registry.py` — it's an app-layer concern (URL-addressable aliases), not a state-layer concern like `spawn_store`.
 
 ### Collision Handling
 
@@ -116,9 +116,12 @@ Response:
 ```
 
 Internally:
-1. Create spawn via existing `reserve_spawn_id()` + `SpawnManager.start_spawn()`
-2. Create session via `SessionRegistry.create(spawn_id, ...)`
-3. Return combined response with session_id
+1. Check draining flag — reject with 503 if server is shutting down
+2. Create spawn via existing `reserve_spawn_id()` + `SpawnManager.start_spawn()`
+3. Create session via `AppSessionRegistry.create(spawn_id, ...)`
+4. Return combined response with session_id
+
+**Failure compensation:** If step 3 fails (session JSONL write error), the spawn from step 2 is already running with no session mapping. The handler calls `SpawnManager.stop_spawn()` to cancel the orphaned spawn and returns 500 to the client. This ensures no spawn runs without a session URL to reach it through.
 
 ### `GET /api/sessions` — List Sessions
 
