@@ -20,6 +20,7 @@ from meridian.lib.harness.connections.base import (
     ConnectionState,
     HarnessEvent,
 )
+from meridian.lib.launch.env import inherit_child_env
 
 logger = logging.getLogger(__name__)
 
@@ -239,8 +240,7 @@ class OpenCodeConnection:
         port = _find_free_port()
         self._base_url = f"http://127.0.0.1:{port}"
         command = ["opencode", "serve", "--port", str(port), *config.extra_args]
-        env = dict(os.environ)
-        env.update(config.env_overrides)
+        env = inherit_child_env(os.environ, config.env_overrides)
         self._process = await asyncio.create_subprocess_exec(
             *command,
             cwd=str(config.repo_root),

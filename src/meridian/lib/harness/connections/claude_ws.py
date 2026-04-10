@@ -21,6 +21,7 @@ from meridian.lib.harness.connections.base import (
     HarnessConnection,
     HarnessEvent,
 )
+from meridian.lib.launch.env import inherit_child_env
 from meridian.lib.state.paths import resolve_spawn_log_dir
 
 logger = logging.getLogger(__name__)
@@ -280,8 +281,7 @@ class ClaudeConnection(HarnessConnection):
         if config.extra_args:
             command.extend(config.extra_args)
 
-        env = os.environ.copy()
-        env.update(config.env_overrides)
+        env = inherit_child_env(os.environ, config.env_overrides)
 
         self._process = await asyncio.create_subprocess_exec(
             *command,

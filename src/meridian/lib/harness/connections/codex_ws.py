@@ -24,6 +24,7 @@ from meridian.lib.harness.connections.base import (
     HarnessConnection,
     HarnessEvent,
 )
+from meridian.lib.launch.env import inherit_child_env
 
 _MAX_INITIAL_PROMPT_BYTES = 50 * 1024
 _DEFAULT_CONNECT_TIMEOUT_SECONDS = 10.0
@@ -167,8 +168,7 @@ class CodexConnection(HarnessConnection):
         port = config.ws_port if config.ws_port > 0 else _reserve_port(host)
         ws_url = f"ws://{host}:{port}"
 
-        env = os.environ.copy()
-        env.update(config.env_overrides)
+        env = inherit_child_env(os.environ, config.env_overrides)
 
         try:
             self._process = await asyncio.create_subprocess_exec(

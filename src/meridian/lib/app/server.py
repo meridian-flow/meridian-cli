@@ -10,6 +10,7 @@ from dataclasses import asdict
 from importlib import import_module
 from pathlib import Path
 from typing import Protocol, cast
+from uuid import uuid4
 
 from pydantic import BaseModel
 
@@ -73,13 +74,6 @@ class InjectRequest(BaseModel):
     text: str
 
 
-def _spawn_index_from_id(spawn_id: SpawnId) -> int:
-    raw = str(spawn_id)
-    if raw.startswith("p") and raw[1:].isdigit():
-        return max(1, int(raw[1:]))
-    return 1
-
-
 def create_app(spawn_manager: SpawnManager) -> object:
     """Create the FastAPI application for Meridian app."""
 
@@ -117,15 +111,29 @@ def create_app(spawn_manager: SpawnManager) -> object:
 
     state_root = spawn_manager.state_root
     repo_root = spawn_manager.repo_root
-    next_spawn_index = _spawn_index_from_id(spawn_store.next_spawn_id(state_root))
     spawn_id_lock = asyncio.Lock()
 
-    async def reserve_spawn_id() -> SpawnId:
-        nonlocal next_spawn_index
+    async def reserve_spawn_id(
+        *,
+        chat_id: str,
+        model: str,
+        agent: str,
+        harness: str,
+        prompt: str,
+    ) -> SpawnId:
         async with spawn_id_lock:
-            spawn_id = SpawnId(f"p{next_spawn_index}")
-            next_spawn_index += 1
-            return spawn_id
+            return await asyncio.to_thread(
+                spawn_store.start_spawn,
+                state_root,
+                chat_id=chat_id,
+                model=model,
+                agent=agent,
+                harness=harness,
+                kind="streaming",
+                prompt=prompt,
+                launch_mode="foreground",
+                status="running",
+            )
 
     def _validate_spawn_id(raw: str) -> SpawnId:
         if not _SPAWN_ID_RE.match(raw):
@@ -148,7 +156,13 @@ def create_app(spawn_manager: SpawnManager) -> object:
                 detail=f"unsupported harness '{body.harness}'",
             ) from exc
 
-        spawn_id = await reserve_spawn_id()
+        spawn_id = await reserve_spawn_id(
+            chat_id=str(uuid4()),
+            model=(body.model.strip() if body.model is not None else "") or "unknown",
+            agent=(body.agent.strip() if body.agent is not None else "") or "unknown",
+            harness=harness_id.value,
+            prompt=prompt,
+        )
         config = ConnectionConfig(
             spawn_id=spawn_id,
             harness_id=harness_id,
@@ -162,6 +176,13 @@ def create_app(spawn_manager: SpawnManager) -> object:
         try:
             connection = await spawn_manager.start_spawn(config)
         except Exception as exc:
+            spawn_store.finalize_spawn(
+                state_root,
+                spawn_id,
+                status="failed",
+                exit_code=1,
+                error=str(exc),
+            )
             raise http_exception_cls(
                 status_code=400,
                 detail=str(exc),
