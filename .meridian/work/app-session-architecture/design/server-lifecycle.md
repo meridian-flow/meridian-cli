@@ -46,12 +46,17 @@ The entire startup flow is serialized under a file lock (`.meridian/app/server.f
 1. Resolve repo_root for current directory
 2. Read .meridian/app/server.json
    ├── File exists → validate server
-   │   ├── PID alive AND GET /api/health succeeds
+   │   ├── PID alive AND health check succeeds
    │   │   → Release flock
    │   │   → Print "Server already running at http://host:port"
    │   │   → Open browser to existing URL (unless --no-browser)
    │   │   → Exit 0
-   │   └── PID dead OR health check fails
+   │   ├── PID alive AND health check fails (server starting up)
+   │   │   → Release flock
+   │   │   → Print "Server is starting at http://host:port"
+   │   │   → Open browser to lockfile URL (unless --no-browser)
+   │   │   → Exit 0
+   │   └── PID dead
    │       → Delete stale lockfile
    │       → Delete stale user-level registry entry
    │       → Continue to step 3
@@ -65,6 +70,12 @@ The entire startup flow is serialized under a file lock (`.meridian/app/server.f
 ```
 
 If flock acquisition times out (10 seconds), print an error suggesting another `meridian app` instance is starting and exit.
+
+### Stale Server Detection
+
+A lockfile is stale if and only if the PID is dead (`os.kill(pid, 0)` raises `ProcessLookupError`). If the PID is alive, the server is considered running even if the health check fails — the server may be in the startup window between lockfile write and uvicorn readiness. This prevents a race where a second invocation deletes a legitimate lockfile during the first server's startup.
+
+`meridian app list` uses the same rule: PID alive = running, PID dead = stale (delete). The health check is informational (shown as "starting" vs "ready" in the list output), not a validity gate.
 
 ### Port Selection — Bind-and-Hold
 
@@ -102,14 +113,14 @@ The bound socket's port is read via `sock.getsockname()[1]` and written to the l
 1. uvicorn receives signal
 2. FastAPI lifespan __aexit__ fires
 3. Set draining flag — reject new POST /api/sessions with 503
-4. Wait for in-flight session creation requests to complete (up to 5s)
+4. Wait for in-flight counter to reach 0 (with 10s timeout)
 5. SpawnManager.shutdown() stops all active spawn connections
 6. Delete .meridian/app/server.json
 7. Delete ~/.meridian/app/servers/<hash>.json
 8. Process exits
 ```
 
-The draining flag is an `asyncio.Event` checked at the top of `POST /api/sessions`. This prevents the race where a spawn is created during shutdown but before `SpawnManager.shutdown()` iterates `_sessions`.
+**Draining mechanism:** An `asyncio.Event` (draining flag) and an `int` counter (in-flight creates). `POST /api/sessions` checks the draining flag first (returns 503 if set). If not draining, it increments the counter before starting spawn creation and decrements it when creation completes (success or failure, via try/finally). Shutdown sets the draining flag, then waits for the counter to reach 0 before calling `SpawnManager.shutdown()`. The 10s timeout is a safety bound — if a create is truly stuck, shutdown proceeds anyway and logs a warning.
 
 ### Crash (SIGKILL / OOM / power loss)
 

@@ -122,3 +122,17 @@
 **Decision:** For v1, session URLs for completed or server-restarted spawns show metadata (status, harness, prompt) but no event replay. Full replay from `output.jsonl` is a future enhancement.
 
 **Reasoning:** Reviewer (p1260) identified that the design promised bookmarkable URLs without defining history hydration. Building output.jsonl replay is significant scope. For v1, showing terminal status and metadata is sufficient — the URL is still navigable and informative, just not a full transcript. The architecture supports adding replay later without URL changes.
+
+## D15: Stale detection uses PID-alive only, not health check
+
+**Decision:** A lockfile is stale if and only if the PID is dead. If the PID is alive but the health check fails, the server is treated as "starting" (not stale).
+
+**Reasoning:** Re-reviewer (p1261) identified that the startup flock was released before uvicorn was ready to serve `/api/health`. A second `meridian app` arriving during this window would see "PID alive, health check fails" and incorrectly treat the lockfile as stale. By using PID-alive as the sole validity check, the startup window is harmless — the second invocation sees a valid lockfile and defers to the first server.
+
+**Rejected:** Keep health check as validity gate — introduces the startup window race. Extend flock until health check passes — complicates the flow (flock must be held across async uvicorn startup) and blocks the second invocation unnecessarily.
+
+## D16: Counter-based in-flight tracking for shutdown
+
+**Decision:** Use an atomic counter incremented on `POST /api/sessions` entry and decremented on completion (try/finally). Shutdown waits for counter == 0 with a 10s safety timeout.
+
+**Reasoning:** Re-reviewer (p1261) identified that the "wait up to 5s" approach was time-based and didn't account for actual in-flight state. A counter tracks exactly how many create requests are in progress. The timeout is a safety bound for truly stuck requests, not the primary synchronization mechanism.

@@ -67,7 +67,7 @@ Session IDs are random 8-char hex strings (e.g., `a7f3b2c1`). They are globally 
 
 **One server per repo.** Each repo gets at most one `meridian app` server. Running `meridian app` when a server is already active for the repo opens the browser to the existing instance. Servers register in a user-level directory so `meridian app list` can discover all instances.
 
-**Sessions persist across server restarts.** Session-to-spawn mappings are written to `.meridian/app/sessions.jsonl` on creation. After a server restart, bookmarked session URLs resolve to the correct spawn. If the spawn is still active, the session reconnects for live streaming. If the spawn has completed, the session shows terminal state.
+**Sessions persist across server restarts.** Session-to-spawn mappings are written to `.meridian/app/sessions.jsonl` on creation. After a server restart, bookmarked session URLs still resolve — the `AppSessionRegistry` reloads from disk. For completed spawns, the session shows terminal status and metadata. Live streaming is only available for spawns started in the current server process (SpawnManager connections don't survive restarts). Full event replay from `output.jsonl` is a future enhancement.
 
 **Frontend uses client-side routing.** The server serves `index.html` for both `/` and `/s/<session_id>` (SPA fallback). The `wouter` router in the browser parses the URL and renders the correct view. The dashboard and individual session views can be open in separate tabs. However, only one tab can receive live WebSocket events per session (existing SpawnManager subscriber exclusivity). A second tab opening the same session URL sees session metadata but cannot stream live events.
 
