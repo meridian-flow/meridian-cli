@@ -5,12 +5,14 @@ url = "https://github.com/anthropics/skills"
 commit = "12ab35c2eb5668c95810e6a6066f40f4218adc39"
 
 [dependencies.meridian-base]
-url = "https://github.com/haowjy/meridian-base"
+url = "https://github.com/meridian-flow/meridian-base"
 version = "v0.0.12"
 commit = "2112a5c9fb7b450ef1b5a3346d2397c3053ea0ae"
 
 [dependencies.meridian-dev-workflow]
-path = "/home/jimyao/gitrepos/meridian-channel/meridian-dev-workflow"
+url = "https://github.com/meridian-flow/meridian-dev-workflow"
+version = "v0.0.9"
+commit = "e6e19cb77ae79fd6e3f23d2b5685f19350472be7"
 
 [items."agents/architect.md"]
 source = "meridian-dev-workflow"
@@ -113,8 +115,8 @@ dest_path = "agents/meridian-subagent.md"
 [items."agents/planner.md"]
 source = "meridian-dev-workflow"
 kind = "agent"
-source_checksum = "sha256:f284e54ce15a8125957723fcb85fed57d400522c92d427f1dcfe741cbb0bc886"
-installed_checksum = "sha256:f284e54ce15a8125957723fcb85fed57d400522c92d427f1dcfe741cbb0bc886"
+source_checksum = "sha256:47bcdd9a0a4dcd3089df253e2e20c6cf631d19bfd899cbd4efb197dd1a29d3e4"
+installed_checksum = "sha256:47bcdd9a0a4dcd3089df253e2e20c6cf631d19bfd899cbd4efb197dd1a29d3e4"
 dest_path = "agents/planner.md"
 
 [items."agents/refactor-reviewer.md"]
