@@ -27,6 +27,7 @@ from meridian.lib.harness.adapter import SpawnParams, StreamEvent
 from meridian.lib.harness.common import parse_json_stream_event, unwrap_event_payload
 from meridian.lib.harness.connections.base import ConnectionConfig, HarnessConnection
 from meridian.lib.harness.extractor import StreamingExtractor
+from meridian.lib.harness.launch_spec import ResolvedLaunchSpec
 from meridian.lib.harness.registry import HarnessRegistry
 from meridian.lib.launch.cwd import resolve_child_execution_cwd
 from meridian.lib.launch.env import build_harness_child_env
@@ -542,9 +543,19 @@ async def run_streaming_spawn(
     consume_task: asyncio.Task[None] | None = None
     terminal_event_future: asyncio.Future[_TerminalEventOutcome] | None = None
     subscriber: asyncio.Queue[HarnessEvent | None] | None = None
+    run_spec = ResolvedLaunchSpec(
+        model=str(params.model).strip() if params.model else config.model,
+        effort=params.effort,
+        prompt=params.prompt,
+        continue_session_id=(params.continue_harness_session_id or "").strip() or None,
+        continue_fork=params.continue_fork,
+        extra_args=params.extra_args,
+        report_output_path=params.report_output_path,
+        interactive=params.interactive,
+    )
     try:
         async with heartbeat_scope(heartbeat_path):
-            connection = await manager.start_spawn(config, params)
+            connection = await manager.start_spawn(config, run_spec)
             if connection.subprocess_pid is not None:
                 atomic_write_text(
                     state_root / "spawns" / str(spawn_id) / "harness.pid",
@@ -621,7 +632,7 @@ async def _run_streaming_attempt(
     log_dir: Path,
     manager: SpawnManager,
     config: ConnectionConfig,
-    run_params: SpawnParams,
+    run_spec: ResolvedLaunchSpec,
     budget_tracker: LiveBudgetTracker | None,
     signal_event: asyncio.Event,
     received_signal: list[signal.Signals | None],
@@ -649,7 +660,7 @@ async def _run_streaming_attempt(
     terminated_by_report_watchdog = False
 
     try:
-        connection = await manager.start_spawn(config, run_params)
+        connection = await manager.start_spawn(config, run_spec)
         if connection.subprocess_pid is not None:
             atomic_write_text(log_dir / "harness.pid", f"{connection.subprocess_pid}\n")
         mark_spawn_running(
@@ -869,6 +880,7 @@ async def execute_with_streaming(
         report_output_path=report_path.as_posix(),
         appended_system_prompt=plan.appended_system_prompt,
     )
+    spec = harness.resolve_launch_spec(run_params, plan.execution.permission_resolver)
 
     runtime_env_overrides = {
         "MERIDIAN_REPO_ROOT": execution_cwd.as_posix(),
@@ -934,7 +946,7 @@ async def execute_with_streaming(
         else FOREGROUND_LAUNCH_MODE
     )
 
-    materialized_session_id = (run_params.continue_harness_session_id or "").strip()
+    materialized_session_id = (spec.continue_session_id or "").strip()
     observed_harness_session_id: str | None = None
     if (
         materialized_session_id
@@ -992,7 +1004,7 @@ async def execute_with_streaming(
                     log_dir=log_dir,
                     manager=manager,
                     config=config,
-                    run_params=run_params,
+                    run_spec=spec,
                     budget_tracker=budget_tracker,
                     signal_event=shutdown_event,
                     received_signal=received_signal,

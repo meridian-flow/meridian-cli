@@ -8,9 +8,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 
 from meridian.lib.core.types import HarnessId, SpawnId
-from meridian.lib.harness.adapter import SpawnParams
 
 if TYPE_CHECKING:
+    from meridian.lib.harness.launch_spec import ResolvedLaunchSpec
     from meridian.lib.observability.debug_tracer import DebugTracer
 
 
@@ -66,7 +66,7 @@ class HarnessLifecycle(Protocol):
     @property
     def state(self) -> ConnectionState: ...
 
-    async def start(self, config: ConnectionConfig, params: SpawnParams) -> None: ...
+    async def start(self, config: ConnectionConfig, spec: ResolvedLaunchSpec) -> None: ...
 
     async def stop(self) -> None: ...
 

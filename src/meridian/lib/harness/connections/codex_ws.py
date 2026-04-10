@@ -21,7 +21,6 @@ from aiohttp import ClientSession, WSMsgType
 
 from meridian import __version__
 from meridian.lib.core.types import HarnessId, SpawnId
-from meridian.lib.harness.adapter import SpawnParams
 from meridian.lib.harness.connections.base import (
     ConnectionCapabilities,
     ConnectionConfig,
@@ -30,6 +29,7 @@ from meridian.lib.harness.connections.base import (
     HarnessConnection,
     HarnessEvent,
 )
+from meridian.lib.harness.launch_spec import ResolvedLaunchSpec
 from meridian.lib.launch.env import inherit_child_env
 from meridian.lib.observability.trace_helpers import (
     trace_parse_error,
@@ -186,7 +186,7 @@ class CodexConnection(HarnessConnection):
             return None
         return process.pid
 
-    async def start(self, config: ConnectionConfig, params: SpawnParams) -> None:
+    async def start(self, config: ConnectionConfig, spec: ResolvedLaunchSpec) -> None:
         if self._state not in {"created", "stopped", "failed"}:
             raise RuntimeError(f"Cannot start CodexConnection from state '{self._state}'")
 
@@ -215,7 +215,7 @@ class CodexConnection(HarnessConnection):
                 "app-server",
                 "--listen",
                 ws_url,
-                *params.extra_args,
+                *spec.extra_args,
                 cwd=str(config.repo_root),
                 env=env,
                 stdout=asyncio.subprocess.DEVNULL,
@@ -241,7 +241,7 @@ class CodexConnection(HarnessConnection):
             )
             await self._notify("initialized")
 
-            thread_result = await self._bootstrap_thread(config, params)
+            thread_result = await self._bootstrap_thread(config, spec)
             self._thread_id = _extract_thread_id(thread_result)
 
             initial_prompt = _truncate_utf8(config.prompt, _MAX_INITIAL_PROMPT_BYTES)
@@ -673,26 +673,26 @@ class CodexConnection(HarnessConnection):
     async def _bootstrap_thread(
         self,
         config: ConnectionConfig,
-        params: SpawnParams,
+        spec: ResolvedLaunchSpec,
     ) -> dict[str, object]:
-        method, payload = self._thread_bootstrap_request(config, params)
+        method, payload = self._thread_bootstrap_request(config, spec)
         return await self._request(method, payload)
 
     def _thread_bootstrap_request(
         self,
         config: ConnectionConfig,
-        params: SpawnParams,
+        spec: ResolvedLaunchSpec,
     ) -> tuple[str, dict[str, object]]:
         payload: dict[str, object] = {"cwd": str(config.repo_root)}
         if config.model:
             payload["model"] = config.model
 
-        resume_thread_id = (params.continue_harness_session_id or "").strip()
+        resume_thread_id = (spec.continue_session_id or "").strip()
         if not resume_thread_id:
             return ("thread/start", payload)
 
         payload["threadId"] = resume_thread_id
-        if params.continue_fork:
+        if spec.continue_fork:
             return ("thread/fork", payload)
         return ("thread/resume", payload)
 

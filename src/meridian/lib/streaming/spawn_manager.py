@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, cast
 
 from meridian.lib.core.domain import SpawnStatus
 from meridian.lib.core.types import SpawnId
-from meridian.lib.harness.adapter import SpawnParams
+from meridian.lib.harness.launch_spec import ResolvedLaunchSpec
 from meridian.lib.state.atomic import append_text_line
 from meridian.lib.streaming.control_socket import ControlSocketServer
 from meridian.lib.streaming.types import InjectResult
@@ -80,7 +80,7 @@ class SpawnManager:
     async def start_spawn(
         self,
         config: ConnectionConfig,
-        params: SpawnParams | None = None,
+        spec: ResolvedLaunchSpec | None = None,
     ) -> HarnessConnection:
         """Start one connection and register durable drain/control resources."""
 
@@ -96,7 +96,7 @@ class SpawnManager:
         connection = connection_factory()
         started_monotonic = time.monotonic()
         completion_future: asyncio.Future[DrainOutcome] = asyncio.get_running_loop().create_future()
-        run_params = params or SpawnParams(prompt=config.prompt)
+        resolved_spec = spec or ResolvedLaunchSpec(prompt=config.prompt)
 
         tracer = config.debug_tracer
         if tracer is None and self._debug:
@@ -108,7 +108,7 @@ class SpawnManager:
             )
 
         try:
-            await connection.start(config, run_params)
+            await connection.start(config, resolved_spec)
         except Exception:
             if tracer is not None:
                 tracer.close()

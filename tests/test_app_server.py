@@ -12,8 +12,8 @@ import pytest
 
 from meridian.lib.app import server as server_module
 from meridian.lib.core.types import HarnessId, SpawnId
-from meridian.lib.harness.adapter import SpawnParams
 from meridian.lib.harness.connections.base import ConnectionCapabilities, ConnectionConfig
+from meridian.lib.harness.launch_spec import ResolvedLaunchSpec
 from meridian.lib.state.paths import resolve_state_paths
 from meridian.lib.state.spawn_store import get_spawn
 from meridian.lib.streaming.spawn_manager import DrainOutcome
@@ -132,9 +132,9 @@ async def test_app_server_create_spawn_background_finalizer_writes_finalize(
         async def start_spawn(
             self,
             config: ConnectionConfig,
-            params: SpawnParams | None = None,
+            spec: ResolvedLaunchSpec | None = None,
         ) -> FakeConnection:
-            _ = config, params
+            _ = config, spec
             return FakeConnection()
 
         async def wait_for_completion(self, spawn_id: SpawnId) -> DrainOutcome | None:

@@ -24,6 +24,7 @@ from meridian.lib.harness.connections.base import (
     ConnectionConfig,
     HarnessEvent,
 )
+from meridian.lib.harness.launch_spec import ResolvedLaunchSpec
 from meridian.lib.harness.registry import HarnessRegistry
 from meridian.lib.launch import streaming_runner as streaming_runner_module
 from meridian.lib.launch.streaming_runner import execute_with_streaming, run_streaming_spawn
@@ -141,8 +142,8 @@ class _HangingAfterTurnCompletedConnection:
     def subprocess_pid(self) -> int | None:
         return 4242
 
-    async def start(self, config: ConnectionConfig, params: SpawnParams) -> None:
-        _ = params
+    async def start(self, config: ConnectionConfig, spec: ResolvedLaunchSpec) -> None:
+        _ = spec
         self._spawn_id = config.spawn_id
         self._repo_root = config.repo_root
         self.state = "connected"

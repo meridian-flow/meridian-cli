@@ -6,9 +6,9 @@ from pathlib import Path
 import pytest
 
 from meridian.lib.core.types import HarnessId, SpawnId
-from meridian.lib.harness.adapter import SpawnParams
 from meridian.lib.harness.connections.base import ConnectionConfig
 from meridian.lib.harness.connections.codex_ws import CodexConnection
+from meridian.lib.harness.launch_spec import ResolvedLaunchSpec
 
 
 class _FakeWebSocket:
@@ -41,9 +41,9 @@ class _TestableCodexConnection(CodexConnection):
     def thread_bootstrap_request_for_test(
         self,
         config: ConnectionConfig,
-        params: SpawnParams,
+        spec: ResolvedLaunchSpec,
     ) -> tuple[str, dict[str, object]]:
-        return self._thread_bootstrap_request(config, params)
+        return self._thread_bootstrap_request(config, spec)
 
     async def run_reader(self) -> None:
         await self._read_messages_loop()
@@ -140,7 +140,7 @@ def test_codex_ws_thread_bootstrap_request_starts_new_thread(tmp_path: Path) -> 
 
     method, payload = connection.thread_bootstrap_request_for_test(
         _build_config(tmp_path),
-        SpawnParams(prompt="hello"),
+        ResolvedLaunchSpec(prompt="hello"),
     )
 
     assert method == "thread/start"
@@ -152,7 +152,7 @@ def test_codex_ws_thread_bootstrap_request_resumes_existing_thread(tmp_path: Pat
 
     method, payload = connection.thread_bootstrap_request_for_test(
         _build_config(tmp_path),
-        SpawnParams(prompt="hello", continue_harness_session_id="thread-123"),
+        ResolvedLaunchSpec(prompt="hello", continue_session_id="thread-123"),
     )
 
     assert method == "thread/resume"
@@ -168,9 +168,9 @@ def test_codex_ws_thread_bootstrap_request_forks_existing_thread(tmp_path: Path)
 
     method, payload = connection.thread_bootstrap_request_for_test(
         _build_config(tmp_path),
-        SpawnParams(
+        ResolvedLaunchSpec(
             prompt="hello",
-            continue_harness_session_id="thread-123",
+            continue_session_id="thread-123",
             continue_fork=True,
         ),
     )

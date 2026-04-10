@@ -16,7 +16,6 @@ if TYPE_CHECKING:
     from meridian.lib.observability.debug_tracer import DebugTracer
 
 from meridian.lib.core.types import HarnessId, SpawnId
-from meridian.lib.harness.adapter import SpawnParams
 from meridian.lib.harness.connections.base import (
     ConnectionCapabilities,
     ConnectionConfig,
@@ -25,6 +24,7 @@ from meridian.lib.harness.connections.base import (
     HarnessConnection,
     HarnessEvent,
 )
+from meridian.lib.harness.launch_spec import ClaudeLaunchSpec, ResolvedLaunchSpec
 from meridian.lib.launch.env import inherit_child_env
 from meridian.lib.observability.trace_helpers import (
     trace_parse_error,
@@ -117,7 +117,7 @@ class ClaudeConnection(HarnessConnection):
             return None
         return process.pid
 
-    async def start(self, config: ConnectionConfig, params: SpawnParams) -> None:
+    async def start(self, config: ConnectionConfig, spec: ResolvedLaunchSpec) -> None:
         """Launch Claude subprocess and send the initial user prompt via stdin."""
 
         if self._state != "created":
@@ -130,7 +130,7 @@ class ClaudeConnection(HarnessConnection):
 
         try:
             await self._check_claude_version()
-            await self._start_subprocess(config, params)
+            await self._start_subprocess(config, spec)
             await self._send_user_turn(config.prompt)
             self._set_state("connected")
         except Exception:
@@ -299,14 +299,14 @@ class ClaudeConnection(HarnessConnection):
                 return token.strip()
         return None
 
-    async def _start_subprocess(self, config: ConnectionConfig, params: SpawnParams) -> None:
+    async def _start_subprocess(self, config: ConnectionConfig, spec: ResolvedLaunchSpec) -> None:
         spawn_dir = resolve_spawn_log_dir(config.repo_root, config.spawn_id)
         spawn_dir.mkdir(parents=True, exist_ok=True)
 
         stderr_path = spawn_dir / "stderr.log"
         self._stderr_handle = stderr_path.open("ab")
 
-        command = self._build_command(config, params)
+        command = self._build_command(config, spec)
 
         env = inherit_child_env(
             os.environ,
@@ -324,7 +324,7 @@ class ClaudeConnection(HarnessConnection):
             limit=_STDOUT_READLINE_LIMIT,
         )
 
-    def _build_command(self, config: ConnectionConfig, params: SpawnParams) -> list[str]:
+    def _build_command(self, config: ConnectionConfig, spec: ResolvedLaunchSpec) -> list[str]:
         command = [
             "claude",
             "-p",
@@ -334,17 +334,25 @@ class ClaudeConnection(HarnessConnection):
             "stream-json",
             "--verbose",
         ]
-        if config.model:
-            command.extend(["--model", config.model])
-
-        resume_session_id = (params.continue_harness_session_id or "").strip()
-        if resume_session_id:
-            command.extend(["--resume", resume_session_id])
-            if params.continue_fork:
+        if spec.model:
+            command.extend(["--model", spec.model])
+        if spec.effort:
+            command.extend(["--effort", spec.effort])
+        if isinstance(spec, ClaudeLaunchSpec):
+            if spec.agent_name:
+                command.extend(["--agent", spec.agent_name])
+            if spec.appended_system_prompt:
+                command.extend(["--append-system-prompt", spec.appended_system_prompt])
+            if spec.agents_payload:
+                command.extend(["--agents", spec.agents_payload])
+        if spec.continue_session_id:
+            command.extend(["--resume", spec.continue_session_id])
+            if spec.continue_fork:
                 command.append("--fork-session")
-
-        if params.extra_args:
-            command.extend(params.extra_args)
+        if spec.permission_resolver:
+            command.extend(spec.permission_resolver.resolve_flags(HarnessId.CLAUDE))
+        if spec.extra_args:
+            command.extend(spec.extra_args)
 
         return command
 

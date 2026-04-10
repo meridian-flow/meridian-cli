@@ -17,7 +17,6 @@ if TYPE_CHECKING:
     from meridian.lib.observability.debug_tracer import DebugTracer
 
 from meridian.lib.core.types import HarnessId, SpawnId
-from meridian.lib.harness.adapter import SpawnParams
 from meridian.lib.harness.connections.base import (
     ConnectionCapabilities,
     ConnectionConfig,
@@ -25,6 +24,7 @@ from meridian.lib.harness.connections.base import (
     ConnectionState,
     HarnessEvent,
 )
+from meridian.lib.harness.launch_spec import OpenCodeLaunchSpec, ResolvedLaunchSpec
 from meridian.lib.launch.env import inherit_child_env
 from meridian.lib.observability.trace_helpers import (
     trace_parse_error,
@@ -135,7 +135,7 @@ class OpenCodeConnection:
             return None
         return process.pid
 
-    async def start(self, config: ConnectionConfig, params: SpawnParams) -> None:
+    async def start(self, config: ConnectionConfig, spec: ResolvedLaunchSpec) -> None:
         if self._state != "created":
             raise RuntimeError(f"Cannot start OpenCode connection from state '{self._state}'")
 
@@ -151,10 +151,10 @@ class OpenCodeConnection:
         )
 
         try:
-            await self._launch_process(config, params)
+            await self._launch_process(config, spec)
             self._session_id = await self._create_session_with_retry(
                 config,
-                params,
+                spec,
                 timeout_seconds=startup_timeout,
             )
             await self._post_session_message(config.prompt)
@@ -285,10 +285,10 @@ class OpenCodeConnection:
                 return
             await asyncio.sleep(self._EVENT_RETRY_DELAY_SECONDS)
 
-    async def _launch_process(self, config: ConnectionConfig, params: SpawnParams) -> None:
+    async def _launch_process(self, config: ConnectionConfig, spec: ResolvedLaunchSpec) -> None:
         port = _find_free_port()
         self._base_url = f"http://127.0.0.1:{port}"
-        command = ["opencode", "serve", "--port", str(port), *params.extra_args]
+        command = ["opencode", "serve", "--port", str(port), *spec.extra_args]
         env = inherit_child_env(os.environ, config.env_overrides)
         spawn_dir = resolve_spawn_log_dir(config.repo_root, config.spawn_id)
         spawn_dir.mkdir(parents=True, exist_ok=True)
@@ -304,7 +304,7 @@ class OpenCodeConnection:
     async def _create_session_with_retry(
         self,
         config: ConnectionConfig,
-        params: SpawnParams,
+        spec: ResolvedLaunchSpec,
         *,
         timeout_seconds: float,
     ) -> str:
@@ -314,7 +314,7 @@ class OpenCodeConnection:
             if self._process_exited():
                 raise RuntimeError("OpenCode process exited before becoming healthy")
             try:
-                session_id = await self._create_session(config, params)
+                session_id = await self._create_session(config, spec)
                 self._last_health_ok = True
                 return session_id
             except Exception as exc:
@@ -326,18 +326,19 @@ class OpenCodeConnection:
                 ) from last_error
             await asyncio.sleep(0.2)
 
-    async def _create_session(self, config: ConnectionConfig, params: SpawnParams) -> str:
+    async def _create_session(self, config: ConnectionConfig, spec: ResolvedLaunchSpec) -> str:
         payload: dict[str, object] = {}
         if config.model is not None:
             payload["model"] = config.model
             payload["modelID"] = config.model
-        if params.agent is not None:
-            payload["agent"] = params.agent
-        if params.skills:
-            payload["skills"] = list(params.skills)
-        if params.continue_harness_session_id is not None:
-            payload["session_id"] = params.continue_harness_session_id
-            payload["continue_session_id"] = params.continue_harness_session_id
+        if isinstance(spec, OpenCodeLaunchSpec):
+            if spec.agent_name is not None:
+                payload["agent"] = spec.agent_name
+            if spec.skills:
+                payload["skills"] = list(spec.skills)
+        if spec.continue_session_id is not None:
+            payload["session_id"] = spec.continue_session_id
+            payload["continue_session_id"] = spec.continue_session_id
 
         payload_variants: tuple[dict[str, object], ...] = (payload, {}) if payload else ({},)
 

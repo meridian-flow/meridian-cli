@@ -3,18 +3,18 @@ from __future__ import annotations
 from pathlib import Path
 
 from meridian.lib.core.types import HarnessId, SpawnId
-from meridian.lib.harness.adapter import SpawnParams
 from meridian.lib.harness.connections.base import ConnectionConfig
 from meridian.lib.harness.connections.claude_ws import ClaudeConnection
+from meridian.lib.harness.launch_spec import ClaudeLaunchSpec, ResolvedLaunchSpec
 
 
 class _TestableClaudeConnection(ClaudeConnection):
     def build_command_for_test(
         self,
         config: ConnectionConfig,
-        params: SpawnParams,
+        spec: ResolvedLaunchSpec,
     ) -> list[str]:
-        return self._build_command(config, params)
+        return self._build_command(config, spec)
 
 
 def _build_config(tmp_path: Path) -> ConnectionConfig:
@@ -31,14 +31,15 @@ def _build_config(tmp_path: Path) -> ConnectionConfig:
 def test_claude_ws_build_command_includes_resume_and_fork_flags(tmp_path: Path) -> None:
     connection = _TestableClaudeConnection()
     config = _build_config(tmp_path)
-    params = SpawnParams(
+    spec = ClaudeLaunchSpec(
         prompt="hello",
-        continue_harness_session_id="session-123",
+        model="claude-sonnet-4-6",
+        continue_session_id="session-123",
         continue_fork=True,
         extra_args=("--add-dir", "/tmp/extra"),
     )
 
-    command = connection.build_command_for_test(config, params)
+    command = connection.build_command_for_test(config, spec)
 
     assert command == [
         "claude",
