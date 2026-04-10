@@ -9,7 +9,7 @@ from meridian.lib.core.domain import SpawnStatus
 from meridian.lib.core.types import HarnessId, ModelId
 from meridian.lib.harness.adapter import SpawnParams
 from meridian.lib.harness.connections.base import ConnectionConfig
-from meridian.lib.launch.streaming_runner import run_streaming_spawn
+from meridian.lib.launch.streaming_runner import run_streaming_spawn, signal_coordinator
 from meridian.lib.ops.runtime import resolve_runtime_root_and_config
 from meridian.lib.state import spawn_store
 from meridian.lib.state.paths import resolve_state_paths
@@ -96,12 +96,13 @@ async def streaming_serve(
         failure_message = str(exc)
         raise
     finally:
-        spawn_store.finalize_spawn(
-            state_root,
-            spawn_id,
-            status=outcome_status,
-            exit_code=outcome_exit_code,
-            duration_secs=max(0.0, time.monotonic() - start_monotonic),
-            error=failure_message if outcome_status == "failed" else None,
-        )
-        print(f"Stopped spawn {spawn_id} (status={outcome_status}, exit={outcome_exit_code})")
+        with signal_coordinator().mask_sigterm():
+            spawn_store.finalize_spawn(
+                state_root,
+                spawn_id,
+                status=outcome_status,
+                exit_code=outcome_exit_code,
+                duration_secs=max(0.0, time.monotonic() - start_monotonic),
+                error=failure_message if outcome_status == "failed" else None,
+            )
+            print(f"Stopped spawn {spawn_id} (status={outcome_status}, exit={outcome_exit_code})")
