@@ -11,8 +11,8 @@ commit = "2112a5c9fb7b450ef1b5a3346d2397c3053ea0ae"
 
 [dependencies.meridian-dev-workflow]
 url = "https://github.com/meridian-flow/meridian-dev-workflow"
-version = "v0.0.9"
-commit = "e6e19cb77ae79fd6e3f23d2b5685f19350472be7"
+version = "v0.0.11"
+commit = "ad2f2abf4272e75dbca8adc2adb47b801bd56910"
 
 [items."agents/architect.md"]
 source = "meridian-dev-workflow"
@@ -115,8 +115,9 @@ dest_path = "agents/meridian-subagent.md"
 [items."agents/planner.md"]
 source = "meridian-dev-workflow"
 kind = "agent"
-source_checksum = "sha256:47bcdd9a0a4dcd3089df253e2e20c6cf631d19bfd899cbd4efb197dd1a29d3e4"
-installed_checksum = "sha256:47bcdd9a0a4dcd3089df253e2e20c6cf631d19bfd899cbd4efb197dd1a29d3e4"
+version = "v0.0.11"
+source_checksum = "sha256:302dc322093977a1316bdb24305c858f251b9b37d82248e39f7618ec8ed2cfcb"
+installed_checksum = "sha256:302dc322093977a1316bdb24305c858f251b9b37d82248e39f7618ec8ed2cfcb"
 dest_path = "agents/planner.md"
 
 [items."agents/refactor-reviewer.md"]
@@ -178,8 +179,9 @@ dest_path = "skills/agent-creator"
 [items."skills/agent-staffing"]
 source = "meridian-dev-workflow"
 kind = "skill"
-source_checksum = "sha256:b5149b504a9f93fecef62cb289e6aa0904fec4338ea54681fbc3f699c3d80601"
-installed_checksum = "sha256:b5149b504a9f93fecef62cb289e6aa0904fec4338ea54681fbc3f699c3d80601"
+version = "v0.0.11"
+source_checksum = "sha256:9ff0325f3886a88315ba31bfb2f066bd7ea8a0d684c2a9868dcebf0bf676adba"
+installed_checksum = "sha256:9ff0325f3886a88315ba31bfb2f066bd7ea8a0d684c2a9868dcebf0bf676adba"
 dest_path = "skills/agent-staffing"
 
 [items."skills/architecture"]
@@ -277,8 +279,9 @@ dest_path = "skills/mermaid"
 [items."skills/planning"]
 source = "meridian-dev-workflow"
 kind = "skill"
-source_checksum = "sha256:dbb3371ea350ac07121edfcd02d8fdf3880cf19e52d427eef11a56e8ffb4c3b0"
-installed_checksum = "sha256:dbb3371ea350ac07121edfcd02d8fdf3880cf19e52d427eef11a56e8ffb4c3b0"
+version = "v0.0.11"
+source_checksum = "sha256:b7151d74234c94e3434d2f57dfb1566e51a1d6962145f79fc59c45f84150526f"
+installed_checksum = "sha256:b7151d74234c94e3434d2f57dfb1566e51a1d6962145f79fc59c45f84150526f"
 dest_path = "skills/planning"
 
 [items."skills/review"]
