@@ -306,19 +306,7 @@ class ClaudeConnection(HarnessConnection):
         stderr_path = spawn_dir / "stderr.log"
         self._stderr_handle = stderr_path.open("ab")
 
-        command = [
-            "claude",
-            "-p",
-            "--input-format",
-            "stream-json",
-            "--output-format",
-            "stream-json",
-            "--verbose",
-        ]
-        if config.model:
-            command.extend(["--model", config.model])
-        if params.extra_args:
-            command.extend(params.extra_args)
+        command = self._build_command(config, params)
 
         env = inherit_child_env(
             os.environ,
@@ -335,6 +323,30 @@ class ClaudeConnection(HarnessConnection):
             stderr=self._stderr_handle,
             limit=_STDOUT_READLINE_LIMIT,
         )
+
+    def _build_command(self, config: ConnectionConfig, params: SpawnParams) -> list[str]:
+        command = [
+            "claude",
+            "-p",
+            "--input-format",
+            "stream-json",
+            "--output-format",
+            "stream-json",
+            "--verbose",
+        ]
+        if config.model:
+            command.extend(["--model", config.model])
+
+        resume_session_id = (params.continue_harness_session_id or "").strip()
+        if resume_session_id:
+            command.extend(["--resume", resume_session_id])
+            if params.continue_fork:
+                command.append("--fork-session")
+
+        if params.extra_args:
+            command.extend(params.extra_args)
+
+        return command
 
     async def _send_user_turn(self, text: str) -> None:
         """Send a user turn in the stream-json wire format Claude expects.

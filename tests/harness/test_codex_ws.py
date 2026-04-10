@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
+from meridian.lib.core.types import HarnessId, SpawnId
+from meridian.lib.harness.adapter import SpawnParams
+from meridian.lib.harness.connections.base import ConnectionConfig
 from meridian.lib.harness.connections.codex_ws import CodexConnection
 
 
@@ -34,11 +38,29 @@ class _TestableCodexConnection(CodexConnection):
         self._state = "connected"
         self._ws = ws
 
+    def thread_bootstrap_request_for_test(
+        self,
+        config: ConnectionConfig,
+        params: SpawnParams,
+    ) -> tuple[str, dict[str, object]]:
+        return self._thread_bootstrap_request(config, params)
+
     async def run_reader(self) -> None:
         await self._read_messages_loop()
 
     async def next_event(self):  # type: ignore[override]
         return await self._event_queue.get()
+
+
+def _build_config(tmp_path: Path) -> ConnectionConfig:
+    return ConnectionConfig(
+        spawn_id=SpawnId("p321"),
+        harness_id=HarnessId.CODEX,
+        model="gpt-5.4",
+        prompt="hello",
+        repo_root=tmp_path,
+        env_overrides={},
+    )
 
 
 @pytest.mark.asyncio
@@ -111,3 +133,51 @@ async def test_codex_ws_rejects_unsupported_server_requests_explicitly() -> None
         }
     ]
     assert await connection.next_event() is None
+
+
+def test_codex_ws_thread_bootstrap_request_starts_new_thread(tmp_path: Path) -> None:
+    connection = _TestableCodexConnection()
+
+    method, payload = connection.thread_bootstrap_request_for_test(
+        _build_config(tmp_path),
+        SpawnParams(prompt="hello"),
+    )
+
+    assert method == "thread/start"
+    assert payload == {"cwd": str(tmp_path), "model": "gpt-5.4"}
+
+
+def test_codex_ws_thread_bootstrap_request_resumes_existing_thread(tmp_path: Path) -> None:
+    connection = _TestableCodexConnection()
+
+    method, payload = connection.thread_bootstrap_request_for_test(
+        _build_config(tmp_path),
+        SpawnParams(prompt="hello", continue_harness_session_id="thread-123"),
+    )
+
+    assert method == "thread/resume"
+    assert payload == {
+        "cwd": str(tmp_path),
+        "model": "gpt-5.4",
+        "threadId": "thread-123",
+    }
+
+
+def test_codex_ws_thread_bootstrap_request_forks_existing_thread(tmp_path: Path) -> None:
+    connection = _TestableCodexConnection()
+
+    method, payload = connection.thread_bootstrap_request_for_test(
+        _build_config(tmp_path),
+        SpawnParams(
+            prompt="hello",
+            continue_harness_session_id="thread-123",
+            continue_fork=True,
+        ),
+    )
+
+    assert method == "thread/fork"
+    assert payload == {
+        "cwd": str(tmp_path),
+        "model": "gpt-5.4",
+        "threadId": "thread-123",
+    }

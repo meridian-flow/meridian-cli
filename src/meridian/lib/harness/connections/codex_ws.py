@@ -241,13 +241,7 @@ class CodexConnection(HarnessConnection):
             )
             await self._notify("initialized")
 
-            thread_result = await self._request(
-                "thread/start",
-                {
-                    "model": config.model,
-                    "cwd": str(config.repo_root),
-                },
-            )
+            thread_result = await self._bootstrap_thread(config, params)
             self._thread_id = _extract_thread_id(thread_result)
 
             initial_prompt = _truncate_utf8(config.prompt, _MAX_INITIAL_PROMPT_BYTES)
@@ -675,6 +669,32 @@ class CodexConnection(HarnessConnection):
         if timeout_seconds is not None and timeout_seconds > 0:
             return timeout_seconds
         return _DEFAULT_CONNECT_TIMEOUT_SECONDS
+
+    async def _bootstrap_thread(
+        self,
+        config: ConnectionConfig,
+        params: SpawnParams,
+    ) -> dict[str, object]:
+        method, payload = self._thread_bootstrap_request(config, params)
+        return await self._request(method, payload)
+
+    def _thread_bootstrap_request(
+        self,
+        config: ConnectionConfig,
+        params: SpawnParams,
+    ) -> tuple[str, dict[str, object]]:
+        payload: dict[str, object] = {"cwd": str(config.repo_root)}
+        if config.model:
+            payload["model"] = config.model
+
+        resume_thread_id = (params.continue_harness_session_id or "").strip()
+        if not resume_thread_id:
+            return ("thread/start", payload)
+
+        payload["threadId"] = resume_thread_id
+        if params.continue_fork:
+            return ("thread/fork", payload)
+        return ("thread/resume", payload)
 
     def _update_turn_state(self, *, method: str, payload: dict[str, object]) -> None:
         if method == "turn/completed":
