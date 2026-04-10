@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, cast
 import structlog
 
 from meridian.lib.config.settings import MeridianConfig
-from meridian.lib.core.domain import Spawn
+from meridian.lib.core.domain import Spawn, SpawnStatus
 from meridian.lib.core.spawn_lifecycle import (
     has_durable_report_completion,
     resolve_execution_terminal_state,
@@ -74,11 +74,19 @@ logger = structlog.get_logger(__name__)
 class _AttemptRuntime:
     connection: HarnessConnection | None
     drain_exit_code: int
+    drain_error: str | None
     timed_out: bool
     received_signal: signal.Signals | None
     budget_breach: BudgetBreach | None
     terminated_by_report_watchdog: bool
     start_error: str | None = None
+
+
+@dataclass(frozen=True)
+class _TerminalEventOutcome:
+    status: SpawnStatus
+    exit_code: int
+    error: str | None = None
 
 
 def _spawn_kind(state_root: Path, spawn_id: SpawnId) -> str:
@@ -362,6 +370,85 @@ def _emit_stream_event(
     sys.stderr.flush()
 
 
+def _stringify_terminal_error(error: object) -> str | None:
+    if error is None:
+        return None
+    if isinstance(error, str):
+        normalized = error.strip()
+        return normalized or None
+    try:
+        rendered = json.dumps(error, sort_keys=True)
+    except (TypeError, ValueError):
+        rendered = str(error)
+    normalized = rendered.strip()
+    return normalized or None
+
+
+def _terminal_event_outcome(event: HarnessEvent) -> _TerminalEventOutcome | None:
+    if event.harness_id == HarnessId.CODEX.value and event.event_type == "turn/completed":
+        turn = event.payload.get("turn")
+        if not isinstance(turn, dict):
+            return _TerminalEventOutcome(status="succeeded", exit_code=0)
+
+        turn_payload = cast("dict[str, object]", turn)
+        turn_error = _stringify_terminal_error(turn_payload.get("error"))
+        if turn_error is not None:
+            return _TerminalEventOutcome(status="failed", exit_code=1, error=turn_error)
+
+        turn_status = str(turn_payload.get("status", "")).strip().lower()
+        if turn_status in {"", "completed"}:
+            return _TerminalEventOutcome(status="succeeded", exit_code=0)
+        return _TerminalEventOutcome(
+            status="failed",
+            exit_code=1,
+            error=f"turn_{turn_status or 'unknown'}",
+        )
+
+    if event.harness_id == HarnessId.CLAUDE.value and event.event_type == "result":
+        if bool(event.payload.get("is_error")):
+            error = (
+                _stringify_terminal_error(event.payload.get("result"))
+                or _stringify_terminal_error(event.payload.get("error"))
+                or "claude_result_error"
+            )
+            return _TerminalEventOutcome(status="failed", exit_code=1, error=error)
+
+        subtype = str(event.payload.get("subtype", "")).strip().lower()
+        terminal_reason = str(event.payload.get("terminal_reason", "")).strip().lower()
+        if subtype in {"", "success"} and terminal_reason in {"", "completed"}:
+            return _TerminalEventOutcome(status="succeeded", exit_code=0)
+        if terminal_reason == "completed":
+            return _TerminalEventOutcome(status="succeeded", exit_code=0)
+
+        error = _stringify_terminal_error(event.payload.get("result"))
+        if subtype not in {"", "success"}:
+            error = error or f"claude_result_{subtype}"
+        elif terminal_reason:
+            error = error or f"claude_terminal_{terminal_reason}"
+        else:
+            error = error or "claude_result_unknown"
+        return _TerminalEventOutcome(status="failed", exit_code=1, error=error)
+
+    if event.harness_id == HarnessId.OPENCODE.value:
+        if event.event_type == "session.idle":
+            return _TerminalEventOutcome(status="succeeded", exit_code=0)
+
+        if event.event_type == "session.error":
+            properties = event.payload.get("properties")
+            error = (
+                _stringify_terminal_error(cast("dict[str, object]", properties))
+                if isinstance(properties, dict)
+                else _stringify_terminal_error(event.payload.get("error"))
+            )
+            return _TerminalEventOutcome(
+                status="failed",
+                exit_code=1,
+                error=error or "opencode_session_error",
+            )
+
+    return None
+
+
 async def _consume_subscriber_events(
     *,
     subscriber: asyncio.Queue[HarnessEvent | None],
@@ -370,6 +457,7 @@ async def _consume_subscriber_events(
     budget_breach_holder: list[BudgetBreach | None],
     event_observer: Callable[[StreamEvent], None] | None,
     stream_stdout_to_terminal: bool,
+    terminal_event_future: asyncio.Future[_TerminalEventOutcome] | None = None,
 ) -> None:
     while True:
         event = await subscriber.get()
@@ -384,6 +472,11 @@ async def _consume_subscriber_events(
             if breach is not None:
                 budget_breach_holder[0] = breach
                 budget_signal.set()
+
+        if terminal_event_future is not None and not terminal_event_future.done():
+            terminal_outcome = _terminal_event_outcome(event)
+            if terminal_outcome is not None:
+                terminal_event_future.set_result(terminal_outcome)
 
         if event_observer is not None or stream_stdout_to_terminal:
             line = _line_from_harness_event(event)
@@ -447,6 +540,7 @@ async def run_streaming_spawn(
     completion_task: asyncio.Task[DrainOutcome | None] | None = None
     signal_task: asyncio.Task[bool] | None = None
     consume_task: asyncio.Task[None] | None = None
+    terminal_event_future: asyncio.Future[_TerminalEventOutcome] | None = None
     subscriber: asyncio.Queue[HarnessEvent | None] | None = None
     try:
         async with heartbeat_scope(heartbeat_path):
@@ -461,6 +555,7 @@ async def run_streaming_spawn(
             if subscriber is None:
                 raise RuntimeError("failed to subscribe to spawn stream")
 
+            terminal_event_future = loop.create_future()
             completion_task = asyncio.create_task(manager.wait_for_completion(spawn_id))
             consume_task = asyncio.create_task(
                 _consume_subscriber_events(
@@ -470,6 +565,7 @@ async def run_streaming_spawn(
                     budget_breach_holder=[None],
                     event_observer=None,
                     stream_stdout_to_terminal=stream_to_terminal,
+                    terminal_event_future=terminal_event_future,
                 )
             )
             signal_task = asyncio.create_task(shutdown_event.wait())
@@ -478,6 +574,7 @@ async def run_streaming_spawn(
                 {
                     cast("asyncio.Task[object]", completion_task),
                     cast("asyncio.Task[object]", signal_task),
+                    cast("asyncio.Future[object]", terminal_event_future),
                 },
                 return_when=asyncio.FIRST_COMPLETED,
             )
@@ -488,6 +585,14 @@ async def run_streaming_spawn(
                     status="cancelled",
                     exit_code=signal_exit,
                     error="cancelled",
+                )
+            elif terminal_event_future in done:
+                terminal_outcome = terminal_event_future.result()
+                await manager.stop_spawn(
+                    spawn_id,
+                    status=terminal_outcome.status,
+                    exit_code=terminal_outcome.exit_code,
+                    error=terminal_outcome.error,
                 )
 
             outcome = await completion_task
@@ -533,9 +638,13 @@ async def _run_streaming_attempt(
     completion_event = asyncio.Event()
     budget_signal = asyncio.Event()
     budget_breach_holder: list[BudgetBreach | None] = [None]
+    terminal_event_future: asyncio.Future[_TerminalEventOutcome] = (
+        asyncio.get_running_loop().create_future()
+    )
     subscriber: asyncio.Queue[HarnessEvent | None] | None = None
     connection: HarnessConnection | None = None
     drain_exit_code = DEFAULT_INFRA_EXIT_CODE
+    drain_error: str | None = None
     timed_out = False
     terminated_by_report_watchdog = False
 
@@ -564,6 +673,7 @@ async def _run_streaming_attempt(
                 budget_breach_holder=budget_breach_holder,
                 event_observer=event_observer,
                 stream_stdout_to_terminal=stream_stdout_to_terminal,
+                terminal_event_future=terminal_event_future,
             )
         )
         signal_task = asyncio.create_task(signal_event.wait())
@@ -580,10 +690,11 @@ async def _run_streaming_attempt(
             )
         )
 
-        wait_tasks: set[asyncio.Task[object]] = {
+        wait_tasks: set[asyncio.Future[object]] = {
             cast("asyncio.Task[object]", completion_task),
             cast("asyncio.Task[object]", signal_task),
             cast("asyncio.Task[object]", watchdog_task),
+            cast("asyncio.Future[object]", terminal_event_future),
         }
         if budget_task is not None:
             wait_tasks.add(cast("asyncio.Task[object]", budget_task))
@@ -617,16 +728,28 @@ async def _run_streaming_attempt(
                 error="timeout",
             )
             drain_exit_code = 3
+        elif terminal_event_future in done:
+            terminal_outcome = terminal_event_future.result()
+            await manager.stop_spawn(
+                run.spawn_id,
+                status=terminal_outcome.status,
+                exit_code=terminal_outcome.exit_code,
+                error=terminal_outcome.error,
+            )
+            drain_exit_code = terminal_outcome.exit_code
+            drain_error = terminal_outcome.error
         elif watchdog_task in done:
             terminated_by_report_watchdog = bool(watchdog_task.result())
 
         drain_outcome = await completion_task
         if drain_outcome is not None:
             drain_exit_code = drain_outcome.exit_code
+            drain_error = drain_outcome.error
     except Exception as exc:
         return _AttemptRuntime(
             connection=connection,
             drain_exit_code=DEFAULT_INFRA_EXIT_CODE,
+            drain_error=None,
             timed_out=False,
             received_signal=received_signal[0],
             budget_breach=budget_breach_holder[0],
@@ -648,6 +771,7 @@ async def _run_streaming_attempt(
     return _AttemptRuntime(
         connection=connection,
         drain_exit_code=drain_exit_code,
+        drain_error=drain_error,
         timed_out=timed_out,
         received_signal=received_signal[0],
         budget_breach=budget_breach_holder[0],
@@ -899,6 +1023,8 @@ async def execute_with_streaming(
                     failure_reason = "cancelled"
                 elif attempt.received_signal == signal.SIGTERM and failure_reason is None:
                     failure_reason = "terminated"
+                elif exit_code != 0 and failure_reason is None and attempt.drain_error is not None:
+                    failure_reason = attempt.drain_error
 
                 _persist_attempt_artifacts(
                     artifacts=artifacts,
@@ -979,6 +1105,18 @@ async def execute_with_streaming(
                     and extracted.report.content is None
                 ):
                     failure_reason = "missing_report"
+
+                # A lingering Codex app-server can require watchdog-driven cleanup even after
+                # the spawn has already written a durable report. Treat that as terminal
+                # success here so the retry classifier never turns the synthetic exit code
+                # from `stop_spawn()` back into another failed attempt.
+                if (
+                    attempt.terminated_by_report_watchdog
+                    and has_durable_report_completion(extracted.report.content)
+                ):
+                    exit_code = 0
+                    failure_reason = None
+                    break
 
                 if extracted.output_is_empty:
                     if exit_code == 0:
