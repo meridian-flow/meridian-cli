@@ -6,6 +6,18 @@ A redesign of the dev-workflow orchestration topology that solves four structura
 
 The v2 package of this restructure addressed the last three. v3 extends it with a fourth axis: **spec-driven development** (SDD). Design-orch now produces hard concrete specs alongside a technical architecture, both hierarchical, both user-facing, both load-bearing. The shape is spec-anchored SDD in the Kiro mold — specs persist and stay authoritative through maintenance, verification runs against spec leaves, and there is no TDD mandate. See [design-orchestrator.md](design-orchestrator.md) for how design-orch produces the two trees and [planner.md](planner.md) for how they feed decomposition.
 
+### Where v3 sits on Fowler's SDD spectrum
+
+Martin Fowler frames specification use across three levels:
+
+1. **Informational specs** — prose documents that describe intent for humans, with no mechanical consumption. Specs drift from the code because nothing forces them to stay current. This is the failure mode v2 kept sliding into: design prose that reviewers had to interpret by hand and that no downstream agent could verify mechanically.
+2. **Precise specs** — structured-but-advisory specs (requirements docs, BDD features) that downstream work is *supposed* to follow but can silently diverge from. Better than informational, but without an enforcement mechanism the spec and the code still drift apart.
+3. **Spec-anchored** — specs are the authoritative contract. Code must match the spec, verification runs against spec leaves, and discovered drift is resolved by either revising the spec or fixing the code, never by letting the two describe different behaviors. Kiro and spec-kit both aim here, but differ in how much process they impose around it.
+
+v3 targets level 3, spec-anchored, in the Kiro mold. Concretely that means: every acceptance criterion is an EARS-format spec leaf, testers verify phases by parsing leaf triples, runtime evidence contradicting a leaf fires the escape hatch, and silent spec bypass is a hard failure rather than a maintenance tax. The reason level 3 is the target rather than level 2: level 2 is indistinguishable from v2 in practice — both rely on agents "doing the right thing" without a mechanism, and both drift. Level 3's mechanism is what makes the difference, and the spec-anchored escape hatch is where that mechanism lives.
+
+Where v3 diverges from spec-kit: no constitution file, no TDD mandate, no workflow-heavy phased gates. v3 reuses `dev-principles` as a lightweight convergence gate, keeps the project's "prefer smoke tests over unit tests" discipline, and scales the ceremony down for small work items via the problem-size scaling rules below. This is Kiro's shape, not spec-kit's.
+
 Read this first for orientation. The individual component designs live alongside:
 
 - [dev-orchestrator.md](dev-orchestrator.md) — dev-orch body with autonomous redesign loop, terminated-spawn plan review contract, two-tree approval walk, and preservation-hint production
@@ -65,7 +77,7 @@ Every acceptance criterion and observable behavior in a spec leaf uses an EARS (
 - **Optional feature:** `Where <feature>, the <system> shall <response>`
 - **Complex:** `While <precondition>, when <trigger>, the <system> shall <response>`
 
-EARS forces triggers, preconditions, and expected responses to be explicit — hand-wavy requirements don't fit the templates and surface as gaps while the spec leaf is being written. Every EARS requirement maps directly to a smoke-test target: the trigger becomes the test setup, the precondition becomes the fixture, the response becomes the assertion. Verification under v3 is "does the implementation satisfy spec leaves X, Y, Z?" — answered by running smoke tests that exercise the behavior the EARS requirements describe.
+EARS forces triggers, preconditions, and expected responses to be explicit — hand-wavy requirements don't fit the templates and surface as gaps while the spec leaf is being written. For the three patterns that carry both a trigger and a response (Event-driven, State-driven, Complex), each EARS requirement maps directly to a smoke-test triple: the trigger becomes the test setup, the precondition becomes the fixture, the response becomes the assertion. For the two patterns that omit a trigger (Ubiquitous and Optional-feature), the tester synthesizes the missing trigger from the system's default running state (Ubiquitous) or from a sibling leaf that names the action which exercises the feature (Optional-feature). The mapping rules for every pattern — including the synthesis rules and the "cannot mechanically parse — requires design clarification" escape — are spelled out in [design-orchestrator.md](design-orchestrator.md) §"EARS notation". Verification under v3 is "does the implementation satisfy spec leaves X, Y, Z?" — answered by running smoke tests that exercise the behavior the EARS requirements describe.
 
 ### Refactors as a first-class artifact
 
@@ -88,7 +100,7 @@ EARS forces triggers, preconditions, and expected responses to be explicit — h
 **feasibility-questions skill** carries the four questions design-orch, impl-orch, and @planner ask: is this feasible, what can run in parallel, can we break it down further, does something need foundational prep first? Shared skill so all passes stay consistent.
 
 **Three artifact contracts** support the topology:
-- **[terrain-contract.md](terrain-contract.md)** — structural analysis workflow that feeds `refactors.md` and `feasibility.md`; required fields, evidence requirements, structural-prep tagging, fix_or_preserve enum.
+- **[terrain-contract.md](terrain-contract.md)** — the canonical location contract for `refactors.md` and `feasibility.md`. Defines the required per-entry shape of each refactor, the split between structural refactors and foundational prep, the section layout of `feasibility.md` (probe results, parallel-cluster hypothesis, foundational prep, known unknowns), and the evidence requirements each entry must meet.
 - **[preservation-hint.md](preservation-hint.md)** — preserved/partially-invalidated/fully-invalidated phase tables, replan-from-phase anchor, new spec leaves, replayed constraints.
 - **[redesign-brief.md](redesign-brief.md)** — falsification case citing spec leaves for execution-time bail-outs, parallelism-blocking structural issues for planning-time bail-outs.
 
@@ -164,7 +176,7 @@ Spec drift enforcement is the other half. If impl-orch discovers during executio
 
 ## Why dev-principles as a convergence gate
 
-SDD research describes "constitutional gates" — a set of project-wide principles that every design must satisfy before being approved. Spec-kit implements this with an explicit constitution file; v3 reuses the project's existing `dev-principles` skill for the same purpose. During convergence, design-orch loads `dev-principles` and asks "does this design violate any project-wide structural principles?" — a no answer blocks convergence. This is the lightweight version of constitutional gates, reusing machinery the project already has without adding a new artifact.
+SDD research describes "constitutional gates" — a set of project-wide principles that every design must satisfy before being approved. Spec-kit implements this with an explicit constitution file; v3 reuses the project's existing `dev-principles` skill for the same purpose. During convergence, design-orch loads `dev-principles` and asks "does this design violate any project-wide structural principles?" — a **yes** answer blocks convergence until the violation is either resolved or documented as a deliberate override in `decisions.md`. This is the lightweight version of constitutional gates, reusing machinery the project already has without adding a new artifact.
 
 The principles are not discovered at convergence time; they are the fixed set in `dev-principles`. Convergence is the point at which they get applied to the concrete design. A design that violates refactor discipline, edge-case thinking, abstraction judgment, structural health signals, or integration boundary probing fails the gate.
 

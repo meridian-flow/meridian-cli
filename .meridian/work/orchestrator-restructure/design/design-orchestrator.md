@@ -44,6 +44,8 @@ design/
 
 The two trees **mirror** each other but do not interleave. The spec tree describes what the system shall do, in observable terms. The architecture tree describes how the code realizes those behaviors. Cross-links between the trees are explicit: every architecture leaf names the spec leaves it realizes, and every spec leaf names the architecture leaves that realize it.
 
+**The spec tree is produced first.** Architecture leaves are derived from spec leaves — every architecture leaf exists because some spec leaf motivates it, not the other way around. This is the load-bearing Kiro ordering: requirements → spec → architecture, not requirements → architecture-reading → backfilled-spec. Parallel drafting is permitted only when iteration reveals a spec gap; the gap closes on the spec side first, then the architecture side follows. A design that was authored architecture-first — where the architecture tree was walked to decide what the system would do and then spec leaves were written to describe the pre-decided architecture — has collapsed to spec-kit's constitution-first flow and fails convergence. The spec-first ordering is what keeps the design anchored to user intent (from `requirements.md`) rather than to what the current codebase happens to support.
+
 The depth of each tree matches the complexity of the work. A small work item may have a single spec doc + a single architecture doc (a degenerate root-only tree). A large work item may have three or four levels of subtrees. The structure is proportional, not fixed.
 
 ### Spec tree content
@@ -73,12 +75,20 @@ Each architecture leaf is a markdown file containing:
 
 ### Root overview structure (both trees)
 
-Each tree has a root `overview.md` that serves as an extended table of contents:
+Each tree has a root `overview.md` that is a **strict TOC index** — a navigation surface, not a content surface. The overview does not carry authoritative spec leaves or authoritative architecture content directly; it points at the files that do. This is the load-bearing context-offloading pattern from the agent-spec writing literature: an agent should be able to read the overview and know exactly which leaf file to open next, without the overview itself becoming a second-tier mini-version of the tree.
 
-- **Purpose.** One paragraph on what this tree covers and what the design scope is.
-- **TOC.** Every leaf in the tree, organized by subsystem, each with its stable ID and one-line summary. The TOC is structurally flat — readers see every leaf without having to open subtree overviews.
-- **Root-level content.** System-wide invariants (for spec) or system-wide topology (for architecture). The spec root overview carries ubiquitous EARS requirements that apply across all subsystems; the architecture root overview carries the current + target structural posture for the whole system, including the import DAG slice, integration boundaries, and the structural delta that feeds refactors.md.
-- **Reading order.** A short section suggesting which subtrees a given consumer should read first (e.g. "planner reads the root topology first, then refactors.md, then the subtree TOCs").
+Required sections, in this order:
+
+- **Purpose.** One short paragraph on what this tree covers and what the design scope is.
+- **TOC.** Every leaf in the tree, organized by subsystem, each with its stable ID and one-line summary. The TOC is structurally flat — readers see every leaf without having to open subtree overviews. This is the primary content of the overview.
+- **Reading order.** A short section suggesting which subtrees a given consumer should read first (e.g. "planner reads `refactors.md` and `feasibility.md` first, then architecture subtrees in the order parallelism clusters are declared").
+
+**Root-level invariants live in leaves, not in the overview.** Ubiquitous EARS requirements (spec) and system-wide topology declarations (architecture) are substantive contract content and must be addressable as leaves with stable IDs so the planner's leaf-ownership pipeline and the tester's mechanical EARS parsing can pick them up. The conventions:
+
+- **Spec root-level invariants.** Ubiquitous EARS requirements that apply across every subsystem live in `design/spec/root-invariants.md` (or a similarly named root-scope leaf), with leaf IDs in the reserved `S00.*` namespace. The spec root `overview.md` lists these leaves in its TOC the same way it lists subsystem leaves. A requirement that is not in a leaf is not a requirement — it is unowned prose that the leaf-ownership pipeline cannot track.
+- **Architecture root-level topology.** System-wide topology (import DAG slice, integration boundaries, structural delta that feeds `refactors.md`) lives in `design/architecture/root-topology.md` (or a similarly named root-scope leaf), with IDs in the reserved `A00.*` namespace. The architecture root `overview.md` TOC points at it. Structural content that is not in a leaf cannot be cross-linked from `refactors.md` entries via the `Architecture anchor` field and therefore cannot be verified by the structural reviewer.
+
+The overview's job is to be the **index**: short, navigable, exhaustive over leaves, and free of substantive content that would have to drift-track the leaves it points at. A design package whose root overview has grown a "Root-level content" section carrying authoritative prose is drifting toward the v2 single-overview shape and must be refactored — move the content into a root-scope leaf and update the TOC to point at it.
 
 ## EARS notation
 
@@ -94,13 +104,27 @@ Every acceptance criterion in a spec leaf uses one of five EARS patterns:
 
 EARS is not a stylistic preference. It is a **convergence requirement**. A spec leaf with prose requirements and no EARS statements is not converged on the spec axis. A spec leaf with EARS statements that reviewers cannot parse into trigger/precondition/response is not converged. The structure of the template surfaces gaps: an author trying to write "when <trigger>, the <system> shall <response>" who cannot name the trigger has discovered that the design doesn't know when the response fires.
 
-Every EARS statement maps directly to a smoke test target:
+Every EARS statement maps directly to a smoke test target via the triple:
 
 - **Trigger** → test setup (the action that exercises the behavior)
 - **Precondition** → test fixture (the state that must hold before the trigger)
 - **Response** → test assertion (the observable outcome)
 
-Smoke testers under v3 generate test cases by reading spec leaves and turning each EARS statement into an executable test. This is why the template is not optional — ambiguity in the spec produces ambiguity in the test.
+### Per-pattern parsing guide
+
+Not every EARS pattern has an explicit `when` or `while` clause, so the triple has to be derived pattern by pattern. Smoke testers apply these rules mechanically:
+
+| Pattern | Trigger (test setup) | Precondition (fixture) | Response (assertion) |
+|---|---|---|---|
+| **Ubiquitous** (`The <system> shall <response>`) | The act of bringing the system up in its normal operating mode. No external event is required; the tester runs the system and observes whether the response holds as an invariant. | The system is in its default running state — whatever "the system runs" means for the subsystem under test (`spawn runner is live`, `harness is initialized`). | The observable outcome named in the `shall` clause. For continuous invariants ("shall emit one heartbeat every 30s") the assertion is a sampled observation over a bounded window. |
+| **State-driven** (`While <precondition>, the <system> shall <response>`) | The act of entering the named state (or, for invariants that hold across the whole state, running any legal operation while the state is active). For negative assertions ("shall not"), the trigger is any operation that would produce the forbidden response if the rule were violated — the test exercises the rule by attempting the forbidden path. | The `while` clause, verbatim, becomes the fixture the test sets up before the trigger fires. | The `shall`/`shall not` clause. |
+| **Event-driven** (`When <trigger>, the <system> shall <response>`) | The `when` clause, verbatim. This is the most direct mapping. | Implicit preconditions named in surrounding prose, or "system in default running state" if none are named. | The `shall` clause. |
+| **Optional-feature** (`Where <feature>, the <system> shall <response>`) | Whatever operation exercises the feature once it is enabled (typically stated in surrounding prose or in a sibling event-driven leaf). If the leaf describes a passive effect, the trigger is "run any legal operation that would produce the response if the feature were active." | The `where` clause becomes a fixture: the feature flag, config, or capability must be enabled before the trigger fires. Testing the feature with the flag **off** is a complementary negative test. | The `shall` clause. |
+| **Complex** (`While <precondition>, when <trigger>, the <system> shall <response>`) | The `when` clause. | The `while` clause. | The `shall` clause. This pattern is the full triple in one sentence. |
+
+The rule the table encodes: when a clause is present, it maps directly; when a clause is absent, the tester synthesizes the missing role from the system's default running state (for ubiquitous, no external event needed) or from the sibling leaves that name the triggering operation. If neither works, the tester reports the leaf as "cannot mechanically parse — requires design clarification" and the leaf is sent back to design-orch for refinement. The point of the guide is to make unparseable leaves visible as a convergence problem, not to paper over ambiguity.
+
+Smoke testers under v3 generate test cases by reading spec leaves, applying the guide above, and turning each EARS statement into an executable test. This is why the notation is not optional — ambiguity in the spec produces ambiguity in the test, and the guide surfaces that ambiguity instead of hiding it.
 
 ### EARS does not imply TDD
 
@@ -123,17 +147,13 @@ This is the hierarchical summary pattern from the agent-spec writing literature.
 
 ## Refactors agenda
 
-`design/refactors.md` holds the refactor agenda as a first-class artifact. Each entry names:
+`design/refactors.md` holds the refactor agenda as a first-class artifact. The **canonical per-entry shape is defined in [terrain-contract.md](terrain-contract.md) §"`design/refactors.md` — required shape"** — nine required fields per entry (ID, Title, Target, Affected callers, Coupling removed, Must land before, Architecture anchor, Preserves behavior, Evidence). Design-orch authors entries against that contract; this section is a pointer, not a duplicate specification.
 
-1. **What the refactor does.** A one-paragraph description of the rearrangement (split a module, extract an interface, collapse duplicated helpers, rename across consumers).
-2. **Why the target architecture needs it.** Cross-link to the architecture tree node(s) that depend on this refactor landing first.
-3. **What parallelism it unblocks.** Which architecture subtrees can then proceed in parallel.
-4. **Files and modules touched.** Specific paths, specific symbols.
-5. **Parallelism-prep classification.** `structural refactor` (rearrangement of existing code) or `foundational prep` (net-new scaffolding). Both can land in cross-cutting prep phases; the category distinguishes how the planner should think about them. See [terrain-contract.md](terrain-contract.md) §"Structural refactors vs foundational prep".
+Refactors are **rearrangement of existing code**, not creation of new scaffolding. Net-new scaffolding — type definitions, abstract base classes, interface contracts that don't yet exist — is **foundational prep** and lives in `design/feasibility.md §"Foundational prep"`, not in `refactors.md`. The disambiguation rule and boundary-case examples are in [terrain-contract.md](terrain-contract.md) §"Refactors vs foundational prep". The planner reads both files and treats refactors and foundational prep as two classes of cross-cutting prep work, sequenced according to their `must land before` declarations.
 
-The planner consumes refactors.md top-to-bottom to build Round 1 of the plan. Each refactor entry either lands as a phase, bundles with another refactor entry into a single prep phase, or is explicitly skipped with a one-sentence reason. The planner's responsibility is to make every entry accountable; the design's responsibility is to make every entry real (no refactor speculation without a target-architecture justification).
+The planner consumes refactors.md top-to-bottom to build the refactor-prep rounds of the plan. Each refactor entry either lands as a phase, bundles with another refactor entry into a single prep phase, or is explicitly skipped with a one-sentence reason. The planner's responsibility is to make every entry accountable; the design's responsibility is to make every entry real — no refactor speculation without evidence, without an architecture anchor, without specific files named.
 
-Design-orch is the sole author of refactors.md during design. If impl-orch discovers during pre-planning that an additional refactor is needed (a runtime constraint the design missed), that's a planner→design escalation — impl-orch bails with `structural-blocking` and design-orch revises. The planner is not allowed to invent refactors; refactors that exist in the plan must exist in refactors.md.
+Design-orch is the sole author of refactors.md and `feasibility.md §"Foundational prep"` during design. If impl-orch discovers during pre-planning that an additional refactor or additional foundational prep is needed (a runtime constraint the design missed), that is a planner→design escalation — impl-orch bails with `structural-blocking` and design-orch revises. The planner is not allowed to invent refactors or foundational prep; cross-cutting prep in the plan must exist in either `refactors.md` or `feasibility.md §"Foundational prep"`. See [planner.md](planner.md) §"The planner does not invent refactors".
 
 ## Feasibility.md — gap-finding as active design work
 
@@ -240,7 +260,7 @@ The structural reviewer's findings feed back into the design like any other revi
 
 The reviewer fan-out runs across diverse strong models. Each reviewer has a focus area matched to a tree or artifact:
 
-- **Spec reviewer.** Reads the spec tree. Focus areas: concreteness (every EARS statement is specific, not hand-wavy), testability (the response in each EARS statement is observable), coverage (edge cases and failure modes are enumerated), ambiguity (no prose slipping past EARS format). Spec reviewers generally run on strong models because ambiguity detection benefits from careful reading. Two spec reviewers on different model families is typical.
+- **Spec reviewer.** Reads the spec tree. **This reviewer is the EARS-enforcement contract** — every leaf must parse as one of the five EARS patterns (Ubiquitous, State-driven, Event-driven, Optional-feature, Complex), and a PASS verdict from this reviewer means every leaf in the spec tree has been checked against that grammar. Focus areas: (1) **EARS shape** — reject any leaf that is free-form prose, reject any leaf that mixes patterns, reject any leaf missing a clearly named trigger or response, reject any leaf that hides multiple behavior commitments inside one statement; (2) concreteness — every EARS statement is specific, not hand-wavy; (3) testability — the response in each EARS statement is observable via a smoke-test assertion; (4) coverage — edge cases and failure modes are enumerated as their own EARS leaves; (5) residual ambiguity — no prose drift inside an otherwise-valid EARS pattern. Spec reviewers generally run on strong models because ambiguity detection benefits from careful reading. Two spec reviewers on different model families is typical; at least one of them must carry the EARS-enforcement brief explicitly.
 - **Architecture reviewer.** Reads the architecture tree + refactors.md. Focus areas: structural soundness (does the target topology realize the spec), refactor sufficiency (does refactors.md cover every structural problem the current posture has), parallelism readiness (can the architecture be decomposed into parallel subtrees). This is in addition to, not instead of, the required structural reviewer below.
 - **Alignment reviewer.** Reads both trees and the cross-links. Focus areas: every spec leaf is realized (no orphans in spec), every architecture leaf justifies its existence against at least one spec leaf (no orphans in architecture), cross-links are mutual and consistent.
 - **Refactor/structural reviewer (required).** Reads the architecture tree + refactors.md with the brief in "Active structural review during convergence" above. PASS required for convergence.
@@ -257,7 +277,7 @@ Design-orch loads the `feasibility-questions` skill and applies the four questio
 3. Can this be broken down further?
 4. Does something need foundational work first?
 
-See [feasibility-questions.md](feasibility-questions.md) for the skill body. The key v3 change from v2: the answers now land in concrete artifacts (feasibility.md for question 1 probe evidence, architecture tree topology for question 2 cluster hypothesis, refactors.md for question 4 refactor agenda), not as a single Terrain section.
+See [feasibility-questions.md](feasibility-questions.md) for the skill body. The key v3 change from v2: the answers now land in concrete artifacts (`feasibility.md` for question 1 probe evidence, `feasibility.md §"Parallel-cluster hypothesis"` for question 2, `refactors.md` for question 3 refactor agenda, `feasibility.md §"Foundational prep"` for question 4), not as a single Terrain section. [terrain-contract.md](terrain-contract.md) is the canonical location contract for these fields — design-orch writes to the locations named there, other docs in the package reference them.
 
 ## Observations vs prescriptions (architecture tree)
 

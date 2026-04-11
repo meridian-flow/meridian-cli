@@ -29,12 +29,18 @@ Derived from `redesign-brief.md` cycle <n>. Design revision: `decisions.md` D<m>
 
 ## Preserved phases
 
-Phases whose committed work is still valid under the revised design. The next impl-orch cycle skips these — coders are not respawned, spec leaves are not re-verified, commits stay in place.
+Phases whose committed work is still valid under the revised design. Preserved has **two sub-categories** depending on whether the phase owns any spec leaves that the redesign revised in place:
 
-| Phase | Commit SHA | Spec leaves satisfied | Reason preserved |
-|-------|-----------|-----------------------|------------------|
-| Phase 1 (typed leaves) | abc123 | S01.1.e1, S01.1.e2, S01.2.e1 | unaffected by revision; type contracts unchanged |
-| Phase 2 (permission pipeline) | def456 | S02.3.e1, S02.3.e2 | revision is Codex-specific; shared pipeline unchanged |
+- **Preserved, no re-verification.** None of the phase's claimed spec leaves appear in the "New or revised spec leaves" section with a `revised:` annotation. The next impl-orch cycle skips the phase entirely — coder is not respawned, no testers are spawned, commits stay in place.
+- **Preserved but requires re-verification.** At least one of the phase's claimed spec leaves is listed as `revised: <reason>` in the leaves section below. The commits still stand (no coder respawn) but the next impl-orch cycle spawns a tester-only re-verification pass for those specific revised leaves against the existing code. The outcomes are in [impl-orchestrator.md](impl-orchestrator.md) §"Preserved phases with revised leaves — re-verification, not re-implementation": the phase stays `preserved` if re-verification passes, promotes to `partially-invalidated` if any revised leaf falsifies. This category exists because the spec-anchored discipline requires code to match the *current* spec text, not the text that existed when the code was committed — preserving commits without re-verifying against revised leaves is the exact silent-drift failure Fowler warns against.
+
+The table below lists all preserved phases; the `Revised leaves?` column names which sub-category applies.
+
+| Phase | Commit SHA | Spec leaves satisfied | Revised leaves? | Reason preserved |
+|-------|-----------|-----------------------|-----------------|------------------|
+| Phase 1 (typed leaves) | abc123 | S01.1.e1, S01.1.e2, S01.2.e1 | none | unaffected by revision; type contracts unchanged |
+| Phase 2 (permission pipeline) | def456 | S02.3.e1, S02.3.e2 | none | revision is Codex-specific; shared pipeline unchanged |
+| Phase 3 (shared approval router) | ghi789 | S03.1.e1 (revised), S03.1.e2 | S03.1.e1 | routing shape unchanged; language of S03.1.e1 tightened, re-verification required to confirm |
 
 ## Partially-invalidated phases
 
@@ -79,8 +85,9 @@ Replays the "constraints that still hold" section from the redesign brief, so im
 
 The hint shapes how `plan/status.md` represents phases after a redesign cycle. The status values used:
 
-- **`preserved`** — phase exists from a previous cycle, marked as complete, will be skipped in this cycle.
-- **`partially-invalidated`** — phase exists from a previous cycle, marked as needing revision, will be revisited in this cycle.
+- **`preserved`** — phase exists from a previous cycle, marked as complete, will be skipped entirely in this cycle (no coder, no tester). Applies only to phases whose claimed leaves were untouched by the redesign.
+- **`preserved-requires-reverification`** — phase exists from a previous cycle with commits intact, but at least one claimed spec leaf was revised in place during the redesign. Impl-orch runs a tester-only re-verification pass against the existing code before executing any replanned or new phases. Outcome branches back into `preserved` (re-verification passes) or `partially-invalidated` (re-verification falsifies). Impl-orch is responsible for the promotion.
+- **`partially-invalidated`** — phase exists from a previous cycle, marked as needing revision, will be revisited in this cycle. Reached either directly from the redesign brief (phase code explicitly scoped-out) or by promotion from `preserved-requires-reverification` when re-verification falsifies.
 - **`replanned`** — phase from a previous cycle was fully invalidated; the new plan replaces it (possibly with a different number or shape).
 - **`new`** — phase added in this cycle that did not exist before.
 - **`not-started`** — phase exists in the current plan and has not yet been touched (the default for any phase that has not run).
@@ -110,14 +117,14 @@ Impl-orch's pre-planning step reads the hint first:
 4. Reads `replan-from-phase` to understand where the new plan starts.
 5. Generates pre-planning notes scoped to the replan range, not the whole work item. This is what makes redesign cheap: pre-planning runtime work is proportional to the scope of the change, not to the total work item size.
 
-The planner spawn then receives the design package + the hint + the scoped pre-planning notes. The planner produces a plan that respects the preservation anchor and renumbers or reorganizes only from `replan-from-phase` onward, and claims every new or revised spec leaf in `plan/leaf-ownership.md`.
+The planner spawn then receives the design package + the hint + the scoped pre-planning notes. The planner produces a plan that respects the preservation anchor and renumbers or reorganizes only from `replan-from-phase` onward. The planner's new `plan/leaf-ownership.md` must contain **both** the preserved phases' leaf claims (copied from the hint's "Spec leaves satisfied" column for each preserved phase, verbatim) **and** the new or revised spec-leaf claims for replanned phases. Revised-in-place leaves carry the `revised: <reason>` annotation into the new ownership file so the phase blueprint re-verifies against the updated EARS statement even on preserved code. Omitting the preserved phases from the new ownership file makes impl-orch's completeness check falsely flag preserved leaves as unclaimed and wastes a planner re-spawn slot.
 
 ## Anti-patterns the contract is designed to prevent
 
 - **Default-preserve as a verbal claim with no mechanism.** The hint makes preservation explicit and auditable.
 - **Re-running pre-planning over the entire work item every redesign cycle.** Wasteful and erodes the cost benefit of incremental redesign. The replan-from-phase anchor scopes the work.
 - **The planner forgetting which spec leaves are still claimed by preserved phases.** The hint replays leaf-to-phase ownership so the planner doesn't lose coverage.
-- **Silent leaf revisions.** A spec leaf revised in place during a redesign cycle keeps its ID but its EARS statement changed; the planner might claim the "same" leaf in the same phase without noticing the semantic drift. The hint's `revised: <reason>` annotation forces the planner (and the coder, via phase blueprint) to re-read the leaf before treating preserved work as covering it.
+- **Silent leaf revisions on preserved phases.** A spec leaf revised in place during a redesign cycle keeps its ID but its EARS statement changed; a naive preservation implementation skips the phase entirely and silently carries the old behavior forward under the new spec text. The `Revised leaves?` column above and the `preserved-requires-reverification` status value force impl-orch to run a tester-only re-verification pass against existing commits for any preserved phase with a `revised:` leaf. This is the exact spec-anchored failure mode the two-sub-category preserved design exists to close.
 - **Drift between the brief's preservation section and the actual hint.** The hint is dev-orch's final call after reading the revised design, and dev-orch is allowed to update preservation status if the design changed the assessment. Decision rationale lands in `decisions.md` for audit.
 
 ## What the hint is not
