@@ -20,8 +20,10 @@ from meridian.lib.harness.adapter import (
     BaseSubprocessHarness,
     HarnessCapabilities,
     PermissionResolver,
+    PreflightResult,
     SpawnParams,
 )
+from meridian.lib.harness.claude_preflight import expand_claude_passthrough_args
 from meridian.lib.harness.common import (
     extract_session_id_from_artifacts,
     extract_usage_from_artifacts,
@@ -60,7 +62,23 @@ class ClaudeLikeAdapter(BaseSubprocessHarness):
         )
 
     def build_command(self, run: SpawnParams, perms: PermissionResolver) -> list[str]:
-        return list(self._command)
+        _ = perms
+        return [*self._command, *run.extra_args]
+
+    def preflight(
+        self,
+        *,
+        execution_cwd: Path,
+        child_cwd: Path,
+        passthrough_args: tuple[str, ...],
+    ) -> PreflightResult:
+        return PreflightResult.build(
+            expanded_passthrough_args=expand_claude_passthrough_args(
+                execution_cwd=execution_cwd,
+                child_cwd=child_cwd,
+                passthrough_args=passthrough_args,
+            )
+        )
 
     def env_overrides(self, config: PermissionConfig) -> dict[str, str]:
         _ = config

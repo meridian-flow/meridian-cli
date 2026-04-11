@@ -16,7 +16,6 @@ if TYPE_CHECKING:
     from meridian.lib.observability.debug_tracer import DebugTracer
 
 from meridian.lib.core.types import SpawnId
-from meridian.lib.harness.adapter import resolve_permission_flags
 from meridian.lib.harness.connections.base import (
     ConnectionCapabilities,
     ConnectionConfig,
@@ -27,6 +26,7 @@ from meridian.lib.harness.connections.base import (
 )
 from meridian.lib.harness.ids import HarnessId
 from meridian.lib.harness.launch_spec import ClaudeLaunchSpec
+from meridian.lib.harness.projections.project_claude import project_claude_spec_to_cli_args
 from meridian.lib.launch.env import inherit_child_env
 from meridian.lib.launch.launch_types import ResolvedLaunchSpec
 from meridian.lib.observability.trace_helpers import (
@@ -328,36 +328,24 @@ class ClaudeConnection(HarnessConnection[ResolvedLaunchSpec]):
         )
 
     def _build_command(self, config: ConnectionConfig, spec: ResolvedLaunchSpec) -> list[str]:
-        command = [
-            "claude",
-            "-p",
-            "--input-format",
-            "stream-json",
-            "--output-format",
-            "stream-json",
-            "--verbose",
-        ]
-        if spec.model:
-            command.extend(["--model", spec.model])
-        if spec.effort:
-            command.extend(["--effort", spec.effort])
-        if isinstance(spec, ClaudeLaunchSpec):
-            if spec.agent_name:
-                command.extend(["--agent", spec.agent_name])
-            if spec.appended_system_prompt:
-                command.extend(["--append-system-prompt", spec.appended_system_prompt])
-            if spec.agents_payload:
-                command.extend(["--agents", spec.agents_payload])
-        if spec.continue_session_id:
-            command.extend(["--resume", spec.continue_session_id])
-            if spec.continue_fork:
-                command.append("--fork-session")
-        if spec.permission_resolver:
-            command.extend(resolve_permission_flags(spec.permission_resolver, HarnessId.CLAUDE))
-        if spec.extra_args:
-            command.extend(spec.extra_args)
-
-        return command
+        _ = config
+        if not isinstance(spec, ClaudeLaunchSpec):
+            raise TypeError(
+                "ClaudeConnection requires ClaudeLaunchSpec, "
+                f"got {type(spec).__name__}"
+            )
+        return project_claude_spec_to_cli_args(
+            spec,
+            base_command=(
+                "claude",
+                "-p",
+                "--input-format",
+                "stream-json",
+                "--output-format",
+                "stream-json",
+                "--verbose",
+            ),
+        )
 
     async def _send_user_turn(self, text: str) -> None:
         """Send a user turn in the stream-json wire format Claude expects.

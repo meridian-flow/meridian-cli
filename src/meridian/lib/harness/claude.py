@@ -16,10 +16,11 @@ from meridian.lib.harness.adapter import (
     HarnessCapabilities,
     McpConfig,
     PermissionResolver,
+    PreflightResult,
     RunPromptPolicy,
     SpawnParams,
-    resolve_permission_flags,
 )
+from meridian.lib.harness.claude_preflight import expand_claude_passthrough_args
 from meridian.lib.harness.common import (
     extract_claude_report,
     extract_session_id_from_artifacts,
@@ -28,6 +29,7 @@ from meridian.lib.harness.common import (
 from meridian.lib.harness.ids import HarnessId
 from meridian.lib.harness.launch_spec import ClaudeLaunchSpec
 from meridian.lib.harness.launch_types import PromptPolicy, SessionSeed
+from meridian.lib.harness.projections.project_claude import project_claude_spec_to_cli_args
 from meridian.lib.safety.permissions import PermissionConfig
 
 logger = logging.getLogger(__name__)
@@ -284,35 +286,27 @@ class ClaudeAdapter(BaseHarnessAdapter[ClaudeLaunchSpec]):
             agent_name=run.agent,
         )
 
+    def preflight(
+        self,
+        *,
+        execution_cwd: Path,
+        child_cwd: Path,
+        passthrough_args: tuple[str, ...],
+    ) -> PreflightResult:
+        return PreflightResult.build(
+            expanded_passthrough_args=expand_claude_passthrough_args(
+                execution_cwd=execution_cwd,
+                child_cwd=child_cwd,
+                passthrough_args=passthrough_args,
+            )
+        )
+
     def build_command(self, run: SpawnParams, perms: PermissionResolver) -> list[str]:
         spec = self.resolve_launch_spec(run, perms)
-        command = list(self.PRIMARY_BASE_COMMAND if spec.interactive else self.BASE_COMMAND)
+        base_command = self.PRIMARY_BASE_COMMAND
         if not spec.interactive:
-            command.append("-")
-        if spec.model is not None:
-            command.extend(["--model", spec.model])
-        if spec.effort is not None:
-            normalized_effort = str(spec.effort).strip()
-            if normalized_effort:
-                command.extend(["--effort", normalized_effort])
-        if spec.agent_name is not None:
-            command.extend(["--agent", str(spec.agent_name)])
-        permission_resolver = spec.permission_resolver
-        command.extend(resolve_permission_flags(permission_resolver, self.id))
-        command.extend(spec.extra_args)
-        # Inject skill content for --append-system-prompt (workaround for issue #29902).
-        if spec.appended_system_prompt:
-            command.extend(["--append-system-prompt", spec.appended_system_prompt])
-        # Ad-hoc agent payload for native skill loading via Claude --agents flag
-        if spec.agents_payload:
-            command.extend(["--agents", spec.agents_payload])
-        harness_session_id = (spec.continue_session_id or "").strip()
-        if not harness_session_id:
-            return command
-        command.extend(["--resume", harness_session_id])
-        if spec.continue_fork:
-            command.append("--fork-session")
-        return command
+            base_command = (*self.BASE_COMMAND, "-")
+        return project_claude_spec_to_cli_args(spec, base_command=base_command)
 
     def mcp_config(self, run: SpawnParams) -> McpConfig | None:
         # MCP injection is off by default — agents use the CLI instead.

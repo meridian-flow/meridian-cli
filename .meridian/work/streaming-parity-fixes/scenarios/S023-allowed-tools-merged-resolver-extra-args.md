@@ -4,7 +4,7 @@
 - **Added by:** @design-orchestrator (design phase)
 - **Updated by:** @design-orchestrator (revision round 3)
 - **Tester:** @unit-tester
-- **Status:** pending
+- **Status:** verified
 
 ## Given
 A `ClaudeLaunchSpec` where:
@@ -30,4 +30,12 @@ A `ClaudeLaunchSpec` where:
 - Caplog assertion for the debug collision log.
 
 ## Result (filled by tester)
-_pending_
+- **Date:** 2026-04-10
+- **Status:** verified with extra coverage
+- **Tests:** `tests/harness/test_launch_spec_parity.py::test_claude_projection_resolver_and_user_allowed_tools_are_both_forwarded` ([line 354](/home/jimyao/gitrepos/meridian-channel/tests/harness/test_launch_spec_parity.py:354)), `tests/harness/test_launch_spec_parity.py::test_claude_projection_allows_empty_user_allowed_tools_tail_without_crashing` ([line 373](/home/jimyao/gitrepos/meridian-channel/tests/harness/test_launch_spec_parity.py:373)), `tests/harness/test_launch_spec_parity.py::test_claude_projection_keeps_user_tail_when_resolver_emits_no_flags` ([line 414](/home/jimyao/gitrepos/meridian-channel/tests/harness/test_launch_spec_parity.py:414)), `tests/harness/test_launch_spec_parity.py::test_claude_cross_transport_parity_on_semantic_fields` ([line 810](/home/jimyao/gitrepos/meridian-channel/tests/harness/test_launch_spec_parity.py:810))
+- **Commands:**
+  - `uv run pytest-llm tests/harness/test_launch_spec_parity.py -k claude -v` -> `21 passed, 16 deselected`
+- **Evidence:**
+  - Resolver-managed `--allowedTools A,B` appears in canonical managed section; user `--allowedTools C,D` remains unchanged in passthrough tail.
+  - Projection logs the known-managed collision for `--allowedTools` and keeps other passthrough args (`--foo bar`) verbatim.
+  - Added adversarial coverage for an empty user `--allowedTools` value, confirming the projection does not crash, keeps both flags, and still leaves the user tail as the last writer.

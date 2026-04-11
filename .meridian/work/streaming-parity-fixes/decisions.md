@@ -389,3 +389,29 @@ Four independent reviewers (gpt-5.4, gpt-5.2, claude-opus-4-6, refactor-reviewer
 - Deferring all of S051 to Phase 6: would leave `PermissionConfig` immutability unverified during Phase 2 even though it was already implemented and passing tests.
 
 **Impact:** S051 flips to verified in Phase 2 for clauses (a) and (b). S054 is a new Phase 6 scenario covering clause (c). scenario-ownership.md updated accordingly. Phase 2 can close; Phase 6 picks up S054 alongside S024.
+
+## E3 — Phase 3 execution decisions
+
+### E3.1 — Claude flag-collision semantics are explicit, not rewritten
+
+**What:** Phase 3 keeps Meridian-managed Claude flags in canonical order, then appends user `extra_args` verbatim in the tail. If the same flag appears in both places (`--append-system-prompt`, `--allowedTools`, `--disallowedTools`), both are forwarded and the later user tail copy wins by Claude last-wins behavior.
+
+**Why:** This matches the round-3 coordinator boundary: Meridian does not strip or rewrite user passthrough.
+
+**Wire quirk rediscovered:** Claude accepts repeated instances of these flags, and effective behavior follows argument order (later flag value wins).
+
+### E3.2 — Parent Claude allowlist forwarding stays resolver-internal via adapter preflight
+
+**What:** Claude adapter preflight now forwards parent allowlist values via an internal sentinel passthrough token (`--meridian-parent-allowed-tools`) that is consumed by `project_claude_spec_to_cli_args` before launch. Projection merges those values with resolver-emitted `--allowedTools` into one deduped managed flag.
+
+**Why:** Preserves S011/S012 resolver-internal dedupe while keeping S023's user passthrough boundary intact.
+
+**Wire quirk rediscovered:** Parent-forwarded allowlist values and resolver values can overlap; dedupe must preserve first-seen order (`Read,Edit,Bash` style unions) to keep deterministic CLI tails across subprocess and streaming.
+
+### E3.3 — Env var block asymmetry stays deferred to Phase 6/7
+
+**What:** `ClaudeAdapter.blocked_child_env_vars()` returns `{"CLAUDECODE"}` while the streaming `claude_ws._BLOCKED_CHILD_ENV_VARS` set also includes `{"CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"}`. The extra streaming-only entry is intentional: streaming sessions should not inherit the parent autocompact override.
+
+**Why:** The split currently lives in two unrelated places, but that is still consistent with the subprocess/streaming parity thesis. Consolidate when Phase 6 introduces shared launch-context env helpers or Phase 7 handles projection convergence.
+
+**Impact:** No Phase 3 action. Tracked as handoff to Phase 6/7.

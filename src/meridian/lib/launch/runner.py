@@ -24,8 +24,10 @@ from meridian.lib.harness.adapter import (
     SpawnParams,
     StreamEvent,
 )
+from meridian.lib.harness.claude_preflight import ensure_claude_session_accessible
 from meridian.lib.harness.registry import HarnessRegistry
 from meridian.lib.launch.cwd import resolve_child_execution_cwd
+from meridian.lib.launch.launch_types import PreflightResult
 from meridian.lib.safety.budget import Budget, BudgetBreach, LiveBudgetTracker
 from meridian.lib.safety.guardrails import GuardrailFailure, run_guardrails
 from meridian.lib.safety.redaction import SecretSpec, redact_secret_bytes
@@ -35,11 +37,6 @@ from meridian.lib.state.atomic import atomic_write_bytes, atomic_write_text
 from meridian.lib.state.paths import resolve_spawn_log_dir, resolve_state_paths
 from meridian.lib.state.spawn_store import FOREGROUND_LAUNCH_MODE
 
-from .claude_preflight import (
-    ensure_claude_session_accessible,
-    merge_allowed_tools_flag,
-    read_parent_claude_permissions,
-)
 from .env import build_harness_child_env
 from .errors import ErrorCategory, classify_error, should_retry
 from .extract import (
@@ -529,6 +526,23 @@ async def execute_with_finalization(
     kill_grace_seconds = plan.execution.kill_grace_secs
     max_retries = plan.execution.max_retries
     retry_backoff_seconds = plan.execution.retry_backoff_secs
+    resolved_cwd = resolve_child_execution_cwd(
+        repo_root=execution_cwd,
+        spawn_id=run.spawn_id,
+        harness_id=harness.id.value,
+    )
+    if resolved_cwd != execution_cwd:
+        child_cwd = resolved_cwd
+        child_cwd.mkdir(parents=True, exist_ok=True)
+
+    try:
+        preflight = harness.preflight(
+            execution_cwd=execution_cwd,
+            child_cwd=child_cwd,
+            passthrough_args=plan.passthrough_args,
+        )
+    except AttributeError:
+        preflight = PreflightResult.build(expanded_passthrough_args=plan.passthrough_args)
     run_params = SpawnParams(
         prompt=run.prompt,
         model=run.model if str(run.model).strip() else None,
@@ -536,8 +550,8 @@ async def execute_with_finalization(
         skills=plan.skills,
         agent=plan.agent_name,
         adhoc_agent_payload=plan.adhoc_agent_payload,
-        extra_args=plan.passthrough_args,
-        repo_root=execution_cwd.as_posix(),
+        extra_args=preflight.expanded_passthrough_args,
+        repo_root=child_cwd.as_posix(),
         mcp_tools=plan.mcp_tools,
         continue_harness_session_id=plan.session.harness_session_id,
         continue_fork=plan.session.continue_fork,
@@ -558,6 +572,7 @@ async def execute_with_finalization(
     }
     merged_env_overrides = dict(env_overrides or {})
     merged_env_overrides.update(runtime_env_overrides)
+    merged_env_overrides.update(preflight.extra_env)
     spawn_row = spawn_store.get_spawn(state_root, run.spawn_id)
     raw_launch_mode = (
         (spawn_row.launch_mode or "").strip().lower()
@@ -598,6 +613,15 @@ async def execute_with_finalization(
         )
         if harness_session_id_observer is not None:
             harness_session_id_observer(materialized_session_id)
+
+    # Record the actual execution CWD on the spawn record (authoritative).
+    # Mirrors execute.py pre-compute; both sites must stay in sync.
+    spawn_store.update_spawn(
+        state_root,
+        run.spawn_id,
+        execution_cwd=str(child_cwd),
+    )
+
     child_env = build_harness_child_env(
         base_env=os.environ,
         adapter=harness,
@@ -636,35 +660,6 @@ async def execute_with_finalization(
     async with heartbeat_scope(heartbeat_path):
         try:
             command = tuple(harness.build_command(run_params, resolved_perms))
-
-            resolved_cwd = resolve_child_execution_cwd(
-                repo_root=execution_cwd,
-                spawn_id=run.spawn_id,
-                harness_id=harness.id.value,
-            )
-            if resolved_cwd != execution_cwd:
-                child_cwd = resolved_cwd
-                child_cwd.mkdir(parents=True, exist_ok=True)
-                command = (*command, "--add-dir", str(execution_cwd))
-                if harness.id == HarnessId.CLAUDE:
-                    parent_additional_directories, parent_allowed_tools = (
-                        read_parent_claude_permissions(execution_cwd)
-                    )
-                    for additional_directory in parent_additional_directories:
-                        command = (*command, "--add-dir", additional_directory)
-                    # TODO: Consider using --settings <json> to forward the
-                    # entire settings file instead of decomposing into
-                    # individual flags. This would be simpler but needs
-                    # testing for merge behavior with multiple --settings
-                    # flags.
-                    command = merge_allowed_tools_flag(command, parent_allowed_tools)
-            # Record the actual execution CWD on the spawn record (authoritative).
-            # Mirrors execute.py pre-compute; both sites must stay in sync.
-            spawn_store.update_spawn(
-                state_root,
-                run.spawn_id,
-                execution_cwd=str(child_cwd),
-            )
 
             # Symlink source session into child's project dir so Claude can find it.
             if (

@@ -24,15 +24,11 @@ from meridian.lib.core.spawn_lifecycle import (
 )
 from meridian.lib.core.types import HarnessId, SpawnId
 from meridian.lib.harness.adapter import SpawnParams, StreamEvent
+from meridian.lib.harness.claude_preflight import ensure_claude_session_accessible
 from meridian.lib.harness.common import parse_json_stream_event, unwrap_event_payload
 from meridian.lib.harness.connections.base import ConnectionConfig, HarnessConnection
 from meridian.lib.harness.extractor import StreamingExtractor
 from meridian.lib.harness.registry import HarnessRegistry, get_default_harness_registry
-from meridian.lib.launch.claude_preflight import (
-    ensure_claude_session_accessible,
-    merge_allowed_tools_flag,
-    read_parent_claude_permissions,
-)
 from meridian.lib.launch.cwd import resolve_child_execution_cwd
 from meridian.lib.launch.env import build_harness_child_env
 from meridian.lib.launch.errors import ErrorCategory, classify_error, should_retry
@@ -42,7 +38,7 @@ from meridian.lib.launch.extract import (
     reset_finalize_attempt_artifacts,
 )
 from meridian.lib.launch.heartbeat import heartbeat_scope
-from meridian.lib.launch.launch_types import ResolvedLaunchSpec
+from meridian.lib.launch.launch_types import PreflightResult, ResolvedLaunchSpec
 from meridian.lib.launch.session_ids import extract_latest_session_id
 from meridian.lib.launch.signals import signal_coordinator, signal_to_exit_code
 from meridian.lib.ops.spawn.plan import PreparedSpawnPlan
@@ -733,7 +729,6 @@ async def execute_with_streaming(
     retry_backoff_seconds = plan.execution.retry_backoff_secs
 
     child_cwd = execution_cwd
-    passthrough_args = tuple(plan.passthrough_args)
     resolved_cwd = resolve_child_execution_cwd(
         repo_root=execution_cwd,
         spawn_id=run.spawn_id,
@@ -742,16 +737,17 @@ async def execute_with_streaming(
     if resolved_cwd != execution_cwd:
         child_cwd = resolved_cwd
         child_cwd.mkdir(parents=True, exist_ok=True)
-        if harness.id == HarnessId.CLAUDE:
-            expanded_args = [*passthrough_args, "--add-dir", str(execution_cwd)]
-            parent_additional_directories, parent_allowed_tools = (
-                read_parent_claude_permissions(execution_cwd)
-            )
-            for additional_directory in parent_additional_directories:
-                expanded_args.extend(("--add-dir", additional_directory))
-            passthrough_args = merge_allowed_tools_flag(
-                tuple(expanded_args), parent_allowed_tools
-            )
+
+    try:
+        preflight = harness.preflight(
+            execution_cwd=execution_cwd,
+            child_cwd=child_cwd,
+            passthrough_args=tuple(plan.passthrough_args),
+        )
+    except AttributeError:
+        preflight = PreflightResult.build(
+            expanded_passthrough_args=tuple(plan.passthrough_args)
+        )
 
     spawn_store.update_spawn(
         state_root,
@@ -777,7 +773,7 @@ async def execute_with_streaming(
         skills=plan.skills,
         agent=plan.agent_name,
         adhoc_agent_payload=plan.adhoc_agent_payload,
-        extra_args=passthrough_args,
+        extra_args=preflight.expanded_passthrough_args,
         repo_root=child_cwd.as_posix(),
         mcp_tools=plan.mcp_tools,
         continue_harness_session_id=plan.session.harness_session_id,
@@ -793,6 +789,7 @@ async def execute_with_streaming(
     }
     merged_env_overrides = dict(env_overrides or {})
     merged_env_overrides.update(runtime_env_overrides)
+    merged_env_overrides.update(preflight.extra_env)
     child_env = build_harness_child_env(
         base_env=os.environ,
         adapter=harness,

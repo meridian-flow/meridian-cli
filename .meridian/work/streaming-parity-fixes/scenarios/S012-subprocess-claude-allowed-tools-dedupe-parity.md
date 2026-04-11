@@ -3,7 +3,7 @@
 - **Source:** design/edge-cases.md E12 + p1411 finding H2 (parity half)
 - **Added by:** @design-orchestrator (design phase)
 - **Tester:** @smoke-tester
-- **Status:** pending
+- **Status:** verified
 
 ## Given
 Identical inputs to S011 but routed through the subprocess runner:
@@ -25,4 +25,11 @@ The subprocess runner builds the Claude command via the shared `project_claude_s
 - If the two outputs ever diverge for the same spec, the shared projection promise is broken and this scenario fails.
 
 ## Result (filled by tester)
-_pending_
+- **Date:** 2026-04-10
+- **Status:** verified
+- **Tests:** `tests/harness/test_launch_spec_parity.py::test_claude_projection_dedupes_resolver_internal_allowed_tools` ([line 324](/home/jimyao/gitrepos/meridian-channel/tests/harness/test_launch_spec_parity.py:324)), `tests/harness/test_launch_spec_parity.py::test_claude_cross_transport_parity_on_semantic_fields` ([line 810](/home/jimyao/gitrepos/meridian-channel/tests/harness/test_launch_spec_parity.py:810))
+- **Commands:**
+  - `uv run pytest-llm tests/harness/test_launch_spec_parity.py -k claude -v` -> `21 passed, 16 deselected`
+- **Evidence:**
+  - The same spec projected against subprocess and streaming base commands yields byte-equal tails after each base prefix.
+  - Deduped `--allowedTools` behavior is shared because both transports call `project_claude_spec_to_cli_args`.

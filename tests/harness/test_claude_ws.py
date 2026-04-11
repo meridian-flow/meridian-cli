@@ -6,6 +6,7 @@ from meridian.lib.core.types import HarnessId, SpawnId
 from meridian.lib.harness.connections.base import ConnectionConfig
 from meridian.lib.harness.connections.claude_ws import ClaudeConnection
 from meridian.lib.harness.launch_spec import ClaudeLaunchSpec, ResolvedLaunchSpec
+from meridian.lib.harness.projections.project_claude import project_claude_spec_to_cli_args
 from meridian.lib.safety.permissions import UnsafeNoOpPermissionResolver
 
 
@@ -41,20 +42,17 @@ def test_claude_ws_build_command_includes_resume_and_fork_flags(tmp_path: Path) 
     )
 
     command = connection.build_command_for_test(config, spec)
+    expected = project_claude_spec_to_cli_args(
+        spec,
+        base_command=(
+            "claude",
+            "-p",
+            "--input-format",
+            "stream-json",
+            "--output-format",
+            "stream-json",
+            "--verbose",
+        ),
+    )
 
-    assert command == [
-        "claude",
-        "-p",
-        "--input-format",
-        "stream-json",
-        "--output-format",
-        "stream-json",
-        "--verbose",
-        "--model",
-        "claude-sonnet-4-6",
-        "--resume",
-        "session-123",
-        "--fork-session",
-        "--add-dir",
-        "/tmp/extra",
-    ]
+    assert command == expected
