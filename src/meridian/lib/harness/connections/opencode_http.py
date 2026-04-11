@@ -16,16 +16,19 @@ from typing import TYPE_CHECKING, Any, ClassVar, cast
 if TYPE_CHECKING:
     from meridian.lib.observability.debug_tracer import DebugTracer
 
-from meridian.lib.core.types import HarnessId, SpawnId
+from meridian.lib.core.types import SpawnId
 from meridian.lib.harness.connections.base import (
     ConnectionCapabilities,
     ConnectionConfig,
     ConnectionNotReady,
     ConnectionState,
+    HarnessConnection,
     HarnessEvent,
 )
-from meridian.lib.harness.launch_spec import OpenCodeLaunchSpec, ResolvedLaunchSpec
+from meridian.lib.harness.ids import HarnessId
+from meridian.lib.harness.launch_spec import OpenCodeLaunchSpec
 from meridian.lib.launch.env import inherit_child_env
+from meridian.lib.launch.launch_types import ResolvedLaunchSpec
 from meridian.lib.observability.trace_helpers import (
     trace_parse_error,
     trace_state_change,
@@ -37,7 +40,7 @@ from meridian.lib.state.paths import resolve_spawn_log_dir
 logger = logging.getLogger(__name__)
 
 
-class OpenCodeConnection:
+class OpenCodeConnection(HarnessConnection[ResolvedLaunchSpec]):
     """Bidirectional OpenCode connection over the OpenCode HTTP API."""
 
     _CAPABILITIES: ClassVar[ConnectionCapabilities] = ConnectionCapabilities(

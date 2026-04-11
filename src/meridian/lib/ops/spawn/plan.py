@@ -2,7 +2,7 @@
 
 from pydantic import BaseModel, ConfigDict
 
-from meridian.lib.harness.adapter import PermissionResolver
+from meridian.lib.launch.launch_types import PermissionResolver
 from meridian.lib.safety.permissions import PermissionConfig
 
 

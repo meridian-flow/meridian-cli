@@ -1,16 +1,18 @@
-"""Core protocol and data contracts for bidirectional harness connections."""
+"""Core data contracts for bidirectional harness connections."""
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Generic, Literal
 
-from meridian.lib.core.types import HarnessId, SpawnId
+from meridian.lib.core.types import SpawnId
+from meridian.lib.harness.ids import HarnessId
+from meridian.lib.launch.launch_types import SpecT
 
 if TYPE_CHECKING:
-    from meridian.lib.harness.launch_spec import ResolvedLaunchSpec
     from meridian.lib.observability.debug_tracer import DebugTracer
 
 
@@ -58,56 +60,53 @@ class ConnectionConfig:
     debug_tracer: DebugTracer | None = None
 
 
-@runtime_checkable
-class HarnessLifecycle(Protocol):
-    """Lifecycle operations for one bidirectional harness connection."""
+class HarnessConnection(Generic[SpecT], ABC):
+    """Single full-duplex connection contract for all harness transports."""
 
     @property
+    @abstractmethod
     def state(self) -> ConnectionState: ...
 
-    async def start(self, config: ConnectionConfig, spec: ResolvedLaunchSpec) -> None: ...
-
-    async def stop(self) -> None: ...
-
-    def health(self) -> bool: ...
-
-
-@runtime_checkable
-class HarnessSender(Protocol):
-    """Outbound control channel into one harness connection."""
-
-    async def send_user_message(self, text: str) -> None: ...
-
-    async def send_interrupt(self) -> None: ...
-
-    async def send_cancel(self) -> None: ...
-
-
-@runtime_checkable
-class HarnessReceiver(Protocol):
-    """Inbound event stream from one harness connection."""
-
-    def events(self) -> AsyncIterator[HarnessEvent]: ...
-
-
-@runtime_checkable
-class HarnessConnection(HarnessLifecycle, HarnessSender, HarnessReceiver, Protocol):
-    """Composite protocol for full-duplex harness connections."""
-
     @property
+    @abstractmethod
     def harness_id(self) -> HarnessId: ...
 
     @property
+    @abstractmethod
     def spawn_id(self) -> SpawnId: ...
 
     @property
+    @abstractmethod
     def capabilities(self) -> ConnectionCapabilities: ...
 
     @property
+    @abstractmethod
     def session_id(self) -> str | None: ...
 
     @property
+    @abstractmethod
     def subprocess_pid(self) -> int | None: ...
+
+    @abstractmethod
+    async def start(self, config: ConnectionConfig, spec: SpecT) -> None: ...
+
+    @abstractmethod
+    async def stop(self) -> None: ...
+
+    @abstractmethod
+    def health(self) -> bool: ...
+
+    @abstractmethod
+    async def send_user_message(self, text: str) -> None: ...
+
+    @abstractmethod
+    async def send_interrupt(self) -> None: ...
+
+    @abstractmethod
+    async def send_cancel(self) -> None: ...
+
+    @abstractmethod
+    def events(self) -> AsyncIterator[HarnessEvent]: ...
 
 
 __all__ = [
@@ -117,7 +116,4 @@ __all__ = [
     "ConnectionState",
     "HarnessConnection",
     "HarnessEvent",
-    "HarnessLifecycle",
-    "HarnessReceiver",
-    "HarnessSender",
 ]

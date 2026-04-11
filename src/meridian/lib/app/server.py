@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from dataclasses import asdict
 from importlib import import_module
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, cast
+from typing import Protocol, cast
 from uuid import uuid4
 
 from pydantic import BaseModel
@@ -17,16 +17,13 @@ from pydantic import BaseModel
 from meridian.lib.core.types import HarnessId, ModelId, SpawnId
 from meridian.lib.harness.adapter import SpawnParams
 from meridian.lib.harness.connections.base import ConnectionConfig
-from meridian.lib.harness.launch_spec import ResolvedLaunchSpec
 from meridian.lib.harness.registry import get_default_harness_registry
+from meridian.lib.launch.launch_types import PermissionResolver, ResolvedLaunchSpec
+from meridian.lib.safety.permissions import PermissionConfig, TieredPermissionResolver
 from meridian.lib.state import spawn_store
 from meridian.lib.streaming.spawn_manager import SpawnManager
 
 _SPAWN_ID_RE = re.compile(r"^p\d+$")
-
-if TYPE_CHECKING:
-    from meridian.lib.harness.adapter import PermissionResolver
-
 
 class _AppState(Protocol):
     """App state payload carrying shared runtime singletons."""
@@ -200,7 +197,11 @@ def create_app(spawn_manager: SpawnManager) -> object:
             agent=body.agent.strip() if body.agent else None,
         )
         spec: ResolvedLaunchSpec = adapter.resolve_launch_spec(
-            params, cast("PermissionResolver", None)
+            params,
+            cast(
+                "PermissionResolver",
+                TieredPermissionResolver(config=PermissionConfig()),
+            ),
         )
 
         try:

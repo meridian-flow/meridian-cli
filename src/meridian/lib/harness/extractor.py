@@ -1,7 +1,7 @@
 """Spawn extraction adapters for non-subprocess execution paths."""
 
 from meridian.lib.core.domain import TokenUsage
-from meridian.lib.core.types import HarnessId, SpawnId
+from meridian.lib.core.types import SpawnId
 from meridian.lib.harness.adapter import ArtifactStore, SpawnExtractor
 from meridian.lib.harness.common import (
     extract_claude_report,
@@ -11,6 +11,8 @@ from meridian.lib.harness.common import (
     extract_usage_from_artifacts,
 )
 from meridian.lib.harness.connections.base import HarnessConnection
+from meridian.lib.harness.ids import HarnessId
+from meridian.lib.launch.launch_types import ResolvedLaunchSpec
 
 
 class StreamingExtractor(SpawnExtractor):
@@ -18,7 +20,7 @@ class StreamingExtractor(SpawnExtractor):
 
     def __init__(
         self,
-        connection: HarnessConnection | None,
+        connection: HarnessConnection[ResolvedLaunchSpec] | None,
         harness_id: HarnessId,
     ) -> None:
         self._connection = connection

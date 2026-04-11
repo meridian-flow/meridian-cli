@@ -13,12 +13,13 @@ from meridian.lib.core.codec import (
     schema_from_type,
 )
 from meridian.lib.core.domain import TokenUsage
-from meridian.lib.core.types import HarnessId, ModelId
+from meridian.lib.core.types import ModelId
 from meridian.lib.core.util import to_jsonable
 from meridian.lib.harness.adapter import (
     HarnessCapabilities,
     SpawnResult,
 )
+from meridian.lib.harness.ids import HarnessId
 from meridian.lib.ops.manifest import OperationSpec, get_operations_for_surface
 
 

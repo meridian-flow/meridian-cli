@@ -19,8 +19,8 @@ from meridian.lib.core.context import RuntimeContext
 from meridian.lib.core.domain import Spawn, SpawnStatus
 from meridian.lib.core.sink import OutputSink
 from meridian.lib.core.types import HarnessId, ModelId, SpawnId
-from meridian.lib.harness.adapter import PermissionResolver
 from meridian.lib.launch.cwd import resolve_child_execution_cwd
+from meridian.lib.launch.launch_types import PermissionResolver
 from meridian.lib.launch.runner import execute_with_finalization
 from meridian.lib.launch.session_scope import session_scope
 from meridian.lib.launch.streaming_runner import execute_with_streaming
@@ -892,6 +892,7 @@ def _background_worker_main(
         allowed_tools=params.allowed_tools,
         approval=params.approval,
     )
+    typed_permission_resolver = cast("PermissionResolver", permission_resolver)
     return asyncio.run(
         _execute_existing_spawn(
             spawn_id=spawn_id,
@@ -901,7 +902,7 @@ def _background_worker_main(
             agent_name=params.agent_name,
             mcp_tools=params.mcp_tools,
             permission_config=permission_config,
-            permission_resolver=permission_resolver,
+            permission_resolver=typed_permission_resolver,
             allowed_tools=params.allowed_tools,
             passthrough_args=params.passthrough_args,
             session=params.session,

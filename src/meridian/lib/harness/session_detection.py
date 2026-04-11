@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from meridian.lib.core.types import HarnessId
+from meridian.lib.harness.ids import HarnessId
 from meridian.lib.harness.registry import HarnessRegistry, get_default_harness_registry
 
 

@@ -10,11 +10,11 @@ from collections.abc import Callable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from meridian.lib.core.domain import SpawnStatus
 from meridian.lib.core.types import SpawnId
-from meridian.lib.harness.launch_spec import ResolvedLaunchSpec
+from meridian.lib.launch.launch_types import ResolvedLaunchSpec
 from meridian.lib.state.atomic import append_text_line
 from meridian.lib.streaming.control_socket import ControlSocketServer
 from meridian.lib.streaming.types import InjectResult
@@ -24,7 +24,6 @@ if TYPE_CHECKING:
         ConnectionConfig,
         HarnessConnection,
         HarnessEvent,
-        HarnessReceiver,
     )
     from meridian.lib.observability.debug_tracer import DebugTracer
 
@@ -45,7 +44,7 @@ class DrainOutcome:
 class SpawnSession:
     """Live resources associated with one running spawn."""
 
-    connection: HarnessConnection
+    connection: HarnessConnection[Any]
     drain_task: asyncio.Task[None]
     subscriber: asyncio.Queue[HarnessEvent | None] | None
     control_server: ControlSocketServer
@@ -81,7 +80,7 @@ class SpawnManager:
         self,
         config: ConnectionConfig,
         spec: ResolvedLaunchSpec | None = None,
-    ) -> HarnessConnection:
+    ) -> HarnessConnection[Any]:
         """Start one connection and register durable drain/control resources."""
 
         spawn_id = config.spawn_id
@@ -92,7 +91,7 @@ class SpawnManager:
         from meridian.lib.harness.connections import get_connection_class
 
         connection_class = get_connection_class(config.harness_id)
-        connection_factory = cast("Callable[[], HarnessConnection]", connection_class)
+        connection_factory = cast("Callable[[], HarnessConnection[Any]]", connection_class)
         connection = connection_factory()
         started_monotonic = time.monotonic()
         completion_future: asyncio.Future[DrainOutcome] = asyncio.get_running_loop().create_future()
@@ -146,7 +145,10 @@ class SpawnManager:
         return connection
 
     async def _drain_loop(
-        self, spawn_id: SpawnId, receiver: HarnessReceiver, tracer: DebugTracer | None = None
+        self,
+        spawn_id: SpawnId,
+        receiver: HarnessConnection[Any],
+        tracer: DebugTracer | None = None,
     ) -> None:
         """Durably append each harness event and fan out to the active subscriber.
 
@@ -351,7 +353,7 @@ class SpawnManager:
         }
         await self._append_jsonl(self._inbound_log_path(spawn_id), payload)
 
-    def get_connection(self, spawn_id: SpawnId) -> HarnessConnection | None:
+    def get_connection(self, spawn_id: SpawnId) -> HarnessConnection[Any] | None:
         """Return the active connection for one spawn, if present."""
 
         session = self._sessions.get(spawn_id)

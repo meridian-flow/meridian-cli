@@ -2,27 +2,9 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
-
-from meridian.lib.harness.adapter import PermissionResolver, SpawnParams
+from meridian.lib.harness.adapter import SpawnParams
+from meridian.lib.launch.launch_types import PermissionResolver, ResolvedLaunchSpec
 from meridian.lib.safety.permissions import PermissionConfig
-
-
-class ResolvedLaunchSpec(BaseModel):
-    """Transport-neutral resolved configuration for one harness launch."""
-
-    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
-
-    model: str | None = None
-    effort: str | None = None
-    prompt: str = ""
-    continue_session_id: str | None = None
-    continue_fork: bool = False
-    permission_config: PermissionConfig = Field(default_factory=PermissionConfig)
-    permission_resolver: PermissionResolver | None = None
-    extra_args: tuple[str, ...] = ()
-    report_output_path: str | None = None
-    interactive: bool = False
 
 
 class ClaudeLaunchSpec(ResolvedLaunchSpec):
@@ -77,7 +59,7 @@ _SPEC_HANDLED_FIELDS: frozenset[str] = frozenset(
         "adhoc_agent_payload",
         "extra_args",
         "repo_root",
-        "mcp_tools",  # handled in env.py, not carried in the launch spec
+        "mcp_tools",
         "interactive",
         "continue_harness_session_id",
         "continue_fork",

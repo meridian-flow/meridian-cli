@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 from aiohttp import ClientSession, WSMsgType
 
 from meridian import __version__
-from meridian.lib.core.types import HarnessId, SpawnId
+from meridian.lib.core.types import SpawnId
 from meridian.lib.harness.connections.base import (
     ConnectionCapabilities,
     ConnectionConfig,
@@ -30,8 +30,10 @@ from meridian.lib.harness.connections.base import (
     HarnessConnection,
     HarnessEvent,
 )
-from meridian.lib.harness.launch_spec import CodexLaunchSpec, ResolvedLaunchSpec
+from meridian.lib.harness.ids import HarnessId
+from meridian.lib.harness.launch_spec import CodexLaunchSpec
 from meridian.lib.launch.env import inherit_child_env
+from meridian.lib.launch.launch_types import ResolvedLaunchSpec
 from meridian.lib.observability.trace_helpers import (
     trace_parse_error,
     trace_state_change,
@@ -123,7 +125,7 @@ async def _aiohttp_connect(ws_url: str) -> _AiohttpWebSocketCompat:
     return _AiohttpWebSocketCompat(session, ws)
 
 
-class CodexConnection(HarnessConnection):
+class CodexConnection(HarnessConnection[ResolvedLaunchSpec]):
     """JSON-RPC 2.0 bridge between Meridian and Codex app-server."""
 
     _ALLOWED_TRANSITIONS: Final[dict[ConnectionState, set[ConnectionState]]] = {

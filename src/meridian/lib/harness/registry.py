@@ -4,12 +4,12 @@ from typing import Self, cast
 
 from pydantic import BaseModel, ConfigDict, PrivateAttr
 
-from meridian.lib.core.types import HarnessId
 from meridian.lib.harness.adapter import (
     ConversationExtractingHarness,
     InProcessHarness,
     SubprocessHarness,
 )
+from meridian.lib.harness.ids import HarnessId
 
 type HarnessEntry = SubprocessHarness | InProcessHarness
 

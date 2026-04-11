@@ -1,18 +1,29 @@
-"""Harness adapter protocol and shared data models."""
+"""Harness adapter contracts and shared data models."""
 
+from __future__ import annotations
+
+import inspect
+from abc import ABC, abstractmethod
+from collections.abc import Callable, Iterable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
+from typing import Any, Generic, Literal, Protocol, TypeVar, cast, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from meridian.lib.core.conversation import Conversation
 from meridian.lib.core.domain import TokenUsage
-from meridian.lib.core.types import ArtifactKey, HarnessId, ModelId, SpawnId
+from meridian.lib.core.types import ArtifactKey, ModelId, SpawnId
+from meridian.lib.harness.ids import HarnessId
 from meridian.lib.harness.launch_types import PromptPolicy, SessionSeed
+from meridian.lib.launch.launch_types import (
+    PermissionResolver,
+    PreflightResult,
+    ResolvedLaunchSpec,
+    SpecT,
+)
 from meridian.lib.safety.permissions import PermissionConfig
 
-if TYPE_CHECKING:
-    from meridian.lib.harness.launch_spec import ResolvedLaunchSpec
+AdapterSpecT = TypeVar("AdapterSpecT", bound=ResolvedLaunchSpec, covariant=True)
 
 
 def _empty_metadata() -> dict[str, object]:
@@ -21,6 +32,47 @@ def _empty_metadata() -> dict[str, object]:
 
 def _empty_env_overrides() -> dict[str, str]:
     return {}
+
+
+def _coerce_permission_flags(raw: object) -> tuple[str, ...]:
+    if raw is None:
+        return ()
+    if isinstance(raw, tuple):
+        tuple_tokens = cast("tuple[object, ...]", raw)
+        return tuple(str(token) for token in tuple_tokens)
+    if isinstance(raw, list):
+        list_tokens = cast("list[object]", raw)
+        return tuple(str(token) for token in list_tokens)
+    if isinstance(raw, str):
+        return (raw,)
+    if isinstance(raw, Iterable):
+        iterable_tokens = cast("Iterable[object]", raw)
+        return tuple(str(token) for token in iterable_tokens)
+    raise TypeError(f"Permission resolver flags must be iterable, got {type(raw).__name__}")
+
+
+def resolve_permission_flags(
+    permission_resolver: PermissionResolver,
+    harness_id: HarnessId,
+) -> tuple[str, ...]:
+    """Resolve permission flags with support for legacy resolver signatures."""
+
+    resolve_flags = getattr(permission_resolver, "resolve_flags", None)
+    if not callable(resolve_flags):
+        return ()
+
+    signature = inspect.signature(resolve_flags)
+    param_count = len(signature.parameters)
+    if param_count == 0:
+        return _coerce_permission_flags(resolve_flags())
+    if param_count == 1:
+        resolver_with_harness = cast("Callable[[HarnessId], object]", resolve_flags)
+        return _coerce_permission_flags(resolver_with_harness(harness_id))
+
+    raise TypeError(
+        "PermissionResolver.resolve_flags must accept either no arguments "
+        "or a single harness-id argument"
+    )
 
 
 class HarnessCapabilities(BaseModel):
@@ -107,13 +159,6 @@ class SpawnResult(BaseModel):
 
 
 @runtime_checkable
-class PermissionResolver(Protocol):
-    """Permission resolver provided by execution layer."""
-
-    def resolve_flags(self, harness_id: HarnessId) -> list[str]: ...
-
-
-@runtime_checkable
 class ArtifactStore(Protocol):
     """Artifact access used for usage/session extraction."""
 
@@ -134,11 +179,37 @@ class SpawnExtractor(Protocol):
 
 
 @runtime_checkable
-class SubprocessHarness(Protocol):
-    """Protocol for subprocess-launching harness behavior."""
+class HarnessAdapter(Protocol, Generic[AdapterSpecT]):
+    """Typed harness adapter contract."""
 
     @property
     def id(self) -> HarnessId: ...
+
+    @property
+    def consumed_fields(self) -> frozenset[str]: ...
+
+    @property
+    def explicitly_ignored_fields(self) -> frozenset[str]: ...
+
+    @property
+    def handled_fields(self) -> frozenset[str]: ...
+
+    def resolve_launch_spec(
+        self, run: SpawnParams, perms: PermissionResolver
+    ) -> AdapterSpecT: ...
+
+    def preflight(
+        self,
+        *,
+        execution_cwd: Path,
+        child_cwd: Path,
+        passthrough_args: tuple[str, ...],
+    ) -> PreflightResult: ...
+
+
+@runtime_checkable
+class SubprocessHarness(HarnessAdapter[ResolvedLaunchSpec], Protocol):
+    """Protocol for subprocess-launching harness behavior."""
 
     @property
     def capabilities(self) -> HarnessCapabilities: ...
@@ -146,12 +217,6 @@ class SubprocessHarness(Protocol):
     def run_prompt_policy(self) -> RunPromptPolicy: ...
 
     def build_adhoc_agent_payload(self, *, name: str, description: str, prompt: str) -> str: ...
-
-    def resolve_launch_spec(
-        self,
-        run: SpawnParams,
-        perms: PermissionResolver,
-    ) -> "ResolvedLaunchSpec": ...
 
     def build_command(self, run: SpawnParams, perms: PermissionResolver) -> list[str]: ...
 
@@ -221,8 +286,45 @@ class ConversationExtractingHarness(Protocol):
     ) -> Conversation | None: ...
 
 
-class BaseSubprocessHarness:
-    """Base with default no-op implementations for optional adapter methods."""
+class BaseHarnessAdapter(Generic[SpecT], ABC):
+    """Base adapter with contract enforcement and optional helper defaults."""
+
+    @property
+    @abstractmethod
+    def id(self) -> HarnessId:
+        """Harness identifier for this adapter."""
+        ...
+
+    @property
+    @abstractmethod
+    def consumed_fields(self) -> frozenset[str]:
+        """SpawnParams fields actively consumed by this adapter."""
+        ...
+
+    @property
+    @abstractmethod
+    def explicitly_ignored_fields(self) -> frozenset[str]:
+        """SpawnParams fields deliberately ignored by this adapter."""
+        ...
+
+    @property
+    def handled_fields(self) -> frozenset[str]:
+        return self.consumed_fields | self.explicitly_ignored_fields
+
+    @abstractmethod
+    def resolve_launch_spec(self, run: SpawnParams, perms: PermissionResolver) -> SpecT:
+        """Resolve typed launch spec from generic spawn parameters."""
+        ...
+
+    def preflight(
+        self,
+        *,
+        execution_cwd: Path,
+        child_cwd: Path,
+        passthrough_args: tuple[str, ...],
+    ) -> PreflightResult:
+        _ = execution_cwd, child_cwd
+        return PreflightResult.build(expanded_passthrough_args=passthrough_args)
 
     def run_prompt_policy(self) -> RunPromptPolicy:
         return RunPromptPolicy()
@@ -230,26 +332,6 @@ class BaseSubprocessHarness:
     def build_adhoc_agent_payload(self, *, name: str, description: str, prompt: str) -> str:
         _ = name, description, prompt
         return ""
-
-    def resolve_launch_spec(
-        self,
-        run: SpawnParams,
-        perms: PermissionResolver,
-    ) -> "ResolvedLaunchSpec":
-        from meridian.lib.harness.launch_spec import ResolvedLaunchSpec, resolve_permission_config
-
-        return ResolvedLaunchSpec(
-            model=str(run.model).strip() if run.model else None,
-            effort=run.effort,
-            prompt=run.prompt,
-            continue_session_id=(run.continue_harness_session_id or "").strip() or None,
-            continue_fork=run.continue_fork,
-            permission_config=resolve_permission_config(perms),
-            permission_resolver=perms,
-            extra_args=run.extra_args,
-            report_output_path=run.report_output_path,
-            interactive=run.interactive,
-        )
 
     def fork_session(self, source_session_id: str) -> str:
         """Fork one harness session and return the new session ID."""
@@ -312,3 +394,7 @@ def resolve_mcp_config(adapter: SubprocessHarness, run: SpawnParams) -> McpConfi
     """Resolve adapter MCP config."""
 
     return adapter.mcp_config(run)
+
+
+# Temporary alias while downstream tests migrate to the new base-class name.
+BaseSubprocessHarness = BaseHarnessAdapter

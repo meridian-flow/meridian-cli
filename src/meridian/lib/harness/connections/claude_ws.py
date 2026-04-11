@@ -15,7 +15,8 @@ from typing import TYPE_CHECKING, Final, cast
 if TYPE_CHECKING:
     from meridian.lib.observability.debug_tracer import DebugTracer
 
-from meridian.lib.core.types import HarnessId, SpawnId
+from meridian.lib.core.types import SpawnId
+from meridian.lib.harness.adapter import resolve_permission_flags
 from meridian.lib.harness.connections.base import (
     ConnectionCapabilities,
     ConnectionConfig,
@@ -24,8 +25,10 @@ from meridian.lib.harness.connections.base import (
     HarnessConnection,
     HarnessEvent,
 )
-from meridian.lib.harness.launch_spec import ClaudeLaunchSpec, ResolvedLaunchSpec
+from meridian.lib.harness.ids import HarnessId
+from meridian.lib.harness.launch_spec import ClaudeLaunchSpec
 from meridian.lib.launch.env import inherit_child_env
+from meridian.lib.launch.launch_types import ResolvedLaunchSpec
 from meridian.lib.observability.trace_helpers import (
     trace_parse_error,
     trace_state_change,
@@ -49,7 +52,7 @@ _BLOCKED_CHILD_ENV_VARS: Final[frozenset[str]] = frozenset(
 )
 
 
-class ClaudeConnection(HarnessConnection):
+class ClaudeConnection(HarnessConnection[ResolvedLaunchSpec]):
     """Bidirectional Claude harness connection via stdin/stdout stream-json.
 
     Launches ``claude -p --input-format stream-json --output-format stream-json``
@@ -350,7 +353,7 @@ class ClaudeConnection(HarnessConnection):
             if spec.continue_fork:
                 command.append("--fork-session")
         if spec.permission_resolver:
-            command.extend(spec.permission_resolver.resolve_flags(HarnessId.CLAUDE))
+            command.extend(resolve_permission_flags(spec.permission_resolver, HarnessId.CLAUDE))
         if spec.extra_args:
             command.extend(spec.extra_args)
 

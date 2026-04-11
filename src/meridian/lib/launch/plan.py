@@ -4,14 +4,16 @@ import logging
 import os
 import shlex
 from pathlib import Path
+from typing import cast
 
 from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.config.settings import MeridianConfig, load_config, resolve_repo_root
 from meridian.lib.core.overrides import RuntimeOverrides
 from meridian.lib.core.types import HarnessId, ModelId
-from meridian.lib.harness.adapter import PermissionResolver, SpawnParams, SubprocessHarness
+from meridian.lib.harness.adapter import SpawnParams, SubprocessHarness
 from meridian.lib.harness.registry import HarnessRegistry
+from meridian.lib.launch.launch_types import PermissionResolver
 from meridian.lib.safety.permissions import (
     PermissionConfig,
     resolve_permission_pipeline,
@@ -350,7 +352,8 @@ def resolve_primary_launch_plan(
         continue_fork=continue_fork,
         appended_system_prompt=appended_system_prompt,
     )
-    command = tuple(adapter.build_command(run_params, resolver))
+    typed_resolver = cast("PermissionResolver", resolver)
+    command = tuple(adapter.build_command(run_params, typed_resolver))
 
     return ResolvedPrimaryLaunchPlan(
         repo_root=resolved_root,
@@ -362,7 +365,7 @@ def resolve_primary_launch_plan(
         session_metadata=session_metadata,
         run_params=run_params,
         permission_config=permission_config,
-        permission_resolver=resolver,
+        permission_resolver=typed_resolver,
         command=command,
         seed_harness_session_id=seed_harness_session_id,
         command_request=command_request,

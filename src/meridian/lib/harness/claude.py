@@ -9,22 +9,24 @@ from uuid import uuid4
 
 from meridian.lib.core.conversation import Conversation, ConversationTurn, ToolCall
 from meridian.lib.core.domain import TokenUsage
-from meridian.lib.core.types import ArtifactKey, HarnessId, SpawnId
+from meridian.lib.core.types import ArtifactKey, SpawnId
 from meridian.lib.harness.adapter import (
     ArtifactStore,
-    BaseSubprocessHarness,
+    BaseHarnessAdapter,
     HarnessCapabilities,
     McpConfig,
     PermissionResolver,
     RunPromptPolicy,
     SpawnParams,
+    resolve_permission_flags,
 )
 from meridian.lib.harness.common import (
     extract_claude_report,
     extract_session_id_from_artifacts,
     extract_usage_from_artifacts,
 )
-from meridian.lib.harness.launch_spec import ClaudeLaunchSpec, resolve_permission_config
+from meridian.lib.harness.ids import HarnessId
+from meridian.lib.harness.launch_spec import ClaudeLaunchSpec
 from meridian.lib.harness.launch_types import PromptPolicy, SessionSeed
 from meridian.lib.safety.permissions import PermissionConfig
 
@@ -189,7 +191,7 @@ def _tool_call_from_payload(payload: dict[str, object]) -> ToolCall | None:
     return ToolCall(tool_name=tool_name, input=tool_input, output=output_text)
 
 
-class ClaudeAdapter(BaseSubprocessHarness):
+class ClaudeAdapter(BaseHarnessAdapter[ClaudeLaunchSpec]):
     """SubprocessHarness implementation for `claude`."""
 
     BASE_COMMAND: ClassVar[tuple[str, ...]] = (
@@ -200,10 +202,36 @@ class ClaudeAdapter(BaseSubprocessHarness):
         "--verbose",  # required by Claude CLI when using stream-json with -p
     )
     PRIMARY_BASE_COMMAND: ClassVar[tuple[str, ...]] = ("claude",)
+    _CONSUMED_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "prompt",
+            "model",
+            "effort",
+            "skills",
+            "agent",
+            "adhoc_agent_payload",
+            "extra_args",
+            "repo_root",
+            "interactive",
+            "continue_harness_session_id",
+            "continue_fork",
+            "appended_system_prompt",
+            "mcp_tools",
+        }
+    )
+    _EXPLICITLY_IGNORED_FIELDS: ClassVar[frozenset[str]] = frozenset({"report_output_path"})
 
     @property
     def id(self) -> HarnessId:
         return HarnessId.CLAUDE
+
+    @property
+    def consumed_fields(self) -> frozenset[str]:
+        return self._CONSUMED_FIELDS
+
+    @property
+    def explicitly_ignored_fields(self) -> frozenset[str]:
+        return self._EXPLICITLY_IGNORED_FIELDS
 
     @property
     def capabilities(self) -> HarnessCapabilities:
@@ -240,17 +268,18 @@ class ClaudeAdapter(BaseSubprocessHarness):
                 "high": "high",
                 "xhigh": "max",
             }.get(normalized_value, normalized_value)
+        continue_session_id = (run.continue_harness_session_id or "").strip() or None
         return ClaudeLaunchSpec(
             model=str(run.model).strip() if run.model else None,
             effort=normalized_effort,
             prompt=run.prompt,
-            continue_session_id=(run.continue_harness_session_id or "").strip() or None,
-            continue_fork=run.continue_fork,
-            permission_config=resolve_permission_config(perms),
+            continue_session_id=continue_session_id,
+            continue_fork=run.continue_fork and continue_session_id is not None,
             permission_resolver=perms,
             extra_args=run.extra_args,
             report_output_path=run.report_output_path,
             interactive=run.interactive,
+            mcp_tools=run.mcp_tools,
             appended_system_prompt=run.appended_system_prompt,
             agents_payload=run.adhoc_agent_payload.strip() or None,
             agent_name=run.agent,
@@ -269,8 +298,8 @@ class ClaudeAdapter(BaseSubprocessHarness):
                 command.extend(["--effort", normalized_effort])
         if spec.agent_name is not None:
             command.extend(["--agent", str(spec.agent_name)])
-        permission_resolver = spec.permission_resolver or perms
-        command.extend(permission_resolver.resolve_flags(self.id))
+        permission_resolver = spec.permission_resolver
+        command.extend(resolve_permission_flags(permission_resolver, self.id))
         command.extend(spec.extra_args)
         # Inject skill content for --append-system-prompt (workaround for issue #29902).
         if spec.appended_system_prompt:

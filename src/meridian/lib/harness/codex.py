@@ -12,21 +12,23 @@ from typing import ClassVar, cast
 from uuid import uuid4
 
 from meridian.lib.core.domain import TokenUsage
-from meridian.lib.core.types import HarnessId, SpawnId
+from meridian.lib.core.types import SpawnId
 from meridian.lib.harness.adapter import (
     ArtifactStore,
-    BaseSubprocessHarness,
+    BaseHarnessAdapter,
     HarnessCapabilities,
     McpConfig,
     PermissionResolver,
     RunPromptPolicy,
     SpawnParams,
+    resolve_permission_flags,
 )
 from meridian.lib.harness.common import (
     extract_codex_report,
     extract_session_id_from_artifacts_with_patterns,
     extract_usage_from_artifacts,
 )
+from meridian.lib.harness.ids import HarnessId
 from meridian.lib.harness.launch_spec import CodexLaunchSpec, resolve_permission_config
 from meridian.lib.harness.launch_types import PromptPolicy
 from meridian.lib.safety.permissions import PermissionConfig
@@ -254,7 +256,7 @@ def _owns_session(repo_root: Path, session_ref: str) -> bool:
     return False
 
 
-class CodexAdapter(BaseSubprocessHarness):
+class CodexAdapter(BaseHarnessAdapter[CodexLaunchSpec]):
     """SubprocessHarness implementation for `codex`."""
 
     BASE_COMMAND: ClassVar[tuple[str, ...]] = ("codex", "exec", "--json")
@@ -272,10 +274,35 @@ class CodexAdapter(BaseSubprocessHarness):
         re.compile(r"\bcodex\s+resume\s+([A-Za-z0-9][A-Za-z0-9._:-]{5,})\b", re.IGNORECASE),
         re.compile(r"\bresume\s+([A-Za-z0-9][A-Za-z0-9._:-]{5,})\b", re.IGNORECASE),
     )
+    _CONSUMED_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "model",
+            "effort",
+            "prompt",
+            "continue_harness_session_id",
+            "continue_fork",
+            "extra_args",
+            "interactive",
+            "mcp_tools",
+            "report_output_path",
+            "repo_root",
+        }
+    )
+    _EXPLICITLY_IGNORED_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {"skills", "agent", "adhoc_agent_payload", "appended_system_prompt"}
+    )
 
     @property
     def id(self) -> HarnessId:
         return HarnessId.CODEX
+
+    @property
+    def consumed_fields(self) -> frozenset[str]:
+        return self._CONSUMED_FIELDS
+
+    @property
+    def explicitly_ignored_fields(self) -> frozenset[str]:
+        return self._EXPLICITLY_IGNORED_FIELDS
 
     @property
     def capabilities(self) -> HarnessCapabilities:
@@ -296,17 +323,18 @@ class CodexAdapter(BaseSubprocessHarness):
 
     def resolve_launch_spec(self, run: SpawnParams, perms: PermissionResolver) -> CodexLaunchSpec:
         permission_config = resolve_permission_config(perms)
+        continue_session_id = (run.continue_harness_session_id or "").strip() or None
         return CodexLaunchSpec(
             model=str(run.model).strip() if run.model else None,
             effort=run.effort,
             prompt=run.prompt,
-            continue_session_id=(run.continue_harness_session_id or "").strip() or None,
-            continue_fork=run.continue_fork,
-            permission_config=permission_config,
+            continue_session_id=continue_session_id,
+            continue_fork=run.continue_fork and continue_session_id is not None,
             permission_resolver=perms,
             extra_args=run.extra_args,
             report_output_path=run.report_output_path,
             interactive=run.interactive,
+            mcp_tools=run.mcp_tools,
             approval_mode=permission_config.approval,
             sandbox_mode=permission_config.sandbox,
         )
@@ -334,8 +362,8 @@ class CodexAdapter(BaseSubprocessHarness):
             normalized_effort = str(spec.effort).strip()
             if normalized_effort:
                 command.extend(["-c", f'model_reasoning_effort="{normalized_effort}"'])
-        permission_resolver = spec.permission_resolver or perms
-        command.extend(permission_resolver.resolve_flags(self.id))
+        permission_resolver = spec.permission_resolver
+        command.extend(resolve_permission_flags(permission_resolver, self.id))
         if harness_session_id:
             command.extend(["resume", harness_session_id])
         extra_args = list(spec.extra_args)

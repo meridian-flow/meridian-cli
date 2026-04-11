@@ -7,22 +7,24 @@ from pathlib import Path
 from typing import ClassVar
 
 from meridian.lib.core.domain import TokenUsage
-from meridian.lib.core.types import HarnessId, SpawnId
+from meridian.lib.core.types import SpawnId
 from meridian.lib.harness.adapter import (
     ArtifactStore,
-    BaseSubprocessHarness,
+    BaseHarnessAdapter,
     HarnessCapabilities,
     McpConfig,
     PermissionResolver,
     RunPromptPolicy,
     SpawnParams,
+    resolve_permission_flags,
 )
 from meridian.lib.harness.common import (
     extract_opencode_report,
     extract_session_id_from_artifacts_with_patterns,
     extract_usage_from_artifacts,
 )
-from meridian.lib.harness.launch_spec import OpenCodeLaunchSpec, resolve_permission_config
+from meridian.lib.harness.ids import HarnessId
+from meridian.lib.harness.launch_spec import OpenCodeLaunchSpec
 from meridian.lib.harness.launch_types import PromptPolicy, SessionSeed
 from meridian.lib.safety.permissions import PermissionConfig
 
@@ -117,7 +119,7 @@ def _owns_session(repo_root: Path, session_ref: str) -> bool:
     return False
 
 
-class OpenCodeAdapter(BaseSubprocessHarness):
+class OpenCodeAdapter(BaseHarnessAdapter[OpenCodeLaunchSpec]):
     """SubprocessHarness implementation for `opencode`."""
 
     BASE_COMMAND: ClassVar[tuple[str, ...]] = ("opencode", "run")
@@ -133,10 +135,37 @@ class OpenCodeAdapter(BaseSubprocessHarness):
             re.IGNORECASE,
         ),
     )
+    _CONSUMED_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "prompt",
+            "model",
+            "effort",
+            "skills",
+            "agent",
+            "adhoc_agent_payload",
+            "extra_args",
+            "repo_root",
+            "interactive",
+            "continue_harness_session_id",
+            "continue_fork",
+            "mcp_tools",
+        }
+    )
+    _EXPLICITLY_IGNORED_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {"appended_system_prompt", "report_output_path"}
+    )
 
     @property
     def id(self) -> HarnessId:
         return HarnessId.OPENCODE
+
+    @property
+    def consumed_fields(self) -> frozenset[str]:
+        return self._CONSUMED_FIELDS
+
+    @property
+    def explicitly_ignored_fields(self) -> frozenset[str]:
+        return self._EXPLICITLY_IGNORED_FIELDS
 
     @property
     def capabilities(self) -> HarnessCapabilities:
@@ -162,17 +191,18 @@ class OpenCodeAdapter(BaseSubprocessHarness):
         normalized_model: str | None = None
         if run.model:
             normalized_model = _strip_opencode_prefix(str(run.model).strip())
+        continue_session_id = (run.continue_harness_session_id or "").strip() or None
         return OpenCodeLaunchSpec(
             model=normalized_model,
             effort=run.effort,
             prompt=run.prompt,
-            continue_session_id=(run.continue_harness_session_id or "").strip() or None,
-            continue_fork=run.continue_fork,
-            permission_config=resolve_permission_config(perms),
+            continue_session_id=continue_session_id,
+            continue_fork=run.continue_fork and continue_session_id is not None,
             permission_resolver=perms,
             extra_args=run.extra_args,
             report_output_path=run.report_output_path,
             interactive=run.interactive,
+            mcp_tools=run.mcp_tools,
             agent_name=run.agent,
             skills=run.skills,
         )
@@ -186,8 +216,8 @@ class OpenCodeAdapter(BaseSubprocessHarness):
             normalized_effort = str(spec.effort).strip()
             if normalized_effort:
                 command.extend(["--variant", normalized_effort])
-        permission_resolver = spec.permission_resolver or perms
-        command.extend(permission_resolver.resolve_flags(self.id))
+        permission_resolver = spec.permission_resolver
+        command.extend(resolve_permission_flags(permission_resolver, self.id))
         command.extend(spec.extra_args)
         if spec.interactive:
             if spec.prompt:
