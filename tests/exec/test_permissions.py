@@ -33,6 +33,8 @@ from meridian.lib.safety.permissions import (
     opencode_permission_json_for_disallowed_tools,
     resolve_permission_pipeline,
 )
+from meridian.lib.state.paths import resolve_work_scratch_dir
+from meridian.lib.state.session_store import start_session, stop_session, update_session_work_id
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _PYRIGHT_BIN = _REPO_ROOT / ".venv" / "bin" / "pyright"
@@ -259,7 +261,7 @@ def test_sanitize_child_env_does_not_leak_primary_autocompact_override() -> None
     assert "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE" not in sanitized
 
 
-def test_inherit_child_env_keeps_parent_env_and_drops_autocompact_override() -> None:
+def test_inherit_child_env_keeps_parent_env_and_parent_autocompact_override() -> None:
     inherited = inherit_child_env(
         base_env={
             "PATH": "/usr/bin",
@@ -276,7 +278,65 @@ def test_inherit_child_env_keeps_parent_env_and_drops_autocompact_override() -> 
     assert inherited["MISC_VALUE"] == "keep-too"
     assert inherited["MERIDIAN_DEPTH"] == "2"
     assert inherited["MERIDIAN_PRIMARY_PROMPT"] == "stale"
+    assert inherited["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"] == "67"
+
+
+def test_inherit_child_env_prefers_meridian_autocompact_override() -> None:
+    inherited = inherit_child_env(
+        base_env={
+            "PATH": "/usr/bin",
+            "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "67",
+        },
+        env_overrides={
+            "MERIDIAN_DEPTH": "2",
+            "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "42",
+        },
+    )
+
+    assert inherited["PATH"] == "/usr/bin"
+    assert inherited["MERIDIAN_DEPTH"] == "2"
+    assert inherited["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"] == "42"
+
+
+def test_inherit_child_env_keeps_autocompact_unset_when_no_parent_or_override() -> None:
+    inherited = inherit_child_env(
+        base_env={"PATH": "/usr/bin"},
+        env_overrides={"MERIDIAN_DEPTH": "2"},
+    )
+
+    assert inherited["PATH"] == "/usr/bin"
+    assert inherited["MERIDIAN_DEPTH"] == "2"
     assert "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE" not in inherited
+
+
+def test_inherit_child_env_derives_work_dir_from_active_session_work(tmp_path: Path) -> None:
+    state_root = tmp_path / ".meridian"
+    chat_id = start_session(
+        state_root=state_root,
+        harness="codex",
+        harness_session_id="h-1",
+        model="gpt-5.3-codex",
+        chat_id="c-parent",
+    )
+    try:
+        update_session_work_id(state_root, chat_id, "w123")
+
+        inherited = inherit_child_env(
+            base_env={
+                "PATH": "/usr/bin",
+                "MERIDIAN_STATE_ROOT": state_root.as_posix(),
+                "MERIDIAN_CHAT_ID": chat_id,
+            },
+            env_overrides={"MERIDIAN_DEPTH": "2"},
+        )
+    finally:
+        stop_session(state_root, chat_id)
+
+    assert inherited["PATH"] == "/usr/bin"
+    assert inherited["MERIDIAN_DEPTH"] == "2"
+    assert inherited["MERIDIAN_WORK_DIR"] == resolve_work_scratch_dir(
+        state_root, "w123"
+    ).as_posix()
 
 
 def test_build_harness_child_env_uses_claude_specific_blocklist() -> None:
@@ -297,7 +357,7 @@ def test_build_harness_child_env_uses_claude_specific_blocklist() -> None:
     assert child_env["UNRELATED_TOKEN"] == "keep-me"
     assert child_env["MERIDIAN_DEPTH"] == "2"
     assert "CLAUDECODE" not in child_env
-    assert "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE" not in child_env
+    assert child_env["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"] == "67"
 
 
 def test_merge_env_overrides_rejects_meridian_leak_from_preflight() -> None:

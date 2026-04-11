@@ -6,6 +6,8 @@ from typing import cast
 
 from meridian.lib.harness.adapter import SpawnParams, SubprocessHarness, resolve_mcp_config
 from meridian.lib.safety.permissions import PermissionConfig
+from meridian.lib.state.paths import resolve_work_scratch_dir
+from meridian.lib.state.session_store import get_session_active_work_id
 
 from .constants import BLOCKED_CHILD_ENV_VARS
 
@@ -38,7 +40,7 @@ def _looks_like_secret_env_var(key: str) -> bool:
     return any(normalized.endswith(suffix) for suffix in _CHILD_ENV_SECRET_SUFFIXES)
 
 
-def _normalize_meridian_env(env: dict[str, str]) -> None:
+def _normalize_meridian_fs_dir(env: dict[str, str]) -> None:
     explicit_fs = env.get("MERIDIAN_FS_DIR", "").strip()
     if explicit_fs:
         env["MERIDIAN_FS_DIR"] = explicit_fs
@@ -52,6 +54,37 @@ def _normalize_meridian_env(env: dict[str, str]) -> None:
     repo_root = env.get("MERIDIAN_REPO_ROOT", "").strip()
     if repo_root:
         env["MERIDIAN_FS_DIR"] = (Path(repo_root).expanduser() / ".meridian" / "fs").as_posix()
+
+
+def _normalize_meridian_work_dir(env: dict[str, str]) -> None:
+    explicit_work = env.get("MERIDIAN_WORK_DIR", "").strip()
+    if explicit_work:
+        env["MERIDIAN_WORK_DIR"] = explicit_work
+        return
+
+    state_root_raw = env.get("MERIDIAN_STATE_ROOT", "").strip()
+    chat_id = env.get("MERIDIAN_CHAT_ID", "").strip()
+    if not state_root_raw or not chat_id:
+        return
+
+    try:
+        state_root = Path(state_root_raw).expanduser()
+        active_work_id = get_session_active_work_id(state_root, chat_id)
+        if not active_work_id:
+            return
+        normalized_work_id = active_work_id.strip()
+        if not normalized_work_id:
+            return
+        env["MERIDIAN_WORK_DIR"] = resolve_work_scratch_dir(
+            state_root, normalized_work_id
+        ).as_posix()
+    except Exception:
+        return
+
+
+def _normalize_meridian_env(env: dict[str, str]) -> None:
+    _normalize_meridian_fs_dir(env)
+    _normalize_meridian_work_dir(env)
 
 
 def sanitize_child_env(

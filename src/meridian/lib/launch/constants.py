@@ -15,11 +15,7 @@ REPORT_WATCHDOG_POLL_SECONDS: Final[float] = 1.0
 REPORT_WATCHDOG_GRACE_SECONDS: Final[float] = 60.0
 SUBPROCESS_REPORT_WATCHDOG_POLL_SECONDS: Final[float] = 5.0
 
-BLOCKED_CHILD_ENV_VARS: Final[frozenset[str]] = frozenset(
-    {
-        "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE",
-    }
-)
+BLOCKED_CHILD_ENV_VARS: Final[frozenset[str]] = frozenset()
 
 BASE_COMMAND_CLAUDE_SUBPROCESS: Final[tuple[str, ...]] = (
     "claude",
