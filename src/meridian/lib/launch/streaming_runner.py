@@ -71,6 +71,7 @@ if TYPE_CHECKING:
 _DEFAULT_CONFIG = MeridianConfig()
 DEFAULT_GUARDRAIL_TIMEOUT_SECONDS = _DEFAULT_CONFIG.guardrail_timeout_minutes * 60.0
 logger = structlog.get_logger(__name__)
+_TERMINAL_EVENT_GRACE_SECONDS = 0.5
 
 
 @dataclass(frozen=True)
@@ -82,6 +83,7 @@ class _AttemptRuntime:
     received_signal: signal.Signals | None
     budget_breach: BudgetBreach | None
     terminated_by_report_watchdog: bool
+    terminal_observed: bool = False
     start_error: str | None = None
 
 
@@ -357,6 +359,25 @@ def _terminal_event_outcome(event: HarnessEvent) -> _TerminalEventOutcome | None
     return None
 
 
+async def _await_terminal_outcome_after_completion(
+    *,
+    completion_task: asyncio.Task[DrainOutcome | None],
+    terminal_event_future: asyncio.Future[_TerminalEventOutcome],
+    grace_seconds: float = _TERMINAL_EVENT_GRACE_SECONDS,
+) -> _TerminalEventOutcome | None:
+    if terminal_event_future.done():
+        return terminal_event_future.result()
+    if not completion_task.done():
+        return None
+    try:
+        return await asyncio.wait_for(
+            asyncio.shield(terminal_event_future),
+            timeout=grace_seconds,
+        )
+    except TimeoutError:
+        return None
+
+
 async def _consume_subscriber_events(
     *,
     subscriber: asyncio.Queue[HarnessEvent | None],
@@ -450,6 +471,7 @@ async def run_streaming_spawn(
     signal_task: asyncio.Task[bool] | None = None
     consume_task: asyncio.Task[None] | None = None
     terminal_event_future: asyncio.Future[_TerminalEventOutcome] | None = None
+    terminal_outcome: _TerminalEventOutcome | None = None
     subscriber: asyncio.Queue[HarnessEvent | None] | None = None
     adapter = get_default_harness_registry().get_subprocess_harness(config.harness_id)
     run_spec = adapter.resolve_launch_spec(params, perms)
@@ -489,15 +511,7 @@ async def run_streaming_spawn(
                 },
                 return_when=asyncio.FIRST_COMPLETED,
             )
-            if signal_task in done and shutdown_event.is_set():
-                signal_exit = signal_to_exit_code(received_signal[0]) or 130
-                await manager.stop_spawn(
-                    spawn_id,
-                    status="cancelled",
-                    exit_code=signal_exit,
-                    error="cancelled",
-                )
-            elif terminal_event_future in done:
+            if terminal_event_future in done:
                 terminal_outcome = terminal_event_future.result()
                 await manager.stop_spawn(
                     spawn_id,
@@ -505,10 +519,37 @@ async def run_streaming_spawn(
                     exit_code=terminal_outcome.exit_code,
                     error=terminal_outcome.error,
                 )
+            elif signal_task in done and shutdown_event.is_set():
+                signal_exit = signal_to_exit_code(received_signal[0]) or 130
+                await manager.stop_spawn(
+                    spawn_id,
+                    status="cancelled",
+                    exit_code=signal_exit,
+                    error="cancelled",
+                )
+            elif completion_task in done:
+                terminal_outcome = await _await_terminal_outcome_after_completion(
+                    completion_task=completion_task,
+                    terminal_event_future=terminal_event_future,
+                )
+                if terminal_outcome is not None:
+                    await manager.stop_spawn(
+                        spawn_id,
+                        status=terminal_outcome.status,
+                        exit_code=terminal_outcome.exit_code,
+                        error=terminal_outcome.error,
+                    )
 
             outcome = await completion_task
             if outcome is None:
                 raise RuntimeError("streaming spawn completed without drain outcome")
+            if terminal_outcome is not None:
+                return DrainOutcome(
+                    status=terminal_outcome.status,
+                    exit_code=terminal_outcome.exit_code,
+                    error=terminal_outcome.error,
+                    duration_secs=outcome.duration_secs,
+                )
             return outcome
     finally:
         with signal_coordinator().mask_sigterm():
@@ -558,6 +599,7 @@ async def _run_streaming_attempt(
     drain_error: str | None = None
     timed_out = False
     terminated_by_report_watchdog = False
+    terminal_outcome: _TerminalEventOutcome | None = None
 
     try:
         connection = await manager.start_spawn(config, run_spec)
@@ -613,7 +655,17 @@ async def _run_streaming_attempt(
             wait_tasks.add(cast("asyncio.Task[object]", timeout_task))
 
         done, _ = await asyncio.wait(wait_tasks, return_when=asyncio.FIRST_COMPLETED)
-        if signal_task in done and signal_event.is_set():
+        if terminal_event_future in done:
+            terminal_outcome = terminal_event_future.result()
+            await manager.stop_spawn(
+                run.spawn_id,
+                status=terminal_outcome.status,
+                exit_code=terminal_outcome.exit_code,
+                error=terminal_outcome.error,
+            )
+            drain_exit_code = terminal_outcome.exit_code
+            drain_error = terminal_outcome.error
+        elif signal_task in done and signal_event.is_set():
             signal_exit = signal_to_exit_code(received_signal[0]) or 130
             await manager.stop_spawn(
                 run.spawn_id,
@@ -639,21 +691,25 @@ async def _run_streaming_attempt(
                 error="timeout",
             )
             drain_exit_code = 3
-        elif terminal_event_future in done:
-            terminal_outcome = terminal_event_future.result()
-            await manager.stop_spawn(
-                run.spawn_id,
-                status=terminal_outcome.status,
-                exit_code=terminal_outcome.exit_code,
-                error=terminal_outcome.error,
-            )
-            drain_exit_code = terminal_outcome.exit_code
-            drain_error = terminal_outcome.error
         elif watchdog_task in done:
             terminated_by_report_watchdog = bool(watchdog_task.result())
+        elif completion_task in done:
+            terminal_outcome = await _await_terminal_outcome_after_completion(
+                completion_task=completion_task,
+                terminal_event_future=terminal_event_future,
+            )
+            if terminal_outcome is not None:
+                await manager.stop_spawn(
+                    run.spawn_id,
+                    status=terminal_outcome.status,
+                    exit_code=terminal_outcome.exit_code,
+                    error=terminal_outcome.error,
+                )
+                drain_exit_code = terminal_outcome.exit_code
+                drain_error = terminal_outcome.error
 
         drain_outcome = await completion_task
-        if drain_outcome is not None:
+        if drain_outcome is not None and terminal_outcome is None:
             drain_exit_code = drain_outcome.exit_code
             drain_error = drain_outcome.error
     except Exception as exc:
@@ -665,6 +721,7 @@ async def _run_streaming_attempt(
             received_signal=received_signal[0],
             budget_breach=budget_breach_holder[0],
             terminated_by_report_watchdog=terminated_by_report_watchdog,
+            terminal_observed=False,
             start_error=str(exc),
         )
     finally:
@@ -687,6 +744,7 @@ async def _run_streaming_attempt(
         received_signal=received_signal[0],
         budget_breach=budget_breach_holder[0],
         terminated_by_report_watchdog=terminated_by_report_watchdog,
+        terminal_observed=terminal_outcome is not None,
     )
 
 
@@ -838,6 +896,7 @@ async def execute_with_streaming(
     extracted: FinalizeExtraction | None = None
     failure_reason: str | None = None
     terminated_after_completion = False
+    final_attempt_terminal_observed = False
 
     loop = asyncio.get_running_loop()
     shutdown_event = asyncio.Event()
@@ -879,6 +938,7 @@ async def execute_with_streaming(
                 terminated_after_completion = (
                     terminated_after_completion or attempt.terminated_by_report_watchdog
                 )
+                final_attempt_terminal_observed = attempt.terminal_observed
                 if attempt.start_error is not None:
                     logger.warning(
                         "Failed to execute streaming spawn attempt.",
@@ -886,7 +946,7 @@ async def execute_with_streaming(
                         harness_id=str(harness.id),
                         error=attempt.start_error,
                     )
-                    failure_reason = "infrastructure_error"
+                    failure_reason = attempt.start_error
                     _append_text_to_stderr_artifact(
                         artifacts=artifacts,
                         spawn_id=run.spawn_id,
@@ -896,12 +956,13 @@ async def execute_with_streaming(
                 attempt_cancelled = False
                 if attempt.timed_out:
                     failure_reason = "timeout"
-                if attempt.received_signal == signal.SIGINT:
-                    failure_reason = "cancelled"
-                    attempt_cancelled = True
-                elif attempt.received_signal == signal.SIGTERM:
-                    failure_reason = "terminated"
-                    attempt_cancelled = True
+                if not attempt.terminal_observed:
+                    if attempt.received_signal == signal.SIGINT:
+                        failure_reason = "cancelled"
+                        attempt_cancelled = True
+                    elif attempt.received_signal == signal.SIGTERM:
+                        failure_reason = "terminated"
+                        attempt_cancelled = True
                 elif exit_code != 0 and failure_reason is None and attempt.drain_error is not None:
                     failure_reason = attempt.drain_error
 
@@ -1129,8 +1190,11 @@ async def execute_with_streaming(
                 extracted.report.content
             )
             cancelled = (
-                failure_reason in {"cancelled", "terminated"}
-                or received_signal[0] in {signal.SIGINT, signal.SIGTERM}
+                not final_attempt_terminal_observed
+                and (
+                    failure_reason in {"cancelled", "terminated"}
+                    or received_signal[0] in {signal.SIGINT, signal.SIGTERM}
+                )
             )
             status, exit_code, failure_reason = resolve_execution_terminal_state(
                 exit_code=exit_code,

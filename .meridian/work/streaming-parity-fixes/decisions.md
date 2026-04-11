@@ -699,3 +699,33 @@ S042's subprocess-vs-streaming clause therefore degrades to streaming parity acr
 After p1504 reran the same smoke driver and produced post-fix evidence, the orchestrator did not respawn an independent `@smoke-tester` for S042 re-verify. Rationale: evidence is objective JSON rows in `spawns.jsonl`; an additional rerun would not provide new signal beyond validating the same artifact shape.
 
 This follows v3 coordinator posture: strict on invariants, pragmatic on process overhead when evidence is objective.
+
+## E9 — Phase 9: Final review fix pass (p1515 findings)
+
+### E9.1 — F1 completion-task race: bounded terminal-event grace wins over synthetic drain success
+
+`_run_streaming_attempt(...)` and `run_streaming_spawn(...)` now treat `completion_task` as non-authoritative when the terminal-event future is still pending. New helper `_await_terminal_outcome_after_completion(...)` waits a bounded 0.5s grace window for a queued terminal frame to be consumed.
+
+Decision: when natural drain completion arrives first, we still give the subscriber a short chance to publish terminal semantics. If the terminal event arrives in-window, that outcome overrides `DrainOutcome(status="succeeded", exit_code=0)` from natural drain completion.
+
+Why this closes the race: the previously unhandled `completion_task in done` branch could drop Claude `result` errors / OpenCode `session.error` frames. The new path records terminal status even when drain finished first.
+
+Tradeoff: 0.5s adds a bounded tail-latency only on this race edge; normal terminal-event-first and signal/budget/timeout paths are unchanged.
+
+### E9.2 — F2 late-signal race: terminal-observed precedence is end-to-end
+
+Two precedence changes landed:
+- wait-branch order now evaluates terminal-event completion before signal completion in both `run_streaming_spawn(...)` and `_run_streaming_attempt(...)`.
+- `_AttemptRuntime` now carries `terminal_observed`, and `execute_with_streaming(...)` finalize suppresses cancellation inference from `received_signal` when terminal was already observed in the final attempt.
+
+Decision: once a concrete harness terminal event is observed, a same-wakeup or later SIGINT/SIGTERM cannot downgrade final status to `cancelled`.
+
+Why this closes the race: branch reordering alone was insufficient because outer finalize still inferred cancellation from remembered signal state. The `terminal_observed` flag threads precedence through finalization.
+
+### E9.3 — F3 missing-binary diagnostics: preserve structured payload text through finalize
+
+`execute_with_streaming(...)` no longer rewrites startup launch failures to the generic marker `"infrastructure_error"` when `_run_streaming_attempt(...)` returns `start_error`. It now persists the full `start_error` string.
+
+Decision: carry launch-failure diagnostics through to the terminal row verbatim (at minimum), so `spawn show` preserves details like `binary_name` and `searched_path` from `HarnessBinaryNotFound`.
+
+Why this closes the regression: users now see actionable missing-binary diagnostics in persisted spawn state instead of an unhelpful generic failure reason.

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import os
+import signal
 from pathlib import Path
 from typing import ClassVar
 
@@ -65,10 +66,22 @@ def _fake_claude_result_connection_class(
     return _ClaudeResultThenHangConnection
 
 
+def _fake_claude_result_error_connection_class(
+    _harness_id: HarnessId,
+) -> type[_ClaudeResultErrorThenCloseConnection]:
+    return _ClaudeResultErrorThenCloseConnection
+
+
 def _fake_opencode_idle_connection_class(
     _harness_id: HarnessId,
 ) -> type[_OpenCodeIdleThenHangConnection]:
     return _OpenCodeIdleThenHangConnection
+
+
+def _fake_turn_completed_then_close_connection_class(
+    _harness_id: HarnessId,
+) -> type[_TurnCompletedThenCloseConnection]:
+    return _TurnCompletedThenCloseConnection
 
 
 def _fake_opencode_capture_spec_connection_class(
@@ -341,6 +354,45 @@ class _OpenCodeIdleThenHangConnection(_HangingAfterTurnCompletedConnection):
         )
         while True:
             await asyncio.sleep(3600)
+
+
+class _ClaudeResultErrorThenCloseConnection(_HangingAfterTurnCompletedConnection):
+    @property
+    def harness_id(self) -> HarnessId:
+        return HarnessId.CLAUDE
+
+    async def events(self):  # type: ignore[no-untyped-def]
+        yield HarnessEvent(
+            event_type="result",
+            harness_id="claude",
+            payload={
+                "subtype": "error",
+                "is_error": True,
+                "result": "boom",
+                "session_id": self._session_id,
+                "type": "result",
+            },
+        )
+
+
+class _TurnCompletedThenCloseConnection(_HangingAfterTurnCompletedConnection):
+    async def events(self):  # type: ignore[no-untyped-def]
+        repo_root = self._repo_root
+        assert repo_root is not None
+        spawn_dir = resolve_spawn_log_dir(repo_root, self._spawn_id)
+        spawn_dir.mkdir(parents=True, exist_ok=True)
+        (spawn_dir / "report.md").write_text(
+            "# Done\n\nTurn completed before shutdown.\n",
+            encoding="utf-8",
+        )
+        yield HarnessEvent(
+            event_type="turn/completed",
+            harness_id="codex",
+            payload={
+                "threadId": self._session_id,
+                "turn": {"id": "turn-1", "status": "completed", "error": None, "items": []},
+            },
+        )
 
 
 class _OpenCodeCaptureSpecThenIdleConnection(_OpenCodeIdleThenHangConnection):
@@ -664,6 +716,237 @@ async def test_execute_with_streaming_succeeds_after_report_watchdog_cleanup(
     assert row.exit_code == 0
     report = (state_root / "spawns" / str(run.spawn_id) / "report.md").read_text(encoding="utf-8")
     assert "Watchdog fallback completed." in report
+
+
+@pytest.mark.asyncio
+async def test_execute_with_streaming_waits_for_delayed_terminal_failure_after_drain_completion(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state_root = resolve_state_paths(tmp_path).root_dir
+    artifacts = LocalStore(root_dir=tmp_path / ".artifacts")
+    registry = HarnessRegistry()
+    registry.register(_DummyClaudeHarness())
+    monkeypatch.setattr(spawn_manager_module, "ControlSocketServer", _FakeControlSocketServer)
+    monkeypatch.setattr(
+        "meridian.lib.harness.connections.get_connection_class",
+        _fake_claude_result_error_connection_class,
+    )
+
+    async def _delayed_terminal_consume(
+        *,
+        subscriber: asyncio.Queue[HarnessEvent | None],
+        budget_tracker: object,
+        budget_signal: asyncio.Event,
+        budget_breach_holder: list[object | None],
+        event_observer: object,
+        stream_stdout_to_terminal: bool,
+        terminal_event_future: asyncio.Future[object] | None = None,
+    ) -> None:
+        _ = (
+            budget_tracker,
+            budget_signal,
+            budget_breach_holder,
+            event_observer,
+            stream_stdout_to_terminal,
+        )
+        while True:
+            event = await subscriber.get()
+            if event is None:
+                return
+            if terminal_event_future is None or terminal_event_future.done():
+                continue
+            terminal_outcome = streaming_runner_module._terminal_event_outcome(event)
+            if terminal_outcome is None:
+                continue
+            await asyncio.sleep(0.05)
+            terminal_event_future.set_result(terminal_outcome)
+
+    monkeypatch.setattr(
+        streaming_runner_module,
+        "_consume_subscriber_events",
+        _delayed_terminal_consume,
+    )
+
+    run = Spawn(
+        spawn_id=SpawnId("r-f1"),
+        prompt="hello",
+        model=ModelId("claude-opus-4-1"),
+        status="queued",
+    )
+
+    exit_code = await asyncio.wait_for(
+        execute_with_streaming(
+            run,
+            plan=_build_plan(HarnessId.CLAUDE, "claude-opus-4-1"),
+            repo_root=tmp_path,
+            state_root=state_root,
+            artifacts=artifacts,
+            registry=registry,
+            cwd=tmp_path,
+        ),
+        timeout=1.0,
+    )
+
+    assert exit_code != 0
+    row = spawn_store.get_spawn(state_root, run.spawn_id)
+    assert row is not None
+    assert row.status == "failed"
+    assert row.error == "boom"
+
+
+@pytest.mark.asyncio
+async def test_execute_with_streaming_prefers_terminal_over_same_wakeup_signal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state_root = resolve_state_paths(tmp_path).root_dir
+    artifacts = LocalStore(root_dir=tmp_path / ".artifacts")
+    registry = HarnessRegistry()
+    registry.register(_DummyCodexHarness())
+    monkeypatch.setattr(spawn_manager_module, "ControlSocketServer", _FakeControlSocketServer)
+    monkeypatch.setattr(
+        "meridian.lib.harness.connections.get_connection_class",
+        _fake_turn_completed_then_close_connection_class,
+    )
+
+    signal_state: dict[str, object] = {}
+
+    def _capture_signal_handlers(
+        loop: asyncio.AbstractEventLoop,
+        shutdown_event: asyncio.Event,
+        received_signal: list[signal.Signals | None],
+    ) -> list[signal.Signals]:
+        _ = loop
+        signal_state["shutdown_event"] = shutdown_event
+        signal_state["received_signal"] = received_signal
+        return []
+
+    monkeypatch.setattr(
+        streaming_runner_module,
+        "_install_signal_handlers",
+        _capture_signal_handlers,
+    )
+
+    async def _terminal_then_signal_consume(
+        *,
+        subscriber: asyncio.Queue[HarnessEvent | None],
+        budget_tracker: object,
+        budget_signal: asyncio.Event,
+        budget_breach_holder: list[object | None],
+        event_observer: object,
+        stream_stdout_to_terminal: bool,
+        terminal_event_future: asyncio.Future[object] | None = None,
+    ) -> None:
+        _ = (
+            budget_tracker,
+            budget_signal,
+            budget_breach_holder,
+            event_observer,
+            stream_stdout_to_terminal,
+        )
+        while True:
+            event = await subscriber.get()
+            if event is None:
+                return
+            if terminal_event_future is None or terminal_event_future.done():
+                continue
+            terminal_outcome = streaming_runner_module._terminal_event_outcome(event)
+            if terminal_outcome is None:
+                continue
+            terminal_event_future.set_result(terminal_outcome)
+            received_signal_holder = signal_state.get("received_signal")
+            shutdown_event = signal_state.get("shutdown_event")
+            assert isinstance(received_signal_holder, list)
+            assert isinstance(shutdown_event, asyncio.Event)
+            received_signal_holder[0] = signal.SIGTERM
+            shutdown_event.set()
+
+    monkeypatch.setattr(
+        streaming_runner_module,
+        "_consume_subscriber_events",
+        _terminal_then_signal_consume,
+    )
+
+    run = Spawn(
+        spawn_id=SpawnId("r-f2"),
+        prompt="hello",
+        model=ModelId("gpt-5.3-codex"),
+        status="queued",
+    )
+
+    exit_code = await asyncio.wait_for(
+        execute_with_streaming(
+            run,
+            plan=_build_plan(),
+            repo_root=tmp_path,
+            state_root=state_root,
+            artifacts=artifacts,
+            registry=registry,
+            cwd=tmp_path,
+        ),
+        timeout=1.0,
+    )
+
+    assert exit_code == 0
+    row = spawn_store.get_spawn(state_root, run.spawn_id)
+    assert row is not None
+    assert row.status == "succeeded"
+    assert row.exit_code == 0
+    assert row.error is None
+
+
+@pytest.mark.asyncio
+async def test_execute_with_streaming_persists_missing_binary_diagnostics(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state_root = resolve_state_paths(tmp_path).root_dir
+    artifacts = LocalStore(root_dir=tmp_path / ".artifacts")
+    registry = HarnessRegistry()
+    registry.register(_DummyClaudeHarness())
+    monkeypatch.setattr(spawn_manager_module, "ControlSocketServer", _FakeControlSocketServer)
+
+    async def _raise_missing_binary(
+        config: ConnectionConfig,
+        spec: ResolvedLaunchSpec,
+    ) -> _HangingAfterTurnCompletedConnection:
+        _ = config, spec
+        raise HarnessBinaryNotFound(
+            harness_id="claude",
+            binary_name="/usr/bin/claude",
+            searched_path="/fake:/path",
+        )
+
+    monkeypatch.setattr(spawn_manager_module, "dispatch_start", _raise_missing_binary)
+
+    run = Spawn(
+        spawn_id=SpawnId("r-f3"),
+        prompt="hello",
+        model=ModelId("claude-opus-4-1"),
+        status="queued",
+    )
+
+    exit_code = await asyncio.wait_for(
+        execute_with_streaming(
+            run,
+            plan=_build_plan(HarnessId.CLAUDE, "claude-opus-4-1"),
+            repo_root=tmp_path,
+            state_root=state_root,
+            artifacts=artifacts,
+            registry=registry,
+            cwd=tmp_path,
+        ),
+        timeout=1.0,
+    )
+
+    assert exit_code != 0
+    row = spawn_store.get_spawn(state_root, run.spawn_id)
+    assert row is not None
+    assert row.status == "failed"
+    assert row.error is not None
+    assert "binary_name='/usr/bin/claude'" in row.error
+    assert "searched_path='/fake:/path'" in row.error
 
 
 @pytest.mark.asyncio
