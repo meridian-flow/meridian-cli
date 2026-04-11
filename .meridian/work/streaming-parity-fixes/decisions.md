@@ -818,3 +818,23 @@ Decision: branch priority is now `terminal_event_future` -> `completion_task` ->
 Coverage: added `test_execute_with_streaming_completion_grace_on_same_wakeup_signal`, which forces `wait_for_completion(...)` to set SIGTERM at completion return time while terminal future resolution is delayed into the grace window. Assertion verifies final row stays terminal-success (`succeeded`, exit `0`) rather than `cancelled`.
 
 F3 cosmetic structured-field extension (`binary_name`, `searched_path` on persisted rows) was not included in this pass; user-visible diagnostics remain functional via `error` text.
+
+### E9.13 — Final convergence: v3 declared closed
+
+Round 3 runtime re-re-reviewer (p1525) confirmed that the residual same-wakeup F2 race documented in E9.12 is now fully closed. No new findings were introduced by the fix. Static review of `streaming_runner.py` verified:
+
+- `run_streaming_spawn(...)` and `_run_streaming_attempt(...)` both evaluate terminal-event completion first, completion-task second, signal-task third.
+- Every completion branch unconditionally runs `_await_terminal_outcome_after_completion(...)` before honoring pending signal cancellation.
+- `execute_with_streaming(...)` finalize computes `cancelled` only when `not final_attempt_terminal_observed`, so late SIGTERM cannot downgrade an already-observed terminal outcome.
+- The new regression test `test_execute_with_streaming_completion_grace_on_same_wakeup_signal` (added in p1524) exercises the exact interleaving the race depended on and asserts persisted `succeeded` rather than `cancelled`.
+
+F2 was the last non-trivial finding across the final review loop. All other lane findings (runtime F1/F3, types M1–M4, refactor H1/H2/M1/M3/M4, design M-1/M-2/M-3 and lows L-4 through L-8) were either closed in earlier E9.x entries (E9.1 – E9.10) or explicitly deferred with follow-up hooks (E9.11).
+
+**Final gate results** (orchestrator-run on `db7eb89`, post all fix commits):
+
+- `uv run ruff check .` → All checks passed
+- `uv run pyright` → 0 errors, 0 warnings, 0 informations
+- `uv run pytest tests/ --ignore=tests/smoke -q` → 563 passed
+- `PYTHONOPTIMIZE=1 uv run pytest tests/ --ignore=tests/smoke -q` → 563 passed (pytest `-O` warning only)
+
+**Convergence declaration.** v3 is converged. All eight implementation phases are committed, all K1–K9 invariants are live in code, all seven Phase 8 scenarios are verified, all four gates are green, and every finding from the final review loop is either closed or recorded as a deferred follow-up with a concrete next-work-item hook. The work item is ready to close; see `run-report.md` for the consolidated audit trail and the Follow-ups section there for the next-cycle pickup list.
