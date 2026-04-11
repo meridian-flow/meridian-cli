@@ -6,6 +6,16 @@ Bind each adapter, connection, and extractor to a concrete launch-spec subtype s
 
 Revision round 3 reframes the invariants this doc carries: every check here exists to protect meridian's own internal coordination logic from drift. Nothing here validates or polices the content of user-supplied `extra_args`, permission combinations, or harness decisions.
 
+## Module: `harness/ids.py` (single source for `HarnessId` / `TransportId`)
+
+`HarnessId` and `TransportId` are defined **exactly once**, in `src/meridian/lib/harness/ids.py`. Every other module — adapter, bundle, connection, extractor, dispatch, launch context, runner, launch_spec guard — imports them from that path:
+
+```python
+from meridian.lib.harness.ids import HarnessId, TransportId
+```
+
+No other module may re-export or redefine these enums. They are standalone leaves with **zero** downstream imports inside the `meridian.lib.harness` package (see §Import Topology); this makes them safe to import from any module without triggering an import cycle. This pin is load-bearing for K1 (`(harness_id, transport_id)` dispatch) and K2 (`_REGISTRY: dict[HarnessId, HarnessBundle[Any]]`) — both invariants key on identity of the enum values, which only holds if there is one definition site.
+
 ## Module: `launch/launch_types.py`
 
 ```python
@@ -142,11 +152,29 @@ _REGISTRY: dict[HarnessId, HarnessBundle[Any]] = {}
 def register_harness_bundle(bundle: HarnessBundle[Any]) -> None:
     """Sole mutation site for the harness bundle registry (K2).
 
-    Raises `ValueError` if a bundle for the same `harness_id` is already
-    registered. This catches duplicate registrations caused by double-import
-    or by two modules claiming the same harness id — failures that would
-    otherwise silently change dispatch by last-import-wins.
+    Validates bundle completeness at registration time — this is the single
+    enforcement point for bundle-level invariants. Any bundle that reaches
+    `_REGISTRY` has been proven well-formed.
+
+    Raises:
+        TypeError: if `bundle.extractor is None` (K6 requires every harness to
+            declare an extractor for session-id fallback parity).
+        ValueError: if `bundle.connections` is empty (a bundle with no
+            transports is useless and indicates a wiring bug).
+        ValueError: if a bundle for the same `harness_id` is already
+            registered — catches duplicate registrations caused by double-import
+            or by two modules claiming the same harness id.
     """
+    if bundle.extractor is None:  # type: ignore[comparison-overlap]
+        raise TypeError(
+            f"HarnessBundle for {bundle.harness_id} is missing extractor "
+            f"(K6: every harness must declare a HarnessExtractor[SpecT])"
+        )
+    if not bundle.connections:
+        raise ValueError(
+            f"HarnessBundle for {bundle.harness_id} has no connections; "
+            f"must declare at least one (TransportId, HarnessConnection[SpecT]) entry"
+        )
     if bundle.harness_id in _REGISTRY:
         existing = type(_REGISTRY[bundle.harness_id].adapter).__name__
         incoming = type(bundle.adapter).__name__
@@ -177,23 +205,68 @@ def get_connection_cls(
         ) from None
 ```
 
-### Bundle registration bootstrapping
+### Bootstrap Sequence (canonical `harness/__init__.py`)
 
-`harness/__init__.py` imports every `claude`, `codex`, and `opencode` adapter module eagerly so `register_harness_bundle(...)` is always invoked before any dispatch site reads the registry. The eager-import edge is part of the DAG in [§Import Topology](#import-topology).
+The `harness/` package load order is **load-bearing**: concrete adapters must register bundles before the cross-adapter field accounting check runs; projection modules must execute their per-module drift guards before any dispatch; extractors must be imported so Protocol runtime checks bind correctly. The canonical form is a single authoritative block.
+
+```python
+# src/meridian/lib/harness/__init__.py
+# Import order is load-bearing. Do not reorder without updating
+# typed-harness.md §Bootstrap Sequence and re-running S044.
+
+# 1. Concrete adapters. Each module calls register_harness_bundle(...)
+#    as a top-level side effect. After this block every
+#    HarnessId has a bundle in _REGISTRY.
+from meridian.lib.harness import claude as _claude  # noqa: F401
+from meridian.lib.harness import codex as _codex    # noqa: F401
+from meridian.lib.harness import opencode as _opencode  # noqa: F401
+
+# 2. Projection modules. Each module calls _check_projection_drift(...)
+#    at top level, so stale or missing fields in per-harness wire
+#    formats raise ImportError during package load.
+from meridian.lib.harness.projections import (  # noqa: F401
+    project_claude,
+    project_codex_subprocess,
+    project_codex_streaming,
+    project_opencode_subprocess,
+    project_opencode_streaming,
+)
+
+# 3. Extractors. Runtime-checkable Protocol binding; imported explicitly
+#    so isinstance checks against HarnessExtractor succeed even if a
+#    concrete adapter imports its extractor lazily.
+from meridian.lib.harness.extractors import (  # noqa: F401
+    claude as _claude_ext,
+    codex as _codex_ext,
+    opencode as _opencode_ext,
+)
+
+# 4. Cross-adapter field-ownership accounting. This call MUST run AFTER
+#    every register_harness_bundle() above so _REGISTRY is fully populated.
+#    Do NOT invoke this as a module-load side effect in launch_spec.py —
+#    import order there is not deterministic across harnesses.
+from meridian.lib.harness.launch_spec import _enforce_spawn_params_accounting
+_enforce_spawn_params_accounting()
+```
+
+The explicit final call to `_enforce_spawn_params_accounting()` replaces any module-load side effect in `launch_spec.py`. Scenario S044 targets this ordering: loading `harness.__init__` from a fresh interpreter with a fixture registry that drops a `handled_fields` entry must raise `ImportError` naming the missing `SpawnParams` field.
 
 ### Import-time invariants enforced by bundle / registry
 
-- Duplicate `register_harness_bundle(bundle)` with the same `harness_id` raises `ValueError` (S039).
-- Every bundle's `connections` mapping is non-empty.
+- `register_harness_bundle(bundle)` rejects duplicate `harness_id` with `ValueError` (S039).
+- `register_harness_bundle(bundle)` rejects `extractor is None` with `TypeError` (S043).
+- `register_harness_bundle(bundle)` rejects empty `connections` mapping with `ValueError`.
 - Every bundle's `adapter` is a `HarnessAdapter[SpecT]` and its `spec_cls` matches the generic binding at import time (Protocol runtime-check).
-- Every bundle exposes an `extractor: HarnessExtractor[SpecT]` (K6).
+- Every bundle exposes an `extractor: HarnessExtractor[SpecT]` (K6) validated by registration.
 
 ## Adapter Contract (K3, K9)
+
+> **Note.** Round 3 renames `BaseSubprocessHarness` → `BaseHarnessAdapter`. All three harnesses (Claude, Codex, OpenCode) now support streaming connections, and all three inherit the same base. The old name suggested a `BaseStreamingHarness` counterpart that does not exist; the ABC is about adapter contract (`resolve_launch_spec` + `preflight` + `id` + `handled_fields`), not about any specific transport.
 
 Two mechanisms are used and they have different roles:
 
 - `@runtime_checkable Protocol` (`HarnessAdapter[SpecT]`) for structural type checking in pyright.
-- `abc.ABC` abstract methods (`BaseSubprocessHarness(Generic[SpecT], ABC)`) for runtime instantiation rejection.
+- `abc.ABC` abstract methods (`BaseHarnessAdapter(Generic[SpecT], ABC)`) for runtime instantiation rejection.
 
 Protocol conformance does not raise `TypeError` at instantiation. ABC abstract-method enforcement does. K3 requires that the Protocol and ABC expose the same required method set so a subclass cannot be ABC-instantiable while Protocol-noncompliant.
 
@@ -205,12 +278,34 @@ class HarnessAdapter(Protocol, Generic[SpecT]):
     def id(self) -> HarnessId: ...
 
     @property
+    def consumed_fields(self) -> frozenset[str]:
+        """SpawnParams fields this adapter actively reads and maps onto its
+        spec. These are fields that produce wire output — a new field listed
+        here but not wired in the projection triggers the projection drift
+        guard in `_check_projection_drift(...)`.
+        """
+        ...
+
+    @property
+    def explicitly_ignored_fields(self) -> frozenset[str]:
+        """SpawnParams fields this adapter consciously does NOT map.
+
+        Listing a field here is a conscious opt-out — e.g., Codex ignores
+        `skills` because Codex has no skill injection path. Forgetting to
+        wire a field is different from deciding not to wire it; K9 can't
+        tell those apart from `handled_fields` alone. The split makes the
+        intent explicit, and the projection drift guard cross-references
+        `_PROJECTED_FIELDS` against `consumed_fields` only.
+        """
+        ...
+
+    @property
     def handled_fields(self) -> frozenset[str]:
-        """SpawnParams fields this adapter maps onto its spec (K9).
+        """Convenience union: `consumed_fields | explicitly_ignored_fields`.
 
         The union of every registered adapter's `handled_fields` must equal
         `SpawnParams.model_fields`. An import-time guard in
-        `harness/launch_spec.py` raises `ImportError` on drift.
+        `harness/launch_spec.py` raises `ImportError` on drift (K9).
         """
         ...
 
@@ -225,7 +320,7 @@ class HarnessAdapter(Protocol, Generic[SpecT]):
     ) -> PreflightResult: ...
 
 
-class BaseSubprocessHarness(Generic[SpecT], ABC):
+class BaseHarnessAdapter(Generic[SpecT], ABC):
     @property
     @abstractmethod
     def id(self) -> HarnessId:
@@ -237,11 +332,26 @@ class BaseSubprocessHarness(Generic[SpecT], ABC):
 
     @property
     @abstractmethod
-    def handled_fields(self) -> frozenset[str]:
-        """Abstract so every concrete adapter is forced to declare which
-        SpawnParams fields it maps (K9). Import-time check in
-        `harness/launch_spec.py` aggregates these across all adapters."""
+    def consumed_fields(self) -> frozenset[str]:
+        """Fields the adapter actively reads and projects onto the wire (K9).
+        Abstract so every concrete adapter is forced to declare its own set —
+        the base cannot provide a default without hiding drift."""
         ...
+
+    @property
+    @abstractmethod
+    def explicitly_ignored_fields(self) -> frozenset[str]:
+        """Fields the adapter consciously does not project. Abstract for the
+        same reason as `consumed_fields` — forgetting to opt out is different
+        from forgetting to consume."""
+        ...
+
+    @property
+    def handled_fields(self) -> frozenset[str]:
+        """Union helper; not abstract — derived from `consumed_fields` and
+        `explicitly_ignored_fields`. K9 checks this against
+        `SpawnParams.model_fields`."""
+        return self.consumed_fields | self.explicitly_ignored_fields
 
     @abstractmethod
     def resolve_launch_spec(self, run: SpawnParams, perms: PermissionResolver) -> SpecT: ...
@@ -258,7 +368,7 @@ class BaseSubprocessHarness(Generic[SpecT], ABC):
 
 `ClaudeAdapter.preflight(...)` performs Claude-specific parent-permission and `--add-dir` expansion. `CodexAdapter` and `OpenCodeAdapter` use the base default.
 
-A unit test reconciles `HarnessAdapter` Protocol attributes against the abstract method set on `BaseSubprocessHarness`. If they drift, the test fails (S040).
+A unit test reconciles `HarnessAdapter` Protocol attributes against the abstract method set on `BaseHarnessAdapter`. If they drift, the test fails (S040).
 
 ## Connection Contract (K8)
 
@@ -304,11 +414,9 @@ Scenarios S041 and S042 exercise cancel / interrupt parity across subprocess and
 
 ## Dispatch Boundary (authoritative site) — K1
 
-The single cast boundary is in `SpawnManager.start_spawn` dispatch, not in `prepare_launch_context`.
+The single runtime type-narrow boundary is in `SpawnManager.start_spawn` dispatch, not in `prepare_launch_context`.
 
 ```python
-from typing import cast
-
 async def dispatch_start(
     *,
     harness_id: HarnessId,
@@ -330,11 +438,16 @@ async def dispatch_start(
             f"harness {bundle.harness_id} does not support transport {transport_id}"
         ) from None
     connection = connection_cls()
-    await connection.start(config, cast(SpecT, spec))
+    # No cast needed: bundle.connections[transport_id] is typed as
+    # type[HarnessConnection[Any]] (because _REGISTRY holds HarnessBundle[Any]),
+    # and the isinstance guard above is the actual runtime narrow.
+    # A free `cast(SpecT, spec)` here would either be a no-op or get flagged
+    # by pyright for binding an unbound TypeVar (see Opus review p1439 #6).
+    await connection.start(config, spec)
     return connection
 ```
 
-This runtime guard is the S002 runtime trigger. It is the only allowed boundary-type guard.
+The `isinstance(spec, bundle.spec_cls)` check is the single cast boundary — the runtime type narrow that S002 targets. It is the only allowed boundary-type guard.
 
 Inside concrete `Connection.start(...)` methods, behavior-switching `isinstance` branches are disallowed.
 
@@ -342,6 +455,11 @@ Inside concrete `Connection.start(...)` methods, behavior-switching `isinstance`
 
 ```python
 # src/meridian/lib/harness/extractors/base.py
+from collections.abc import Mapping
+from typing import Generic, Protocol, runtime_checkable
+
+
+@runtime_checkable
 class HarnessExtractor(Protocol, Generic[SpecT]):
     """Harness-specific event and artifact extraction.
 
@@ -350,6 +468,9 @@ class HarnessExtractor(Protocol, Generic[SpecT]):
     Closes the p1385 gap where streaming had no fallback session detection
     via harness-specific project files (Claude project files, Codex rollout
     files, OpenCode logs).
+
+    `runtime_checkable` so `isinstance(obj, HarnessExtractor)` can verify
+    the Protocol surface at bundle-registration time.
     """
 
     def detect_session_id_from_event(
@@ -362,10 +483,22 @@ class HarnessExtractor(Protocol, Generic[SpecT]):
     def detect_session_id_from_artifacts(
         self,
         *,
+        spec: SpecT,
+        launch_env: Mapping[str, str],
         child_cwd: Path,
         state_root: Path,
     ) -> str | None:
         """Fallback session id detection from harness-specific artifacts.
+
+        `launch_env` is the fully-merged env the child was launched with —
+        the same `LaunchContext.env` exposed as a `MappingProxyType`. It is
+        threaded here so extractors respect non-default paths set via
+        `preflight.extra_env` (e.g., `CODEX_HOME`, `OPENCODE_*`). Without
+        this, an extractor that reads `~/.codex/rollouts/...` would resolve
+        to the orchestrator user's home instead of the child-process home.
+
+        `spec: SpecT` gives the extractor access to harness-specific
+        fields (e.g., `codex_cwd`) without a back-door to the run params.
 
         Required for every harness. Subprocess was already doing this;
         streaming now has parity via the same extractor.
@@ -376,109 +509,127 @@ class HarnessExtractor(Protocol, Generic[SpecT]):
         self,
         *,
         spec: SpecT,
+        launch_env: Mapping[str, str],
         child_cwd: Path,
         artifacts_dir: Path,
     ) -> str | None:
-        """Extract the final report from post-run artifacts, if produced."""
+        """Extract the final report from post-run artifacts, if produced.
+
+        `launch_env` is threaded for the same reason as in
+        `detect_session_id_from_artifacts` — report paths may depend on
+        harness-specific env overrides.
+        """
         ...
 ```
 
-### Extractor drift guard
+### Extractor bundle-registration guard
 
-`src/meridian/lib/harness/extractors/__init__.py` imports every concrete extractor eagerly and asserts that every registered `HarnessBundle.extractor` is non-None. Missing extractors fail at import. S043 exercises this.
+`register_harness_bundle(bundle)` rejects `bundle.extractor is None` with `TypeError` (see §Bundle Registry). This is the single enforcement point: registration-time validation, not a separate eager-import side effect. `src/meridian/lib/harness/extractors/__init__.py` still imports every concrete extractor eagerly so the Protocol `runtime_checkable` binding is in place before bundle modules execute, but the load-bearing check lives in `register_harness_bundle`. S043 targets the registration-time failure.
 
 ## Import Topology
 
+**Convention:** `A → B` means "A imports B" (consumer on the left, dependency on the right). Every edge below is acyclic.
+
 ```
-launch/launch_types.py
-    ↑
-    ├── harness/adapter.py
-    ├── harness/launch_spec.py
-    ├── harness/connections/base.py
-    ├── harness/extractors/base.py
-    └── harness/bundle.py
-         ↑
-         └── launch/context.py
+# Leaf types (nothing inside harness/ imports from launch/ except these):
+launch/launch_types.py   ← (no upstream harness/ imports)
+launch/constants.py      ← (no upstream harness/ imports)
+launch/text_utils.py     ← (no upstream harness/ imports)
 
-launch/constants.py
-    ↑
-    ├── launch/context.py
-    ├── harness/claude_preflight.py
-    └── harness/projections/project_codex_streaming.py
+# Contract leaves (imported by everything that implements them):
+harness/adapter.py             → launch/launch_types.py
+harness/connections/base.py    → launch/launch_types.py
+harness/extractors/base.py     → launch/launch_types.py
+harness/ids.py                 → (standalone enums)
+harness/errors.py              → (standalone)
+harness/projections/_guards.py → launch/launch_types.py
 
-launch/text_utils.py
-    ↑
-    ├── harness/claude_preflight.py
-    └── harness/projections/project_claude.py
+# Bundle glues the contracts together (all four edges are load-bearing):
+harness/bundle.py → harness/adapter.py
+                  → harness/connections/base.py
+                  → harness/extractors/base.py
+                  → harness/ids.py
+                  → launch/launch_types.py
 
-harness/projections/_guards.py
-    ↑
-    ├── harness/projections/project_claude.py
-    ├── harness/projections/project_codex_subprocess.py
-    ├── harness/projections/project_codex_streaming.py
-    ├── harness/projections/project_opencode_subprocess.py
-    └── harness/projections/project_opencode_streaming.py
+# Concrete adapter modules — each calls register_harness_bundle(...) at
+# top level, so importing these modules has a side effect on _REGISTRY:
+harness/claude.py   → harness/adapter.py
+                    → harness/bundle.py
+                    → harness/claude_preflight.py
+                    → harness/projections/project_claude.py
+                    → harness/extractors/claude.py
+harness/codex.py    → harness/adapter.py
+                    → harness/bundle.py
+                    → harness/projections/project_codex_subprocess.py
+                    → harness/projections/project_codex_streaming.py
+                    → harness/extractors/codex.py
+harness/opencode.py → harness/adapter.py
+                    → harness/bundle.py
+                    → harness/projections/project_opencode_subprocess.py
+                    → harness/projections/project_opencode_streaming.py
+                    → harness/extractors/opencode.py
 
-harness/adapter.py
-    ↑
-    ├── harness/claude.py (uses harness/claude_preflight.py)
-    ├── harness/codex.py
-    └── harness/opencode.py
+# Claude preflight is the only adapter-specific preflight module:
+harness/claude_preflight.py → launch/constants.py
+                            → launch/text_utils.py
 
-harness/launch_spec.py
-    ↑
-    ├── harness/projections/project_claude.py
-    ├── harness/projections/project_codex_subprocess.py
-    ├── harness/projections/project_codex_streaming.py
-    ├── harness/projections/project_opencode_subprocess.py
-    └── harness/projections/project_opencode_streaming.py
+# Projection modules all import the same guard leaf and a spec class:
+harness/projections/project_claude.py             → harness/projections/_guards.py
+                                                  → launch/text_utils.py
+harness/projections/project_codex_subprocess.py   → harness/projections/_guards.py
+harness/projections/project_codex_streaming.py    → harness/projections/_guards.py
+                                                  → launch/constants.py
+harness/projections/project_opencode_subprocess.py → harness/projections/_guards.py
+harness/projections/project_opencode_streaming.py  → harness/projections/_guards.py
 
-harness/extractors/base.py
-    ↑
-    ├── harness/extractors/claude.py
-    ├── harness/extractors/codex.py
-    └── harness/extractors/opencode.py
+# launch_spec.py aggregates every adapter's handled_fields for K9:
+harness/launch_spec.py → harness/bundle.py
+                       → harness/adapter.py
+                       → launch/launch_types.py
 
-harness/connections/base.py
-    ↑
-    ├── harness/connections/subprocess.py
-    ├── harness/connections/claude_streaming.py
-    ├── harness/connections/codex_streaming.py
-    └── harness/connections/opencode_streaming.py
+# Connection implementations each inherit the base ABC:
+harness/connections/subprocess.py         → harness/connections/base.py
+harness/connections/claude_streaming.py   → harness/connections/base.py
+harness/connections/codex_streaming.py    → harness/connections/base.py
+harness/connections/opencode_streaming.py → harness/connections/base.py
 
-harness/errors.py
-    ↑
-    ├── runner.py
-    └── streaming_runner.py
+# Extractor implementations each inherit the base Protocol:
+harness/extractors/claude.py   → harness/extractors/base.py
+harness/extractors/codex.py    → harness/extractors/base.py
+harness/extractors/opencode.py → harness/extractors/base.py
 
-launch/context.py
-    ↑
-    ├── runner.py
-    └── streaming_runner.py
+# Runners use shared context and errors, never concrete adapters:
+launch/context.py   → launch/launch_types.py
+                    → launch/constants.py
+                    → harness/bundle.py
+runner.py           → launch/context.py
+                    → harness/errors.py
+streaming_runner.py → launch/context.py
+                    → harness/errors.py
 
-harness/__init__.py
-    ↑  (eager imports guarantee registrations + guards always execute)
-    ├── harness/claude.py
-    ├── harness/codex.py
-    ├── harness/opencode.py
-    ├── harness/projections/project_claude.py
-    ├── harness/projections/project_codex_subprocess.py
-    ├── harness/projections/project_codex_streaming.py
-    ├── harness/projections/project_opencode_subprocess.py
-    ├── harness/projections/project_opencode_streaming.py
-    ├── harness/extractors/claude.py
-    ├── harness/extractors/codex.py
-    └── harness/extractors/opencode.py
+# harness/__init__.py ties the whole bootstrap together:
+harness/__init__.py → harness/claude.py
+                    → harness/codex.py
+                    → harness/opencode.py
+                    → harness/projections/project_claude.py
+                    → harness/projections/project_codex_subprocess.py
+                    → harness/projections/project_codex_streaming.py
+                    → harness/projections/project_opencode_subprocess.py
+                    → harness/projections/project_opencode_streaming.py
+                    → harness/extractors/claude.py
+                    → harness/extractors/codex.py
+                    → harness/extractors/opencode.py
+                    → harness/launch_spec.py (for _enforce_spawn_params_accounting)
 ```
 
-Revision round 3 removes `harness/projections/_reserved_flags.py` from the topology (D1).
+Revision round 3 removes `harness/projections/_reserved_flags.py` from the topology (H1).
 
-This is the acyclic dependency DAG used by S031. The `harness/__init__.py` eager-import edge (C2) guarantees projection drift guards, extractor drift guards, and bundle registrations all execute before the first dispatch — any import-time error surfaces during package load, not after a dispatch failure.
+This is the acyclic dependency DAG used by S031. The `harness/__init__.py` eager-import edge (C2) — see [§Bootstrap Sequence](#bootstrap-sequence-canonical-harness__init__py) for the canonical module body — guarantees projection drift guards, bundle registrations, and cross-adapter accounting all execute before the first dispatch. Any import-time error surfaces during package load, not after a dispatch failure.
 
 ## Migration Shape
 
 1. Introduce `launch_types.py` and move shared leaf types there.
-2. Make `BaseSubprocessHarness` an `ABC`, and mark `id`, `handled_fields`, and `resolve_launch_spec` abstract (K3, K9).
+2. Make `BaseHarnessAdapter` an `ABC`, and mark `id`, `handled_fields`, and `resolve_launch_spec` abstract (K3, K9).
 3. Add `preflight(...) -> PreflightResult` to `HarnessAdapter` and base class; wrap `PreflightResult.extra_env` in `MappingProxyType` (K7).
 4. Collapse connection facet protocols into `HarnessConnection[SpecT]` ABC; document cancel/interrupt semantics table (K8).
 5. Convert concrete adapters/connections/extractors to generic bindings.
@@ -489,7 +640,7 @@ This is the acyclic dependency DAG used by S031. The `harness/__init__.py` eager
 10. Update `PermissionResolver.resolve_flags` signature to drop the `harness` parameter (K4).
 11. Add `model_config = ConfigDict(frozen=True)` to `PermissionConfig` (K7).
 12. Add eager imports in `harness/__init__.py` and `harness/extractors/__init__.py` (C2).
-13. Audit `BaseSubprocessHarness` default methods (`fork_session`, `owns_untracked_session`, `blocked_child_env_vars`, `seed_session`, `filter_launch_content`, `detect_primary_session_id`, `mcp_config`, `extract_report`, `resolve_session_file`, `run_prompt_policy`, `build_adhoc_agent_payload`) and delete methods that are dead or universally overridden. `detect_primary_session_id` and `extract_report` move into `HarnessExtractor`.
+13. Audit `BaseHarnessAdapter` default methods (`fork_session`, `owns_untracked_session`, `blocked_child_env_vars`, `seed_session`, `filter_launch_content`, `detect_primary_session_id`, `mcp_config`, `extract_report`, `resolve_session_file`, `run_prompt_policy`, `build_adhoc_agent_payload`) and delete methods that are dead or universally overridden. `detect_primary_session_id` and `extract_report` move into `HarnessExtractor`.
 
 ## Interaction with Other Docs
 

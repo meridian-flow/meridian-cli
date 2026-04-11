@@ -6,7 +6,7 @@
 - **Status:** pending
 
 ## Given
-A new harness subclasses `BaseSubprocessHarness` but omits `resolve_launch_spec`.
+A new harness subclasses `BaseHarnessAdapter` but omits `resolve_launch_spec`.
 
 ## When
 Pyright runs and runtime instantiation is attempted.
@@ -17,7 +17,7 @@ Pyright runs and runtime instantiation is attempted.
 - This runtime failure is from ABC abstract-method enforcement, not Protocol instantiation behavior.
 
 ## Verification
-- Fixture class: `class NewHarness(BaseSubprocessHarness[ResolvedLaunchSpec]): ...` with no override.
+- Fixture class: `class NewHarness(BaseHarnessAdapter[ResolvedLaunchSpec]): ...` with no override.
 - Assert runtime `TypeError` on instantiation.
 - Assert pyright reports unsatisfied abstract/Protocol contract.
 

@@ -178,66 +178,60 @@ _OPENCODE_HANDLED_FIELDS: frozenset[str] = frozenset({
 
 ### Global Guard (union across adapters)
 
+The guard takes an **optional registry** parameter so tests can inject a private registry instead of mutating the process-global `_REGISTRY`. At import time `harness/__init__.py` invokes it with `registry=None`, which resolves to `_REGISTRY`; tests construct a fixture registry and pass it explicitly (S044).
+
 ```python
 # src/meridian/lib/harness/launch_spec.py
-from meridian.lib.launch.spawn_params import SpawnParams
-from meridian.lib.harness.bundle import _REGISTRY
+from __future__ import annotations
 
-def _enforce_spawn_params_accounting() -> None:
+from collections.abc import Mapping
+
+from meridian.lib.harness.bundle import HarnessBundle, _REGISTRY
+from meridian.lib.harness.ids import HarnessId
+from meridian.lib.launch.spawn_params import SpawnParams
+
+
+# Derived from SpawnParams at import time — not an authoritative list. Used
+# only for clear error formatting; the actual check is the per-adapter union.
+_SPEC_HANDLED_FIELDS: frozenset[str] = frozenset(SpawnParams.model_fields)
+
+
+def _enforce_spawn_params_accounting(
+    registry: Mapping[HarnessId, HarnessBundle] | None = None,
+) -> None:
+    reg = registry if registry is not None else _REGISTRY
     expected = set(SpawnParams.model_fields)
     union: set[str] = set()
-    for bundle in _REGISTRY.values():
-        union |= set(bundle.adapter.handled_fields)
+    per_adapter: dict[HarnessId, frozenset[str]] = {}
+    for harness_id, bundle in reg.items():
+        handled = frozenset(bundle.adapter.handled_fields)
+        per_adapter[harness_id] = handled
+        union |= handled
     missing = expected - union
     stale = union - expected
     if missing or stale:
         raise ImportError(
             "SpawnParams cross-adapter accounting drift. "
-            f"Missing: {sorted(missing)}. Stale: {sorted(stale)}."
+            f"Missing (no adapter claims these): {sorted(missing)}. "
+            f"Stale (claimed but not on SpawnParams): {sorted(stale)}. "
+            f"Per-adapter handled_fields: "
+            f"{ {h.value: sorted(f) for h, f in per_adapter.items()} }"
         )
 ```
 
 This check runs at the tail of `harness/__init__.py` eager import sequence, after every bundle is registered. It is strictly about meridian-internal drift: if a developer adds a new `SpawnParams` field without claiming it on any adapter, the package fails to import (S006, S044).
 
-### Legacy global handled set (retained as the field name enumeration)
+`_SPEC_HANDLED_FIELDS` is **derived from `SpawnParams.model_fields`**, not hand-maintained — it is *not* an authoritative parallel list. Its only job is to produce readable error messages and to give tests a stable import-time snapshot they can compare against. The authoritative check is the per-adapter union guard above.
 
-`_SPEC_HANDLED_FIELDS` is retained as the *authoritative name set* for `SpawnParams` fields that any adapter might handle — it is the pre-registration snapshot used to cross-reference test fixtures and to seed adapter defaults during migration.
+### Why parameterize `registry`
 
-```python
-_SPEC_HANDLED_FIELDS: frozenset[str] = frozenset({
-    "prompt",
-    "model",
-    "effort",
-    "skills",
-    "agent",
-    "adhoc_agent_payload",
-    "extra_args",
-    "repo_root",
-    "interactive",
-    "continue_harness_session_id",
-    "continue_fork",
-    "appended_system_prompt",
-    "report_output_path",
-    "mcp_tools",
-})
+Without a `registry` parameter, tests that want to exercise the guard's failure modes (missing field, stale field, empty registry, duplicate harness) either mutate the process-global `_REGISTRY` (breaking isolation between tests) or can't be written at all. Threading `registry=None` through the signature preserves the zero-arg import-time call while letting fixtures pass a local `{HarnessId.CODEX: fake_bundle}` into S044.
 
-# No delegated SpawnParams fields in v2.
-_SPEC_DELEGATED_FIELDS: frozenset[str] = frozenset()
+### Per-adapter, per-projection guards
 
-_actual_fields = set(SpawnParams.model_fields)
-_accounted_fields = _SPEC_HANDLED_FIELDS | _SPEC_DELEGATED_FIELDS
-if _actual_fields != _accounted_fields:
-    missing = _actual_fields - _accounted_fields
-    extra = _accounted_fields - _actual_fields
-    raise ImportError(
-        "SpawnParams accounting drift. "
-        f"Missing: {missing}. Stale: {extra}."
-    )
-```
+The per-adapter guard (above) enforces that every field is claimed by at least one adapter. Per-adapter completeness at the projection layer is still enforced via `_PROJECTED_FIELDS` / `_ACCOUNTED_FIELDS` in each projection module — see [transport-projections.md](transport-projections.md).
 
-This guard enforces that every `SpawnParams` field has a home somewhere in the system. The *per-adapter* guard (above) enforces that every field is claimed by at least one adapter, and it runs after bundle registration. Per-adapter completeness at the projection layer is still enforced via `_PROJECTED_FIELDS` / `_ACCOUNTED_FIELDS` in each projection module.
-
-K9 closes the gap in the earlier design where `_SPEC_HANDLED_FIELDS` could be satisfied globally while one adapter silently noops a field.
+K9 (`handled_fields = consumed_fields | explicitly_ignored_fields`, see [typed-harness.md](typed-harness.md)) closes the gap in the earlier design where a global handled set could be satisfied while one adapter silently noops a field.
 
 ## Interaction with Other Docs
 

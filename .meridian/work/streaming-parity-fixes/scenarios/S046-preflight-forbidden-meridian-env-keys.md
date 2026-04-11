@@ -12,12 +12,14 @@ A fixture adapter whose `preflight(...)` returns `PreflightResult.build(expanded
 `merge_env_overrides(plan_overrides={}, runtime_overrides=runtime_ctx.child_context(), preflight_overrides=preflight.extra_env)` runs inside `prepare_launch_context(...)`.
 
 ## Then
-- `merge_env_overrides` raises `RuntimeError` with a message like `"preflight.extra_env must not set MERIDIAN_* keys; found ['MERIDIAN_DEPTH']"`.
+- `merge_env_overrides` raises `RuntimeError` with a message naming the offending key and its source (`"preflight_overrides"`).
 - The spawn fails before launch — no child process is started.
 - The runtime-context-produced `MERIDIAN_DEPTH` remains authoritative.
+- The whitelist checked by `RuntimeContext.child_context()` includes `MERIDIAN_FS_DIR` and `MERIDIAN_WORK_DIR` so shared filesystem and work-item dirs flow through; preflight must not inject either of those either.
 
 ## Verification
-- Unit test: construct the fixture preflight, call `merge_env_overrides` directly, assert `RuntimeError` with the expected message shape.
+- Unit test: construct the fixture preflight, call `merge_env_overrides` directly, assert `RuntimeError` with the expected message shape (contains `"MERIDIAN_DEPTH"` and `"preflight_overrides"`).
+- Parameterized cases: try each whitelisted key (`MERIDIAN_REPO_ROOT`, `MERIDIAN_STATE_ROOT`, `MERIDIAN_DEPTH`, `MERIDIAN_CHAT_ID`, `MERIDIAN_FS_DIR`, `MERIDIAN_WORK_DIR`) as the leak and assert each is caught.
 - Positive test: a preflight returning only `CODEX_HOME`, `CLAUDE_HOME`, or similar harness-specific keys succeeds and those keys survive the merge.
 - Regression: temporarily relax the check to a log-only warning and verify the unit test fails loudly.
 - Cross-check: search the `harness/` package for any `extra_env["MERIDIAN_*"]` patterns in real adapters — there should be zero.

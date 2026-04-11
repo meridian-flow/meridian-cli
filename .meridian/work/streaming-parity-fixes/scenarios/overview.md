@@ -2,7 +2,7 @@
 
 Every edge case in `design/edge-cases.md` is represented here.
 
-Revision round 3 adds S039–S051 for the new meridian-internal invariants (K1–K9) and retires S037 (reserved-flag stripping) in favor of S045 (verbatim forwarding).
+Revision round 3 adds S039–S051 for the new meridian-internal invariants (K1–K9) and retires S037 (reserved-flag stripping) in favor of S045 (verbatim forwarding). The round-3 **convergence pass** adds S046b (`plan_overrides` MERIDIAN_* leak) and S052 (mechanical K4 guard on `PermissionResolver.resolve_flags` signature).
 
 ## Status Values
 
@@ -62,8 +62,10 @@ Revision round 3 adds S039–S051 for the new meridian-internal invariants (K1�
 | S044 | New `SpawnParams` field unclaimed by any adapter fails at import | @unit-tester | pending |
 | S045 | `extra_args` forwarded verbatim to every transport | @unit-tester + @smoke-tester | pending |
 | S046 | `preflight.extra_env` containing `MERIDIAN_*` key raises | @unit-tester | pending |
-| S047 | `mcp_tools` projected into every harness wire format | @unit-tester | pending |
+| S046b | `plan_overrides` containing `MERIDIAN_*` key raises (symmetric to S046) | @unit-tester | pending |
+| S047 | `mcp_tools` projected into every harness wire format (OpenCode subprocess rejects non-empty) | @unit-tester | pending |
 | S048 | Cancel vs completion race — exactly one terminal status | @unit-tester | pending |
 | S049 | Streaming session-id fallback via `HarnessExtractor` | @smoke-tester | pending |
 | S050 | `(harness, transport)` dispatch for unsupported transport raises | @unit-tester | pending |
 | S051 | `PermissionConfig` is frozen after construction | @unit-tester | pending |
+| S052 | `PermissionResolver.resolve_flags` stays harness-agnostic (mechanical guard, K4) | @unit-tester | pending |

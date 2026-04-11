@@ -1,6 +1,6 @@
 # S038: Codex fail-closed capability mismatch
 
-- **Source:** decisions.md D20 fail-closed policy
+- **Source:** design/edge-cases.md E38 + decisions.md D20 fail-closed policy
 - **Added by:** @design-orchestrator (revision pass 1)
 - **Tester:** @smoke-tester
 - **Status:** pending

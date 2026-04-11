@@ -180,12 +180,27 @@ This module replaces `codex_appserver.py` + `codex_jsonrpc.py` and exports:
 
 ### Line Budget (C3)
 
-`project_codex_streaming.py` is on a soft line budget of **400 lines**. If it exceeds the budget, split into:
+`project_codex_streaming.py` is on a soft line budget of **400 lines**. If it exceeds the budget, split into three modules so the drift guard and shared field constants stay in one place:
 
-- `project_codex_streaming_appserver.py` (command assembly)
-- `project_codex_streaming_rpc.py` (thread request / payload builders)
+- `project_codex_streaming_fields.py` — shared `_APP_SERVER_ARG_FIELDS`, `_JSONRPC_PARAM_FIELDS`, `_METHOD_SELECTION_FIELDS`, `_PROMPT_SENDER_FIELDS`, `_ENV_FIELDS`, `_MCP_FIELDS`, `_ACCOUNTED_FIELDS` frozensets + the `_check_projection_drift(CodexLaunchSpec, ...)` call at import time.
+- `project_codex_streaming_appserver.py` — command assembly (`project_codex_spec_to_appserver_command(...)`). Imports field constants from `_fields`.
+- `project_codex_streaming_rpc.py` — thread request / payload builders (`project_codex_spec_to_thread_request(...)`, `_select_thread_method(...)`, `_build_user_input_payload(...)`). Imports field constants from `_fields`.
 
-Document the split in `decisions.md` as a round-3 follow-up when triggered.
+`project_codex_streaming.py` becomes a thin re-export facade so existing imports keep working:
+
+```python
+# src/meridian/lib/harness/projections/project_codex_streaming.py
+from meridian.lib.harness.projections.project_codex_streaming_appserver import (
+    project_codex_spec_to_appserver_command,
+)
+from meridian.lib.harness.projections.project_codex_streaming_rpc import (
+    project_codex_spec_to_thread_request,
+)
+# fields module is imported for side-effect drift check at package load
+from meridian.lib.harness.projections import project_codex_streaming_fields  # noqa: F401
+```
+
+`harness/__init__.py` imports `project_codex_streaming_fields` alongside the other projection modules so the drift guard still runs at package load (C2). Document the split in `decisions.md` as a round-3 follow-up when triggered.
 
 ### Field Accounting Pattern (transport-wide)
 
@@ -311,6 +326,25 @@ _PROJECTED_FIELDS: frozenset[str] = frozenset({
     "skills",
 })
 ```
+
+### `mcp_tools` behavior on OpenCode subprocess (S047)
+
+OpenCode's subprocess CLI (`opencode run`) has no wire encoding for `mcp_tools` — MCP configuration is only carried by the HTTP streaming transport's session payload (see `_project_mcp_tools_opencode` below). The field is still **claimed** by the subprocess projection via `_PROJECTED_FIELDS` (so K9 accounting passes), but the projection function pins the behavior:
+
+- If `spec.mcp_tools` is empty: the projection is a no-op for that field (current behavior).
+- If `spec.mcp_tools` is non-empty: the projection raises `ValueError` with a clear message directing the user to the streaming transport. Meridian does **not** silently drop the field — silent drop would violate the K9 "claim it or fail" contract and would surprise users who expect their MCP config to reach the harness.
+
+```python
+def _project_mcp_tools_opencode_subprocess(mcp_tools: tuple[str, ...]) -> None:
+    if mcp_tools:
+        raise ValueError(
+            "OpenCode subprocess transport does not carry mcp_tools. "
+            "Switch to the streaming transport (HTTP session payload) "
+            "to use MCP configuration with OpenCode."
+        )
+```
+
+Streaming carries the full mcp session payload via `_project_mcp_tools_opencode` → `{"servers": [...]}` under the session payload `mcp` field. The split between subprocess (reject) and streaming (carry) is documented in S047 and referenced from the OpenCode projection docstring.
 
 ## OpenCode Streaming Projection (`project_opencode_streaming.py`)
 

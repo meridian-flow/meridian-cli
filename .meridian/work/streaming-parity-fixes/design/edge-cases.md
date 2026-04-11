@@ -10,7 +10,7 @@ Revision round 3 retires E37 (reserved-flag stripping) and adds E39–E46 coveri
 
 ### E1 — Adapter omits `resolve_launch_spec`
 
-Expected: pyright structural failure + runtime `TypeError` from ABC abstract-method enforcement (`BaseSubprocessHarness`), not from Protocol instantiation.
+Expected: pyright structural failure + runtime `TypeError` from ABC abstract-method enforcement (`BaseHarnessAdapter`), not from Protocol instantiation.
 
 ### E2 — Base spec passed to concrete connection
 
@@ -30,15 +30,15 @@ Expected: import-time `ImportError` via `_check_projection_drift`.
 
 ### E6 — New `SpawnParams` field missed by factory accounting
 
-Expected: import-time `ImportError` from `_SPEC_HANDLED_FIELDS` global accounting.
+Expected: import-time `ImportError` from `_enforce_spawn_params_accounting()` — the per-adapter union over every registered bundle's `handled_fields` fails to cover the new field. The legacy module-level `_SPEC_HANDLED_FIELDS` is now derived from `SpawnParams.model_fields` and used only for error formatting; the authoritative check is the per-adapter union guard.
 
 ### E40 — Protocol/ABC method-set reconciliation (K3)
 
-A subclass of `BaseSubprocessHarness` that forgets to declare `id` is currently ABC-instantiable (because `id` wasn't abstract on the base) but Protocol-noncompliant, and crashes deep in dispatch with `AttributeError`. Expected after K3: `id` is `@abstractmethod` on the base, so missing `id` fails at instantiation with `TypeError`. A unit test reconciles the Protocol attribute set against the ABC abstract-method set and fails if they diverge.
+A subclass of `BaseHarnessAdapter` that forgets to declare `id` is currently ABC-instantiable (because `id` wasn't abstract on the base) but Protocol-noncompliant, and crashes deep in dispatch with `AttributeError`. Expected after K3: `id` is `@abstractmethod` on the base, so missing `id` fails at instantiation with `TypeError`. A unit test reconciles the Protocol attribute set against the ABC abstract-method set and fails if they diverge.
 
 ### E42 — New `SpawnParams` field present globally but unclaimed by any adapter (K9)
 
-A developer adds a new `SpawnParams` field and updates `_SPEC_HANDLED_FIELDS` but forgets to add it to any adapter's `handled_fields`. Expected: import-time `ImportError` from the per-adapter union check in `harness/launch_spec.py`.
+A developer adds a new `SpawnParams` field but forgets to add it to any adapter's `handled_fields`. Expected: import-time `ImportError` from the per-adapter union check in `_enforce_spawn_params_accounting(registry=None)` at the tail of `harness/__init__.py`. The error reports the missing field alongside the per-adapter `handled_fields` map for debuggability (K9 enforces `handled_fields = consumed_fields | explicitly_ignored_fields` so a deliberate ignore is still a claim).
 
 ## Category B — Permission Flow
 

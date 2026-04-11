@@ -45,7 +45,7 @@ v2 rounds 1–2 closed those gaps but introduced overreach (reserved-flag stripp
 - Generic adapter / connection / extractor contracts in `src/meridian/lib/harness/adapter.py`, `connections/base.py`, `extractors/base.py`
 - Runtime dispatch guard in `SpawnManager.start_spawn`, keyed on `(harness_id, transport_id)`
 - Bundle registration via a single `register_harness_bundle(...)` helper that raises on duplicates (K2)
-- `BaseSubprocessHarness.id` is abstract so Protocol/ABC method sets stay reconciled (K3)
+- `BaseHarnessAdapter.id` is abstract so Protocol/ABC method sets stay reconciled (K3)
 
 ### 2. Mandatory spec factories with per-adapter field accounting
 
@@ -84,7 +84,7 @@ There is no `projections/_reserved_flags.py`. Reserved-flag stripping is deleted
 - shared launch text helpers in `src/meridian/lib/launch/text_utils.py`
 - typed harness registry in `src/meridian/lib/harness/bundle.py`
 - Claude-specific preflight in `src/meridian/lib/harness/claude_preflight.py` via `adapter.preflight(...)`
-- `RuntimeContext.child_context()` is the sole producer of `MERIDIAN_*` runtime overrides (K5); `preflight.extra_env` may add harness-specific variables but must not override any `MERIDIAN_*` key.
+- `RuntimeContext.child_context()` is the sole producer of `MERIDIAN_*` runtime overrides (K5), restricted to a whitelisted set (`MERIDIAN_REPO_ROOT`, `MERIDIAN_STATE_ROOT`, `MERIDIAN_DEPTH`, `MERIDIAN_CHAT_ID`, `MERIDIAN_FS_DIR`, `MERIDIAN_WORK_DIR`). Neither `plan.env_overrides` nor `preflight.extra_env` may contain any `MERIDIAN_*` key; `merge_env_overrides` scans both and raises on leaks.
 - no `if harness_id == ...` branches in shared launch context
 
 Import topology (including `_guards.py`, `bundle.py`, `context.py`, `constants.py`, and `text_utils.py`) is authoritative in [typed-harness.md §Import Topology](typed-harness.md#import-topology) and is the verification source for E31/S031.

@@ -1,6 +1,6 @@
 # S036: Delegated field has no consumer
 
-- **Source:** design/transport-projections.md completeness-guard contract
+- **Source:** design/edge-cases.md E36 + design/transport-projections.md completeness-guard contract
 - **Added by:** @design-orchestrator (revision pass 1)
 - **Tester:** @unit-tester
 - **Status:** pending

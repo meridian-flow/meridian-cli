@@ -54,6 +54,8 @@ if expected != accounted:
 
 ## D6 — SpawnParams accounting split
 
+> **Superseded by K9 (Revision Pass 3):** the per-adapter `handled_fields` union is now authoritative. `_SPEC_HANDLED_FIELDS` is retained only as a derived alias `frozenset(SpawnParams.model_fields)` — no manual enumeration. `_SPEC_DELEGATED_FIELDS` is deleted (G10 already removed it for the Codex streaming case).
+
 **Decision.** Keep `_SPEC_HANDLED_FIELDS` + `_SPEC_DELEGATED_FIELDS` accounting in `launch_spec.py`.
 
 **Why.** Forces explicit ownership for every `SpawnParams` field.
@@ -61,6 +63,8 @@ if expected != accounted:
 **Addresses.** L2.
 
 ## D7 — Projection function set and naming
+
+> **Superseded in part by H1 (Revision Pass 3):** the reserved-flag constants / stripping helper / `projections/_reserved_flags.py` module are **deleted**. The projection module naming convention (`project_<harness>_<transport>.py`) remains current.
 
 **Decision.** Standardize projection modules/functions:
 
@@ -71,7 +75,7 @@ if expected != accounted:
 - `project_opencode_streaming.py`
 
 Use `project_opencode_spec_to_session_payload` (not `...http_payload`).
-Keep reserved-flag constants and stripping helper centralized in `src/meridian/lib/harness/projections/_reserved_flags.py`.
+~~Keep reserved-flag constants and stripping helper centralized in `src/meridian/lib/harness/projections/_reserved_flags.py`.~~ *(deleted by H1)*
 
 **Why.** Consistent axis and lower blast radius.
 
@@ -208,6 +212,8 @@ If either exceeds budget after v2, raise L11 decomposition back into active scop
 
 ## D23 — Remove `mcp_tools` from `SpawnParams` in v2
 
+> **Superseded by H4 (Revision Pass 3):** `mcp_tools: tuple[str, ...] = ()` is restored as a first-class field on `ResolvedLaunchSpec` with per-harness projection mappings. Manual `mcp_tools` configuration works today even though auto-packaging through mars is still out of scope for v2.
+
 **Decision.** Delete `mcp_tools` from launch-time spec/factory surface for v2.
 
 **Why.** MCP wiring is explicitly out of scope and current adapters return no MCP config.
@@ -279,34 +285,36 @@ If either exceeds budget after v2, raise L11 decomposition back into active scop
 
 Three independent audits converged on the same picture: rounds 1–2 combined genuine internal-consistency gaps with overreach into user and harness behavior. Round 3 separates the two. Meridian is a coordinator, not a policy engine. Every strict check answers "does this protect against meridian's own internal drift?" If not, it's deleted.
 
+> **Labeling note.** Round 3 entries use the `H#` (historical / round 3) and `K#` (keeper invariant) namespaces. These are distinct from the legacy `D#` decisions at the top of this file. Legacy `D#` IDs that Round 3 supersedes are marked **Superseded by H#** in place — do not confuse round 3 `H#` entries with legacy `D#` entries.
+
 ### Dropped — Overreach
 
-- H1 (D1): **Deleted** all reserved-flag machinery. `_RESERVED_CODEX_ARGS`, `_RESERVED_CLAUDE_ARGS`, `strip_reserved_passthrough`, the `projections/_reserved_flags.py` module, any `strip` / heuristic / probe-derived inventories. `extra_args` is forwarded verbatim to every transport. Meridian is not the security gate for passthrough flags; the harness is. Users can invoke the harness directly with the same flags — meridian silently stripping them is worse than forwarding them.
-- H2 (D2): **Rejected** adding a `@model_validator` that validates `PermissionConfig` combinations like `approval=confirm + sandbox=yolo`. If the harness accepts the combo, meridian accepts it. Meridian is not the authority on which combinations make semantic sense.
-- H3 (D3): **Rejected** any `_FORBIDDEN_FIELD_PREFIXES = frozenset({"mcp_"})`-style import-time check on `SpawnParams` field names. Special-casing against a specific string prefix is hacky; the existing projection drift guard already catches "field with no consumer".
+- **H1:** **Deleted** all reserved-flag machinery. `_RESERVED_CODEX_ARGS`, `_RESERVED_CLAUDE_ARGS`, `strip_reserved_passthrough`, the `projections/_reserved_flags.py` module, any `strip` / heuristic / probe-derived inventories. `extra_args` is forwarded verbatim to every transport. Meridian is not the security gate for passthrough flags; the harness is. Users can invoke the harness directly with the same flags — meridian silently stripping them is worse than forwarding them. **Supersedes: D7 (reserved-flag module pin), F7 (reserved-flag policy), F28 (reserved-flag renames).**
+- **H2:** **Rejected** adding a `@model_validator` that validates `PermissionConfig` combinations like `approval=confirm + sandbox=yolo`. If the harness accepts the combo, meridian accepts it. Meridian is not the authority on which combinations make semantic sense.
+- **H3:** **Rejected** any `_FORBIDDEN_FIELD_PREFIXES = frozenset({"mcp_"})`-style import-time check on `SpawnParams` field names. Special-casing against a specific string prefix is hacky; the existing projection drift guard already catches "field with no consumer".
 
 ### Restored — Reversing round 2 overreach
 
-- H4 (D4): **Restored** `mcp_tools: tuple[str, ...] = ()` as a first-class field on `ResolvedLaunchSpec` (reversing round 2 D23). Projections map it to Claude `--mcp-config`, Codex `-c mcp.servers.X.command=...`, and OpenCode HTTP session payload `mcp` field. Auto-packaging through mars is still out of scope for v2; manual `mcp_tools` configuration works today. The projection drift guards count it as a normal field with no special handling.
-- H5 (D5): **Retained** `PermissionConfig` Literals for now, with a documented friction-free extension path: adding a new sandbox tier or approval mode is a one-line edit to the tuple plus per-harness projection mapping updates. No runtime probing, no `--help` parsing, no auto-detection. Literals are developer-facing documentation and type-checker support, not a runtime gate.
+- **H4:** **Restored** `mcp_tools: tuple[str, ...] = ()` as a first-class field on `ResolvedLaunchSpec` (reversing round 2 D23, which removed `mcp_tools` in F30). Projections map it to Claude `--mcp-config`, Codex `-c mcp.servers.X.command=...`, and OpenCode HTTP session payload `mcp` field. Auto-packaging through mars is still out of scope for v2; manual `mcp_tools` configuration works today. The projection drift guards count it as a normal field with no special handling. **Supersedes: D23, F30.**
+- **H5:** **Retained** `PermissionConfig` Literals for now, with a documented friction-free extension path: adding a new sandbox tier or approval mode is a one-line edit to the tuple plus per-harness projection mapping updates. No runtime probing, no `--help` parsing, no auto-detection. Literals are developer-facing documentation and type-checker support, not a runtime gate.
 
 ### Kept — Real internal-consistency invariants
 
-- K1 (H6): Bundle dispatch is keyed on `(harness_id, transport_id)`. `HarnessBundle[SpecT]` carries a `connections: Mapping[TransportId, type[HarnessConnection[SpecT]]]` mapping. Adding Claude-over-HTTP in the future is a one-line bundle addition, not a rewiring of dispatch. `typed-harness.md §Dispatch Boundary` is updated; a new `TransportId` enum lives next to `HarnessId`.
-- K2 (H7): Bundle registration goes through a single `register_harness_bundle(bundle)` helper that raises `ValueError` on duplicate `harness_id`. `harness/__init__.py` imports every concrete adapter module eagerly so registration happens before the first dispatch. Unit test S039 asserts duplicate registration fails.
-- K3 (H8): `BaseSubprocessHarness.id` is `@abstractmethod`, reconciling the `HarnessAdapter` Protocol method set against the ABC abstract-method set. A subclass that forgets `id` now fails at instantiation with `TypeError` instead of crashing deep in dispatch with `AttributeError`. Unit test S040 cross-checks Protocol attributes vs ABC abstractmethods.
-- K4 (H9): `PermissionResolver.resolve_flags()` no longer takes a `harness` parameter. The old signature `resolve_flags(self, harness: HarnessId)` invited `if harness == CLAUDE` branching inside the resolver, re-introducing the harness-id dispatch `adapter.preflight()` was meant to eliminate. New shape: resolvers expose intent via `config`; projections translate per harness. Chose option (a) from the brief (drop the parameter entirely) because it cleanly forbids harness branching rather than relying on documented restraint.
-- K5 (H10): `RuntimeContext.child_context()` is the sole producer of `MERIDIAN_*` runtime overrides. `merge_env_overrides(...)` enforces the invariant: if `preflight.extra_env` contains any `MERIDIAN_*` key it raises `RuntimeError`. Scenario S046 exercises this.
-- K6 (H11): Pulled session-id extraction parity into v2 scope. Added `HarnessExtractor[SpecT]` to `HarnessBundle`. Subprocess and streaming both call `bundle.extractor.detect_session_id_from_artifacts(...)` for fallback detection from harness-specific artifacts (Claude project files, Codex rollout files, OpenCode logs). Closes the p1385 gap that streaming had no fallback session detection. Chose pull-in over explicit deferral because the design absorbed it without blowing scope.
-- K7 (H12): `PermissionConfig` is now `model_config = ConfigDict(frozen=True)`. `PreflightResult.extra_env` is wrapped in `MappingProxyType` at construction. `LaunchContext.env` / `env_overrides` are wrapped in `MappingProxyType`. This is about internal-state integrity (meridian's own coordination depends on stable values during merge + projection), not about validating values.
-- K8 (H13): Added explicit cancel/interrupt/SIGTERM semantics table to `typed-harness.md §Connection Contract`. `send_cancel` and `send_interrupt` are idempotent and converge to a single terminal spawn status. Runner signal handling is transport-neutral — SIGTERM/SIGINT translate into exactly one `send_cancel()` per active connection. Cancellation event emission is exactly-once per spawn, ordered before any subsequent error emission. Scenarios S041 (cancel idempotency), S042 (SIGTERM subprocess/streaming parity), S048 (race: cancel vs completion terminal status).
-- K9 (H14): Added per-adapter `handled_fields: frozenset[str]` declaration. `harness/launch_spec.py` aggregates the union across registered bundles and asserts it equals `SpawnParams.model_fields` at import time. A new `SpawnParams` field that slips past the global `_SPEC_HANDLED_FIELDS` check but isn't claimed by any adapter now fails at import. Scenario S044.
+- **K1:** Bundle dispatch is keyed on `(harness_id, transport_id)`. `HarnessBundle[SpecT]` carries a `connections: Mapping[TransportId, type[HarnessConnection[SpecT]]]` mapping. Adding Claude-over-HTTP in the future is a one-line bundle addition, not a rewiring of dispatch. `typed-harness.md §Dispatch Boundary` is updated; `HarnessId` and `TransportId` live in a single home at `meridian.lib.harness.ids` (see F13 / ID location pin). **Extends D2 (paired registry); the new structure is the `HarnessBundle[SpecT]` with a transport mapping.**
+- **K2:** Bundle registration goes through a single `register_harness_bundle(bundle)` helper that validates duplicate `harness_id`, non-None `extractor`, and non-empty `connections` mapping, raising `ValueError` / `TypeError` as appropriate. `harness/__init__.py` imports every concrete adapter module eagerly so registration happens before the first dispatch. Unit test S039 asserts duplicate registration fails; S043 asserts missing-extractor registration fails.
+- **K3:** `BaseHarnessAdapter.id` and `BaseHarnessAdapter.handled_fields` are `@abstractmethod`, reconciling the `HarnessAdapter` Protocol method set against the ABC abstract-method set. A subclass that forgets `id` or `handled_fields` now fails at instantiation with `TypeError` instead of crashing deep in dispatch with `AttributeError`. Unit test S040 cross-checks Protocol attributes vs ABC abstractmethods. **Note:** `BaseHarnessAdapter` is the round-3 rename of `BaseSubprocessHarness` (all adapters inherit it regardless of transport — the old name was misleading).
+- **K4:** `PermissionResolver.resolve_flags()` no longer takes a `harness` parameter. The old signature `resolve_flags(self, harness: HarnessId)` invited `if harness == CLAUDE` branching inside the resolver, re-introducing the harness-id dispatch `adapter.preflight()` was meant to eliminate. New shape: resolvers expose intent via `config`; projections translate per harness. Chose option (a) from the brief (drop the parameter entirely) because it cleanly forbids harness branching rather than relying on documented restraint. **Mechanical enforcement:** scenario S052 uses `inspect.signature` + an AST scan (`rg "HarnessId" src/meridian/lib/permission*`) to block re-introduction of harness branching in any resolver implementation. The old "enforced by convention" wording in `permission-pipeline.md` is replaced by this mechanical guard.
+- **K5:** `RuntimeContext.child_context()` is the sole producer of `MERIDIAN_*` runtime overrides. `RuntimeContext` produces the full canonical key set `_ALLOWED_MERIDIAN_KEYS = frozenset({"MERIDIAN_REPO_ROOT", "MERIDIAN_STATE_ROOT", "MERIDIAN_DEPTH", "MERIDIAN_CHAT_ID", "MERIDIAN_FS_DIR", "MERIDIAN_WORK_DIR"})`. `merge_env_overrides(...)` enforces the invariant: if **either** `plan_overrides` or `preflight.extra_env` contains any `MERIDIAN_*` key, it raises `RuntimeError`. Scenarios S046 (preflight) and S046b (plan) exercise this. **Rationale for widening:** the original spec blocked only `preflight.extra_env`, leaving `plan_overrides` as an ambient back-door for `MERIDIAN_FS_DIR` / `MERIDIAN_WORK_DIR`. Opus review p1439 flagged this; widening restores the "sole producer" claim.
+- **K6:** Pulled session-id extraction parity into v2 scope. Added `HarnessExtractor[SpecT]` to `HarnessBundle`. Subprocess and streaming both call `bundle.extractor.detect_session_id_from_artifacts(spec, launch_env, child_cwd, state_root)` for fallback detection from harness-specific artifacts (Claude project files, Codex rollout files, OpenCode logs). The signature threads `launch_env` so extractors respect non-default `CODEX_HOME`/`OPENCODE_*` paths set via `preflight.extra_env`. Closes the p1385 gap that streaming had no fallback session detection. Chose pull-in over explicit deferral because the design absorbed it without blowing scope. **Enforcement point:** `register_harness_bundle(...)` validates `bundle.extractor is not None` at registration time (S043 targets this), and the `HarnessExtractor` Protocol is `runtime_checkable` so `isinstance` checks catch stub mismatches.
+- **K7:** `PermissionConfig` is now `model_config = ConfigDict(frozen=True)`. `PreflightResult.extra_env` is wrapped in `MappingProxyType` at construction. `LaunchContext.env` / `env_overrides` are wrapped in `MappingProxyType`. This is about internal-state integrity (meridian's own coordination depends on stable values during merge + projection), not about validating values.
+- **K8:** Added explicit cancel/interrupt/SIGTERM semantics table to `typed-harness.md §Connection Contract`. `send_cancel` and `send_interrupt` are idempotent and converge to a single terminal spawn status. Runner signal handling is transport-neutral — SIGTERM/SIGINT translate into exactly one `send_cancel()` per active connection. Cancellation event emission is exactly-once per spawn, ordered before any subsequent error emission. Scenarios S041 (cancel idempotency), S042 (SIGTERM subprocess/streaming parity), S048 (race: cancel vs completion terminal status).
+- **K9:** Added per-adapter `handled_fields: frozenset[str]` declaration, split into `consumed_fields | explicitly_ignored_fields` per Opus finding #8 — "listed but not wired" is a conscious opt-out. `harness/launch_spec.py` aggregates the union across registered bundles and asserts it equals `SpawnParams.model_fields` via `_enforce_spawn_params_accounting(registry=_REGISTRY)`. The function takes an injectable `registry` parameter so S044 can drive it with a fixture registry without mutating global state. Legacy `_SPEC_HANDLED_FIELDS` is now `frozenset(SpawnParams.model_fields)` — a derived alias kept only for test-fixture ergonomics, with no manual enumeration. **Supersedes: D6 (`_SPEC_HANDLED_FIELDS` as manually maintained), F31 (authoritative-global framing).**
 
 ### Clarifications
 
-- H15 (C1): `LaunchContext` parity claim narrowed to the deterministic subset — `run_params`, `spec`, `child_cwd`, `env_overrides`. The `env` field as a whole depends on ambient `os.environ` and is explicitly NOT in the parity contract. S024 updated to assert parity on the deterministic subset only.
-- H16 (C2): Added eager-import note to `transport-projections.md §Eager Import Bootstrapping`. `harness/__init__.py` imports every projection module so drift guards always execute at package load, not after the first dispatch.
-- H17 (C3): Added soft line-budget marker to `transport-projections.md §Codex Streaming Projection`. If `project_codex_streaming.py` exceeds 400 lines, split into `project_codex_streaming_appserver.py` + `project_codex_streaming_rpc.py`. Follow D19 precedent.
+- **C1:** `LaunchContext` parity claim narrowed to the deterministic subset — `run_params`, `spec`, `child_cwd`, `env_overrides`. The `env` field as a whole depends on ambient `os.environ` and is explicitly NOT in the parity contract. S024 updated to assert parity on the deterministic subset only.
+- **C2:** Added eager-import note to `transport-projections.md §Eager Import Bootstrapping`. `harness/__init__.py` imports every projection module so drift guards always execute at package load, not after the first dispatch. A canonical `harness/__init__.py` bootstrap block lives in `typed-harness.md §Bootstrap Sequence` — it names the exact import order and pins `_enforce_spawn_params_accounting()` as the final explicit call (not a module-load side effect).
+- **C3:** Added soft line-budget marker to `transport-projections.md §Codex Streaming Projection`. If `project_codex_streaming.py` exceeds 400 lines, split into `project_codex_streaming_appserver.py` + `project_codex_streaming_rpc.py`, with `_ACCOUNTED_FIELDS` aggregated in `project_codex_streaming_fields.py` (both splits import from it). The single `_check_projection_drift(...)` call lives in `project_codex_streaming.py` which re-exports the split functions. Follow D19 precedent.
 
 ### Retired scenarios
 
@@ -329,3 +337,34 @@ Three independent audits converged on the same picture: rounds 1–2 combined ge
 - S049 — Streaming session-id fallback via `HarnessExtractor`.
 - S050 — `(harness, transport)` dispatch for unsupported transport raises `KeyError`.
 - S051 — `PermissionConfig` frozen: mutation raises.
+
+## Revision Pass 3 — Convergence Fixes (post p1437/p1438/p1439/p1440)
+
+Four independent reviewers (gpt-5.4, gpt-5.2, claude-opus-4-6, refactor-reviewer) returned `changes-required` on the round-3 reframe. Convergent findings and opus-specific critical findings applied here, tagged `F#` (round-3 convergence fixes). These do not reverse any H/K entry — they harden enforcement, fix traceability, and close gaps reviewers surfaced.
+
+- **F1 (decision-ID collision):** Dropped all `H# (D#)` parenthetical aliases in Revision Pass 3; the `D#` slots collided with legacy decisions D1-D24. Round 3 entries are now `H#` / `K#` only. Added a labeling note at the top of the Revision Pass 3 section.
+- **F2 (superseded markers):** Added explicit "Superseded by H#" markers to legacy D6, D7, and D23 where round 3 reverses or replaces them. F7/F28 are flat revision-1 ledger entries and are referenced by H1's `Supersedes:` list rather than marked inline.
+- **F3 (bundle registration validation):** `register_harness_bundle(bundle)` now validates `extractor is not None` and non-empty `connections` at registration time, raising `TypeError`/`ValueError`. Previously the design claimed this invariant but placed enforcement ambiguously between eager-import bootstrap and dataclass construction — neither of which actually fires at registration. S043 targets the registration-time check.
+- **F4 (accounting registry parameter):** `_enforce_spawn_params_accounting(registry=None)` now accepts an injectable registry with `_REGISTRY` as the default, so S044 can exercise the check with a fixture registry without polluting module-global state.
+- **F5 (S047 anchor fix):** S047 Source line updated from `decisions.md D4` to `decisions.md H4` — the old anchor pointed at the legacy D4 (non-optional resolver contract), not at the restored `mcp_tools` entry.
+- **F6 (canonical `harness/__init__.py` bootstrap):** Added a §Bootstrap Sequence section to `typed-harness.md` that spells out the full load-bearing import sequence in one block: concrete adapters → projection modules → extractors → explicit `_enforce_spawn_params_accounting()` call. Moved the accounting call out of module-load side effects in `launch_spec.py` so import order is deterministic and S044 is not flaky.
+- **F7 (K4 mechanical guard):** Replaced the "enforced by convention" wording in `permission-pipeline.md` with a mechanical guard: scenario S052 asserts `inspect.signature(PermissionResolver.resolve_flags)` has no `harness` parameter and runs `rg HarnessId src/meridian/lib/permission*` as a CI regression check.
+- **F8 (S024 narrowing):** S024 Verification updated to assert parity only on `run_params`, `spec`, `child_cwd`, `env_overrides` — dropping the broad `.env == .env` assertion that contradicted C1.
+- **F9 (K5 plan_overrides widening):** `merge_env_overrides` now rejects `MERIDIAN_*` keys in **both** `preflight_overrides` and `plan_overrides`. `RuntimeContext` produces the full `_ALLOWED_MERIDIAN_KEYS` set including `MERIDIAN_FS_DIR` and `MERIDIAN_WORK_DIR`. Scenario S046b added for the plan_overrides side.
+- **F10 (`_SPEC_HANDLED_FIELDS` derivation):** `_SPEC_HANDLED_FIELDS = frozenset(SpawnParams.model_fields)` — derived, not manually enumerated. Eliminates the dual-authority drift risk the refactor-reviewer flagged.
+- **F11 (S047 OpenCode subprocess pin):** S047 now pins one concrete OpenCode-subprocess behavior: `mcp_tools` is rejected with a clear error from `project_opencode_subprocess` because OpenCode subprocess has no wire format for MCP config. The HTTP streaming path carries the full `mcp` session-payload field. No "env-only fallback" vagueness.
+- **F12 (`HarnessExtractor` signature widening):** `detect_session_id_from_artifacts(spec, launch_env, child_cwd, state_root)` now takes `launch_env: Mapping[str, str]` so extractors honor non-default `CODEX_HOME` / `OPENCODE_*` paths set via `preflight.extra_env`.
+- **F13 (`HarnessId` / `TransportId` single home):** Both enums live in `meridian.lib.harness.ids`. Previous drafts implied three locations (`ids`, `core.types`, "next to `HarnessId`"); this fix pins one module.
+- **F14 (E36/E38 scenario anchors):** S036 and S038 Source lines updated to cite `design/edge-cases.md E36` / `E38` explicitly.
+- **F15 (delete free-TypeVar cast):** `cast(SpecT, spec)` removed from `dispatch_start` — `SpecT` is not bound in that scope and the `isinstance(spec, bundle.spec_cls)` guard is the actual safety narrow.
+- **F16 (`BaseSubprocessHarness` rename):** Renamed to `BaseHarnessAdapter` across all docs and scenarios. The old name misled readers into expecting a `BaseStreamingHarness` that does not exist.
+- **F17 (import topology arrows):** Committed to one arrow convention in `typed-harness.md §Import Topology` — "A → B means A imports B". Added missing edges from `bundle.py` to `adapter.py`, `connections/base.py`, `extractors/base.py`.
+- **F18 (S031 stale path):** S031 updated to reference `launch/launch_types.py` (the current layout) instead of the stale `harness/launch_types.py` path.
+- **F19 (line-budget split rule pin):** §Line Budget in `transport-projections.md` now names `project_codex_streaming_fields.py` as the shared module that holds `_ACCOUNTED_FIELDS` after a split, and specifies that the single `_check_projection_drift(...)` call stays in `project_codex_streaming.py`.
+- **F20 (`handled_fields` split):** Per Opus finding #8, `BaseHarnessAdapter` now exposes `consumed_fields` and `explicitly_ignored_fields` as separate `@property` sets, with `handled_fields = consumed_fields | explicitly_ignored_fields`. The projection-side `_PROJECTED_FIELDS` drift guard cross-references against `consumed_fields` so "listed but not wired" is caught.
+- **F21 (S046b):** New scenario `plan_overrides` containing `MERIDIAN_*` raises in `merge_env_overrides`. Paired with widened K5 guarantee (F9).
+
+### New scenarios (Convergence Pass)
+
+- **S052** — `PermissionResolver.resolve_flags()` has no `harness` parameter; resolvers do not import `HarnessId` (K4 mechanical guard).
+- **S046b** — `plan_overrides` containing `MERIDIAN_*` raises in `merge_env_overrides` (K5 widening).

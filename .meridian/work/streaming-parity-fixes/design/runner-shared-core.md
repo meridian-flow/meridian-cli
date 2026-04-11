@@ -6,7 +6,7 @@ Define the shared launch-context assembly used by both subprocess and streaming 
 
 Revision round 3 changes:
 
-- K5: codify `RuntimeContext.child_context()` as the sole producer of `MERIDIAN_*` runtime overrides. `preflight.extra_env` may contribute harness-specific variables but MUST NOT override any `MERIDIAN_*` key. Enforced by an assertion in the merge helper.
+- K5: codify `RuntimeContext.child_context()` as the sole producer of `MERIDIAN_*` runtime overrides. `preflight.extra_env` **and** `plan_overrides` MUST NOT contain any `MERIDIAN_*` key; both inputs are scanned in `merge_env_overrides(...)` and violations raise `RuntimeError`. The child context is restricted to a whitelisted set `_ALLOWED_MERIDIAN_KEYS = frozenset({"MERIDIAN_REPO_ROOT", "MERIDIAN_STATE_ROOT", "MERIDIAN_DEPTH", "MERIDIAN_CHAT_ID", "MERIDIAN_FS_DIR", "MERIDIAN_WORK_DIR"})` so `fs_dir` and `work_dir` forwarding cannot be silently stripped by the guard.
 - C1: narrow the `LaunchContext` parity claim to the deterministic subset. Ambient `os.environ` is not part of parity.
 
 ## Scope
@@ -38,10 +38,24 @@ Out of scope:
 
 ```python
 # src/meridian/lib/launch/context.py
+from __future__ import annotations
+
+from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from types import MappingProxyType
 
-from meridian.lib.launch.constants import MERIDIAN_ENV_KEYS
+# The whitelisted MERIDIAN_* key set. Only RuntimeContext.child_context()
+# may emit these keys; merge_env_overrides() rejects MERIDIAN_* keys from
+# every other source (plan and preflight).
+_ALLOWED_MERIDIAN_KEYS: frozenset[str] = frozenset({
+    "MERIDIAN_REPO_ROOT",
+    "MERIDIAN_STATE_ROOT",
+    "MERIDIAN_DEPTH",
+    "MERIDIAN_CHAT_ID",
+    "MERIDIAN_FS_DIR",
+    "MERIDIAN_WORK_DIR",
+})
 
 
 @dataclass(frozen=True)
@@ -50,28 +64,40 @@ class RuntimeContext:
 
     Any code path that needs to set a MERIDIAN_* variable for a child
     spawn MUST go through `RuntimeContext.child_context(...)`. This
-    includes parent chat id propagation, state root forwarding, and
-    depth incrementing.
+    includes parent chat id propagation, state root forwarding, depth
+    incrementing, shared filesystem dir, and the work-item dir.
 
-    `preflight.extra_env` may return harness-specific variables (e.g.,
-    `CODEX_*`, `CLAUDE_*`) but MUST NOT contain any key beginning with
-    `MERIDIAN_`. An assertion in `merge_env_overrides(...)` enforces
-    this invariant and raises `RuntimeError` on violation.
+    Neither `plan.env_overrides` nor `preflight.extra_env` may contain
+    any `MERIDIAN_*` key. `merge_env_overrides(...)` scans both inputs
+    and raises `RuntimeError` on violation (defence in depth against a
+    plan builder or a harness preflight accidentally leaking one).
     """
 
     repo_root: Path
     state_root: Path
     parent_chat_id: str | None
     parent_depth: int
+    fs_dir: Path | None
+    work_dir: Path | None
 
     def child_context(self) -> dict[str, str]:
-        overrides = {
+        overrides: dict[str, str] = {
             "MERIDIAN_REPO_ROOT": self.repo_root.as_posix(),
             "MERIDIAN_STATE_ROOT": self.state_root.as_posix(),
             "MERIDIAN_DEPTH": str(self.parent_depth + 1),
         }
         if self.parent_chat_id is not None:
             overrides["MERIDIAN_CHAT_ID"] = self.parent_chat_id
+        if self.fs_dir is not None:
+            overrides["MERIDIAN_FS_DIR"] = self.fs_dir.as_posix()
+        if self.work_dir is not None:
+            overrides["MERIDIAN_WORK_DIR"] = self.work_dir.as_posix()
+        # Invariant: every emitted key is in the whitelist. If this fails
+        # it's a drift between the class body and _ALLOWED_MERIDIAN_KEYS.
+        assert set(overrides).issubset(_ALLOWED_MERIDIAN_KEYS), (
+            f"RuntimeContext.child_context drift: "
+            f"{sorted(set(overrides) - _ALLOWED_MERIDIAN_KEYS)}"
+        )
         return overrides
 ```
 
@@ -86,19 +112,29 @@ def merge_env_overrides(
 ) -> dict[str, str]:
     """Merge environment overrides in precedence order.
 
-    Invariant (K5): preflight_overrides MUST NOT contain any MERIDIAN_*
-    key. That namespace is owned by `RuntimeContext.child_context()`.
+    Invariant (K5): neither `plan_overrides` nor `preflight_overrides`
+    may contain any `MERIDIAN_*` key. The MERIDIAN namespace is owned
+    exclusively by `RuntimeContext.child_context()`. Both inputs are
+    scanned up-front and a single `RuntimeError` is raised listing
+    every offending key with its source.
 
     Precedence (later wins): plan < preflight (harness-specific) < runtime.
     This ordering ensures that MERIDIAN_* from runtime always takes the
-    final word — defence in depth against a preflight that accidentally
-    slips a MERIDIAN_* through.
+    final word, but the point is moot — the invariant check above means
+    neither plan nor preflight can produce a MERIDIAN_* key in the first
+    place.
     """
-    forbidden = {k for k in preflight_overrides if k.startswith("MERIDIAN_")}
+    forbidden: dict[str, str] = {}  # key -> source
+    for key in plan_overrides:
+        if key.startswith("MERIDIAN_"):
+            forbidden[key] = "plan_overrides"
+    for key in preflight_overrides:
+        if key.startswith("MERIDIAN_"):
+            forbidden[key] = "preflight_overrides"
     if forbidden:
         raise RuntimeError(
-            "preflight.extra_env must not set MERIDIAN_* keys; "
-            f"found {sorted(forbidden)}"
+            "MERIDIAN_* keys may only be set by RuntimeContext.child_context(); "
+            f"found leaks: {sorted(forbidden.items())}"
         )
     merged = dict(plan_overrides)
     merged.update(preflight_overrides)
@@ -106,7 +142,7 @@ def merge_env_overrides(
     return merged
 ```
 
-S046 exercises this invariant with a fixture adapter whose `preflight` returns `{"MERIDIAN_DEPTH": "42"}` and asserts the merge raises.
+S046 exercises this invariant with a fixture adapter whose `preflight` returns `{"MERIDIAN_DEPTH": "42"}` and asserts the merge raises. **S046b** (convergence pass) exercises the plan-side leak with `plan_overrides={"MERIDIAN_CHAT_ID": "spoofed"}` and asserts the merge also raises.
 
 ### LaunchContext
 
@@ -177,6 +213,8 @@ def prepare_launch_context(
         state_root=resolve_state_paths(repo_root).root_dir.resolve(),
         parent_chat_id=plan.parent_chat_id,
         parent_depth=plan.parent_depth,
+        fs_dir=plan.fs_dir,
+        work_dir=plan.work_dir,
     )
     merged_overrides = merge_env_overrides(
         plan_overrides=plan.env_overrides,
