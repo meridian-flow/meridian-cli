@@ -1,18 +1,25 @@
 # Impl Orchestrator: Target Shape
 
-This doc describes the impl-orchestrator's behavior after the restructure. It is still the largest behavioral change in the package — impl-orch gains a pre-planning step, a planner-spawn handoff, a pre-execution structural gate, a planning cycle cap, and an escape hatch that fires both at execution time and at planning time. Everything else in the orchestrator topology exists to support those capabilities.
+This doc describes the impl-orchestrator's behavior after the v3 restructure. It is still the largest behavioral change in the package — impl-orch gains a pre-planning step, a planner-spawn handoff, a pre-execution structural gate, a planning cycle cap, and an escape hatch that fires both at execution time and at planning time. Under v3, verification is keyed to **spec leaves** — the EARS-format acceptance criteria design-orch wrote — not to a separate scenarios convention. Everything else in the orchestrator topology exists to support these capabilities.
 
-Read [overview.md](overview.md) first for the surrounding context. The planner agent that impl-orch now spawns is described in [planner.md](planner.md), and the Terrain section impl-orch consumes is specified in [terrain-contract.md](terrain-contract.md). On a redesign cycle, impl-orch also consumes the [preservation-hint.md](preservation-hint.md) artifact dev-orch produces. Skills loaded alongside the body are listed at the end.
+Read [overview.md](overview.md) first for the surrounding context. The design package impl-orch consumes is the two-tree structure described in [design-orchestrator.md](design-orchestrator.md): `design/spec/` (hierarchical spec tree with EARS leaves), `design/architecture/` (hierarchical architecture tree), `design/refactors.md` (refactor agenda), and `design/feasibility.md` (gap-finding record). The planner agent impl-orch now spawns is described in [planner.md](planner.md), the structural analysis workflow that produced refactors.md and feasibility.md is specified in [terrain-contract.md](terrain-contract.md), and on a redesign cycle impl-orch also consumes the [preservation-hint.md](preservation-hint.md) artifact dev-orch produces. Skills loaded alongside the body are listed at the end.
 
 ## What impl-orch does now
 
-Consumes a design package (design docs + decisions + scenarios + Terrain observations) from dev-orchestrator, plus a preservation hint when one exists from a previous redesign cycle. Runs a pre-planning step against runtime context scoped to the work the current cycle still has to do, spawns @planner with the design plus the pre-planning notes, evaluates the resulting plan's Parallelism Posture against the structural gate, and either reports the plan back to dev-orch as a terminal report for the review checkpoint or escalates a structural-blocking signal. After dev-orch approves the plan, a *fresh* impl-orch spawn picks up the plan and runs the per-phase execution loop. The execution-loop impl-orch produces working code committed per phase, a decision log of execution-time judgment calls, and — when needed — a redesign brief that bails out of execution without silently patching past a broken design assumption.
+Consumes a design package from dev-orchestrator — the spec tree, the architecture tree, `refactors.md`, `feasibility.md`, and the decision log — plus a preservation hint when one exists from a previous redesign cycle. Runs a pre-planning step against runtime context scoped to the work the current cycle still has to do, spawns @planner with the design plus the pre-planning notes, evaluates the resulting plan's Parallelism Posture against the structural gate, and either reports the plan back to dev-orch as a terminal report for the review checkpoint or escalates a structural-blocking signal. After dev-orch approves the plan, a *fresh* impl-orch spawn picks up the plan and runs the per-phase execution loop. The execution-loop impl-orch produces working code committed per phase, a decision log of execution-time judgment calls, and — when needed — a redesign brief that bails out of execution rather than silently patching past a falsified spec leaf.
 
-The pre-planning + planner-spawn replaces the old "dev-orch spawns @planner before impl-orch starts" handoff. The pre-execution structural gate, the planning cycle cap, the planning-time arm of the escape hatch, and the terminated-spawn plan review contract are new behaviors that did not exist in the previous topology.
+The pre-planning + planner-spawn replaces the old "dev-orch spawns @planner before impl-orch starts" handoff. The pre-execution structural gate, the planning cycle cap, the planning-time arm of the escape hatch, the terminated-spawn plan review contract, and spec-drift enforcement are behaviors that did not exist in the previous topology.
 
 ## Pre-planning as the first action
 
-When impl-orch starts, the first action is reading the design package, the Terrain section (per [terrain-contract.md](terrain-contract.md)), and any preservation hint from a previous redesign cycle (per [preservation-hint.md](preservation-hint.md)). Then impl-orch answers the four feasibility questions (from the `feasibility-questions` skill) against runtime context. This is where the runtime knowledge the design-orch could not have gets gathered — probes against real binaries or libraries, dependency walks across the actual codebase, file scans, env-var collisions, test-suite shape inspection, anything that turns architectural assumptions into runtime facts.
+When impl-orch starts, the first action is reading the design package and any preservation hint from a previous redesign cycle. Specifically:
+
+1. **Read `design/spec/overview.md`** — the root TOC of the spec tree, with every leaf summarized. Impl-orch treats spec leaves as the verification contract and reads them on-demand during pre-planning (cheap to load — each leaf is small) or lazily during execution as phases come up.
+2. **Read `design/architecture/overview.md`** — the root topology with current + target posture for the whole system, plus the TOC of architecture subtrees. This tells impl-orch where the runtime probes are worth running.
+3. **Read `design/refactors.md`** — the refactor agenda. Every entry names target nodes, parallelism it unblocks, and affected files. Impl-orch does not re-decide whether refactors are needed — design-orch already decided — but it reads them so its pre-planning notes account for the state transitions they imply.
+4. **Read `design/feasibility.md`** — the record of what design-orch already probed. Any entry tagged `impl-orch must resolve during pre-planning` is a known unknown impl-orch now has to answer with runtime evidence.
+5. **Read any preservation hint from a prior redesign cycle** (only on redesign cycles) per [preservation-hint.md](preservation-hint.md).
+6. **Apply the four feasibility questions** (from the `feasibility-questions` skill) against runtime context — probes against real binaries or libraries, dependency walks across the actual codebase, file scans, env-var collisions, test-suite shape inspection. This is where the runtime knowledge the design-orch could not have gets gathered. Impl-orch does not re-run probes design-orch already recorded in feasibility.md — it covers the known unknowns feasibility.md flagged plus any runtime constraints impl-orch notices that design could not anticipate.
 
 If a preservation hint exists, impl-orch scopes pre-planning to the invalidated portion. The hint's `replan-from-phase` anchor and the partially-/fully-invalidated phase tables tell impl-orch which surfaces still need probing and which surfaces are immutable starting state. Re-running pre-planning over the entire work item every redesign cycle is the anti-pattern the hint exists to prevent — pre-planning runtime work is proportional to the scope of the change, not to the total work item size.
 
@@ -24,10 +31,11 @@ The test for whether impl-orch is straying into decomposition: if a sentence in 
 
 Impl-orch writes those observations to `$MERIDIAN_WORK_DIR/plan/pre-planning-notes.md` as a structured input for the next step. The notes are not a plan — they are the runtime context that the planner will use to *write* the plan. Format:
 
-- **Feasibility answers** for each of the four questions, with runtime evidence for any answer that diverged from the Terrain section's architectural answer.
-- **Probe results** for any integration boundaries that needed real-binary verification before planning.
-- **Terrain re-interpretation** flagging anything in the design's Terrain section that runtime data contradicts or refines (e.g. "Terrain says module X is a leaf but runtime shows it imports Y transitively").
+- **Feasibility answers** for each of the four questions, with runtime evidence for any answer that diverged from the architecture tree's root-posture answer or feasibility.md's evidence.
+- **Probe results** for the known unknowns feasibility.md flagged, plus any integration boundaries that needed re-verification before planning.
+- **Architecture re-interpretation** flagging anything in the architecture tree that runtime data contradicts or refines (e.g. "architecture/subsystem-A/module-X.md says X is a leaf in the local DAG, but runtime data shows it imports Y transitively").
 - **Module-scoped constraints discovered at runtime** that bound the plan's phase ordering — shared test fixtures, global registries, env-var collisions, fixture races. Stated as facts about modules, never as proposed phases.
+- **Spec-leaf coverage hypothesis** — impl-orch's runtime-informed reading of which spec leaves cluster together and which can satisfy independently. Stated as clusters of leaf IDs, not as phases.
 - **Probe gaps** — questions impl-orch could not answer with the probes it ran, flagged so the planner knows what is missing rather than discovering it during decomposition.
 
 Pre-planning has to land on disk before the planner spawn because the planner consumes it via `-f`. Holding it in impl-orch's conversation context defeats the purpose — the legibility of the runtime observations is the value, and legibility requires materialization.
@@ -40,17 +48,20 @@ Pre-planning notes are a *projection* of runtime context, not equivalent to runt
 
 After the pre-planning notes are written, impl-orch spawns @planner with:
 
-- The design package (`design/` including `terrain-contract.md`, plus `scenarios/`) attached via `-f`.
+- The spec tree (`design/spec/`) attached via `-f` — the planner needs leaf IDs to map each phase to the spec leaves it satisfies.
+- The architecture tree (`design/architecture/`) attached via `-f` — the planner reads the subtree structure and cross-links to identify disjoint surfaces.
+- `design/refactors.md` attached via `-f` — the refactor agenda is the planner's Round 1 seed.
+- `design/feasibility.md` attached via `-f` — so the planner knows which architectural constraints rest on verified evidence and which on inference.
 - The pre-planning notes attached via `-f`.
 - The decision log so far attached via `-f`.
 - The preservation hint attached via `-f` *(only on redesign cycles)*.
 - A short prompt naming the work item and pointing the planner at the inputs.
 
-Impl-orch then waits for the planner spawn to terminate. The planner reads the inputs, decomposes the work with parallelism-first as the central frame, and writes the plan artifacts to disk (`plan/overview.md` with `Parallelism Posture` and per-round parallelism justification, per-phase blueprints, `plan/scenario-ownership.md`, `plan/status.md`, and any new scenarios appended to `scenarios/`). See [planner.md](planner.md) for the full planner contract.
+Impl-orch then waits for the planner spawn to terminate. The planner reads the inputs, decomposes the work with parallelism-first as the central frame, and writes the plan artifacts to disk (`plan/overview.md` with `Parallelism Posture` and per-round parallelism justification, per-phase blueprints with spec-leaf claims, `plan/leaf-ownership.md`, `plan/status.md`). See [planner.md](planner.md) for the full planner contract.
 
 When the planner spawn returns, impl-orch reads the plan from disk and evaluates it on three axes:
 
-1. **Completeness** — required sections present, all `structural-prep-candidate: yes` Terrain items mapped to a phase or skip decision, every scenario claimed by exactly one phase, parallelism justification per round.
+1. **Completeness** — required sections present, every refactors.md entry mapped to a phase or a skip decision, every spec leaf in `design/spec/` claimed by exactly one phase, parallelism justification per round.
 2. **Consistency with pre-planning notes** — the plan does not contradict module-scoped constraints impl-orch flagged (e.g. it does not propose parallel phases that share a fixture impl-orch flagged as racing).
 3. **Probe-request signal** — if the planner terminated with a "needs more probing" report instead of a plan, impl-orch reads the report's question list, runs the additional probes, updates `pre-planning-notes.md`, and re-spawns the planner. This counts toward the planning cycle cap (below).
 
@@ -60,7 +71,7 @@ The reason planning is a separate spawn rather than in-context impl-orch work is
 
 ## Planning cycle cap
 
-Planner re-spawns are capped at **K=3 per impl-orch cycle**. A "failed" planner spawn for the purpose of the cap is one where the produced plan has any of: missing required sections, missing or duplicated scenario claims, contradictions with pre-planning notes, hand-wavy parallelism justifications that do not cite real constraints, or unaccounted `structural-prep-candidate: yes` items. A spawn that produces a complete and consistent plan does not advance the counter. A spawn that terminates with a probe-request report consumes one slot of the cap (so the planner cannot probe-request indefinitely).
+Planner re-spawns are capped at **K=3 per impl-orch cycle**. A "failed" planner spawn for the purpose of the cap is one where the produced plan has any of: missing required sections, missing or duplicated spec-leaf claims, contradictions with pre-planning notes, hand-wavy parallelism justifications that do not cite real constraints, or unaccounted refactors.md entries. A spawn that produces a complete and consistent plan does not advance the counter. A spawn that terminates with a probe-request report consumes one slot of the cap (so the planner cannot probe-request indefinitely).
 
 After the third failed spawn, impl-orch must escalate to dev-orch with a `planning-blocked` signal rather than re-spawning a fourth time. The escalation is a terminal report citing the planner's last-attempt artifact, the gap reasoning impl-orch provided on each re-spawn, and the conclusion that planner convergence is not achievable with the current design + pre-planning notes. Dev-orch decides whether to revise the design (back through design-orch) or to accept the partial plan with explicit known gaps.
 
@@ -68,11 +79,11 @@ The planning cycle cap is **distinct from the redesign cycle cap (D7)**. They co
 
 ## Pre-execution structural gate
 
-Once impl-orch reads a converging plan, the next check is the plan's `Parallelism Posture` field (per [planner.md](planner.md) §"Parallelism Posture as a structural gate"). The gate has one trigger: when `Cause: structural coupling preserved by design`, impl-orch must **not** proceed to execution and must **not** route the plan to dev-orch as a normal plan-review checkpoint. Instead, impl-orch writes a planning-time redesign brief naming the structural coupling, citing the planner's reasoning, and naming the design assumption the planner could not decompose around. Impl-orch then emits a terminal report routing the brief to dev-orch as a `structural-blocking` signal.
+Once impl-orch reads a converging plan, the next check is the plan's `Parallelism Posture` field (per [planner.md](planner.md) §"Parallelism Posture as a structural gate"). The gate has one trigger: when `Cause: structural coupling preserved by design`, impl-orch must **not** proceed to execution and must **not** route the plan to dev-orch as a normal plan-review checkpoint. Instead, impl-orch writes a planning-time redesign brief naming the structural coupling, citing the planner's reasoning, and naming the design assumption the planner could not decompose around (typically an architecture subtree shape or a refactors.md entry the planner could not route around). Impl-orch then emits a terminal report routing the brief to dev-orch as a `structural-blocking` signal.
 
-The other cause values (`inherent constraint`, `runtime constraint`, `feature work too small to fan out`) do not fire the gate. A sequential plan caused by an inherent constraint is a real plan and impl-orch routes it through the normal review checkpoint. The structural gate fires only when the planner is signaling that the design's target state is structurally non-decomposable for parallelism — i.e. that the design has preserved a coupling problem that the planner cannot route around.
+The other cause values (`inherent constraint`, `runtime constraint`, `feature work too small to fan out`) do not fire the gate. A sequential plan caused by an inherent constraint is a real plan and impl-orch routes it through the normal review checkpoint. The structural gate fires only when the planner is signaling that the design's target state is structurally non-decomposable for parallelism — i.e. that the architecture tree has preserved a coupling problem that the planner cannot route around and refactors.md did not remove.
 
-This gate is what makes the parallelism-first frame load-bearing. Without it, the planner would surface "this design is structurally tangled" as prose in `plan/overview.md` and downstream consumers would either miss it or interpret it as an aesthetic complaint. With it, the design's structural problems get a hard mechanical signal that impl-orch must act on.
+This gate is what makes the parallelism-first frame load-bearing. Without it, the planner would surface "this design is structurally tangled" as prose in `plan/overview.md` and downstream consumers would either miss it or interpret it as an aesthetic complaint. With it, the architecture tree's structural problems get a hard mechanical signal that impl-orch must act on.
 
 ## Review checkpoint after the plan materializes
 
@@ -86,69 +97,87 @@ The cost-shape argument for this checkpoint is unchanged: the plan is the most e
 
 ## Execution loop
 
-The execution-loop impl-orch is a fresh spawn launched by dev-orch after plan approval. Its inputs include the approved plan attached via `-f` and an explicit "execute existing plan" prompt that instructs it to skip pre-planning and the planner spawn entirely. From there it executes phases using the same per-phase loop the current topology uses: scenario review → coder → testers → fix loop → commit → next phase. That part of the behavior does not change. Scenario-ownership from `scenarios/` is still the verification contract. Per-phase commits still isolate rollback. Testers still run in parallel where independent.
+The execution-loop impl-orch is a fresh spawn launched by dev-orch after plan approval. Its inputs include the approved plan attached via `-f` and an explicit "execute existing plan" prompt that instructs it to skip pre-planning and the planner spawn entirely. From there it executes phases using the per-phase loop: read the phase blueprint, spawn a coder for the phase, wait for the coder, spawn testers to verify the spec leaves the phase claims, iterate the fix loop until all claimed leaves are verified, commit, move to the next phase. Per-phase commits still isolate rollback. Testers still run in parallel where independent.
 
-The decision log, status tracking, and context-handoff patterns carry over unchanged. On a redesign cycle, the execution-loop impl-orch reads the preservation hint and skips phases marked `preserved`, treats `partially-invalidated` phases as needing revision (re-spawns the coder with the partial-invalidation scope), and runs the `replanned` and `new` phases as fresh work.
+### Verification framing: spec leaves as the contract
+
+Under v3, verification framing changes. A phase's success criterion is not "the code works" or "the tests pass" — it is **"does this phase satisfy the spec leaves it claims?"** Each phase blueprint names specific spec-leaf IDs (e.g. `S03.1.e1, S03.1.e2, S05.2.e1`) pulled from `design/spec/`. Testers read those leaves, parse the EARS statements, and execute smoke tests that exercise each statement's trigger/precondition/response triple. A phase passes when every claimed leaf has at least one verified EARS statement and none are falsified.
+
+This does not mean testers run only one test per leaf — it means the verification contract is rooted in leaves, not in free-floating test cases. A tester may execute additional edge-case tests beyond the EARS statements as long as the leaf's claims are covered. The reverse — covering edge cases but not the claimed leaves — is incomplete verification.
+
+Smoke tests remain the default per the project's existing "prefer smoke tests over unit tests" rule. There is no TDD mandate — coders do not write tests before implementing. Testers run smoke tests after the phase lands and report which spec leaves are verified, which are falsified, and which are not yet covered.
+
+### Spec-drift enforcement
+
+If impl-orch discovers during execution that runtime evidence contradicts a spec leaf — not just that the code does not yet satisfy it, but that the spec itself describes behavior the system cannot or should not have — **the spec must be revised before code changes land**. Quiet workarounds that leave the code satisfying unstated behavior while the spec says something else are exactly the drift Fowler warns about under spec-anchored SDD.
+
+The enforcement mechanism is the escape hatch. A falsified spec leaf fires execution-time bail-out; impl-orch stops spawning fix coders, writes the redesign brief naming the falsified leaf IDs, and routes to dev-orch. Design-orch revises the affected leaves (and any architecture-tree nodes that realize them), dev-orch writes a preservation hint, and a fresh impl-orch resumes against the revised spec. There is no path where code lands satisfying behavior the spec does not describe.
+
+This is the central v3 discipline. Under v2, discovered edge cases got appended to the scenarios folder and testing continued. Under v3, discovered edge cases that the spec already covered get tested normally; discovered edge cases that the spec did not cover either get added to spec leaves (a small design revision routed through dev-orch) or trigger a bail-out if they reveal a structural falsification. The spec is authoritative; the code follows it.
+
+### Decision log, status, and context handoffs
+
+The decision log, status tracking, and context-handoff patterns carry over unchanged. On a redesign cycle, the execution-loop impl-orch reads the preservation hint and skips phases marked `preserved`, treats `partially-invalidated` phases as needing revision (re-spawns the coder with the partial-invalidation scope), and runs the `replanned` and `new` phases as fresh work. Leaf ownership survives the redesign cycle via the hint's preservation section — leaves claimed by preserved phases remain claimed; leaves affected by the revision get reclaimed by the replanned phases.
 
 ## The escape hatch
 
-The escape hatch fires when runtime evidence falsifies a structural assumption the design rests on. There are two arms — execution-time and planning-time — and they share the same brief format ([redesign-brief.md](redesign-brief.md)) but different sections.
+The escape hatch fires when runtime evidence falsifies a **spec leaf** the design rests on. There are two arms — execution-time and planning-time — and they share the same brief format ([redesign-brief.md](redesign-brief.md)) but different sections.
 
 ### Execution-time falsification
 
-During execution, impl-orch watches for evidence that contradicts a design assumption. Not test failures — those are normal friction. Not fixture collateral or scope creep — those are fix-loop concerns. The specific signal is runtime evidence that falsifies a structural assumption the design rests on.
+During execution, impl-orch watches for evidence that contradicts a spec leaf. Not test failures — those are normal friction. Not fixture collateral or scope creep — those are fix-loop concerns. The specific signal is runtime evidence that falsifies a spec leaf the design wrote as contract.
 
 Concrete examples of what qualifies:
 
-- A smoke test against a real binary reveals the harness protocol does not support a semantic the design assumed (e.g. "Codex app-server doesn't expose an approval channel the design assumed would exist").
-- Fixing a failure would require a contract change that invalidates one or more already-committed phases (the change ripples backwards, not just forward).
-- The same structural failure recurs across multiple fix attempts in the same phase, each fix exposing the next symptom of the same underlying wrong shape.
-- External tool behavior discovered at runtime contradicts the design's protocol assumptions in a way that cannot be hidden by a local projection or guard.
+- A smoke test against a real binary reveals the behavior an EARS statement requires cannot be achieved (e.g. spec leaf `S07.3.e1` says "when a confirm-mode approval is requested, the spawn runner shall route the request to the user via a dedicated approval channel" — but the Codex app-server binary has no approval channel, confirmed by running `codex app-server --help`).
+- Fixing a failure would require a contract change that invalidates one or more already-verified spec leaves in earlier phases (the change ripples backwards, not just forward).
+- The same spec leaf fails across multiple fix attempts, each fix exposing the next symptom of the same underlying wrong contract shape.
+- External tool behavior discovered at runtime contradicts the precondition or trigger of an EARS statement in a way that cannot be hidden by a local projection or guard.
 
-The reason the trigger is epistemic rather than severity-based: triggering on severity makes bail-out fire on normal friction and paralyzes impl-orch. Triggering on evidence type makes bail-out fire only when continuing would compound the error. The distinction is what kind of information the failure produced, not how painful it was.
+The reason the trigger is epistemic rather than severity-based: triggering on severity makes bail-out fire on normal friction and paralyzes impl-orch. Triggering on spec-leaf falsification makes bail-out fire only when continuing would compound a contract error. The distinction is what the failure reveals about the spec, not how painful it was to hit.
 
-When the trigger fires, impl-orch stops spawning fix coders for that concern. It writes `$MERIDIAN_WORK_DIR/redesign-brief.md` following the format in [redesign-brief.md](redesign-brief.md), emits a terminal report citing the brief, and returns control to dev-orchestrator.
+When the trigger fires, impl-orch stops spawning fix coders for that concern. It writes `$MERIDIAN_WORK_DIR/redesign-brief.md` following the format in [redesign-brief.md](redesign-brief.md), citing the specific leaf IDs (e.g. "falsified: `S07.3.e1`, `S07.3.e2`; the confirm-mode contract cannot be expressed on the current app-server channel"), emits a terminal report citing the brief, and returns control to dev-orchestrator.
 
 ### Planning-time falsification
 
 The escape hatch also fires *before* execution, while the planner is being spawned or just after the planner returns. Three planning-time triggers:
 
-1. **Pre-planning notes contradict a design assumption.** If the runtime probes impl-orch ran during pre-planning falsify a structural claim the design rests on (e.g. the design said module X is a leaf but runtime data shows X is a hub), impl-orch writes a planning-time redesign brief naming the contradiction and routes to dev-orch *before* spawning the planner. Spawning the planner against a falsified design wastes a planner slot and produces a plan that has to be thrown away.
+1. **Pre-planning notes contradict a spec leaf or an architecture leaf the design rests on.** If the runtime probes impl-orch ran during pre-planning falsify a spec-leaf contract or reveal that the architecture tree's assumed structure is wrong (e.g. the architecture tree says module X is a leaf but runtime data shows X is a hub), impl-orch writes a planning-time redesign brief naming the contradiction and routes to dev-orch *before* spawning the planner. Spawning the planner against a falsified design wastes a planner slot and produces a plan that has to be thrown away.
 2. **Planner cannot converge after K=3 spawns.** Exhausting the planning cycle cap fires the `planning-blocked` signal and emits a redesign brief naming the gap reasoning that prevented convergence. See "Planning cycle cap" above for the cap mechanics.
-3. **Planner returns a plan with `Cause: structural coupling preserved by design`.** The pre-execution structural gate fires the `structural-blocking` signal and emits a redesign brief naming the structural coupling the planner could not decompose around. See "Pre-execution structural gate" above.
+3. **Planner returns a plan with `Cause: structural coupling preserved by design`.** The pre-execution structural gate fires the `structural-blocking` signal and emits a redesign brief naming the structural coupling the planner could not decompose around — typically an architecture subtree that refactors.md did not break apart. See "Pre-execution structural gate" above.
 
-Planning-time briefs use the 7th section of [redesign-brief.md](redesign-brief.md) (Parallelism-blocking structural issues / planning-time falsification). The brief format includes a section for planning-time evidence specifically, so dev-orch can distinguish a planning-time bail-out from an execution-time bail-out and route the design revision accordingly.
+Planning-time briefs use the "Parallelism-blocking structural issues" section of [redesign-brief.md](redesign-brief.md). The brief format includes a section for planning-time evidence specifically, so dev-orch can distinguish a planning-time bail-out from an execution-time bail-out and route the design revision accordingly.
 
 The justification burden is the same for both arms: the brief must articulate why the evidence is falsification rather than fixable friction, and dev-orch will reject a weak brief and push back. The escape hatch is cheap to invoke but expensive to defend, which is the counterweight that prevents it from becoming a shortcut past hard work.
 
 ## Justification burden on the brief
 
-A redesign brief that cannot articulate why the evidence is falsification and not a fixable bug is not a valid bail-out. Dev-orch reading a weak brief should reject it and push back on impl-orch to either patch forward or produce a stronger case. This is the counterweight to the escape hatch — the mechanism is cheap to invoke but requires real evidence to justify, which prevents it from becoming a shortcut past hard work.
+A redesign brief that cannot name specific falsified spec leaves (execution-time) or cannot show the planner's structure-resistance case (planning-time) is not a valid bail-out. Dev-orch reading a weak brief should reject it and push back on impl-orch to either patch forward or produce a stronger case. This is the counterweight to the escape hatch — the mechanism is cheap to invoke but requires real evidence to justify, which prevents it from becoming a shortcut past hard work.
 
-The brief format includes a section explicitly for this justification. Impl-orch has to state the design assumption, the evidence that contradicts it, and why the contradiction cannot be resolved by a local fix. The shape of that section is in [redesign-brief.md](redesign-brief.md).
+The brief format includes a section explicitly for this justification. For execution-time bail-outs, impl-orch names the spec-leaf IDs (e.g. `S07.3.e1`), quotes the EARS statement, and names the runtime evidence that contradicts it. For planning-time bail-outs, impl-orch names the architecture subtree and the refactors.md entries the planner could not route around. The shape of that section is in [redesign-brief.md](redesign-brief.md).
 
 ## What does not warrant bail-out
 
 - First-time test failures: fix and retry.
 - Fixture collateral damage: cleanup coder sweep.
-- Scenario scope creep: narrow the scenario, update ownership, continue.
-- Missing edge cases discovered during testing: append to scenarios, continue.
+- Missing edge cases that the spec already covered via an EARS statement the tester did not exercise: generate the missing test from the EARS trigger/precondition/response and run it.
+- Missing edge cases the spec did *not* cover at all: route a scoped spec revision through dev-orch (a small design-cycle update adds the new leaves; not every missing edge case is structural falsification).
 - Coder mistakes that a re-spawn would catch.
-- Tester disagreements on how strictly to read a scenario.
+- Tester disagreements on how strictly to read an EARS statement — push back to dev-orch with a specific reading question rather than bailing.
 
-All of those are normal fix-loop territory. Promoting them to bail-out triggers would reproduce the streaming-parity-fixes phase 2 friction in reverse — the orchestrator would stop every time it hit a bump.
+All of those are normal fix-loop territory (or small scoped revisions). Promoting them to bail-out triggers would reproduce the streaming-parity-fixes phase 2 friction in reverse — the orchestrator would stop every time it hit a bump.
 
 ## Adaptation stays allowed
 
 The restructure does not remove impl-orch's authority to adapt execution order, split phases, or adjust scope in response to runtime findings. That authority is a separate behavior from the escape hatch. Adaptation happens inside the execution loop and stays scoped to what impl-orch can resolve. Bail-out happens when adaptation cannot resolve the issue because the problem is higher than the plan.
 
-Every adaptation still gets logged to `decisions.md` with rationale, as before.
+Impl-orch may also deviate from the architecture tree's observational shape when runtime evidence supports it — the architecture tree is observation, not contract. Every deviation gets logged to `decisions.md` with rationale. The spec tree is different: impl-orch may not deviate from a spec leaf; spec-leaf disagreements route through the escape hatch or through a scoped design revision.
 
 ## Final review loop stays end-to-end
 
-After all phases pass phase-level testing, the final review loop runs across the full change set as today — reviewer fan-out across diverse models, one refactor reviewer, design-alignment reviewer, iterate until convergent. No change to that loop.
+After all phases pass phase-level verification, the final review loop runs across the full change set as today — reviewer fan-out across diverse models, one refactor reviewer, design-alignment reviewer, iterate until convergent. Design alignment at this stage checks the full implementation against the spec tree: every spec leaf has been verified by at least one phase, and no committed code introduces behavior the spec does not describe.
 
-The escape hatch does not interact with the final review loop. If the final review surfaces issues, they are fix-loop findings by default. A bail-out from the final review would be unusual and require strong justification, since by that point every phase has passed its verification contract.
+The escape hatch does not interact with the final review loop under normal conditions. If the final review surfaces a spec-leaf gap or a drift between code and spec, that is either a patch-forward finding (code does not satisfy an existing leaf) or a scoped design revision (behavior exists that the spec did not anticipate). Bail-out from the final review would be unusual and require strong justification, since by that point every phase has passed its verification contract.
 
 ## Skills loaded
 
@@ -165,6 +194,7 @@ The `planning` skill is **not** loaded on impl-orch. It moved off impl-orch when
 - The expectation that the plan exists on disk *before* impl-orch is spawned. The plan now exists on disk *after* impl-orch's pre-planning step and planner spawn complete, before dev-orch's plan review checkpoint.
 - The `planning` skill load on impl-orch's profile (it was added on impl-orch in the v1 of this restructure when planning was being folded inline; reverted now that planning is a spawn again).
 - The single long-lived impl-orch spawn that was implied by earlier drafts where impl-orch "waits" for plan review. Replaced by the terminated-spawn contract: planning impl-orch and execution impl-orch are separate spawns separated by dev-orch's plan review checkpoint.
+- Scenario-based verification framing. Phases now claim spec-leaf IDs and testers verify EARS statements; the `scenarios/` convention is retired entirely.
 
 ## What is added
 
@@ -174,8 +204,10 @@ The `planning` skill is **not** loaded on impl-orch. It moved off impl-orch when
 - The pre-execution structural gate driven by the planner's `Parallelism Posture` field, with the `structural-blocking` escalation signal.
 - The terminated-spawn contract for plan review (impl-orch terminates, dev-orch spawns a fresh impl-orch for execution after approval).
 - The `feasibility-questions` skill load (carried from v1 of this restructure — still wanted because pre-planning and mid-execution checks both apply the four questions).
-- The escape hatch with both execution-time and planning-time arms, and the `redesign-brief.md` emission behavior.
+- The escape hatch with both execution-time and planning-time arms, keyed on spec-leaf falsification rather than on test failure, and the `redesign-brief.md` emission behavior.
 - Preservation hint consumption (on redesign cycles only): impl-orch reads the hint as the first thing in pre-planning, scopes runtime probing to the invalidated portion, and seeds the execution loop with the hint's preserve/replan decisions.
+- Spec-leaf verification framing: phases claim leaf IDs, testers verify EARS statements, success = all claimed leaves verified.
+- Spec-drift enforcement: runtime evidence contradicting a spec leaf fires the escape hatch; no silent spec bypass.
 
 ## Open questions
 
