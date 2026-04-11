@@ -1,6 +1,6 @@
 # redesign-brief.md: Artifact Format
 
-This doc specifies the format of `redesign-brief.md`, the artifact impl-orchestrator writes when its escape hatch fires. The brief is consumed by dev-orchestrator to scope a redesign session and by design-orchestrator to understand what must change. It is also the mechanism the system uses to audit autonomous redesign cycles after the fact.
+This doc specifies the format of `redesign-brief.md`, the artifact impl-orchestrator writes when its escape hatch fires. The brief is consumed by dev-orchestrator to scope a redesign session and by design-orchestrator to understand what must change. It is also the mechanism the system uses to audit autonomous redesign cycles after the fact. Under v3, the brief cites falsified spec leaves and named subtrees of the two-tree design package rather than flat design doc sections.
 
 Read [overview.md](overview.md) and [impl-orchestrator.md](impl-orchestrator.md) for the surrounding behavior.
 
@@ -38,24 +38,26 @@ Weak evidence looks like: "testers kept finding issues", "the design seems wrong
 
 The heart of the brief. Impl-orch states explicitly:
 
-1. **The design assumption** that is being falsified. Named, quoted, or linked to the specific design doc section where it appears.
-2. **What would have to be true** for the design to be correct.
+1. **The design assumption** that is being falsified. Under v3 this is cited as a specific **spec leaf ID** (e.g. `design/spec/permission-pipeline/codex.md §S02.3.e1`) or a specific **architecture subtree assumption** (e.g. `design/architecture/permission-pipeline/codex.md §"Target state — streaming channel"`). Quote or paraphrase the statement so design-orch does not have to re-read it to understand what is being falsified.
+2. **What would have to be true** for the spec leaf or architecture assumption to hold.
 3. **What the evidence shows** instead — the specific mismatch between the assumption and reality.
-4. **Why a local fix is insufficient.** Why patching in the current phase would leave the next phase or the overall integration broken.
+4. **Why a local fix is insufficient.** Why patching in the current phase would leave the next phase or the overall integration broken. If the falsification is "the EARS response clause in leaf S02.3.e1 is unachievable given observed binary behavior," say so explicitly — the spec leaf itself is what has to change, not just the code.
 
-This section is the counterweight to the cheap-to-invoke escape hatch. Impl-orch has to make the case that this is not a fixable bug, not a scoping error, not a tester disagreement — that it is runtime evidence against a design assumption and that continuing would compound the error. A brief that cannot make that case should not bail.
+This section is the counterweight to the cheap-to-invoke escape hatch. Impl-orch has to make the case that this is not a fixable bug, not a scoping error, not a tester disagreement — that it is runtime evidence against a spec leaf or architecture assumption and that continuing would compound the error. A brief that cannot make that case should not bail.
 
 Dev-orch reviewing the brief evaluates the falsification case. A case that fails evaluation is pushed back for patch-forward or for a stronger case; it does not advance the redesign cycle counter.
 
 ### Design change scope
 
-What has to change in the design package to resolve the falsification. Scoped as narrowly as possible — impl-orch should not propose a full redesign when a section-level revision would suffice.
+What has to change in the design package to resolve the falsification. Scoped as narrowly as possible — impl-orch should not propose a full redesign when a subtree-level revision would suffice.
 
 Content:
-- Which design docs need revision. Named specifically (e.g. "design/transport-projections.md §Codex Streaming").
-- What the revision should address. Not the answer — the question design-orch needs to answer.
-- Which design docs should stay untouched. Named specifically, so design-orch knows where the boundaries are.
-- Any new scenarios that should be added to `scenarios/` to cover the previously-unknown edge case.
+- **Spec tree revisions.** Which spec leaves must be revised or replaced, named by leaf ID (e.g. "`design/spec/permission-pipeline/codex.md §S02.3.e1` — revise the EARS response clause"). Which spec subtrees stay untouched.
+- **Architecture tree revisions.** Which architecture docs must be revised, named by path (e.g. "`design/architecture/permission-pipeline/codex.md` — target-state streaming channel section"). Which architecture subtrees stay untouched.
+- **Refactors agenda deltas.** Whether `design/refactors.md` needs new entries (the falsification may have revealed a coupling that was not refactored), existing entries need to be reprioritized, or no changes are needed.
+- **Feasibility deltas.** Whether `design/feasibility.md` needs to record new probe results or revise existing entries in light of the falsification evidence.
+- **New spec leaves.** Any previously-unknown edge cases the falsification surfaces — enumerated with proposed leaf IDs, target subtrees, and a one-line EARS sketch each. Design-orch may renumber or relocate them during the revision but the set is fixed by the brief.
+- **What the revision should address.** Not the answer — the question design-orch needs to answer at each revision point.
 
 The design change scope is a brief for design-orch, not a prescription. Design-orch is still the one that decides how to revise; impl-orch is identifying what needs to be revised and why.
 
@@ -119,19 +121,23 @@ Session p1234 (@smoke-tester) report excerpt: "..."
 Log file `.meridian/spawns/p1234/stderr.log` lines 48–67 capture the real binary rejecting...
 
 ### Falsification case
-**Assumption (design/permission-pipeline.md §Codex):** Codex app-server exposes a distinct channel for confirm-mode approvals separate from the YOLO channel.
+**Assumption (spec leaf `design/spec/permission-pipeline/codex.md §S02.3.e1`):** "When the user selects confirm-mode for a Codex session, the streaming projection SHALL emit approval requests on a channel distinct from the YOLO channel."
+
+**Architecture assumption (`design/architecture/permission-pipeline/codex.md §Target state — streaming channel`):** Codex app-server exposes a distinct wire channel for confirm-mode approvals separate from the YOLO channel.
 
 **What would have to be true:** The `codex app-server` binary would have to accept an approval-mode argument or expose a runtime approval callback API.
 
-**What the evidence shows:** `codex app-server --help` has no approval-mode flag and the runtime JSON-RPC protocol does not include an approval request method. Our streaming connection can only send the YOLO sentinel; confirm-mode as designed does not exist.
+**What the evidence shows:** `codex app-server --help` has no approval-mode flag and the runtime JSON-RPC protocol does not include an approval request method. Our streaming connection can only send the YOLO sentinel; the spec leaf's response clause describes behavior that does not exist in the real binary.
 
-**Why local fix is insufficient:** Phase 4's projection assumes two distinct approval wire values. Every subsequent phase that reads from the projection (6, 7, 8) depends on that shape. Patching Phase 4 to collapse the two values silently would recreate the H1 sandbox-downgrade bug the original design set out to prevent.
+**Why local fix is insufficient:** Phase 4's projection assumes two distinct approval wire values. Every subsequent phase that reads from the projection (6, 7, 8) claims spec leaves that depend on that shape (`S02.4.e1`, `S02.5.e1`, `S02.6.e1`). Patching Phase 4 to collapse the two values silently would recreate the H1 sandbox-downgrade bug the original design set out to prevent, and would leave three spec leaves claiming behavior that the code does not implement.
 
 ### Design change scope
-- **Revise:** design/permission-pipeline.md §Codex — how confirm-mode maps to the real app-server surface
-- **Revise:** design/transport-projections.md §Codex Streaming — what the projection emits when confirm-mode is requested and the wire has only one channel
-- **Stay:** design/overview.md, design/typed-harness.md, design/runner-shared-core.md
-- **New scenarios:** one scenario covering the confirm-mode-on-single-channel case with the intended fail-closed behavior
+- **Spec tree revisions:** `design/spec/permission-pipeline/codex.md §S02.3.e1` — revise the EARS response clause to describe fail-closed behavior on single-channel wires. `§S02.4.e1`, `§S02.5.e1`, `§S02.6.e1` may need minor cross-link updates but their core EARS statements likely stay.
+- **Architecture tree revisions:** `design/architecture/permission-pipeline/codex.md §Target state — streaming channel` — how confirm-mode maps to the real single-channel app-server surface.
+- **Refactors agenda deltas:** no new refactors required (this is a spec/architecture reshape, not a structural coupling).
+- **Feasibility deltas:** add a new entry to `design/feasibility.md` recording the `codex app-server --help` probe result and the wire-protocol observation, so future redesign cycles do not re-probe.
+- **New spec leaves:** one new leaf `design/spec/permission-pipeline/codex.md §S02.3.e2` covering the confirm-mode-on-single-channel case with the intended fail-closed behavior.
+- **Stay:** `design/spec/overview.md`, `design/architecture/overview.md`, `design/spec/typed-harness/**`, `design/architecture/runner-shared-core/**`.
 
 ### Preservation
 - Phase 1: preserved — typed leaves are unaffected

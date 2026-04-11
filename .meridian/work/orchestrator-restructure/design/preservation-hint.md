@@ -29,28 +29,28 @@ Derived from `redesign-brief.md` cycle <n>. Design revision: `decisions.md` D<m>
 
 ## Preserved phases
 
-Phases whose committed work is still valid under the revised design. The next impl-orch cycle skips these — coders are not respawned, scenarios are not re-verified, commits stay in place.
+Phases whose committed work is still valid under the revised design. The next impl-orch cycle skips these — coders are not respawned, spec leaves are not re-verified, commits stay in place.
 
-| Phase | Commit SHA | Scenarios verified | Reason preserved |
-|-------|-----------|-------------------|------------------|
-| Phase 1 (typed leaves) | abc123 | S001, S002, S005 | unaffected by revision; type contracts unchanged |
-| Phase 2 (permission pipeline) | def456 | S010, S011 | revision is Codex-specific; shared pipeline unchanged |
+| Phase | Commit SHA | Spec leaves satisfied | Reason preserved |
+|-------|-----------|-----------------------|------------------|
+| Phase 1 (typed leaves) | abc123 | S01.1.e1, S01.1.e2, S01.2.e1 | unaffected by revision; type contracts unchanged |
+| Phase 2 (permission pipeline) | def456 | S02.3.e1, S02.3.e2 | revision is Codex-specific; shared pipeline unchanged |
 
 ## Partially-invalidated phases
 
-Phases whose commits are kept (git history preserved) but whose work has parts that depend on the falsified assumption and must be reworked. The next impl-orch cycle treats these as "needs revision" — coder respawned with the partial-invalidation scope, scenarios re-verified, fix landed as a new commit on top.
+Phases whose commits are kept (git history preserved) but whose work has parts that depend on the falsified assumption and must be reworked. The next impl-orch cycle treats these as "needs revision" — coder respawned with the partial-invalidation scope, spec leaves re-verified, fix landed as a new commit on top.
 
-| Phase | Commit SHA | Scenarios | What is invalid | What is salvaged |
-|-------|-----------|-----------|-----------------|------------------|
-| Phase 4 (Codex projection) | ghi789 | S015, S016 | The two-channel approval mapping (lines 40-80 of projection.py) | The base projection class and the streaming connection setup |
+| Phase | Commit SHA | Spec leaves | What is invalid | What is salvaged |
+|-------|-----------|-------------|-----------------|------------------|
+| Phase 4 (Codex projection) | ghi789 | S04.2.e1, S04.2.e2 | The two-channel approval mapping (lines 40-80 of projection.py) | The base projection class and the streaming connection setup |
 
 ## Fully-invalidated phases
 
 Phases whose work cannot be salvaged under the revised design. Commits stay in git history but the next impl-orch cycle treats them as not-yet-done — replanned, recoded, retested.
 
-| Phase | Commit SHA | Scenarios | Reason fully invalidated |
-|-------|-----------|-----------|--------------------------|
-| Phase 5 (approval routing) | jkl012 | S020 | Built on Phase 4's two-channel assumption; fixing Phase 4 requires complete rewrite of routing |
+| Phase | Commit SHA | Spec leaves | Reason fully invalidated |
+|-------|-----------|-------------|--------------------------|
+| Phase 5 (approval routing) | jkl012 | S05.1.e1 | Built on Phase 4's two-channel assumption; fixing Phase 4 requires complete rewrite of routing |
 
 ## Replan-from-here
 
@@ -60,11 +60,12 @@ The first phase number that must be replanned. Everything before this phase numb
 
 The planner is required to honor this anchor: the new plan must keep phase numbering up to `replan-from-phase - 1` consistent with the preservation list, and may renumber or reorganize from `replan-from-phase` onward.
 
-## New scenarios from the redesign
+## New or revised spec leaves from the redesign
 
-Scenarios added to `scenarios/` during the redesign cycle that the planner must claim in the new plan.
+Spec leaves added or revised in `design/spec/` during the redesign cycle that the planner must claim in the new plan. A leaf that existed in the prior cycle and was revised in-place keeps its ID and is listed with a `revised: <reason>` annotation; a newly introduced leaf gets a fresh ID.
 
-- S031 (confirm-mode-on-single-channel) — assigned phase TBD; the planner must claim this in scenario-ownership.md.
+- **S04.2.e3** (new) — confirm-mode on single channel. Added to `spec/permission-pipeline/codex.md` during redesign. Planner must claim this in `plan/leaf-ownership.md`; likely owner is the replanned Phase 4.
+- **S04.2.e1** (revised: two-channel assumption dropped, rewritten as single-channel confirm behavior) — the existing leaf kept its ID but the EARS statement was rewritten. Phase 4's coder must re-verify against the new statement even on preserved code.
 
 ## Constraints from the original intent
 
@@ -74,7 +75,7 @@ Replays the "constraints that still hold" section from the redesign brief, so im
 - Phase 1's type contracts must not be broken.
 ```
 
-## Status status field representation
+## Status field representation
 
 The hint shapes how `plan/status.md` represents phases after a redesign cycle. The status values used:
 
@@ -91,10 +92,11 @@ The planner is required to seed `plan/status.md` with these values when a preser
 After design-orch returns a revised design, dev-orch:
 
 1. Reads the redesign brief's preservation section.
-2. Reads the revised design docs to confirm which phases are still valid and which are not.
+2. Reads the revised design docs — spec tree diff, architecture tree diff, updated `refactors.md` and `feasibility.md` — to confirm which phases are still valid and which are not.
 3. For each entry in the preservation section, decides whether the design revision changed the assessment (e.g. design revision narrowed the change scope, so a partially-invalidated phase becomes preserved).
-4. Writes the preservation-hint.md file with the final preservation lists and the replan-from-phase anchor.
-5. Spawns the next impl-orch with the revised design and the preservation-hint attached via `-f`.
+4. Enumerates the new and revised spec leaves introduced by the redesign cycle so the planner claims every affected leaf in `plan/leaf-ownership.md`.
+5. Writes the preservation-hint.md file with the final preservation lists, the replan-from-phase anchor, and the leaf delta.
+6. Spawns the next impl-orch with the revised design package and the preservation-hint attached via `-f`.
 
 If dev-orch judges that the design revision invalidates more than the brief originally claimed, dev-orch updates the hint accordingly. The hint is dev-orch's decision, informed by both impl-orch's brief and design-orch's revised design.
 
@@ -104,17 +106,18 @@ Impl-orch's pre-planning step reads the hint first:
 
 1. Loads the preserved-phase list. These commits are immutable starting state — no probing, no re-verification.
 2. Loads the partially-invalidated list. Pre-planning notes scope to the runtime constraints that affect the invalidated parts (and only those parts).
-3. Loads the fully-invalidated list and any new scenarios. These are the work the planner must replan.
+3. Loads the fully-invalidated list and any new or revised spec leaves. These are the work the planner must replan.
 4. Reads `replan-from-phase` to understand where the new plan starts.
 5. Generates pre-planning notes scoped to the replan range, not the whole work item. This is what makes redesign cheap: pre-planning runtime work is proportional to the scope of the change, not to the total work item size.
 
-The planner spawn then receives the design + the hint + the scoped pre-planning notes. The planner produces a plan that respects the preservation anchor and renumbers or reorganizes only from `replan-from-phase` onward.
+The planner spawn then receives the design package + the hint + the scoped pre-planning notes. The planner produces a plan that respects the preservation anchor and renumbers or reorganizes only from `replan-from-phase` onward, and claims every new or revised spec leaf in `plan/leaf-ownership.md`.
 
 ## Anti-patterns the contract is designed to prevent
 
 - **Default-preserve as a verbal claim with no mechanism.** The hint makes preservation explicit and auditable.
 - **Re-running pre-planning over the entire work item every redesign cycle.** Wasteful and erodes the cost benefit of incremental redesign. The replan-from-phase anchor scopes the work.
-- **The planner forgetting which scenarios are still claimed by preserved phases.** The hint replays scenario assignment so the planner doesn't lose ownership.
+- **The planner forgetting which spec leaves are still claimed by preserved phases.** The hint replays leaf-to-phase ownership so the planner doesn't lose coverage.
+- **Silent leaf revisions.** A spec leaf revised in place during a redesign cycle keeps its ID but its EARS statement changed; the planner might claim the "same" leaf in the same phase without noticing the semantic drift. The hint's `revised: <reason>` annotation forces the planner (and the coder, via phase blueprint) to re-read the leaf before treating preserved work as covering it.
 - **Drift between the brief's preservation section and the actual hint.** The hint is dev-orch's final call after reading the revised design, and dev-orch is allowed to update preservation status if the design changed the assessment. Decision rationale lands in `decisions.md` for audit.
 
 ## What the hint is not

@@ -1,8 +1,8 @@
 # feasibility-questions: Skill Content Design
 
-This doc describes the content of a new `feasibility-questions` skill that design-orchestrator, impl-orchestrator, and @planner all load. The skill carries four questions the three agents ask at their respective altitudes — architectural for design-orch, runtime for impl-orch's pre-planning step, and decomposition-time for @planner — so all three passes reinforce each other rather than drifting.
+This doc describes the content of a new `feasibility-questions` skill that design-orchestrator, impl-orchestrator, and @planner all load. The skill carries four questions the three agents ask at their respective altitudes — architectural for design-orch (answers landing in `design/feasibility.md`, `design/refactors.md`, and the architecture tree's target-state sections), runtime for impl-orch's pre-planning step (answers landing in `plan/pre-planning-notes.md`), and decomposition-time for @planner — so all three passes reinforce each other rather than drifting.
 
-Read [overview.md](overview.md) for why the questions are shared.
+Read [overview.md](overview.md) for why the questions are shared under the v3 SDD shape.
 
 ## What the skill is for
 
@@ -14,11 +14,11 @@ The four questions are intentionally few and general. More questions would bloat
 
 ### Is this feasible?
 
-The most basic question, and the one that is easiest to skip because it feels obvious by the time the team has got this far. Feasibility is not binary — the useful frame is "feasible under what constraints?" The design-orch answers this with architectural data: is there a pattern that supports what we are trying to do, are there interface shapes that would make it simpler, is there prior art that succeeds or fails at this. The impl-orch answers with runtime data: do the libraries behave the way the design assumes, does the environment support the approach, will the test suite tolerate the changes.
+The most basic question, and the one that is easiest to skip because it feels obvious by the time the team has got this far. Feasibility is not binary — the useful frame is "feasible under what constraints?" Design-orch answers this with architectural data and real probes: is there a pattern that supports what we are trying to do, are there interface shapes that would make it simpler, does the real binary accept the inputs the design assumes, is there prior art that succeeds or fails at this. Design-orch lands those answers in `design/feasibility.md` — the gap-finding record that names known unknowns, probes run, and constraints discovered. Impl-orch answers with pre-planning runtime data: do the libraries behave the way the design assumes at the point in the codebase where the phase will land, does the environment support the approach, will the test suite tolerate the changes. Impl-orch treats `design/feasibility.md` as the starting point and adds runtime deltas in `plan/pre-planning-notes.md` rather than re-running probes that already landed at design time.
 
 Feasibility questions that deserve flagging: a library's advertised behavior disagrees with its observed behavior, a protocol the design assumes does not exist in the real binary, an interface the design assumes is stable has a history of breaking changes upstream, a data shape the design treats as simple has edge cases the design did not enumerate.
 
-A "yes, feasible" answer is less informative than a "yes with these constraints" answer — name what has to hold for the plan to work.
+A "yes, feasible" answer is less informative than a "yes with these constraints" answer — name what has to hold for the plan to work, and record it in `design/feasibility.md` (design-time) or `plan/pre-planning-notes.md` (planning-time).
 
 ### What can run in parallel?
 
@@ -42,17 +42,19 @@ A yes answer means splitting, and splitting costs some coordination. But continu
 
 Foundational work is anything that exists only to unblock later work and has no standalone value. Type definitions, abstract base classes, shared helpers, interface contracts that do not yet exist. Skipping the foundation means every later phase rebuilds the same scaffolding in slightly different ways, and the cleanup cost lands as a refactor that invalidates work the team already committed.
 
-The question surfaces things the design might treat as part of the first feature phase but are actually prerequisites. Design-orch answers by looking at import dependencies and shared contracts. Impl-orch answers by looking at whether the first phase's coder would need to stub out support modules that every later phase also needs — if yes, the stubs should be a phase of their own, landing before the features. The planner answers by mapping `structural-prep-candidate: yes` items from the design's structural delta into cross-cutting prep phases that land before parallel feature work.
+Under v3 the bulk of this answer is already resolved by design-orch before @planner runs. The refactor agenda lives in `design/refactors.md` as a first-class artifact, and foundational prep hooks into the architecture tree's target-state sections. When @planner asks this question, the default starting point is "read `design/refactors.md` and the architecture target-state, map every entry to a phase." The question only surfaces *new* foundational needs when pre-planning runtime context reveals a scaffold that neither `refactors.md` nor the architecture tree anticipated.
+
+Design-orch answers during design convergence by looking at import dependencies and shared contracts, and by writing refactors directly to `design/refactors.md` and foundational-prep implications into the architecture tree. Impl-orch answers during pre-planning by checking whether runtime constraints reveal scaffolds the design did not anticipate. @planner answers by reading `design/refactors.md` top-to-bottom and sequencing every entry as Round 1 prep — it does not invent new refactors; missing refactors escalate via the Parallelism Posture gate (see [planner.md](planner.md) §"The planner does not invent refactors").
 
 Foundational phases should be short, minimal, and unblock a concrete next phase. If a foundational phase grows, it is probably hiding feature work and should be questioned with "can this be broken down further?"
 
-**Foundational prep is distinct from structural refactors**, even though both can land in cross-cutting prep phases. Structural refactors are *rearrangement* of existing code (split a module, extract an interface, collapse duplicates). Foundational prep is *creation* of new scaffolding (new type contracts, new base classes, new shared helpers). The starting point distinguishes them — refactors start from existing modules; foundations start from empty. Both unlock parallelism downstream by removing the surface that would force later phases to either duplicate work or run sequentially. The Terrain section's structural delta records both, and [terrain-contract.md](terrain-contract.md) §"Structural refactors vs foundational prep" defines the disambiguation. The planner sequences them independently when needed.
+**Foundational prep is distinct from structural refactors**, even though both can land in cross-cutting prep phases. Structural refactors are *rearrangement* of existing code (split a module, extract an interface, collapse duplicates) and live in `design/refactors.md`. Foundational prep is *creation* of new scaffolding (new type contracts, new base classes, new shared helpers) and lives in the architecture tree's target-state sections. The starting point distinguishes them — refactors start from existing modules; foundations start from empty. Both unlock parallelism downstream by removing the surface that would force later phases to either duplicate work or run sequentially. The refactor agenda and the architecture target-state are the two places where this answer gets written down; [terrain-contract.md](terrain-contract.md) §"Structural refactors vs foundational prep" defines the disambiguation.
 
 ## Why these four and not others
 
 Other possible questions were considered and rejected because they were either covered by one of the four or they were a sub-question of a broader concern that would get asked anyway.
 
-- "What could go wrong?" is the design-phase edge-case enumeration, which happens in the design-orch body and the `scenarios/` seeding. Not a feasibility question.
+- "What could go wrong?" is the design-phase edge-case enumeration, which happens in the design-orch body and lands as EARS-format leaves in `design/spec/`. Not a feasibility question.
 - "What are the risks?" is either a feasibility risk (covered by "is this feasible?") or a scope risk (covered by "can this be broken down further?"). Asking it separately invites vague hand-wavy answers.
 - "Is the design complete?" is a review question, not a feasibility question. Handled by design-orch's review fan-out.
 - "Is the team right?" is a staffing question and belongs to `agent-staffing`, not here.
@@ -63,9 +65,9 @@ The four questions cover feasibility, parallelism, decomposition, and sequencing
 
 The skill is loaded by design-orchestrator, impl-orchestrator, and @planner. All three agents reference the four questions during their convergence phases:
 
-- Design-orch applies the questions during final design convergence and captures answers in the design overview's Terrain section.
-- Impl-orch applies the questions during its pre-planning step (the runtime-context pass that runs before the planner spawn) and captures answers in `plan/pre-planning-notes.md`, then again during each phase's scenario review as a quick re-check against runtime discoveries.
-- @planner applies the questions during decomposition itself, with the parallelism question taking the lead — the planner's central frame is parallelism-first, so "what can run in parallel?" is the question the decomposition is built around (see [planner.md](planner.md) for that frame). The other three questions stay as supporting lenses: feasibility against the planner's runtime-informed inputs, breakdown against phase shape, foundational prep against structural prep ordering.
+- Design-orch applies the questions during final design convergence and distributes answers across `design/feasibility.md` (known unknowns and probe results), `design/refactors.md` (structural rearrangement agenda), and the architecture tree's target-state sections (foundational scaffolding). "What can run in parallel?" informs the architecture tree's subtree shape and the parallel-cluster hypothesis captured in `design/architecture/overview.md`.
+- Impl-orch applies the questions during its pre-planning step (the runtime-context pass that runs before the planner spawn) and captures answers in `plan/pre-planning-notes.md`, then again during each phase's spec-leaf verification setup as a quick re-check against runtime discoveries.
+- @planner applies the questions during decomposition itself, with the parallelism question taking the lead — the planner's central frame is parallelism-first, so "what can run in parallel?" is the question the decomposition is built around (see [planner.md](planner.md) for that frame). The other three questions stay as supporting lenses: feasibility against the planner's runtime-informed inputs, breakdown against phase shape and spec-leaf coverage, foundational prep against the refactor-agenda ordering the planner sequences from `design/refactors.md`.
 
 The answers are not templated. The skill does not prescribe a format. Each agent captures what the questions surface in whatever form fits the design, notes, or plan it is writing.
 
@@ -79,7 +81,7 @@ The skill should be short enough that each question lives in the reader's mind d
 
 - Phase ordering prescriptions. That is `/planning`.
 - Tester composition or reviewer staffing. That is `agent-staffing`.
-- Edge case enumeration craft. That is design-orch's body and the scenarios convention in `dev-artifacts`.
+- Edge case enumeration craft. That is design-orch's body — edge cases land as EARS-format leaves in `design/spec/`, and failure-mode reasoning lands in `design/architecture/` target-state sections. The feasibility questions flag that edge cases should be enumerated, but the enumeration itself is design craft, not a feasibility activity.
 - Decision capture format. That is `decision-log`.
 - Specific model or tool recommendations. Those drift.
 
