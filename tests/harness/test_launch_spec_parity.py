@@ -17,14 +17,25 @@ from meridian.lib.harness.connections.codex_ws import CodexConnection
 from meridian.lib.harness.connections.opencode_http import OpenCodeConnection
 from meridian.lib.harness.launch_spec import ResolvedLaunchSpec
 from meridian.lib.harness.opencode import OpenCodeAdapter
+from meridian.lib.safety.permissions import PermissionConfig
 
 
 class _StaticPermissionResolver(PermissionResolver):
-    def __init__(self, flags_by_harness: dict[HarnessId, tuple[str, ...]] | None = None) -> None:
-        self._flags_by_harness = flags_by_harness or {}
+    def __init__(
+        self,
+        flags: tuple[str, ...] = (),
+        *,
+        config: PermissionConfig | None = None,
+    ) -> None:
+        self._flags = flags
+        self._config = config or PermissionConfig()
 
-    def resolve_flags(self, harness_id: HarnessId) -> list[str]:
-        return list(self._flags_by_harness.get(harness_id, ()))
+    @property
+    def config(self) -> PermissionConfig:
+        return self._config
+
+    def resolve_flags(self) -> tuple[str, ...]:
+        return self._flags
 
 
 def _spawn(**kwargs: object) -> SpawnParams:
@@ -109,7 +120,7 @@ def test_claude_build_command_parity_cases() -> None:
     adapter = ClaudeAdapter()
 
     no_flags = _StaticPermissionResolver()
-    with_flags = _StaticPermissionResolver({HarnessId.CLAUDE: ("--perm-claude",)})
+    with_flags = _StaticPermissionResolver(("--perm-claude",))
 
     assert adapter.build_command(_spawn(), no_flags) == [
         "claude",
@@ -242,7 +253,7 @@ def test_codex_build_command_parity_cases() -> None:
     adapter = CodexAdapter()
 
     no_flags = _StaticPermissionResolver()
-    with_flags = _StaticPermissionResolver({HarnessId.CODEX: ("--perm-codex",)})
+    with_flags = _StaticPermissionResolver(("--perm-codex",))
 
     assert adapter.build_command(_spawn(), no_flags) == ["codex", "exec", "--json", "-"]
     assert adapter.build_command(
@@ -368,7 +379,7 @@ def test_opencode_build_command_parity_cases() -> None:
     adapter = OpenCodeAdapter()
 
     no_flags = _StaticPermissionResolver()
-    with_flags = _StaticPermissionResolver({HarnessId.OPENCODE: ("--perm-opencode",)})
+    with_flags = _StaticPermissionResolver(("--perm-opencode",))
 
     assert adapter.build_command(_spawn(), no_flags) == ["opencode", "run", "-"]
     assert adapter.build_command(
@@ -475,7 +486,7 @@ def test_opencode_build_command_effort_levels(
 
 def test_claude_cross_transport_parity_on_semantic_fields(tmp_path: Path) -> None:
     adapter = ClaudeAdapter()
-    perms = _StaticPermissionResolver({HarnessId.CLAUDE: ("--perm-claude",)})
+    perms = _StaticPermissionResolver(("--perm-claude",))
     run = _spawn(
         model=ModelId("claude-sonnet-4-6"),
         effort="xhigh",
@@ -522,7 +533,7 @@ def test_claude_cross_transport_parity_on_semantic_fields(tmp_path: Path) -> Non
 
 def test_codex_cross_transport_parity_on_semantic_fields(tmp_path: Path) -> None:
     adapter = CodexAdapter()
-    perms = _StaticPermissionResolver({HarnessId.CODEX: ("--perm-codex",)})
+    perms = _StaticPermissionResolver(("--perm-codex",))
     run = _spawn(
         model=ModelId("gpt-5.3-codex"),
         effort="high",
@@ -550,7 +561,7 @@ async def test_opencode_cross_transport_parity_with_known_streaming_asymmetries(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     adapter = OpenCodeAdapter()
-    perms = _StaticPermissionResolver({HarnessId.OPENCODE: ("--perm-opencode",)})
+    perms = _StaticPermissionResolver(("--perm-opencode",))
     run = _spawn(
         model=ModelId("opencode-gpt-5.3-codex"),
         effort="medium",

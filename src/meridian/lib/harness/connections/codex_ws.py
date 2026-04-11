@@ -613,8 +613,8 @@ class CodexConnection(HarnessConnection[ResolvedLaunchSpec]):
         if method.endswith("/requestApproval"):
             launch_spec = self._launch_spec
             if (
-                isinstance(launch_spec, CodexLaunchSpec)
-                and launch_spec.approval_mode == "confirm"
+                launch_spec is not None
+                and launch_spec.permission_resolver.config.approval == "confirm"
             ):
                 logger.warning(
                     "Rejecting Codex server approval request in confirm mode: %s",

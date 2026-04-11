@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import inspect
+import logging
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Iterable
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, Generic, Literal, Protocol, TypeVar, cast, runtime_checkable
 
@@ -24,6 +24,7 @@ from meridian.lib.launch.launch_types import (
 from meridian.lib.safety.permissions import PermissionConfig
 
 AdapterSpecT = TypeVar("AdapterSpecT", bound=ResolvedLaunchSpec, covariant=True)
+logger = logging.getLogger(__name__)
 
 
 def _empty_metadata() -> dict[str, object]:
@@ -51,28 +52,70 @@ def _coerce_permission_flags(raw: object) -> tuple[str, ...]:
     raise TypeError(f"Permission resolver flags must be iterable, got {type(raw).__name__}")
 
 
+def _permission_flags_for_harness(
+    *,
+    harness_id: HarnessId,
+    config: PermissionConfig,
+) -> tuple[str, ...]:
+    if config.approval == "yolo":
+        if harness_id == HarnessId.CLAUDE:
+            return ("--dangerously-skip-permissions",)
+        if harness_id == HarnessId.CODEX:
+            return ("--dangerously-bypass-approvals-and-sandbox",)
+        return ()
+
+    if config.approval == "auto":
+        if harness_id == HarnessId.CLAUDE:
+            return ("--permission-mode", "acceptEdits")
+        if harness_id == HarnessId.CODEX:
+            return ("--full-auto",)
+        return ()
+
+    if config.approval == "confirm":
+        if harness_id == HarnessId.CLAUDE:
+            return ("--permission-mode", "default")
+        if harness_id == HarnessId.CODEX:
+            return ("--ask-for-approval", "untrusted")
+        return ()
+
+    if harness_id == HarnessId.CODEX and config.sandbox != "default":
+        return ("--sandbox", config.sandbox)
+    return ()
+
+
+def _strip_claude_tool_flags(flags: tuple[str, ...]) -> tuple[str, ...]:
+    filtered: list[str] = []
+    index = 0
+    while index < len(flags):
+        token = flags[index]
+        if token in {"--allowedTools", "--disallowedTools"}:
+            index += 2
+            continue
+        filtered.append(token)
+        index += 1
+    return tuple(filtered)
+
+
 def resolve_permission_flags(
     permission_resolver: PermissionResolver,
     harness_id: HarnessId,
 ) -> tuple[str, ...]:
-    """Resolve permission flags with support for legacy resolver signatures."""
+    """Resolve projected permission flags for one harness."""
 
-    resolve_flags = getattr(permission_resolver, "resolve_flags", None)
-    if not callable(resolve_flags):
-        return ()
-
-    signature = inspect.signature(resolve_flags)
-    param_count = len(signature.parameters)
-    if param_count == 0:
-        return _coerce_permission_flags(resolve_flags())
-    if param_count == 1:
-        resolver_with_harness = cast("Callable[[HarnessId], object]", resolve_flags)
-        return _coerce_permission_flags(resolver_with_harness(harness_id))
-
-    raise TypeError(
-        "PermissionResolver.resolve_flags must accept either no arguments "
-        "or a single harness-id argument"
+    base_flags = list(
+        _permission_flags_for_harness(harness_id=harness_id, config=permission_resolver.config)
     )
+    resolver_flags = _coerce_permission_flags(permission_resolver.resolve_flags())
+    if harness_id != HarnessId.CLAUDE:
+        stripped = _strip_claude_tool_flags(resolver_flags)
+        if harness_id == HarnessId.CODEX and "--disallowedTools" in resolver_flags:
+            logger.warning(
+                "Codex does not support disallowed-tools; "
+                "falling back to sandbox/approval flags."
+            )
+        resolver_flags = stripped
+    base_flags.extend(resolver_flags)
+    return tuple(base_flags)
 
 
 class HarnessCapabilities(BaseModel):

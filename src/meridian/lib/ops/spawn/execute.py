@@ -892,7 +892,6 @@ def _background_worker_main(
         allowed_tools=params.allowed_tools,
         approval=params.approval,
     )
-    typed_permission_resolver = cast("PermissionResolver", permission_resolver)
     return asyncio.run(
         _execute_existing_spawn(
             spawn_id=spawn_id,
@@ -902,7 +901,7 @@ def _background_worker_main(
             agent_name=params.agent_name,
             mcp_tools=params.mcp_tools,
             permission_config=permission_config,
-            permission_resolver=typed_permission_resolver,
+            permission_resolver=permission_resolver,
             allowed_tools=params.allowed_tools,
             passthrough_args=params.passthrough_args,
             session=params.session,

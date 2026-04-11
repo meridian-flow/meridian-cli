@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any, cast
 from meridian.lib.core.domain import SpawnStatus
 from meridian.lib.core.types import SpawnId
 from meridian.lib.launch.launch_types import ResolvedLaunchSpec
+from meridian.lib.safety.permissions import UnsafeNoOpPermissionResolver
 from meridian.lib.state.atomic import append_text_line
 from meridian.lib.streaming.control_socket import ControlSocketServer
 from meridian.lib.streaming.types import InjectResult
@@ -95,7 +96,10 @@ class SpawnManager:
         connection = connection_factory()
         started_monotonic = time.monotonic()
         completion_future: asyncio.Future[DrainOutcome] = asyncio.get_running_loop().create_future()
-        resolved_spec = spec or ResolvedLaunchSpec(prompt=config.prompt)
+        resolved_spec = spec or ResolvedLaunchSpec(
+            prompt=config.prompt,
+            permission_resolver=UnsafeNoOpPermissionResolver(_suppress_warning=True),
+        )
 
         tracer = config.debug_tracer
         if tracer is None and self._debug:

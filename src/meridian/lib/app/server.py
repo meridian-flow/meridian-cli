@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
@@ -18,12 +19,17 @@ from meridian.lib.core.types import HarnessId, ModelId, SpawnId
 from meridian.lib.harness.adapter import SpawnParams
 from meridian.lib.harness.connections.base import ConnectionConfig
 from meridian.lib.harness.registry import get_default_harness_registry
-from meridian.lib.launch.launch_types import PermissionResolver, ResolvedLaunchSpec
-from meridian.lib.safety.permissions import PermissionConfig, TieredPermissionResolver
+from meridian.lib.launch.launch_types import ResolvedLaunchSpec
+from meridian.lib.safety.permissions import (
+    TieredPermissionResolver,
+    UnsafeNoOpPermissionResolver,
+    build_permission_config,
+)
 from meridian.lib.state import spawn_store
 from meridian.lib.streaming.spawn_manager import SpawnManager
 
 _SPAWN_ID_RE = re.compile(r"^p\d+$")
+logger = logging.getLogger(__name__)
 
 class _AppState(Protocol):
     """App state payload carrying shared runtime singletons."""
@@ -62,6 +68,13 @@ class _StaticFilesModule(Protocol):
     StaticFiles: type[object]
 
 
+class PermissionRequest(BaseModel):
+    """REST permission payload for creating one spawn."""
+
+    sandbox: str
+    approval: str
+
+
 class SpawnCreateRequest(BaseModel):
     """REST payload for creating one spawn."""
 
@@ -69,6 +82,7 @@ class SpawnCreateRequest(BaseModel):
     prompt: str
     model: str | None = None
     agent: str | None = None
+    permissions: PermissionRequest | None = None
 
 
 class InjectRequest(BaseModel):
@@ -77,7 +91,11 @@ class InjectRequest(BaseModel):
     text: str
 
 
-def create_app(spawn_manager: SpawnManager) -> object:
+def create_app(
+    spawn_manager: SpawnManager,
+    *,
+    allow_unsafe_no_permissions: bool = False,
+) -> object:
     """Create the FastAPI application for Meridian app."""
 
     background_finalize_tasks: set[asyncio.Task[None]] = set()
@@ -176,6 +194,40 @@ def create_app(spawn_manager: SpawnManager) -> object:
                 detail=f"unsupported harness '{body.harness}'",
             ) from exc
 
+        permissions = body.permissions
+        if permissions is None:
+            if not allow_unsafe_no_permissions:
+                raise http_exception_cls(
+                    status_code=400,
+                    detail=(
+                        "permissions block is required: provide "
+                        "permissions.sandbox and permissions.approval"
+                    ),
+                )
+            logger.warning(
+                "Handling /api/spawns request without permission metadata because "
+                "--allow-unsafe-no-permissions is enabled."
+            )
+            permission_resolver = UnsafeNoOpPermissionResolver()
+        else:
+            sandbox = permissions.sandbox.strip()
+            approval = permissions.approval.strip()
+            if not sandbox:
+                raise http_exception_cls(
+                    status_code=400,
+                    detail="permissions.sandbox is required",
+                )
+            if not approval:
+                raise http_exception_cls(
+                    status_code=400,
+                    detail="permissions.approval is required",
+                )
+            try:
+                permission_config = build_permission_config(sandbox, approval=approval)
+            except ValueError as exc:
+                raise http_exception_cls(status_code=400, detail=str(exc)) from exc
+            permission_resolver = TieredPermissionResolver(config=permission_config)
+
         spawn_id = await reserve_spawn_id(
             chat_id=str(uuid4()),
             model=(body.model.strip() if body.model is not None else "") or "unknown",
@@ -196,13 +248,7 @@ def create_app(spawn_manager: SpawnManager) -> object:
             model=ModelId(body.model.strip()) if body.model and body.model.strip() else None,
             agent=body.agent.strip() if body.agent else None,
         )
-        spec: ResolvedLaunchSpec = adapter.resolve_launch_spec(
-            params,
-            cast(
-                "PermissionResolver",
-                TieredPermissionResolver(config=PermissionConfig()),
-            ),
-        )
+        spec: ResolvedLaunchSpec = adapter.resolve_launch_spec(params, permission_resolver)
 
         try:
             connection = await spawn_manager.start_spawn(config, spec)

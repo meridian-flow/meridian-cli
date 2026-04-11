@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 
@@ -66,13 +67,23 @@ def _fake_opencode_capture_spec_connection_class(
 
 
 class _DummyCodexHarness(BaseSubprocessHarness):
-    @property
-    def id(self) -> HarnessId:
-        return HarnessId.CODEX
+    id: ClassVar[HarnessId] = HarnessId.CODEX
+    consumed_fields: ClassVar[frozenset[str]] = frozenset()
+    explicitly_ignored_fields: ClassVar[frozenset[str]] = frozenset()
 
     @property
     def capabilities(self) -> HarnessCapabilities:
         return HarnessCapabilities()
+
+    def resolve_launch_spec(
+        self,
+        run: SpawnParams,
+        perms: PermissionResolver,
+    ) -> ResolvedLaunchSpec:
+        return ResolvedLaunchSpec(
+            prompt=run.prompt or "",
+            permission_resolver=perms,
+        )
 
     def build_command(self, run: SpawnParams, perms: PermissionResolver) -> list[str]:
         _ = run, perms
@@ -94,15 +105,11 @@ class _DummyCodexHarness(BaseSubprocessHarness):
 
 
 class _DummyClaudeHarness(_DummyCodexHarness):
-    @property
-    def id(self) -> HarnessId:
-        return HarnessId.CLAUDE
+    id: ClassVar[HarnessId] = HarnessId.CLAUDE
 
 
 class _DummyOpenCodeHarness(_DummyCodexHarness):
-    @property
-    def id(self) -> HarnessId:
-        return HarnessId.OPENCODE
+    id: ClassVar[HarnessId] = HarnessId.OPENCODE
 
 
 class _FakeControlSocketServer:

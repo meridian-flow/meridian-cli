@@ -50,6 +50,7 @@ Each scenario is claimed exactly once. Phase closure is gated on every non-retir
 ## Phase 6
 
 - `S024` — `LaunchContext` parity across runners
+- `S054` — `LaunchContext.env` and `env_overrides` immutable mapping views
 - `S025` — Parent Claude permissions forwarded identically
 - `S026` — No duplicate constants across runners
 - `S046` — `preflight.extra_env` containing `MERIDIAN_*` raises

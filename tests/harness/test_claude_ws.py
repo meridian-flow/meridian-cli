@@ -6,6 +6,7 @@ from meridian.lib.core.types import HarnessId, SpawnId
 from meridian.lib.harness.connections.base import ConnectionConfig
 from meridian.lib.harness.connections.claude_ws import ClaudeConnection
 from meridian.lib.harness.launch_spec import ClaudeLaunchSpec, ResolvedLaunchSpec
+from meridian.lib.safety.permissions import UnsafeNoOpPermissionResolver
 
 
 class _TestableClaudeConnection(ClaudeConnection):
@@ -36,6 +37,7 @@ def test_claude_ws_build_command_includes_resume_and_fork_flags(tmp_path: Path) 
         continue_session_id="session-123",
         continue_fork=True,
         extra_args=("--add-dir", "/tmp/extra"),
+        permission_resolver=UnsafeNoOpPermissionResolver(_suppress_warning=True),
     )
 
     command = connection.build_command_for_test(config, spec)

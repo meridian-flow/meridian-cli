@@ -3,7 +3,7 @@
 | Phase | Description | Status | Blockers |
 |---|---|---|---|
 | 1 | Contract leaves and adapter ABCs | Done | — |
-| 2 | Launch spec and permission pipeline | Not started | Phase 1 |
+| 2 | Launch spec and permission pipeline | Done | — |
 | 3 | Claude projection and preflight parity | Not started | Phase 2 |
 | 4 | Codex subprocess and streaming parity | Not started | Phase 2 |
 | 5 | OpenCode transport parity | Not started | Phase 2 |

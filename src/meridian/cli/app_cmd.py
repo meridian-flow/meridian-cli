@@ -13,6 +13,7 @@ def run_app(
     no_browser: bool = False,
     host: str = "127.0.0.1",
     debug: bool = False,
+    allow_unsafe_no_permissions: bool = False,
 ) -> None:
     """Start the Meridian app server."""
 
@@ -31,7 +32,10 @@ def run_app(
     state_root = resolve_state_root(repo_root)
 
     manager = SpawnManager(state_root=state_root, repo_root=repo_root, debug=debug)
-    app = create_app(manager)
+    app = create_app(
+        manager,
+        allow_unsafe_no_permissions=allow_unsafe_no_permissions,
+    )
 
     if not no_browser:
         url = f"http://{host}:{port}"

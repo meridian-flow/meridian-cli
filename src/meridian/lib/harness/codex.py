@@ -29,7 +29,7 @@ from meridian.lib.harness.common import (
     extract_usage_from_artifacts,
 )
 from meridian.lib.harness.ids import HarnessId
-from meridian.lib.harness.launch_spec import CodexLaunchSpec, resolve_permission_config
+from meridian.lib.harness.launch_spec import CodexLaunchSpec
 from meridian.lib.harness.launch_types import PromptPolicy
 from meridian.lib.safety.permissions import PermissionConfig
 
@@ -322,7 +322,6 @@ class CodexAdapter(BaseHarnessAdapter[CodexLaunchSpec]):
         return RunPromptPolicy()
 
     def resolve_launch_spec(self, run: SpawnParams, perms: PermissionResolver) -> CodexLaunchSpec:
-        permission_config = resolve_permission_config(perms)
         continue_session_id = (run.continue_harness_session_id or "").strip() or None
         return CodexLaunchSpec(
             model=str(run.model).strip() if run.model else None,
@@ -335,8 +334,6 @@ class CodexAdapter(BaseHarnessAdapter[CodexLaunchSpec]):
             report_output_path=run.report_output_path,
             interactive=run.interactive,
             mcp_tools=run.mcp_tools,
-            approval_mode=permission_config.approval,
-            sandbox_mode=permission_config.sandbox,
         )
 
     def build_command(self, run: SpawnParams, perms: PermissionResolver) -> list[str]:

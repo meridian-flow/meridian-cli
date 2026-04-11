@@ -14,7 +14,6 @@ from meridian.lib.core.context import RuntimeContext
 from meridian.lib.core.overrides import RuntimeOverrides
 from meridian.lib.core.types import HarnessId, ModelId
 from meridian.lib.harness.registry import HarnessRegistry, get_default_harness_registry
-from meridian.lib.launch.launch_types import PermissionResolver
 from meridian.lib.launch.prompt import (
     compose_run_prompt_text,
     compose_skill_injections,
@@ -328,7 +327,6 @@ def build_create_payload(
         disallowed_tools=profile.disallowed_tools if profile is not None else (),
         approval=resolved.approval or "default",
     )
-    typed_resolver = cast("PermissionResolver", resolver)
 
     appended_system_prompt = None
     if prompt_policy.skill_injection_mode == "append-system-prompt":
@@ -350,7 +348,7 @@ def build_create_payload(
                 appended_system_prompt=appended_system_prompt,
                 extra_args=payload.passthrough_args,
             ),
-            typed_resolver,
+            resolver,
         )
     )
     session_agent_path = resolve_profile_path(profile)
@@ -393,7 +391,7 @@ def build_create_payload(
             max_retries=runtime_view.config.max_retries,
             retry_backoff_secs=runtime_view.config.retry_backoff_seconds,
             permission_config=permission_config,
-            permission_resolver=typed_resolver,
+            permission_resolver=resolver,
             allowed_tools=profile.tools if profile is not None else (),
             disallowed_tools=profile.disallowed_tools if profile is not None else (),
         ),

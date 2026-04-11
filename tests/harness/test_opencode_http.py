@@ -11,7 +11,11 @@ from meridian.lib.harness.connections.base import ConnectionConfig
 from meridian.lib.harness.connections.opencode_http import OpenCodeConnection
 from meridian.lib.harness.launch_spec import OpenCodeLaunchSpec, ResolvedLaunchSpec
 from meridian.lib.harness.opencode import OpenCodeAdapter
-from meridian.lib.safety.permissions import PermissionConfig, TieredPermissionResolver
+from meridian.lib.safety.permissions import (
+    PermissionConfig,
+    TieredPermissionResolver,
+    UnsafeNoOpPermissionResolver,
+)
 
 
 class _TestableOpenCodeConnection(OpenCodeConnection):
@@ -48,7 +52,11 @@ async def test_create_session_uses_spec_model_not_connection_config(tmp_path) ->
     )
 
     session_id = await connection._create_session(
-        ResolvedLaunchSpec(prompt="hello", model="spec-model")
+        ResolvedLaunchSpec(
+            prompt="hello",
+            model="spec-model",
+            permission_resolver=UnsafeNoOpPermissionResolver(_suppress_warning=True),
+        )
     )
 
     assert session_id == "sess-1"
@@ -80,6 +88,7 @@ async def test_create_session_forwards_agent_and_skills_from_opencode_launch_spe
             model="gpt-5.3-codex",
             agent_name="worker",
             skills=("skill-a", "skill-b"),
+            permission_resolver=UnsafeNoOpPermissionResolver(_suppress_warning=True),
         )
     )
 
@@ -99,6 +108,7 @@ async def test_create_session_logs_unsupported_effort_and_fork(
         effort="high",
         continue_session_id="sess-parent",
         continue_fork=True,
+        permission_resolver=UnsafeNoOpPermissionResolver(_suppress_warning=True),
     )
 
     with caplog.at_level(logging.DEBUG, logger="meridian.lib.harness.connections.opencode_http"):

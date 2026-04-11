@@ -6,23 +6,10 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Protocol, TypeVar, runtime_checkable
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, model_validator
 
 if TYPE_CHECKING:
     from meridian.lib.safety.permissions import PermissionConfig
-
-
-class _NoOpPermissionResolver:
-    """Fallback resolver for call sites that do not provide explicit permissions."""
-
-    @property
-    def config(self) -> PermissionConfig:
-        from meridian.lib.safety.permissions import PermissionConfig
-
-        return PermissionConfig()
-
-    def resolve_flags(self) -> tuple[str, ...]:
-        return ()
 
 
 @runtime_checkable
@@ -53,7 +40,7 @@ class ResolvedLaunchSpec(BaseModel):
     continue_fork: bool = False
 
     # Permissions
-    permission_resolver: PermissionResolver = Field(default_factory=_NoOpPermissionResolver)
+    permission_resolver: PermissionResolver
 
     # Passthrough args forwarded verbatim to the harness process.
     extra_args: tuple[str, ...] = ()
@@ -61,16 +48,8 @@ class ResolvedLaunchSpec(BaseModel):
     # Interactive mode
     interactive: bool = False
 
-    # Optional output path (currently consumed by codex subprocess transport).
-    report_output_path: str | None = None
-
     # Harness-agnostic MCP tool configuration.
     mcp_tools: tuple[str, ...] = ()
-
-    @property
-    def permission_config(self) -> PermissionConfig:
-        """Compatibility view for code that still expects resolved permission config."""
-        return self.permission_resolver.config
 
     @model_validator(mode="after")
     def _validate_continue_fork_requires_session(self) -> ResolvedLaunchSpec:

@@ -1,27 +1,76 @@
+import inspect
 import json
+import re
+import subprocess
+from collections.abc import Iterable
+from pathlib import Path
+from textwrap import dedent
 
 import pytest
+from pydantic import ValidationError
 
 from meridian.lib.core.types import HarnessId, ModelId
-from meridian.lib.harness.adapter import SpawnParams
+from meridian.lib.harness.adapter import SpawnParams, resolve_permission_flags
 from meridian.lib.harness.claude import ClaudeAdapter
 from meridian.lib.launch.command import build_launch_env
 from meridian.lib.launch.env import build_harness_child_env, inherit_child_env, sanitize_child_env
+from meridian.lib.launch.launch_types import PermissionResolver, PreflightResult
 from meridian.lib.launch.types import LaunchRequest
 from meridian.lib.safety.permissions import (
     CombinedToolsResolver,
+    DisallowedToolsResolver,
     ExplicitToolsResolver,
     PermissionConfig,
+    TieredPermissionResolver,
+    UnsafeNoOpPermissionResolver,
     build_permission_config,
     opencode_permission_json_for_allowed_tools,
     opencode_permission_json_for_disallowed_tools,
     resolve_permission_pipeline,
 )
 
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_PYRIGHT_BIN = _REPO_ROOT / ".venv" / "bin" / "pyright"
+
+
+def _scan_files_for_pattern(
+    roots: Iterable[str | Path],
+    pattern: str,
+    *,
+    suffixes: tuple[str, ...] = (".py",),
+) -> list[tuple[Path, int, str]]:
+    """Return (path, lineno, line) for every matching line under roots."""
+    compiled = re.compile(pattern)
+    matches: list[tuple[Path, int, str]] = []
+    for root in roots:
+        root_path = Path(root)
+        if root_path.is_file():
+            files = [root_path]
+        else:
+            files = [p for p in root_path.rglob("*") if p.is_file() and p.suffix in suffixes]
+        for file_path in files:
+            try:
+                text = file_path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            for lineno, line in enumerate(text.splitlines(), start=1):
+                if compiled.search(line):
+                    matches.append((file_path, lineno, line))
+    return matches
+
+
+def _assert_harness_agnostic_resolve_flags_signature(cls: type[object]) -> None:
+    protocol_sig = inspect.signature(PermissionResolver.resolve_flags)
+    sig = inspect.signature(cls.resolve_flags)  # type: ignore[attr-defined]
+    assert tuple(protocol_sig.parameters) == ("self",)
+    assert tuple(sig.parameters) == tuple(protocol_sig.parameters), (
+        f"{cls.__name__}.resolve_flags drifted from PermissionResolver: {sig}"
+    )
+
 
 def test_invalid_approval_raises() -> None:
     with pytest.raises(ValueError, match="Unsupported approval mode"):
-        build_permission_config("full-access", approval="sometimes")
+        build_permission_config("danger-full-access", approval="sometimes")
 
 
 def test_opencode_permission_json_for_allowed_tools_normalizes_tool_names() -> None:
@@ -95,26 +144,31 @@ def test_disallowed_tools_resolver_codex_warns_and_falls_back(
     assert config.sandbox == "workspace-write"
     assert isinstance(resolver, CombinedToolsResolver)
     with caplog.at_level("WARNING"):
-        assert resolver.resolve_flags(HarnessId.CODEX) == ["--sandbox", "workspace-write"]
+        assert resolve_permission_flags(resolver, HarnessId.CODEX) == (
+            "--sandbox",
+            "workspace-write",
+        )
     assert "Codex does not support disallowed-tools" in caplog.text
 
 
 @pytest.mark.parametrize(
-    ("sandbox", "expected_sandbox"),
+    ("sandbox", "expected_sandbox", "expected_flags"),
     (
-        ("full-access", "full-access"),
-        ("danger-full-access", "danger-full-access"),
-        ("unrestricted", "unrestricted"),
+        ("default", "default", ()),
+        ("read-only", "read-only", ("--sandbox", "read-only")),
+        ("workspace-write", "workspace-write", ("--sandbox", "workspace-write")),
+        ("danger-full-access", "danger-full-access", ("--sandbox", "danger-full-access")),
     ),
 )
 def test_codex_uses_exact_sandbox_from_profile(
     sandbox: str,
     expected_sandbox: str,
+    expected_flags: tuple[str, ...],
 ) -> None:
     config, resolver = resolve_permission_pipeline(sandbox=sandbox)
 
     assert config.sandbox == expected_sandbox
-    assert resolver.resolve_flags(HarnessId.CODEX) == ["--sandbox", sandbox]
+    assert resolve_permission_flags(resolver, HarnessId.CODEX) == expected_flags
 
 
 def test_combined_allowlist_and_denylist_emits_both_flags() -> None:
@@ -127,10 +181,15 @@ def test_combined_allowlist_and_denylist_emits_both_flags() -> None:
     assert isinstance(resolver, CombinedToolsResolver)
 
     # Claude: both flags emitted
-    claude_flags = resolver.resolve_flags(HarnessId.CLAUDE)
+    claude_flags = resolve_permission_flags(resolver, HarnessId.CLAUDE)
     assert "--allowedTools" in claude_flags
     assert "--disallowedTools" in claude_flags
-    assert claude_flags == ["--allowedTools", "Bash", "--disallowedTools", "Agent"]
+    assert claude_flags == (
+        "--allowedTools",
+        "Bash",
+        "--disallowedTools",
+        "Agent",
+    )
 
     # OpenCode: allowlist takes precedence for permission override
     assert config.opencode_permission_override is not None
@@ -243,3 +302,144 @@ def test_build_launch_env_never_exports_permission_tier(
     )
 
     assert "MERIDIAN_PERMISSION_TIER" not in env
+
+
+def test_s004_broken_resolver_without_config_is_not_protocol_instance() -> None:
+    class BrokenResolver:
+        def resolve_flags(self) -> tuple[str, ...]:
+            return ()
+
+    assert isinstance(BrokenResolver(), PermissionResolver) is False
+
+
+def test_s004_legacy_resolve_permission_config_helper_deleted() -> None:
+    matches = _scan_files_for_pattern(
+        [_REPO_ROOT / "src"],
+        r"resolve_permission_config\(",
+    )
+    assert not matches, f"Found matches: {matches}"
+
+
+def test_s004_broken_resolver_fixture_fails_pyright(tmp_path: Path) -> None:
+    fixture = tmp_path / "broken_resolver_fixture.py"
+    fixture.write_text(
+        dedent(
+            """
+            from meridian.lib.core.types import ModelId
+            from meridian.lib.harness.adapter import SpawnParams
+            from meridian.lib.harness.claude import ClaudeAdapter
+            from meridian.lib.launch.launch_types import PermissionResolver
+
+            class BrokenResolver:
+                def resolve_flags(self) -> tuple[str, ...]:
+                    return ()
+
+            resolver: PermissionResolver = BrokenResolver()
+            ClaudeAdapter().resolve_launch_spec(
+                SpawnParams(prompt="test", model=ModelId("claude-sonnet-4-6")),
+                BrokenResolver(),
+            )
+            """
+        ).strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [str(_PYRIGHT_BIN), str(fixture)],
+        capture_output=True,
+        check=False,
+        cwd=_REPO_ROOT,
+        text=True,
+    )
+
+    assert result.returncode == 1, result.stdout
+    assert '"config" is not present' in result.stdout
+    assert "BrokenResolver" in result.stdout
+    assert "reportAssignmentType" in result.stdout
+    assert "reportArgumentType" in result.stdout
+
+
+def test_s003_no_permission_resolver_cast_pattern_in_src() -> None:
+    matches = _scan_files_for_pattern(
+        [_REPO_ROOT / "src"],
+        r"cast\(\s*['\"]PermissionResolver['\"]",
+    )
+    assert not matches, f"Found matches: {matches}"
+
+
+def test_s051_permission_config_is_frozen_after_construction() -> None:
+    config = PermissionConfig(sandbox="read-only", approval="default")
+    field_name = "sandbox"
+
+    with pytest.raises(ValidationError):
+        config.sandbox = "danger-full-access"
+    with pytest.raises(ValidationError):
+        setattr(config, field_name, "danger-full-access")
+    with pytest.raises((ValidationError, TypeError)):
+        object.__setattr__(config, "sandbox", "danger-full-access")
+
+    assert config.sandbox == "read-only"
+
+
+def test_s051_preflight_result_extra_env_is_immutable() -> None:
+    result = PreflightResult.build(
+        expanded_passthrough_args=(),
+        extra_env={"K": "V"},
+    )
+    with pytest.raises(TypeError):
+        result.extra_env["K2"] = "V2"  # type: ignore[index]
+
+
+def test_s051_runtime_code_does_not_assign_to_permission_config_sandbox() -> None:
+    matches = _scan_files_for_pattern(
+        [_REPO_ROOT / "src"],
+        r"config\.sandbox\s*=",
+    )
+    assert not matches, f"Found matches: {matches}"
+
+
+def test_unsafe_no_op_permission_resolver_returns_no_flags() -> None:
+    resolver = UnsafeNoOpPermissionResolver(_suppress_warning=True)
+    assert resolver.resolve_flags() == ()
+
+
+def test_s052_resolver_signatures_are_harness_agnostic() -> None:
+    for resolver_cls in (
+        TieredPermissionResolver,
+        ExplicitToolsResolver,
+        DisallowedToolsResolver,
+        CombinedToolsResolver,
+        UnsafeNoOpPermissionResolver,
+    ):
+        _assert_harness_agnostic_resolve_flags_signature(resolver_cls)
+
+
+def test_s052_permissions_module_has_no_harnessid_import() -> None:
+    matches = _scan_files_for_pattern(
+        [_REPO_ROOT / "src/meridian/lib/safety/permissions.py"],
+        r"HarnessId",
+    )
+    assert not matches, f"Found matches: {matches}"
+
+
+def test_s052_permissions_module_has_no_harness_identity_references() -> None:
+    matches = _scan_files_for_pattern(
+        [_REPO_ROOT / "src/meridian/lib/safety/permissions.py"],
+        r"(?i)harness[_ ]?(id|name)",
+    )
+    assert not matches, f"Found matches: {matches}"
+
+
+def test_s052_bad_resolver_with_harness_param_is_non_compliant() -> None:
+    class BadResolver:
+        @property
+        def config(self) -> PermissionConfig:
+            return PermissionConfig()
+
+        def resolve_flags(self, harness: HarnessId) -> tuple[str, ...]:
+            _ = harness
+            return ()
+
+    with pytest.raises(AssertionError, match="BadResolver\\.resolve_flags"):
+        _assert_harness_agnostic_resolve_flags_signature(BadResolver)

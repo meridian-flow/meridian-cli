@@ -1,37 +1,112 @@
-"""Permission configuration and harness-flag translation."""
+"""Permission configuration and resolver construction."""
+
+from __future__ import annotations
 
 import json
 import logging
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
-
-from meridian.lib.core.overrides import KNOWN_APPROVAL_VALUES
-from meridian.lib.core.types import HarnessId
 
 logger = logging.getLogger(__name__)
 
 
-_APPROVAL_MODES = KNOWN_APPROVAL_VALUES
+type SandboxMode = Literal[
+    "default",
+    "read-only",
+    "workspace-write",
+    "danger-full-access",
+]
+
+
+type ApprovalMode = Literal[
+    "default",
+    "auto",
+    "yolo",
+    "confirm",
+]
+
+
+_SANDBOX_MODES: frozenset[SandboxMode] = frozenset(
+    {
+        "default",
+        "read-only",
+        "workspace-write",
+        "danger-full-access",
+    }
+)
+
+_APPROVAL_MODES: frozenset[ApprovalMode] = frozenset(
+    {
+        "default",
+        "auto",
+        "yolo",
+        "confirm",
+    }
+)
 
 
 class PermissionConfig(BaseModel):
-    """Resolved permission configuration for one run."""
+    """Transport-neutral permission intent."""
 
     model_config = ConfigDict(frozen=True)
 
-    sandbox: str | None = None
-    approval: str = "default"
-    # Optional OpenCode permission map JSON derived from explicit allowed_tools.
-    # When set, this takes precedence over sandbox-derived OpenCode permissions.
+    sandbox: SandboxMode = "default"
+    approval: ApprovalMode = "default"
+    # Optional OpenCode permission map JSON derived from explicit tool lists.
     opencode_permission_override: str | None = None
 
 
-def _parse_approval_value(raw: str) -> str:
+def _install_readonly_permission_field(field_name: str) -> None:
+    def _get(instance: PermissionConfig) -> object:
+        return instance.__dict__[field_name]
+
+    def _set(instance: PermissionConfig, value: object) -> None:
+        _ = instance, value
+        raise TypeError(f"PermissionConfig is frozen; cannot mutate '{field_name}'.")
+
+    setattr(PermissionConfig, field_name, property(_get, _set))
+
+
+for _field_name in ("sandbox", "approval", "opencode_permission_override"):
+    _install_readonly_permission_field(_field_name)
+
+
+class UnsafeNoOpPermissionResolver(BaseModel):
+    """Explicit unsafe opt-out resolver with no permission enforcement."""
+
+    model_config = ConfigDict(frozen=True)
+
+    def __init__(self, *, _suppress_warning: bool = False, **data: object) -> None:
+        super().__init__(**data)
+        if not _suppress_warning:
+            logger.warning(
+                "UnsafeNoOpPermissionResolver constructed; "
+                "no permission enforcement will be applied"
+            )
+
+    @property
+    def config(self) -> PermissionConfig:
+        return PermissionConfig()
+
+    def resolve_flags(self) -> tuple[str, ...]:
+        return ()
+
+
+def _parse_approval_value(raw: str) -> ApprovalMode:
     normalized = raw.strip().lower()
     if normalized in _APPROVAL_MODES:
         return normalized
     allowed = ", ".join(sorted(_APPROVAL_MODES))
     raise ValueError(f"Unsupported approval mode '{raw}'. Expected: {allowed}.")
+
+
+def _parse_sandbox_value(raw: str | None) -> SandboxMode:
+    normalized = raw.strip().lower() if raw else "default"
+    if normalized in _SANDBOX_MODES:
+        return normalized
+    allowed = ", ".join(sorted(_SANDBOX_MODES))
+    raise ValueError(f"Unsupported sandbox mode '{raw}'. Expected: {allowed}.")
 
 
 def build_permission_config(
@@ -41,20 +116,14 @@ def build_permission_config(
 ) -> PermissionConfig:
     """Build and validate a permission configuration."""
 
-    normalized = sandbox.strip().lower() if sandbox else None
     return PermissionConfig(
-        sandbox=normalized or None,
+        sandbox=_parse_sandbox_value(sandbox),
         approval=_parse_approval_value(approval),
     )
 
 
 def _normalize_tool_name(raw: str) -> str:
-    """Normalize a tool name: strip Claude-style qualifiers and lowercase.
-
-    ``Bash(git status)`` → ``bash``, ``Read`` → ``read``.
-    Tool names pass through directly — no mapping table needed since
-    Claude, OpenCode, and Codex use the same lowercase names.
-    """
+    """Normalize a tool name: strip Claude-style qualifiers and lowercase."""
     return raw.split("(", 1)[0].strip().lower()
 
 
@@ -82,87 +151,37 @@ def opencode_permission_json_for_disallowed_tools(disallowed_tools: tuple[str, .
     return json.dumps(permissions, sort_keys=True, separators=(",", ":"))
 
 
-def permission_flags_for_harness(
-    harness_id: HarnessId,
-    config: PermissionConfig,
-) -> list[str]:
-    """Translate sandbox + approval into harness-specific CLI flags."""
-
-    sandbox = config.sandbox
-    approval = config.approval
-
-    # --- approval-level flags (take precedence over sandbox) ---
-    if approval == "yolo":
-        if harness_id == HarnessId.CLAUDE:
-            return ["--dangerously-skip-permissions"]
-        if harness_id == HarnessId.CODEX:
-            return ["--dangerously-bypass-approvals-and-sandbox"]
-        # OpenCode currently has no equivalent global bypass flag.
-    elif approval == "auto":
-        if harness_id == HarnessId.CLAUDE:
-            return ["--permission-mode", "acceptEdits"]
-        if harness_id == HarnessId.CODEX:
-            return ["--full-auto"]
-    elif approval == "confirm":
-        if harness_id == HarnessId.CLAUDE:
-            return ["--permission-mode", "default"]
-        if harness_id == HarnessId.CODEX:
-            return ["--ask-for-approval", "untrusted"]
-    # "default" or None → no approval flags, fall through to sandbox logic.
-
-    if sandbox is None:
-        return []
-
-    if harness_id == HarnessId.CODEX:
-        return ["--sandbox", sandbox]
-
-    # Other harnesses: no sandbox flag support yet.
-    return []
-
-
 class TieredPermissionResolver(BaseModel):
-    """PermissionResolver implementation backed by one sandbox config."""
+    """PermissionResolver implementation backed by one permission config."""
 
     model_config = ConfigDict(frozen=True)
 
     config: PermissionConfig
 
-    def resolve_flags(self, harness_id: HarnessId) -> list[str]:
-        return permission_flags_for_harness(harness_id, self.config)
+    def resolve_flags(self) -> tuple[str, ...]:
+        return ()
 
 
 class ExplicitToolsResolver(BaseModel):
-    """PermissionResolver backed by an explicit tool allowlist.
-
-    For harnesses that don't support fine-grained tool lists (Codex),
-    falls back to sandbox-based flags using the provided fallback config.
-    """
+    """PermissionResolver backed by an explicit tool allowlist."""
 
     model_config = ConfigDict(frozen=True)
 
     allowed_tools: tuple[str, ...]
     fallback_config: PermissionConfig
 
+    @property
+    def config(self) -> PermissionConfig:
+        return self.fallback_config
+
     def opencode_permission_json(self) -> str:
         return opencode_permission_json_for_allowed_tools(self.allowed_tools)
 
-    def resolve_flags(self, harness_id: HarnessId) -> list[str]:
-        # Codex only supports --sandbox, not per-tool allowlists.
-        if harness_id == HarnessId.CODEX:
-            return permission_flags_for_harness(harness_id, self.fallback_config)
-
-        # Claude: emit explicit allowedTools list.
-        if harness_id == HarnessId.CLAUDE:
-            filtered = [t for t in self.allowed_tools if t.strip()]
-            return ["--allowedTools", ",".join(filtered)] if filtered else []
-
-        # OpenCode allows per-tool permissions through OPENCODE_PERMISSION env,
-        # not run CLI flags. resolve_permission_pipeline wires that env payload.
-        if harness_id == HarnessId.OPENCODE:
-            return []
-
-        # Other harnesses: no fine-grained tool allowlist support.
-        return []
+    def resolve_flags(self) -> tuple[str, ...]:
+        filtered = tuple(tool for tool in self.allowed_tools if tool.strip())
+        if not filtered:
+            return ()
+        return ("--allowedTools", ",".join(filtered))
 
 
 class DisallowedToolsResolver(BaseModel):
@@ -173,56 +192,43 @@ class DisallowedToolsResolver(BaseModel):
     disallowed_tools: tuple[str, ...]
     fallback_config: PermissionConfig
 
+    @property
+    def config(self) -> PermissionConfig:
+        return self.fallback_config
+
     def opencode_permission_json(self) -> str:
         return opencode_permission_json_for_disallowed_tools(self.disallowed_tools)
 
-    def resolve_flags(self, harness_id: HarnessId) -> list[str]:
-        # Codex only supports --sandbox, not per-tool denylists.
-        if harness_id == HarnessId.CODEX:
-            logger.warning(
-                "Codex does not support disallowed-tools; falling back to sandbox/approval flags."
-            )
-            return permission_flags_for_harness(harness_id, self.fallback_config)
-
-        # Claude: emit explicit disallowedTools list.
-        if harness_id == HarnessId.CLAUDE:
-            filtered = [t for t in self.disallowed_tools if t.strip()]
-            return ["--disallowedTools", ",".join(filtered)] if filtered else []
-
-        # OpenCode allows per-tool permissions through OPENCODE_PERMISSION env,
-        # not run CLI flags. resolve_permission_pipeline wires that env payload.
-        if harness_id == HarnessId.OPENCODE:
-            return []
-
-        # Other harnesses: no fine-grained tool denylist support.
-        return []
+    def resolve_flags(self) -> tuple[str, ...]:
+        filtered = tuple(tool for tool in self.disallowed_tools if tool.strip())
+        if not filtered:
+            return ()
+        return ("--disallowedTools", ",".join(filtered))
 
 
 class CombinedToolsResolver(BaseModel):
-    """PermissionResolver that selects allowlist or denylist tool controls."""
+    """PermissionResolver that combines allowlist and denylist controls."""
 
     model_config = ConfigDict(frozen=True)
 
     allowlist: ExplicitToolsResolver | None = None
     denylist: DisallowedToolsResolver | None = None
 
-    def resolve_flags(self, harness_id: HarnessId) -> list[str]:
-        # Codex only supports coarse --sandbox, not per-tool lists.
-        # Emit sandbox once from whichever resolver has a fallback config,
-        # rather than duplicating it from both.
-        if harness_id == HarnessId.CODEX:
-            if self.allowlist is not None:
-                return self.allowlist.resolve_flags(harness_id)
-            if self.denylist is not None:
-                return self.denylist.resolve_flags(harness_id)
-            return []
+    @property
+    def config(self) -> PermissionConfig:
+        if self.allowlist is not None:
+            return self.allowlist.config
+        if self.denylist is not None:
+            return self.denylist.config
+        return PermissionConfig()
 
+    def resolve_flags(self) -> tuple[str, ...]:
         flags: list[str] = []
         if self.allowlist is not None:
-            flags.extend(self.allowlist.resolve_flags(harness_id))
+            flags.extend(self.allowlist.resolve_flags())
         if self.denylist is not None:
-            flags.extend(self.denylist.resolve_flags(harness_id))
-        return flags
+            flags.extend(self.denylist.resolve_flags())
+        return tuple(flags)
 
     def opencode_permission_json(self) -> str | None:
         if self.allowlist is not None:
@@ -230,6 +236,18 @@ class CombinedToolsResolver(BaseModel):
         if self.denylist is not None:
             return self.denylist.opencode_permission_json()
         return None
+
+
+def _resolve_opencode_override(
+    *,
+    allowed_tools: tuple[str, ...],
+    disallowed_tools: tuple[str, ...],
+) -> str | None:
+    if allowed_tools:
+        return opencode_permission_json_for_allowed_tools(allowed_tools)
+    if disallowed_tools:
+        return opencode_permission_json_for_disallowed_tools(disallowed_tools)
+    return None
 
 
 def build_permission_resolver(
@@ -243,7 +261,7 @@ def build_permission_resolver(
     | DisallowedToolsResolver
     | CombinedToolsResolver
 ):
-    """Pick the right resolver: explicit tools if specified, else sandbox-based."""
+    """Pick the right resolver: explicit tools if specified, else config-based."""
     if disallowed_tools:
         return CombinedToolsResolver(
             allowlist=(
@@ -287,17 +305,16 @@ def resolve_permission_pipeline(
     ),
 ]:
     config = build_permission_config(sandbox, approval=approval)
+    opencode_override = _resolve_opencode_override(
+        allowed_tools=allowed_tools,
+        disallowed_tools=disallowed_tools,
+    )
+    if opencode_override is not None:
+        config = config.model_copy(update={"opencode_permission_override": opencode_override})
+
     resolver = build_permission_resolver(
         allowed_tools=allowed_tools,
         disallowed_tools=disallowed_tools,
         permission_config=config,
     )
-    if isinstance(resolver, (ExplicitToolsResolver, DisallowedToolsResolver)):
-        config = config.model_copy(
-            update={"opencode_permission_override": resolver.opencode_permission_json()}
-        )
-    elif isinstance(resolver, CombinedToolsResolver):
-        opencode_override = resolver.opencode_permission_json()
-        if opencode_override is not None:
-            config = config.model_copy(update={"opencode_permission_override": opencode_override})
     return config, resolver

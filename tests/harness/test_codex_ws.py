@@ -9,6 +9,11 @@ from meridian.lib.core.types import HarnessId, SpawnId
 from meridian.lib.harness.connections.base import ConnectionConfig
 from meridian.lib.harness.connections.codex_ws import CodexConnection
 from meridian.lib.harness.launch_spec import CodexLaunchSpec, ResolvedLaunchSpec
+from meridian.lib.safety.permissions import (
+    PermissionConfig,
+    TieredPermissionResolver,
+    UnsafeNoOpPermissionResolver,
+)
 
 
 class _FakeWebSocket:
@@ -115,7 +120,13 @@ async def test_codex_ws_rejects_approval_requests_in_confirm_mode(
     ws = _FakeWebSocket([message])
     connection = _TestableCodexConnection()
     connection.attach_websocket(ws)
-    connection.set_launch_spec_for_test(CodexLaunchSpec(approval_mode="confirm"))
+    connection.set_launch_spec_for_test(
+        CodexLaunchSpec(
+            permission_resolver=TieredPermissionResolver(
+                config=PermissionConfig(approval="confirm")
+            )
+        )
+    )
 
     with caplog.at_level("WARNING"):
         await connection.run_reader()
@@ -183,7 +194,11 @@ def test_codex_ws_thread_bootstrap_request_starts_new_thread(tmp_path: Path) -> 
 
     method, payload = connection.thread_bootstrap_request_for_test(
         _build_config(tmp_path),
-        ResolvedLaunchSpec(prompt="hello", model="gpt-5.3-codex"),
+        ResolvedLaunchSpec(
+            prompt="hello",
+            model="gpt-5.3-codex",
+            permission_resolver=UnsafeNoOpPermissionResolver(_suppress_warning=True),
+        ),
     )
 
     assert method == "thread/start"
@@ -195,7 +210,12 @@ def test_codex_ws_thread_bootstrap_request_forwards_effort_from_codex_spec(tmp_p
 
     method, payload = connection.thread_bootstrap_request_for_test(
         _build_config(tmp_path),
-        CodexLaunchSpec(prompt="hello", model="gpt-5.3-codex", effort="high"),
+        CodexLaunchSpec(
+            prompt="hello",
+            model="gpt-5.3-codex",
+            effort="high",
+            permission_resolver=UnsafeNoOpPermissionResolver(_suppress_warning=True),
+        ),
     )
 
     assert method == "thread/start"
@@ -215,6 +235,7 @@ def test_codex_ws_thread_bootstrap_request_resumes_existing_thread(tmp_path: Pat
             prompt="hello",
             model="gpt-5.3-codex",
             continue_session_id="thread-123",
+            permission_resolver=UnsafeNoOpPermissionResolver(_suppress_warning=True),
         ),
     )
 
@@ -236,6 +257,7 @@ def test_codex_ws_thread_bootstrap_request_forks_existing_thread(tmp_path: Path)
             model="gpt-5.3-codex",
             continue_session_id="thread-123",
             continue_fork=True,
+            permission_resolver=UnsafeNoOpPermissionResolver(_suppress_warning=True),
         ),
     )
 

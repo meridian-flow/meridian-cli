@@ -9,6 +9,7 @@ import json
 import sys
 import textwrap
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 
@@ -26,6 +27,7 @@ from meridian.lib.harness.common import (
     extract_usage_from_artifacts,
 )
 from meridian.lib.harness.registry import HarnessRegistry
+from meridian.lib.launch.launch_types import ResolvedLaunchSpec
 from meridian.lib.launch.runner import execute_with_finalization
 from meridian.lib.ops.spawn.plan import ExecutionPolicy, PreparedSpawnPlan, SessionContinuation
 from meridian.lib.safety.permissions import PermissionConfig, TieredPermissionResolver
@@ -36,16 +38,26 @@ from meridian.lib.state.paths import resolve_spawn_log_dir, resolve_state_paths
 class ClaudeLikeAdapter(BaseSubprocessHarness):
     """Adapter that reports id='claude' to trigger CWD isolation."""
 
+    id: ClassVar[HarnessId] = HarnessId.CLAUDE
+    consumed_fields: ClassVar[frozenset[str]] = frozenset()
+    explicitly_ignored_fields: ClassVar[frozenset[str]] = frozenset()
+
     def __init__(self, *, command: tuple[str, ...]) -> None:
         self._command = command
 
     @property
-    def id(self) -> HarnessId:
-        return HarnessId.CLAUDE
-
-    @property
     def capabilities(self) -> HarnessCapabilities:
         return HarnessCapabilities()
+
+    def resolve_launch_spec(
+        self,
+        run: SpawnParams,
+        perms: PermissionResolver,
+    ) -> ResolvedLaunchSpec:
+        return ResolvedLaunchSpec(
+            prompt=run.prompt or "",
+            permission_resolver=perms,
+        )
 
     def build_command(self, run: SpawnParams, perms: PermissionResolver) -> list[str]:
         return list(self._command)

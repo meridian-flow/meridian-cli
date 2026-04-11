@@ -16,6 +16,7 @@ from meridian.lib.harness.connections.base import (
     HarnessEvent,
 )
 from meridian.lib.harness.launch_spec import ResolvedLaunchSpec
+from meridian.lib.safety.permissions import UnsafeNoOpPermissionResolver
 from meridian.lib.state.paths import resolve_state_paths
 from meridian.lib.state.spawn_store import get_spawn, start_spawn
 from meridian.lib.streaming import spawn_manager as spawn_manager_module
@@ -151,7 +152,10 @@ async def test_spawn_manager_natural_completion_writes_envelope_and_completion_o
     manager = SpawnManager(state_root=state_root, repo_root=repo_root)
     await manager.start_spawn(
         _build_config(spawn_id, repo_root),
-        ResolvedLaunchSpec(prompt="hello"),
+        ResolvedLaunchSpec(
+            prompt="hello",
+            permission_resolver=UnsafeNoOpPermissionResolver(_suppress_warning=True),
+        ),
     )
     completion_task = asyncio.create_task(manager.wait_for_completion(spawn_id))
     release_completion.set()

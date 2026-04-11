@@ -200,7 +200,6 @@ class OpenCodeAdapter(BaseHarnessAdapter[OpenCodeLaunchSpec]):
             continue_fork=run.continue_fork and continue_session_id is not None,
             permission_resolver=perms,
             extra_args=run.extra_args,
-            report_output_path=run.report_output_path,
             interactive=run.interactive,
             mcp_tools=run.mcp_tools,
             agent_name=run.agent,

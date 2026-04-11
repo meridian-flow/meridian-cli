@@ -277,7 +277,6 @@ class ClaudeAdapter(BaseHarnessAdapter[ClaudeLaunchSpec]):
             continue_fork=run.continue_fork and continue_session_id is not None,
             permission_resolver=perms,
             extra_args=run.extra_args,
-            report_output_path=run.report_output_path,
             interactive=run.interactive,
             mcp_tools=run.mcp_tools,
             appended_system_prompt=run.appended_system_prompt,

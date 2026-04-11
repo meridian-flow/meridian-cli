@@ -375,3 +375,17 @@ Four independent reviewers (gpt-5.4, gpt-5.2, claude-opus-4-6, refactor-reviewer
 - **E1.2 — Temporary `ResolvedLaunchSpec.permission_config` compat property.** The p1444 verifier added a read-only `permission_config` passthrough over `self.permission_resolver.config` so older call sites reading `spec.permission_config` still work. This is compat carrying. Phase 2/3 updates every consumer to read from `spec.permission_resolver.config` and deletes the property.
 - **E1.3 — Adapter-level `continue_fork` normalization.** During S020 verification it surfaced that the legacy adapters (Claude, Codex, OpenCode) passed `continue_fork=run.continue_fork` while `run.continue_harness_session_id` could be `None`, so the restored base-spec validator raised `ValueError` for previously-working call sites. Adapters now normalize `continue_fork=False` when there is no session id. Recorded as scenario S053. This keeps S020's validator invariant intact while preserving the existing silent no-op runtime behavior that call sites depend on.
 - **E1.4 — Phase 1 verifier overreach.** The p1444 verifier initially removed `_validate_continue_fork_requires_session` from `ResolvedLaunchSpec` citing "existing harness behavior already treats fork-without-session as a no-op". That was out of scope for the verifier role and regressed S020 directly. The p1445 unit-tester restored the validator and fixed the three adapters that exposed the actual drift (E1.3). Recorded so future phases know the validator stays in place.
+
+## E2 — Phase 2 execution decisions
+
+### E2.1 — S051 scope narrowing, LaunchContext clause split to S054
+
+**What:** Narrowed S051 to cover only `PermissionConfig` + `PreflightResult.extra_env` immutability during Phase 2. Split the `LaunchContext.env / env_overrides` clause into a new scenario **S054** assigned to Phase 6, where `LaunchContext` is actually defined.
+
+**Why:** The @unit-tester (p1449) found that S051's third clause referenced `LaunchContext.env`, but `LaunchContext` does not yet exist in the tree — it is a Phase 6 artifact per plan/phase-6 and scenario S024. Phase 2 cannot verify immutability of a type that hasn't been implemented. Phase 2 owns the contract leaves; Phase 6 owns the runner-side launch context. The correct fix is to align the scenario with the phase that owns the implementation, not to pull `LaunchContext` forward into Phase 2.
+
+**Alternatives rejected:**
+- Creating a stub `LaunchContext` in Phase 2: would bleed Phase 6 concerns into Phase 2 and duplicate work when Phase 6 designs the real contract.
+- Deferring all of S051 to Phase 6: would leave `PermissionConfig` immutability unverified during Phase 2 even though it was already implemented and passing tests.
+
+**Impact:** S051 flips to verified in Phase 2 for clauses (a) and (b). S054 is a new Phase 6 scenario covering clause (c). scenario-ownership.md updated accordingly. Phase 2 can close; Phase 6 picks up S054 alongside S024.

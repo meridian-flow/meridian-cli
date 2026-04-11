@@ -42,13 +42,13 @@ from meridian.lib.launch.extract import (
     reset_finalize_attempt_artifacts,
 )
 from meridian.lib.launch.heartbeat import heartbeat_scope
-from meridian.lib.launch.launch_types import PermissionResolver, ResolvedLaunchSpec
+from meridian.lib.launch.launch_types import ResolvedLaunchSpec
 from meridian.lib.launch.session_ids import extract_latest_session_id
 from meridian.lib.launch.signals import signal_coordinator, signal_to_exit_code
 from meridian.lib.ops.spawn.plan import PreparedSpawnPlan
 from meridian.lib.safety.budget import Budget, BudgetBreach, LiveBudgetTracker
 from meridian.lib.safety.guardrails import GuardrailFailure, run_guardrails
-from meridian.lib.safety.permissions import PermissionConfig, TieredPermissionResolver
+from meridian.lib.safety.permissions import UnsafeNoOpPermissionResolver
 from meridian.lib.safety.redaction import SecretSpec, redact_secret_bytes
 from meridian.lib.state import spawn_store
 from meridian.lib.state.artifact_store import ArtifactStore, make_artifact_key
@@ -456,10 +456,7 @@ async def run_streaming_spawn(
     adapter = get_default_harness_registry().get_subprocess_harness(config.harness_id)
     run_spec = adapter.resolve_launch_spec(
         params,
-        cast(
-            "PermissionResolver",
-            TieredPermissionResolver(config=PermissionConfig()),
-        ),
+        UnsafeNoOpPermissionResolver(_suppress_warning=True),
     )
     try:
         async with heartbeat_scope(heartbeat_path):

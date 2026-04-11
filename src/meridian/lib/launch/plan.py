@@ -4,7 +4,6 @@ import logging
 import os
 import shlex
 from pathlib import Path
-from typing import cast
 
 from pydantic import BaseModel, ConfigDict
 
@@ -352,8 +351,7 @@ def resolve_primary_launch_plan(
         continue_fork=continue_fork,
         appended_system_prompt=appended_system_prompt,
     )
-    typed_resolver = cast("PermissionResolver", resolver)
-    command = tuple(adapter.build_command(run_params, typed_resolver))
+    command = tuple(adapter.build_command(run_params, resolver))
 
     return ResolvedPrimaryLaunchPlan(
         repo_root=resolved_root,
@@ -365,7 +363,7 @@ def resolve_primary_launch_plan(
         session_metadata=session_metadata,
         run_params=run_params,
         permission_config=permission_config,
-        permission_resolver=typed_resolver,
+        permission_resolver=resolver,
         command=command,
         seed_harness_session_id=seed_harness_session_id,
         command_request=command_request,

@@ -18,6 +18,7 @@ from meridian.lib.harness.adapter import (
     HarnessCapabilities,
     PermissionResolver,
     SpawnParams,
+    resolve_permission_flags,
 )
 from meridian.lib.harness.registry import HarnessRegistry
 from meridian.lib.launch.runner import execute_with_finalization
@@ -66,7 +67,7 @@ class MockHarnessAdapter:
             command = [*self._command_override]
         else:
             command = [sys.executable, str(self._script), *self._base_args]
-        command.extend(perms.resolve_flags(self.id))
+        command.extend(resolve_permission_flags(perms, self.id))
         command.extend(run.extra_args)
         return command
 
@@ -280,16 +281,20 @@ def test_kill_running_parent_process_still_finalizes_run(
             import asyncio
             import sys
             from pathlib import Path
+            from typing import ClassVar
 
             from meridian.lib.core.domain import Spawn, TokenUsage
-            from meridian.lib.launch.runner import execute_with_finalization
             from meridian.lib.harness.adapter import (
                 ArtifactStore,
+                BaseHarnessAdapter,
                 HarnessCapabilities,
-                PermissionResolver,
                 SpawnParams,
+                resolve_permission_flags,
             )
+            from meridian.lib.harness.ids import HarnessId
             from meridian.lib.harness.registry import HarnessRegistry
+            from meridian.lib.launch.launch_types import PermissionResolver, ResolvedLaunchSpec
+            from meridian.lib.launch.runner import execute_with_finalization
             from meridian.lib.ops.spawn.plan import (
                 ExecutionPolicy,
                 PreparedSpawnPlan,
@@ -298,24 +303,35 @@ def test_kill_running_parent_process_still_finalizes_run(
             from meridian.lib.safety.permissions import PermissionConfig
             from meridian.lib.state.artifact_store import LocalStore
             from meridian.lib.state.paths import resolve_state_paths
-            from meridian.lib.core.types import HarnessId, ModelId, SpawnId
+            from meridian.lib.core.types import ModelId, SpawnId
 
-            class WorkerAdapter:
-                @property
-                def id(self) -> HarnessId:
-                    return HarnessId.CODEX
+            class WorkerAdapter(BaseHarnessAdapter[ResolvedLaunchSpec]):
+                id: ClassVar[HarnessId] = HarnessId.CODEX
+                consumed_fields: ClassVar[frozenset[str]] = frozenset()
+                explicitly_ignored_fields: ClassVar[frozenset[str]] = frozenset()
 
                 @property
                 def capabilities(self) -> HarnessCapabilities:
                     return HarnessCapabilities()
 
+                def resolve_launch_spec(
+                    self, run: SpawnParams, perms: PermissionResolver
+                ) -> ResolvedLaunchSpec:
+                    return ResolvedLaunchSpec(
+                        prompt=run.prompt or "hang",
+                        permission_resolver=perms,
+                        extra_args=(
+                            sys.executable,
+                            "{mock_harness.as_posix()}",
+                            "--hang",
+                        ),
+                    )
+
                 def build_command(self, run: SpawnParams, perms: PermissionResolver) -> list[str]:
-                    _ = run
+                    spec = self.resolve_launch_spec(run, perms)
                     return [
-                        sys.executable,
-                        "{mock_harness.as_posix()}",
-                        "--hang",
-                        *perms.resolve_flags(self.id),
+                        *spec.extra_args,
+                        *resolve_permission_flags(spec.permission_resolver, self.id),
                     ]
 
                 def mcp_config(self, run: SpawnParams) -> None:
@@ -335,19 +351,29 @@ def test_kill_running_parent_process_still_finalizes_run(
                     _ = (artifacts, spawn_id)
                     return None
 
+                def extract_report(
+                    self, artifacts: ArtifactStore, spawn_id: SpawnId
+                ) -> str | None:
+                    _ = (artifacts, spawn_id)
+                    return None
+
                 def detect_primary_session_id(
                     self,
+                    *,
                     repo_root: Path,
                     started_at_epoch: float,
-                    started_at_local_iso: str | None = None,
+                    started_at_local_iso: str | None,
                 ) -> str | None:
                     _ = (repo_root, started_at_epoch, started_at_local_iso)
                     return None
 
             class NoopResolver:
-                def resolve_flags(self, harness_id: HarnessId) -> list[str]:
-                    _ = harness_id
-                    return []
+                @property
+                def config(self) -> PermissionConfig:
+                    return PermissionConfig()
+
+                def resolve_flags(self) -> tuple[str, ...]:
+                    return ()
 
             async def main() -> int:
                 repo_root = Path("{repo_root.as_posix()}")
@@ -364,7 +390,7 @@ def test_kill_running_parent_process_still_finalizes_run(
                 registry.register(WorkerAdapter())
                 plan = PreparedSpawnPlan(
                     model=str(run.model),
-                    harness_id="worker-mock",
+                    harness_id=str(HarnessId.CODEX),
                     prompt=run.prompt,
                     agent_name=None,
                     skills=(),

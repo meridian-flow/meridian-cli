@@ -431,8 +431,8 @@ def root(
         Parameter(
             name="--sandbox",
             help=(
-                "Sandbox mode: read-only, workspace-write, full-access,"
-                " danger-full-access, unrestricted."
+                "Sandbox mode: default, read-only, workspace-write, "
+                "danger-full-access."
             ),
         ),
     ] = None,
@@ -514,12 +514,28 @@ def app_command(
         bool,
         Parameter(name="--debug", help="Enable wire-level debug tracing."),
     ] = False,
+    allow_unsafe_no_permissions: Annotated[
+        bool,
+        Parameter(
+            name="--allow-unsafe-no-permissions",
+            help=(
+                "Allow /api/spawns requests with missing permissions metadata by "
+                "using UnsafeNoOpPermissionResolver."
+            ),
+        ),
+    ] = False,
 ) -> None:
     """Start the Meridian app web UI server."""
 
     from meridian.cli.app_cmd import run_app
 
-    run_app(port=port, no_browser=no_browser, host=host, debug=debug)
+    run_app(
+        port=port,
+        no_browser=no_browser,
+        host=host,
+        debug=debug,
+        allow_unsafe_no_permissions=allow_unsafe_no_permissions,
+    )
 
 
 def _resolve_mars_executable() -> str | None:

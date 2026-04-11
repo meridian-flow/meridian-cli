@@ -4,7 +4,7 @@ import json
 import sys
 import textwrap
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 
@@ -26,6 +26,7 @@ from meridian.lib.harness.common import (
     extract_usage_from_artifacts,
 )
 from meridian.lib.harness.registry import HarnessRegistry
+from meridian.lib.launch.launch_types import ResolvedLaunchSpec
 from meridian.lib.ops.runtime import OperationRuntime
 from meridian.lib.ops.spawn.api import SpawnCreateInput, spawn_create_sync
 from meridian.lib.state.artifact_store import LocalStore
@@ -35,16 +36,26 @@ _RECURSIVE_PROBE_MODEL = "gpt-5.3-codex"
 
 
 class RecursiveHarnessAdapter(BaseSubprocessHarness):
+    id: ClassVar[HarnessId] = HarnessId.CODEX
+    consumed_fields: ClassVar[frozenset[str]] = frozenset()
+    explicitly_ignored_fields: ClassVar[frozenset[str]] = frozenset()
+
     def __init__(self, *, script_path: Path) -> None:
         self._script_path = script_path
 
     @property
-    def id(self) -> HarnessId:
-        return HarnessId.CODEX
-
-    @property
     def capabilities(self) -> HarnessCapabilities:
         return HarnessCapabilities(supports_primary_launch=True)
+
+    def resolve_launch_spec(
+        self,
+        run: SpawnParams,
+        perms: PermissionResolver,
+    ) -> ResolvedLaunchSpec:
+        return ResolvedLaunchSpec(
+            prompt=run.prompt or "",
+            permission_resolver=perms,
+        )
 
     def build_command(self, run: SpawnParams, perms: PermissionResolver) -> list[str]:
         _ = perms
@@ -81,6 +92,7 @@ def _write_recursive_harness_script(path: Path) -> None:
             import os
             import sys
             from pathlib import Path
+            from typing import ClassVar
 
             from meridian.lib.config.settings import load_config
             from meridian.lib.core.domain import TokenUsage
@@ -98,6 +110,7 @@ def _write_recursive_harness_script(path: Path) -> None:
                 extract_usage_from_artifacts,
             )
             from meridian.lib.harness.registry import HarnessRegistry
+            from meridian.lib.launch.launch_types import ResolvedLaunchSpec
             from meridian.lib.ops.runtime import OperationRuntime
             from meridian.lib.ops.spawn.api import SpawnCreateInput, spawn_create_sync
             from meridian.lib.state.artifact_store import LocalStore
@@ -107,16 +120,26 @@ def _write_recursive_harness_script(path: Path) -> None:
 
 
             class RecursiveHarnessAdapter(BaseSubprocessHarness):
+                id: ClassVar[HarnessId] = HarnessId.CODEX
+                consumed_fields: ClassVar[frozenset[str]] = frozenset()
+                explicitly_ignored_fields: ClassVar[frozenset[str]] = frozenset()
+
                 def __init__(self, *, script_path: Path) -> None:
                     self._script_path = script_path
 
                 @property
-                def id(self) -> HarnessId:
-                    return HarnessId.CODEX
-
-                @property
                 def capabilities(self) -> HarnessCapabilities:
                     return HarnessCapabilities(supports_primary_launch=True)
+
+                def resolve_launch_spec(
+                    self,
+                    run: SpawnParams,
+                    perms: PermissionResolver,
+                ) -> ResolvedLaunchSpec:
+                    return ResolvedLaunchSpec(
+                        prompt=run.prompt or "",
+                        permission_resolver=perms,
+                    )
 
                 def build_command(self, run: SpawnParams, perms: PermissionResolver) -> list[str]:
                     _ = perms

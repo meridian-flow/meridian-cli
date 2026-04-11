@@ -19,6 +19,7 @@ from meridian.lib.launch.launch_types import (
     PreflightResult,
     ResolvedLaunchSpec,
 )
+from meridian.lib.safety.permissions import UnsafeNoOpPermissionResolver
 
 _REQUIRED_ABSTRACT_MEMBERS = {
     "id",
@@ -118,7 +119,10 @@ class _MissingIdHarness(BaseHarnessAdapter[ResolvedLaunchSpec]):
         perms: PermissionResolver,
     ) -> ResolvedLaunchSpec:
         _ = run, perms
-        return ResolvedLaunchSpec(prompt="test")
+        return ResolvedLaunchSpec(
+            prompt="test",
+            permission_resolver=UnsafeNoOpPermissionResolver(_suppress_warning=True),
+        )
 
 
 def test_s040_missing_id_raises_instantiation_error() -> None:
@@ -133,7 +137,10 @@ class _IncompleteHarness(BaseHarnessAdapter[ResolvedLaunchSpec]):
         perms: PermissionResolver,
     ) -> ResolvedLaunchSpec:
         _ = run, perms
-        return ResolvedLaunchSpec(prompt="test")
+        return ResolvedLaunchSpec(
+            prompt="test",
+            permission_resolver=UnsafeNoOpPermissionResolver(_suppress_warning=True),
+        )
 
 
 def test_s040_incomplete_adapter_lists_all_missing_members() -> None:
@@ -165,7 +172,10 @@ class _CompleteHarness(BaseHarnessAdapter[ResolvedLaunchSpec]):
         perms: PermissionResolver,
     ) -> ResolvedLaunchSpec:
         _ = perms
-        return ResolvedLaunchSpec(prompt=run.prompt)
+        return ResolvedLaunchSpec(
+            prompt=run.prompt,
+            permission_resolver=UnsafeNoOpPermissionResolver(_suppress_warning=True),
+        )
 
 
 def test_handled_fields_unions_consumed_and_ignored() -> None:
@@ -174,7 +184,11 @@ def test_handled_fields_unions_consumed_and_ignored() -> None:
 
 def test_resolved_launch_spec_rejects_continue_fork_without_session_id() -> None:
     with pytest.raises(ValidationError, match=r"continue_fork=True requires continue_session_id"):
-        ResolvedLaunchSpec(prompt="test", continue_fork=True)
+        ResolvedLaunchSpec(
+            prompt="test",
+            continue_fork=True,
+            permission_resolver=UnsafeNoOpPermissionResolver(_suppress_warning=True),
+        )
 
 
 def test_preflight_result_build_wraps_extra_env_in_mapping_proxy() -> None:
