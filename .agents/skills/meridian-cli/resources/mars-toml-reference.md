@@ -6,7 +6,7 @@ The manifest at `.agents/mars.toml` declares external sources for agents and ski
 
 ```toml
 [sources.meridian-base]
-url = "https://github.com/haowjy/meridian-base"
+url = "https://github.com/meridian-flow/meridian-base"
 version = "v0.1.0"                    # pin to tag (optional)
 agents = ["coder", "reviewer"]        # include filter (optional)
 skills = ["planning"]                 # include filter (optional)
@@ -77,7 +77,7 @@ A repo with `SKILL.md` at the root (no `agents/`/`skills/` subdirectories) is tr
 
 ```toml
 [sources.meridian-base]
-url = "https://github.com/haowjy/meridian-base"
+url = "https://github.com/meridian-flow/meridian-base"
 
 [sources.meridian-dev-workflow]
 path = "./meridian-dev-workflow"

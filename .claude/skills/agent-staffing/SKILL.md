@@ -75,5 +75,5 @@ See resources for detailed catalogs of available agents and when to use each:
 
 - Read `resources/reviewers.md` when composing review teams — covers @reviewer and refactor-reviewer. @reviewers apply by default in design and final review loops, and by exception for intermediate-phase escalations.
 - Read `resources/testers.md` when deciding what testing a phase needs — covers @verifier, @smoke-tester, @browser-tester, and unit-tester.
-- Read `resources/builders.md` when staffing implementation and design exploration — covers @coders, @architects, @researchers, and explorers.
+- Read `resources/builders.md` when staffing implementation and design exploration — covers @coders, @architects, @internet-researchers, and @explorers.
 - Read `resources/maintainers.md` when a phase needs documentation updates, decision mining, or issue triage — covers @code-documenter, @tech-writer, and investigator.
