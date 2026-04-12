@@ -369,6 +369,7 @@ def mark_spawn_running(
     launch_mode: LaunchMode | None = None,
     wrapper_pid: int | None = None,
     worker_pid: int | None = None,
+    runner_pid: int | None = None,
 ) -> None:
     update_spawn(
         state_root,
@@ -377,6 +378,7 @@ def mark_spawn_running(
         launch_mode=launch_mode,
         wrapper_pid=wrapper_pid,
         worker_pid=worker_pid,
+        runner_pid=runner_pid,
     )
 
 

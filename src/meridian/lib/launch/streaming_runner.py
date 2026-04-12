@@ -825,6 +825,7 @@ async def execute_with_streaming(
             prompt=run.prompt,
             harness_session_id=plan.session.harness_session_id,
             launch_mode=FOREGROUND_LAUNCH_MODE,
+            runner_pid=os.getpid(),
             status="queued",
         )
         spawn_row = spawn_store.get_spawn(state_root, run.spawn_id)

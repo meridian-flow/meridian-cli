@@ -1,494 +1,247 @@
-import os
-import subprocess
-import time
+from __future__ import annotations
+
+from datetime import UTC, datetime
 from pathlib import Path
 
-from meridian.lib.core.domain import SpawnStatus
-from meridian.lib.state import reaper, spawn_store
+from meridian.lib.state import spawn_store
 from meridian.lib.state.paths import resolve_state_paths
-from meridian.lib.state.reaper import (
-    _recent_spawn_activity,
-    _spawn_is_stale,
-    reconcile_active_spawn,
-)
+from meridian.lib.state.reaper import reconcile_active_spawn
 
 _OLD_STARTED_AT = "2000-01-01T00:00:00Z"
 
 
-def _start_background_spawn(
+def _recent_started_at() -> str:
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
+
+def _state_root(tmp_path: Path) -> Path:
+    state_root = resolve_state_paths(tmp_path).root_dir
+    state_root.mkdir(parents=True, exist_ok=True)
+    return state_root
+
+
+def _create_spawn(
     tmp_path: Path,
     *,
-    started_at: str | None = None,
-    status: SpawnStatus = "queued",
+    spawn_id: str = "p1",
+    status: str = "running",
+    runner_pid: int | None = 123,
+    started_at: str | None = _OLD_STARTED_AT,
 ) -> tuple[Path, str]:
-    state_root = resolve_state_paths(tmp_path).root_dir
-    spawn_id = spawn_store.start_spawn(
+    state_root = _state_root(tmp_path)
+    created_spawn_id = spawn_store.start_spawn(
         state_root,
+        spawn_id=spawn_id,
         chat_id="c1",
         model="gpt-5.4",
-        agent="agent",
+        agent="tester",
         harness="codex",
-        kind="child",
         prompt="hello",
-        launch_mode="background",
         status=status,
+        runner_pid=runner_pid,
         started_at=started_at,
     )
-    return state_root, str(spawn_id)
+    return state_root, str(created_spawn_id)
 
 
-def _set_file_age(path: Path, *, age_seconds: int) -> None:
-    old_time = time.time() - age_seconds
-    os.utime(path, (old_time, old_time))
+def _get_spawn(state_root: Path, spawn_id: str):
+    record = spawn_store.get_spawn(state_root, spawn_id)
+    assert record is not None
+    return record
 
 
-def test_reconcile_active_spawn_marks_missing_spawn_dir_failed_after_grace(tmp_path: Path) -> None:
-    state_root, spawn_id = _start_background_spawn(tmp_path, started_at=_OLD_STARTED_AT)
-
-    row = spawn_store.get_spawn(state_root, spawn_id)
-    assert row is not None
-
-    reconciled = reconcile_active_spawn(state_root, row)
-
-    assert reconciled.status == "failed"
-    assert reconciled.error == "missing_spawn_dir"
-    latest = spawn_store.get_spawn(state_root, spawn_id)
-    assert latest is not None
-    assert latest.status == "failed"
+def _write_report(
+    state_root: Path,
+    spawn_id: str,
+    text: str = "# Finished\n\nCompleted.\n",
+) -> None:
+    report_path = state_root / "spawns" / spawn_id / "report.md"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(text, encoding="utf-8")
 
 
-def test_reconcile_active_spawn_marks_missing_pid_files_failed_after_grace(tmp_path: Path) -> None:
-    state_root, spawn_id = _start_background_spawn(tmp_path, started_at=_OLD_STARTED_AT)
-    spawn_dir = state_root / "spawns" / spawn_id
-    spawn_dir.mkdir(parents=True, exist_ok=True)
+def test_reconcile_active_spawn_returns_terminal_record_unchanged(
+    tmp_path: Path, monkeypatch
+) -> None:
+    state_root, spawn_id = _create_spawn(tmp_path, status="succeeded")
+    record = _get_spawn(state_root, spawn_id)
 
-    row = spawn_store.get_spawn(state_root, spawn_id)
-    assert row is not None
+    def _unexpected_call(pid: int, created_after_epoch: float | None = None) -> bool:
+        raise AssertionError("is_process_alive should not run for terminal records")
 
-    reconciled = reconcile_active_spawn(state_root, row)
+    monkeypatch.setattr("meridian.lib.state.reaper.is_process_alive", _unexpected_call)
 
-    assert reconciled.status == "failed"
-    assert reconciled.error == "missing_wrapper_pid"
+    reconciled = reconcile_active_spawn(state_root, record)
+
+    assert reconciled == record
+    assert _get_spawn(state_root, spawn_id).status == "succeeded"
 
 
-def test_reconcile_active_spawn_promotes_queued_background_to_running_with_wrapper_pid(
+def test_reconcile_active_spawn_without_runner_pid_stays_unchanged_during_startup_grace(
     tmp_path: Path,
 ) -> None:
-    state_root, spawn_id = _start_background_spawn(tmp_path, started_at=_OLD_STARTED_AT)
-    spawn_dir = state_root / "spawns" / spawn_id
-    spawn_dir.mkdir(parents=True, exist_ok=True)
-    (spawn_dir / "background.pid").write_text(f"{os.getpid()}\n", encoding="utf-8")
-
-    row = spawn_store.get_spawn(state_root, spawn_id)
-    assert row is not None
-
-    reconciled = reconcile_active_spawn(state_root, row)
-
-    assert reconciled.status == "running"
-    assert reconciled.wrapper_pid == os.getpid()
-    latest = spawn_store.get_spawn(state_root, spawn_id)
-    assert latest is not None
-    assert latest.status == "running"
-    assert latest.wrapper_pid == os.getpid()
-
-
-def _start_foreground_spawn(
-    tmp_path: Path,
-    *,
-    started_at: str | None = None,
-    status: SpawnStatus = "running",
-    worker_pid: int | None = None,
-) -> tuple[Path, str]:
-    state_root = resolve_state_paths(tmp_path).root_dir
-    spawn_id = spawn_store.start_spawn(
-        state_root,
-        chat_id="c1",
-        model="gpt-5.4",
-        agent="agent",
-        harness="codex",
-        kind="child",
-        prompt="hello",
-        launch_mode="foreground",
-        worker_pid=worker_pid,
-        status=status,
-        started_at=started_at,
-    )
-    return state_root, str(spawn_id)
-
-
-def test_reconcile_background_spawn_with_report_and_dead_pid_succeeds(tmp_path: Path) -> None:
-    """A background spawn with a dead PID but a valid report should succeed, not fail as orphan."""
-    state_root, spawn_id = _start_background_spawn(
-        tmp_path, started_at=_OLD_STARTED_AT, status="running"
-    )
-    spawn_dir = state_root / "spawns" / spawn_id
-    spawn_dir.mkdir(parents=True, exist_ok=True)
-    dead_pid = 2_000_000_000
-    (spawn_dir / "background.pid").write_text(f"{dead_pid}\n", encoding="utf-8")
-    (spawn_dir / "report.md").write_text("# Finished\n\nCompleted.\n", encoding="utf-8")
-
-    row = spawn_store.get_spawn(state_root, spawn_id)
-    assert row is not None
-
-    reconciled = reconcile_active_spawn(state_root, row)
-
-    assert reconciled.status == "succeeded"
-    assert reconciled.exit_code == 0
-    assert reconciled.error is None
-    latest = spawn_store.get_spawn(state_root, spawn_id)
-    assert latest is not None
-    assert latest.status == "succeeded"
-
-
-def test_reconcile_background_spawn_with_report_and_live_wrapper_stays_running(
-    tmp_path: Path,
-) -> None:
-    state_root = resolve_state_paths(tmp_path).root_dir
-    sleeper = subprocess.Popen(["sleep", "30"], start_new_session=True)
-    try:
-        spawn_id = spawn_store.start_spawn(
-            state_root,
-            chat_id="c1",
-            model="gpt-5.4",
-            agent="agent",
-            harness="codex",
-            kind="child",
-            prompt="hello",
-            launch_mode="background",
-            status="running",
-            started_at=_OLD_STARTED_AT,
-        )
-        spawn_dir = state_root / "spawns" / str(spawn_id)
-        spawn_dir.mkdir(parents=True, exist_ok=True)
-        (spawn_dir / "background.pid").write_text(f"{sleeper.pid}\n", encoding="utf-8")
-        (spawn_dir / "report.md").write_text("# Finished\n\nCompleted.\n", encoding="utf-8")
-
-        row = spawn_store.get_spawn(state_root, spawn_id)
-        assert row is not None
-
-        reconciled = reconcile_active_spawn(state_root, row)
-
-        assert reconciled.status == "running"
-        assert sleeper.poll() is None
-        latest = spawn_store.get_spawn(state_root, spawn_id)
-        assert latest is not None
-        assert latest.status == "running"
-        assert latest.exit_code is None
-        assert latest.error is None
-    finally:
-        if sleeper.poll() is None:
-            sleeper.terminate()
-            sleeper.wait(timeout=5)
-
-
-def test_reconcile_foreground_spawn_with_report_and_dead_pid_succeeds(tmp_path: Path) -> None:
-    """A foreground spawn with a dead PID but a valid report should succeed, not fail as orphan."""
-    dead_pid = 2_000_000_000
-    state_root, spawn_id = _start_foreground_spawn(
+    state_root, spawn_id = _create_spawn(
         tmp_path,
-        started_at=_OLD_STARTED_AT,
-        worker_pid=dead_pid,
+        runner_pid=None,
+        started_at=_recent_started_at(),
     )
-    spawn_dir = state_root / "spawns" / spawn_id
-    spawn_dir.mkdir(parents=True, exist_ok=True)
-    (spawn_dir / "harness.pid").write_text(f"{dead_pid}\n", encoding="utf-8")
-    (spawn_dir / "report.md").write_text("# Finished\n\nCompleted.\n", encoding="utf-8")
+    record = _get_spawn(state_root, spawn_id)
 
-    row = spawn_store.get_spawn(state_root, spawn_id)
-    assert row is not None
+    reconciled = reconcile_active_spawn(state_root, record)
 
-    reconciled = reconcile_active_spawn(state_root, row)
+    assert reconciled == record
+    latest = _get_spawn(state_root, spawn_id)
+    assert latest.status == "running"
+    assert latest.error is None
+
+
+def test_reconcile_active_spawn_without_runner_pid_fails_after_startup_grace(
+    tmp_path: Path,
+) -> None:
+    state_root, spawn_id = _create_spawn(tmp_path, runner_pid=None, started_at=_OLD_STARTED_AT)
+    record = _get_spawn(state_root, spawn_id)
+
+    reconciled = reconcile_active_spawn(state_root, record)
+
+    assert reconciled.status == "failed"
+    assert reconciled.exit_code == 1
+    assert reconciled.error == "missing_worker_pid"
+    latest = _get_spawn(state_root, spawn_id)
+    assert latest.status == "failed"
+    assert latest.error == "missing_worker_pid"
+
+
+def test_reconcile_active_spawn_returns_unchanged_when_runner_is_alive(
+    tmp_path: Path, monkeypatch
+) -> None:
+    state_root, spawn_id = _create_spawn(tmp_path)
+    record = _get_spawn(state_root, spawn_id)
+    seen: list[tuple[int, float | None]] = []
+
+    def _alive(pid: int, created_after_epoch: float | None = None) -> bool:
+        seen.append((pid, created_after_epoch))
+        return True
+
+    monkeypatch.setattr("meridian.lib.state.reaper.is_process_alive", _alive)
+
+    reconciled = reconcile_active_spawn(state_root, record)
+
+    assert reconciled == record
+    assert seen == [(123, 946684800.0)]
+    latest = _get_spawn(state_root, spawn_id)
+    assert latest.status == "running"
+    assert latest.error is None
+
+
+def test_reconcile_active_spawn_marks_exited_spawn_with_report_succeeded(
+    tmp_path: Path, monkeypatch
+) -> None:
+    state_root, spawn_id = _create_spawn(tmp_path)
+    spawn_store.record_spawn_exited(
+        state_root,
+        spawn_id,
+        exit_code=0,
+        exited_at="2026-04-12T14:00:00Z",
+    )
+    _write_report(state_root, spawn_id)
+    record = _get_spawn(state_root, spawn_id)
+    monkeypatch.setattr(
+        "meridian.lib.state.reaper.is_process_alive",
+        lambda *_args, **_kwargs: False,
+    )
+
+    reconciled = reconcile_active_spawn(state_root, record)
 
     assert reconciled.status == "succeeded"
     assert reconciled.exit_code == 0
     assert reconciled.error is None
-    latest = spawn_store.get_spawn(state_root, spawn_id)
-    assert latest is not None
+    latest = _get_spawn(state_root, spawn_id)
     assert latest.status == "succeeded"
+    assert latest.exit_code == 0
+    assert latest.error is None
 
 
-def test_reconcile_active_spawn_with_report_and_live_foreground_harness_stays_running(
-    tmp_path: Path,
+def test_reconcile_active_spawn_marks_exited_spawn_without_report_failed(
+    tmp_path: Path, monkeypatch
 ) -> None:
-    state_root = resolve_state_paths(tmp_path).root_dir
-    sleeper = subprocess.Popen(["sleep", "30"], start_new_session=True)
-    try:
-        spawn_id = spawn_store.start_spawn(
-            state_root,
-            chat_id="c1",
-            model="gpt-5.4",
-            agent="agent",
-            harness="codex",
-            kind="child",
-            prompt="hello",
-            launch_mode="foreground",
-            worker_pid=sleeper.pid,
-            status="running",
-            started_at=_OLD_STARTED_AT,
-        )
-        spawn_dir = state_root / "spawns" / str(spawn_id)
-        spawn_dir.mkdir(parents=True, exist_ok=True)
-        (spawn_dir / "harness.pid").write_text(f"{sleeper.pid}\n", encoding="utf-8")
-        (spawn_dir / "report.md").write_text("# Finished\n\nCompleted.\n", encoding="utf-8")
-
-        row = spawn_store.get_spawn(state_root, spawn_id)
-        assert row is not None
-
-        reconciled = reconcile_active_spawn(state_root, row)
-
-        assert reconciled.status == "running"
-        assert sleeper.poll() is None
-        latest = spawn_store.get_spawn(state_root, spawn_id)
-        assert latest is not None
-        assert latest.status == "running"
-        assert latest.exit_code is None
-        assert latest.error is None
-    finally:
-        if sleeper.poll() is None:
-            sleeper.terminate()
-            sleeper.wait(timeout=5)
-
-
-def test_stale_background_spawn_with_live_wrapper_is_preserved(tmp_path: Path, monkeypatch) -> None:
-    state_root, spawn_id = _start_background_spawn(
-        tmp_path, started_at=_OLD_STARTED_AT, status="running"
+    state_root, spawn_id = _create_spawn(tmp_path)
+    spawn_store.record_spawn_exited(
+        state_root,
+        spawn_id,
+        exit_code=143,
+        exited_at="2026-04-12T14:00:00Z",
     )
-    spawn_dir = state_root / "spawns" / spawn_id
-    spawn_dir.mkdir(parents=True, exist_ok=True)
-    wrapper_pid = 12345
-    (spawn_dir / "background.pid").write_text(f"{wrapper_pid}\n", encoding="utf-8")
-    (spawn_dir / "output.jsonl").write_text("", encoding="utf-8")
-    (spawn_dir / "stderr.log").write_text("", encoding="utf-8")
-    _set_file_age(spawn_dir / "background.pid", age_seconds=301)
-    _set_file_age(spawn_dir / "output.jsonl", age_seconds=301)
-    _set_file_age(spawn_dir / "stderr.log", age_seconds=301)
-    monkeypatch.setattr(reaper, "_pid_is_alive", lambda _pid, _pid_file: True)
+    record = _get_spawn(state_root, spawn_id)
+    monkeypatch.setattr(
+        "meridian.lib.state.reaper.is_process_alive",
+        lambda *_args, **_kwargs: False,
+    )
 
-    row = spawn_store.get_spawn(state_root, spawn_id)
-    assert row is not None
+    reconciled = reconcile_active_spawn(state_root, record)
 
-    reconciled = reconcile_active_spawn(state_root, row)
+    assert reconciled.status == "failed"
+    assert reconciled.exit_code == 1
+    assert reconciled.error == "orphan_finalization"
+    latest = _get_spawn(state_root, spawn_id)
+    assert latest.status == "failed"
+    assert latest.error == "orphan_finalization"
 
-    assert reconciled.status == "running"
-    assert reconciled.error is None
-    latest = spawn_store.get_spawn(state_root, spawn_id)
-    assert latest is not None
+
+def test_reconcile_active_spawn_with_dead_runner_and_no_exit_stays_unchanged_in_grace(
+    tmp_path: Path, monkeypatch
+) -> None:
+    state_root, spawn_id = _create_spawn(tmp_path, started_at=_recent_started_at())
+    record = _get_spawn(state_root, spawn_id)
+    monkeypatch.setattr(
+        "meridian.lib.state.reaper.is_process_alive",
+        lambda *_args, **_kwargs: False,
+    )
+
+    reconciled = reconcile_active_spawn(state_root, record)
+
+    assert reconciled == record
+    latest = _get_spawn(state_root, spawn_id)
     assert latest.status == "running"
     assert latest.error is None
 
 
-def test_stale_foreground_spawn_with_live_harness_is_preserved(tmp_path: Path, monkeypatch) -> None:
-    state_root, spawn_id = _start_foreground_spawn(
-        tmp_path, started_at=_OLD_STARTED_AT, status="running"
-    )
-    spawn_dir = state_root / "spawns" / spawn_id
-    spawn_dir.mkdir(parents=True, exist_ok=True)
-    harness_pid = 23456
-    (spawn_dir / "harness.pid").write_text(f"{harness_pid}\n", encoding="utf-8")
-    (spawn_dir / "output.jsonl").write_text("", encoding="utf-8")
-    (spawn_dir / "stderr.log").write_text("", encoding="utf-8")
-    _set_file_age(spawn_dir / "harness.pid", age_seconds=301)
-    _set_file_age(spawn_dir / "output.jsonl", age_seconds=301)
-    _set_file_age(spawn_dir / "stderr.log", age_seconds=301)
-    monkeypatch.setattr(reaper, "_pid_is_alive", lambda _pid, _pid_file: True)
-
-    row = spawn_store.get_spawn(state_root, spawn_id)
-    assert row is not None
-
-    reconciled = reconcile_active_spawn(state_root, row)
-
-    assert reconciled.status == "running"
-    assert reconciled.error is None
-    latest = spawn_store.get_spawn(state_root, spawn_id)
-    assert latest is not None
-    assert latest.status == "running"
-    assert latest.error is None
-
-
-def test_stale_dead_background_spawn_is_finalized(tmp_path: Path, monkeypatch) -> None:
-    state_root, spawn_id = _start_background_spawn(
-        tmp_path, started_at=_OLD_STARTED_AT, status="running"
-    )
-    spawn_dir = state_root / "spawns" / spawn_id
-    spawn_dir.mkdir(parents=True, exist_ok=True)
-    (spawn_dir / "background.pid").write_text("12345\n", encoding="utf-8")
-    (spawn_dir / "harness.pid").write_text("23456\n", encoding="utf-8")
-    (spawn_dir / "output.jsonl").write_text("", encoding="utf-8")
-    (spawn_dir / "stderr.log").write_text("", encoding="utf-8")
-    _set_file_age(spawn_dir / "background.pid", age_seconds=301)
-    _set_file_age(spawn_dir / "harness.pid", age_seconds=301)
-    _set_file_age(spawn_dir / "output.jsonl", age_seconds=301)
-    _set_file_age(spawn_dir / "stderr.log", age_seconds=301)
-    monkeypatch.setattr(reaper, "_pid_is_alive", lambda _pid, _pid_file: False)
-
-    row = spawn_store.get_spawn(state_root, spawn_id)
-    assert row is not None
-
-    reconciled = reconcile_active_spawn(state_root, row)
-
-    assert reconciled.status == "failed"
-    assert reconciled.error == "orphan_run"
-    latest = spawn_store.get_spawn(state_root, spawn_id)
-    assert latest is not None
-    assert latest.status == "failed"
-    assert latest.error == "orphan_run"
-
-
-def test_stale_dead_foreground_spawn_is_finalized(tmp_path: Path, monkeypatch) -> None:
-    state_root, spawn_id = _start_foreground_spawn(
-        tmp_path, started_at=_OLD_STARTED_AT, status="running"
-    )
-    spawn_dir = state_root / "spawns" / spawn_id
-    spawn_dir.mkdir(parents=True, exist_ok=True)
-    (spawn_dir / "harness.pid").write_text("34567\n", encoding="utf-8")
-    (spawn_dir / "output.jsonl").write_text("", encoding="utf-8")
-    (spawn_dir / "stderr.log").write_text("", encoding="utf-8")
-    _set_file_age(spawn_dir / "harness.pid", age_seconds=301)
-    _set_file_age(spawn_dir / "output.jsonl", age_seconds=301)
-    _set_file_age(spawn_dir / "stderr.log", age_seconds=301)
-    monkeypatch.setattr(reaper, "_pid_is_alive", lambda _pid, _pid_file: False)
-
-    row = spawn_store.get_spawn(state_root, spawn_id)
-    assert row is not None
-
-    reconciled = reconcile_active_spawn(state_root, row)
-
-    assert reconciled.status == "failed"
-    assert reconciled.error == "orphan_run"
-    latest = spawn_store.get_spawn(state_root, spawn_id)
-    assert latest is not None
-    assert latest.status == "failed"
-    assert latest.error == "orphan_run"
-
-
-def test_heartbeat_prevents_stale_detection(tmp_path: Path) -> None:
-    spawn_dir = tmp_path / "spawn"
-    spawn_dir.mkdir(parents=True, exist_ok=True)
-    pid_file = spawn_dir / "background.pid"
-    pid_file.write_text("12345\n", encoding="utf-8")
-    (spawn_dir / "output.jsonl").write_text("", encoding="utf-8")
-    (spawn_dir / "stderr.log").write_text("", encoding="utf-8")
-    heartbeat = spawn_dir / "heartbeat"
-    heartbeat.write_text("", encoding="utf-8")
-    _set_file_age(pid_file, age_seconds=301)
-    _set_file_age(spawn_dir / "output.jsonl", age_seconds=301)
-    _set_file_age(spawn_dir / "stderr.log", age_seconds=301)
-    os.utime(heartbeat, None)
-
-    assert _spawn_is_stale(spawn_dir, pid_file) is False
-
-
-def test_reconcile_background_dead_wrapper_live_harness_with_report_succeeds(
-    tmp_path: Path,
-    monkeypatch,
+def test_reconcile_active_spawn_with_dead_runner_and_report_succeeds_without_exit_event(
+    tmp_path: Path, monkeypatch
 ) -> None:
-    """Dead wrapper + live harness + report.md → finalize as succeeded.
-
-    The wrapper is the coordinator; if it's dead, nobody will finalize.
-    The report proves the work completed, so the orphaned harness is harmless.
-    """
-    state_root, spawn_id = _start_background_spawn(
-        tmp_path, started_at=_OLD_STARTED_AT, status="running"
+    state_root, spawn_id = _create_spawn(tmp_path, started_at=_OLD_STARTED_AT)
+    _write_report(state_root, spawn_id)
+    record = _get_spawn(state_root, spawn_id)
+    monkeypatch.setattr(
+        "meridian.lib.state.reaper.is_process_alive",
+        lambda *_args, **_kwargs: False,
     )
-    spawn_dir = state_root / "spawns" / spawn_id
-    spawn_dir.mkdir(parents=True, exist_ok=True)
-    dead_wrapper = 2_000_000_000
-    live_harness = 2_000_000_001
-    (spawn_dir / "background.pid").write_text(f"{dead_wrapper}\n", encoding="utf-8")
-    (spawn_dir / "harness.pid").write_text(f"{live_harness}\n", encoding="utf-8")
-    (spawn_dir / "report.md").write_text("# Finished\n\nCompleted.\n", encoding="utf-8")
 
-    def _selective_alive(pid: int, _pid_file: Path) -> bool:
-        return pid == live_harness
-
-    monkeypatch.setattr(reaper, "_pid_is_alive", _selective_alive)
-
-    row = spawn_store.get_spawn(state_root, spawn_id)
-    assert row is not None
-
-    reconciled = reconcile_active_spawn(state_root, row)
+    reconciled = reconcile_active_spawn(state_root, record)
 
     assert reconciled.status == "succeeded"
     assert reconciled.exit_code == 0
+    assert reconciled.error is None
+    latest = _get_spawn(state_root, spawn_id)
+    assert latest.status == "succeeded"
+    assert latest.exit_code == 0
+    assert latest.error is None
 
 
-def test_reconcile_background_dead_wrapper_stale_harness_no_report_fails(
-    tmp_path: Path,
-    monkeypatch,
+def test_reconcile_active_spawn_with_dead_runner_and_no_exit_or_report_fails(
+    tmp_path: Path, monkeypatch
 ) -> None:
-    """Dead wrapper + live-but-stale harness + no report → orphan_stale_harness.
-
-    If the wrapper is dead and the harness hasn't produced output in >5min
-    and there's no report, the harness is stuck. Fail instead of stranding.
-    """
-    state_root, spawn_id = _start_background_spawn(
-        tmp_path, started_at=_OLD_STARTED_AT, status="running"
+    state_root, spawn_id = _create_spawn(tmp_path, started_at=_OLD_STARTED_AT)
+    record = _get_spawn(state_root, spawn_id)
+    monkeypatch.setattr(
+        "meridian.lib.state.reaper.is_process_alive",
+        lambda *_args, **_kwargs: False,
     )
-    spawn_dir = state_root / "spawns" / spawn_id
-    spawn_dir.mkdir(parents=True, exist_ok=True)
-    dead_wrapper = 2_000_000_000
-    live_harness = 2_000_000_001
-    (spawn_dir / "background.pid").write_text(f"{dead_wrapper}\n", encoding="utf-8")
-    (spawn_dir / "harness.pid").write_text(f"{live_harness}\n", encoding="utf-8")
-    (spawn_dir / "output.jsonl").write_text("", encoding="utf-8")
-    # Make everything stale
-    _set_file_age(spawn_dir / "background.pid", age_seconds=600)
-    _set_file_age(spawn_dir / "harness.pid", age_seconds=600)
-    _set_file_age(spawn_dir / "output.jsonl", age_seconds=600)
 
-    def _selective_alive(pid: int, _pid_file: Path) -> bool:
-        return pid == live_harness
-
-    monkeypatch.setattr(reaper, "_pid_is_alive", _selective_alive)
-
-    row = spawn_store.get_spawn(state_root, spawn_id)
-    assert row is not None
-
-    reconciled = reconcile_active_spawn(state_root, row)
+    reconciled = reconcile_active_spawn(state_root, record)
 
     assert reconciled.status == "failed"
-    assert reconciled.error == "orphan_stale_harness"
-
-
-def test_reconcile_background_dead_wrapper_active_harness_no_report_stays_running(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    """Dead wrapper + live active harness + no report → stay running.
-
-    Harness is still producing output — give it a chance to write report.
-    """
-    state_root, spawn_id = _start_background_spawn(
-        tmp_path, started_at=_OLD_STARTED_AT, status="running"
-    )
-    spawn_dir = state_root / "spawns" / spawn_id
-    spawn_dir.mkdir(parents=True, exist_ok=True)
-    dead_wrapper = 2_000_000_000
-    live_harness = 2_000_000_001
-    (spawn_dir / "background.pid").write_text(f"{dead_wrapper}\n", encoding="utf-8")
-    (spawn_dir / "harness.pid").write_text(f"{live_harness}\n", encoding="utf-8")
-    # Recent output — not stale
-    (spawn_dir / "output.jsonl").write_text("{}\n", encoding="utf-8")
-
-    def _selective_alive(pid: int, _pid_file: Path) -> bool:
-        return pid == live_harness
-
-    monkeypatch.setattr(reaper, "_pid_is_alive", _selective_alive)
-
-    row = spawn_store.get_spawn(state_root, spawn_id)
-    assert row is not None
-
-    reconciled = reconcile_active_spawn(state_root, row)
-
-    assert reconciled.status == "running"
-    assert reconciled.error is None
-
-
-def test_heartbeat_in_recent_spawn_activity(tmp_path: Path) -> None:
-    spawn_dir = tmp_path / "spawn"
-    spawn_dir.mkdir(parents=True, exist_ok=True)
-    heartbeat = spawn_dir / "heartbeat"
-    heartbeat.write_text("", encoding="utf-8")
-    now = time.time()
-
-    assert _recent_spawn_activity(spawn_dir, now=now) is True
+    assert reconciled.exit_code == 1
+    assert reconciled.error == "orphan_run"
+    latest = _get_spawn(state_root, spawn_id)
+    assert latest.status == "failed"
+    assert latest.error == "orphan_run"

@@ -8,7 +8,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Callable, Iterator, Sequence
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import Any, cast
 
@@ -55,6 +55,11 @@ _BACKGROUND_SUBMIT_MESSAGE = "Background spawn submitted."
 _BACKGROUND_STDOUT_FILENAME = "background-launcher.stdout.log"
 _BACKGROUND_STDERR_FILENAME = "background-launcher.stderr.log"
 _BG_WORKER_PARAMS_FILENAME = "bg-worker-params.json"
+_BACKGROUND_RUNTIME_ARTIFACTS = (
+    _BACKGROUND_STDOUT_FILENAME,
+    _BACKGROUND_STDERR_FILENAME,
+    _BG_WORKER_PARAMS_FILENAME,
+)
 
 
 class _SpawnContext(BaseModel):
@@ -97,6 +102,15 @@ class BackgroundWorkerParams(BaseModel):
     autocompact: int | None = None
     execution_cwd: str | None = None
     debug: bool = False
+
+
+def _cleanup_background_runtime_artifacts(log_dir: Path) -> None:
+    """Remove non-durable launcher artifacts after terminal completion."""
+    for name in _BACKGROUND_RUNTIME_ARTIFACTS:
+        target = log_dir / name
+        with suppress(FileNotFoundError):
+            target.unlink()
+
 
 def depth_limits(max_depth: int, *, ctx: RuntimeContext | None = None) -> tuple[int, int]:
     current_depth = runtime_context(ctx).depth
@@ -194,6 +208,7 @@ def _init_spawn(
     work_id: str | None = None,
     status: SpawnStatus = "running",
     launch_mode: LaunchMode | None = None,
+    runner_pid: int | None = None,
     execution_cwd: str | None = None,
     ctx: RuntimeContext | None = None,
 ) -> _SpawnContext:
@@ -225,6 +240,7 @@ def _init_spawn(
         harness_session_id=prepared.session.harness_session_id,
         execution_cwd=execution_cwd,
         launch_mode=launch_mode,
+        runner_pid=runner_pid,
         status=status,
     )
     spawn = Spawn(
@@ -566,6 +582,7 @@ def execute_spawn_background(
             exit_code=1,
             error=str(exc),
         )
+        _cleanup_background_runtime_artifacts(log_dir)
         logger.exception(
             "Failed to persist background worker params.",
             spawn_id=spawn_id_text,
@@ -624,6 +641,7 @@ def execute_spawn_background(
             exit_code=1,
             error=str(exc),
         )
+        _cleanup_background_runtime_artifacts(log_dir)
         logger.exception(
             "Failed to launch background spawn worker.",
             spawn_id=spawn_id_text,
@@ -650,6 +668,7 @@ def execute_spawn_background(
         context.spawn.spawn_id,
         launch_mode=BACKGROUND_LAUNCH_MODE,
         wrapper_pid=process.pid,
+        runner_pid=process.pid,
     )
     # The Popen object goes out of scope without wait(). This is intentional:
     # the child spawns in its own session (start_new_session=True) and is
@@ -686,6 +705,7 @@ def execute_spawn_blocking(
         work_id=payload.work,
         status="queued",
         launch_mode=FOREGROUND_LAUNCH_MODE,
+        runner_pid=os.getpid(),
         execution_cwd=str(runtime.repo_root),
         ctx=resolved_context,
     )
@@ -854,53 +874,56 @@ def _background_worker_main(
     state_root = resolve_state_paths(repo_root).root_dir
     log_dir = resolve_spawn_log_dir(repo_root, spawn_id)
     try:
-        params = _load_bg_worker_params(log_dir)
-    except Exception as exc:
-        error = f"Failed to load background worker params: {exc}"
-        spawn_store.finalize_spawn(
-            state_root,
-            spawn_id,
-            status="failed",
-            exit_code=1,
-            error=error,
-        )
-        logger.error(
-            "Failed to load background worker params.",
-            spawn_id=str(spawn_id),
-            log_dir=log_dir.as_posix(),
-            exc_info=True,
-        )
-        return 1
+        try:
+            params = _load_bg_worker_params(log_dir)
+        except Exception as exc:
+            error = f"Failed to load background worker params: {exc}"
+            spawn_store.finalize_spawn(
+                state_root,
+                spawn_id,
+                status="failed",
+                exit_code=1,
+                error=error,
+            )
+            logger.error(
+                "Failed to load background worker params.",
+                spawn_id=str(spawn_id),
+                log_dir=log_dir.as_posix(),
+                exc_info=True,
+            )
+            return 1
 
-    permission_config, permission_resolver = resolve_permission_pipeline(
-        sandbox=params.sandbox,
-        allowed_tools=params.allowed_tools,
-        approval=params.approval,
-    )
-    return asyncio.run(
-        _execute_existing_spawn(
-            spawn_id=spawn_id,
-            repo_root=repo_root,
-            timeout=params.timeout,
-            skills=params.skills,
-            agent_name=params.agent_name,
-            mcp_tools=params.mcp_tools,
-            permission_config=permission_config,
-            permission_resolver=permission_resolver,
+        permission_config, permission_resolver = resolve_permission_pipeline(
+            sandbox=params.sandbox,
             allowed_tools=params.allowed_tools,
-            passthrough_args=params.passthrough_args,
-            session=params.session,
-            session_agent=params.session_agent,
-            session_agent_path=params.session_agent_path,
-            session_skill_paths=params.session_skill_paths,
-            adhoc_agent_payload=params.adhoc_agent_payload,
-            appended_system_prompt=params.appended_system_prompt,
-            autocompact=params.autocompact,
-            execution_cwd=params.execution_cwd,
-            debug=params.debug,
-            ctx=resolved_context,
+            approval=params.approval,
         )
-    )
+        return asyncio.run(
+            _execute_existing_spawn(
+                spawn_id=spawn_id,
+                repo_root=repo_root,
+                timeout=params.timeout,
+                skills=params.skills,
+                agent_name=params.agent_name,
+                mcp_tools=params.mcp_tools,
+                permission_config=permission_config,
+                permission_resolver=permission_resolver,
+                allowed_tools=params.allowed_tools,
+                passthrough_args=params.passthrough_args,
+                session=params.session,
+                session_agent=params.session_agent,
+                session_agent_path=params.session_agent_path,
+                session_skill_paths=params.session_skill_paths,
+                adhoc_agent_payload=params.adhoc_agent_payload,
+                appended_system_prompt=params.appended_system_prompt,
+                autocompact=params.autocompact,
+                execution_cwd=params.execution_cwd,
+                debug=params.debug,
+                ctx=resolved_context,
+            )
+        )
+    finally:
+        _cleanup_background_runtime_artifacts(log_dir)
 
 
 if __name__ == "__main__":

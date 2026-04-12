@@ -70,7 +70,8 @@ def _finalize_failed(state_root: Path, record: SpawnRecord, error: str) -> Spawn
 
 def _finalize_completed_report(state_root: Path, record: SpawnRecord) -> SpawnRecord:
     status, exit_code, error = resolve_reconciled_terminal_state(
-        True, fallback_error="harness_completed"
+        durable_report_completion=True,
+        fallback_error="harness_completed",
     )
     return _finalize_and_log(
         state_root,

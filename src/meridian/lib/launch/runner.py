@@ -509,6 +509,7 @@ async def execute_with_finalization(
             prompt=run.prompt,
             harness_session_id=plan.session.harness_session_id,
             launch_mode=FOREGROUND_LAUNCH_MODE,
+            runner_pid=os.getpid(),
             status="queued",
         )
     materialized_session_id = (run_params.continue_harness_session_id or "").strip()
