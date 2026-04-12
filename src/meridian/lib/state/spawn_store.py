@@ -81,9 +81,12 @@ class SpawnRecord(BaseModel):
     launch_mode: str | None
     wrapper_pid: int | None
     worker_pid: int | None
+    runner_pid: int | None
     status: SpawnStatus | Literal["unknown"]
     prompt: str | None
     started_at: str | None
+    exited_at: str | None
+    process_exit_code: int | None
     finished_at: str | None
     exit_code: int | None
     duration_secs: float | None
@@ -114,6 +117,7 @@ class SpawnStartEvent(BaseModel):
     execution_cwd: str | None = None
     launch_mode: str | None = None
     worker_pid: int | None = None
+    runner_pid: int | None = None
     status: SpawnStatus = "running"
     prompt: str | None = None
     started_at: str | None = None
@@ -129,11 +133,22 @@ class SpawnUpdateEvent(BaseModel):
     launch_mode: LaunchMode | None = None
     wrapper_pid: int | None = None
     worker_pid: int | None = None
+    runner_pid: int | None = None
     harness_session_id: str | None = None
     execution_cwd: str | None = None
     error: str | None = None
     desc: str | None = None
     work_id: str | None = None
+
+
+class SpawnExitedEvent(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    v: int = 1
+    event: Literal["exited"] = "exited"
+    id: str = ""
+    exit_code: int = 0
+    exited_at: str | None = None
 
 
 class SpawnFinalizeEvent(BaseModel):
@@ -152,7 +167,7 @@ class SpawnFinalizeEvent(BaseModel):
     error: str | None = None
 
 
-type SpawnEvent = SpawnStartEvent | SpawnUpdateEvent | SpawnFinalizeEvent
+type SpawnEvent = SpawnStartEvent | SpawnUpdateEvent | SpawnExitedEvent | SpawnFinalizeEvent
 
 
 def _parse_event(payload: dict[str, Any]) -> SpawnEvent | None:
@@ -162,6 +177,8 @@ def _parse_event(payload: dict[str, Any]) -> SpawnEvent | None:
             return SpawnStartEvent.model_validate(payload)
         if event_type == "update":
             return SpawnUpdateEvent.model_validate(payload)
+        if event_type == "exited":
+            return SpawnExitedEvent.model_validate(payload)
         if event_type == "finalize":
             return SpawnFinalizeEvent.model_validate(payload)
     except ValidationError:
@@ -189,6 +206,7 @@ def start_spawn(
     execution_cwd: str | None = None,
     launch_mode: LaunchMode | None = None,
     worker_pid: int | None = None,
+    runner_pid: int | None = None,
     status: SpawnStatus = "running",
     started_at: str | None = None,
 ) -> SpawnId:
@@ -218,6 +236,7 @@ def start_spawn(
             execution_cwd=execution_cwd,
             launch_mode=launch_mode,
             worker_pid=worker_pid,
+            runner_pid=runner_pid,
             status=status,
             started_at=started,
             prompt=prompt,
@@ -240,6 +259,7 @@ def update_spawn(
     launch_mode: LaunchMode | None = None,
     wrapper_pid: int | None = None,
     worker_pid: int | None = None,
+    runner_pid: int | None = None,
     harness_session_id: str | None = None,
     execution_cwd: str | None = None,
     error: str | None = None,
@@ -255,11 +275,36 @@ def update_spawn(
         launch_mode=launch_mode,
         wrapper_pid=wrapper_pid,
         worker_pid=worker_pid,
+        runner_pid=runner_pid,
         harness_session_id=harness_session_id,
         execution_cwd=execution_cwd,
         error=error,
         desc=desc,
         work_id=work_id,
+    )
+    append_event(
+        paths.spawns_jsonl,
+        paths.spawns_flock,
+        event,
+        store_name="spawn",
+        exclude_none=True,
+    )
+
+
+def record_spawn_exited(
+    state_root: Path,
+    spawn_id: SpawnId | str,
+    *,
+    exit_code: int,
+    exited_at: str | None = None,
+) -> None:
+    """Append an exited event — the harness process has exited."""
+
+    paths = StateRootPaths.from_root_dir(state_root)
+    event = SpawnExitedEvent(
+        id=str(spawn_id),
+        exit_code=exit_code,
+        exited_at=exited_at or utc_now_iso(),
     )
     append_event(
         paths.spawns_jsonl,
@@ -355,9 +400,12 @@ def _empty_record(spawn_id: str) -> SpawnRecord:
         launch_mode=None,
         wrapper_pid=None,
         worker_pid=None,
+        runner_pid=None,
         status="unknown",
         prompt=None,
         started_at=None,
+        exited_at=None,
+        process_exit_code=None,
         finished_at=None,
         exit_code=None,
         duration_secs=None,
@@ -422,6 +470,9 @@ def _record_from_events(events: list[SpawnEvent]) -> dict[str, SpawnRecord]:
                     "worker_pid": (
                         event.worker_pid if event.worker_pid is not None else current.worker_pid
                     ),
+                    "runner_pid": (
+                        event.runner_pid if event.runner_pid is not None else current.runner_pid
+                    ),
                     "status": event.status,
                     "prompt": event.prompt if event.prompt is not None else current.prompt,
                     "started_at": event.started_at
@@ -444,6 +495,9 @@ def _record_from_events(events: list[SpawnEvent]) -> dict[str, SpawnRecord]:
                     "worker_pid": (
                         event.worker_pid if event.worker_pid is not None else current.worker_pid
                     ),
+                    "runner_pid": (
+                        event.runner_pid if event.runner_pid is not None else current.runner_pid
+                    ),
                     "harness_session_id": (
                         event.harness_session_id
                         if event.harness_session_id is not None
@@ -461,6 +515,17 @@ def _record_from_events(events: list[SpawnEvent]) -> dict[str, SpawnRecord]:
                         if event.work_id is not None
                         else current.work_id
                     ),
+                }
+            )
+            continue
+
+        if isinstance(event, SpawnExitedEvent):
+            records[spawn_id] = current.model_copy(
+                update={
+                    "exited_at": event.exited_at
+                    if event.exited_at is not None
+                    else current.exited_at,
+                    "process_exit_code": event.exit_code,
                 }
             )
             continue

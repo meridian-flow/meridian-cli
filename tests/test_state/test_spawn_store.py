@@ -6,7 +6,9 @@ from meridian.lib.state.spawn_store import (
     finalize_spawn,
     get_spawn,
     list_spawns,
+    record_spawn_exited,
     start_spawn,
+    update_spawn,
 )
 
 
@@ -201,6 +203,54 @@ def test_finalize_spawn_returns_ownership_and_always_writes(tmp_path: Path) -> N
     assert row.exit_code == 1
     assert row.error == "orphan_run"
     assert row.duration_secs == 100.0
+
+
+def test_exited_event_is_non_terminal_and_projects_process_exit(tmp_path: Path) -> None:
+    state_root = _state_root(tmp_path)
+    spawn_id = start_spawn(
+        state_root,
+        chat_id="c1",
+        model="gpt-5.4",
+        agent="coder",
+        harness="codex",
+        prompt="hello",
+    )
+
+    record_spawn_exited(
+        state_root,
+        spawn_id,
+        exit_code=143,
+        exited_at="2026-04-12T14:00:00Z",
+    )
+
+    row = get_spawn(state_root, spawn_id)
+    assert row is not None
+    assert row.status == "running"
+    assert row.exited_at == "2026-04-12T14:00:00Z"
+    assert row.process_exit_code == 143
+    assert row.exit_code is None
+
+
+def test_runner_pid_projects_from_start_and_update(tmp_path: Path) -> None:
+    state_root = _state_root(tmp_path)
+    spawn_id = start_spawn(
+        state_root,
+        chat_id="c1",
+        model="gpt-5.4",
+        agent="coder",
+        harness="codex",
+        prompt="hello",
+        runner_pid=1111,
+    )
+
+    row = get_spawn(state_root, spawn_id)
+    assert row is not None
+    assert row.runner_pid == 1111
+
+    update_spawn(state_root, spawn_id, runner_pid=2222)
+    row = get_spawn(state_root, spawn_id)
+    assert row is not None
+    assert row.runner_pid == 2222
 
 
 def test_succeeded_cannot_be_overwritten_by_later_failed(tmp_path: Path) -> None:
