@@ -31,7 +31,11 @@ from meridian.lib.safety.permissions import (
 )
 from meridian.lib.state import spawn_store
 from meridian.lib.state.atomic import atomic_write_text
-from meridian.lib.state.paths import resolve_spawn_log_dir, resolve_state_paths
+from meridian.lib.state.paths import (
+    resolve_spawn_log_dir,
+    resolve_state_paths,
+    resolve_work_scratch_dir,
+)
 from meridian.lib.state.session_store import get_session_active_work_id, update_session_work_id
 from meridian.lib.state.spawn_store import (
     BACKGROUND_LAUNCH_MODE,
@@ -142,6 +146,28 @@ def _spawn_child_env(
     child_env: dict[str, str] = {}
     # K5 boundary: RuntimeContext.child_context() in launch/context.py is the sole
     # producer of MERIDIAN_* child overrides. Plan overrides stay non-MERIDIAN.
+    if autocompact is not None:
+        child_env["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"] = str(autocompact)
+    return child_env
+
+
+def _spawn_background_worker_env(
+    *,
+    work_id: str | None = None,
+    state_root: Path | None = None,
+    autocompact: int | None = None,
+) -> dict[str, str]:
+    """Build child env overrides for the detached background worker process."""
+
+    child_env: dict[str, str] = {}
+    normalized_work_id = (work_id or "").strip()
+    if normalized_work_id:
+        child_env["MERIDIAN_WORK_ID"] = normalized_work_id
+        if state_root is not None:
+            child_env["MERIDIAN_WORK_DIR"] = resolve_work_scratch_dir(
+                state_root,
+                normalized_work_id,
+            ).as_posix()
     if autocompact is not None:
         child_env["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"] = str(autocompact)
     return child_env
@@ -417,6 +443,7 @@ async def _execute_existing_spawn(
             autocompact=plan.autocompact,
             ctx=resolved_context,
         )
+        runtime_work_id = session_context.work_id or spawn_record.work_id
         if harness.capabilities.supports_bidirectional:
             return await execute_with_streaming(
                 spawn,
@@ -427,6 +454,7 @@ async def _execute_existing_spawn(
                 registry=runtime.harness_registry,
                 cwd=runtime.repo_root,
                 env_overrides=run_env_overrides,
+                runtime_work_id=runtime_work_id,
                 harness_session_id_observer=session_context.harness_session_id_observer,
                 debug=debug,
             )
@@ -439,6 +467,7 @@ async def _execute_existing_spawn(
             registry=runtime.harness_registry,
             cwd=runtime.repo_root,
             env_overrides=run_env_overrides,
+            runtime_work_id=runtime_work_id,
             harness_session_id_observer=session_context.harness_session_id_observer,
         )
 
@@ -567,12 +596,10 @@ def execute_spawn_background(
 
     launch_env = dict(os.environ)
     launch_env.update(
-        _spawn_child_env(
-            spawn_id=spawn_id_text,
+        _spawn_background_worker_env(
             work_id=context.work_id,
             state_root=context.state_root,
             autocompact=prepared.autocompact,
-            ctx=resolved_context,
         )
     )
     try:
@@ -723,6 +750,7 @@ def execute_spawn_blocking(
             autocompact=prepared.autocompact,
             ctx=resolved_context,
         )
+        runtime_work_id = session_context.work_id or context.work_id
         if harness.capabilities.supports_bidirectional:
             exit_code = asyncio.run(
                 execute_with_streaming(
@@ -734,6 +762,7 @@ def execute_spawn_blocking(
                     registry=runtime.harness_registry,
                     cwd=runtime.repo_root,
                     env_overrides=run_env_overrides,
+                    runtime_work_id=runtime_work_id,
                     event_observer=event_observer,
                     stream_stdout_to_terminal=stream_stdout_to_terminal,
                     stream_stderr_to_terminal=payload.stream,
@@ -752,6 +781,7 @@ def execute_spawn_blocking(
                     registry=runtime.harness_registry,
                     cwd=runtime.repo_root,
                     env_overrides=run_env_overrides,
+                    runtime_work_id=runtime_work_id,
                     event_observer=event_observer,
                     stream_stdout_to_terminal=stream_stdout_to_terminal,
                     stream_stderr_to_terminal=payload.stream,

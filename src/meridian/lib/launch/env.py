@@ -63,6 +63,15 @@ def _normalize_meridian_work_dir(env: dict[str, str]) -> None:
         return
 
     state_root_raw = env.get("MERIDIAN_STATE_ROOT", "").strip()
+    work_id = env.get("MERIDIAN_WORK_ID", "").strip()
+    if state_root_raw and work_id:
+        try:
+            state_root = Path(state_root_raw).expanduser()
+            env["MERIDIAN_WORK_DIR"] = resolve_work_scratch_dir(state_root, work_id).as_posix()
+            return
+        except Exception:
+            return
+
     chat_id = env.get("MERIDIAN_CHAT_ID", "").strip()
     if not state_root_raw or not chat_id:
         return

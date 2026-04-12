@@ -19,7 +19,10 @@ from meridian.lib.launch import process
 from meridian.lib.launch import runner as launch_runner
 from meridian.lib.launch import streaming_runner as launch_streaming_runner
 from meridian.lib.launch.constants import DEFAULT_INFRA_EXIT_CODE
-from meridian.lib.launch.context import LaunchContext, prepare_launch_context
+from meridian.lib.launch.context import (
+    LaunchContext,
+    prepare_launch_context,
+)
 from meridian.lib.launch.plan import ResolvedPrimaryLaunchPlan
 from meridian.lib.launch.types import LaunchRequest, PrimarySessionMetadata, SessionMode
 from meridian.lib.ops.spawn.plan import ExecutionPolicy, PreparedSpawnPlan, SessionContinuation
@@ -340,6 +343,35 @@ def test_prepare_launch_context_changes_deterministic_tuple_when_inputs_change(
     assert _deterministic_launch_tuple(base_ctx) != _deterministic_launch_tuple(fork_ctx)
 
 
+def test_prepare_launch_context_runtime_work_id_override_sets_work_env(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("MERIDIAN_DEPTH", "1")
+    monkeypatch.setenv("MERIDIAN_CHAT_ID", "c-parent")
+
+    adapter = CodexAdapter()
+    plan = _build_context_plan()
+    state_root = tmp_path / ".meridian"
+    ctx = prepare_launch_context(
+        spawn_id="p-ctx",
+        run_prompt=plan.prompt,
+        run_model=plan.model,
+        plan=plan,
+        harness=adapter,
+        execution_cwd=tmp_path,
+        state_root=state_root,
+        plan_overrides={},
+        report_output_path=tmp_path / "report.md",
+        runtime_work_id="fix-work-dir-export",
+    )
+
+    assert ctx.env_overrides["MERIDIAN_WORK_ID"] == "fix-work-dir-export"
+    assert ctx.env_overrides["MERIDIAN_WORK_DIR"] == (
+        state_root / "work" / "fix-work-dir-export"
+    ).as_posix()
+
+
 @pytest.mark.asyncio
 async def test_runner_entrypoints_capture_same_deterministic_launch_context(
     monkeypatch: pytest.MonkeyPatch,
@@ -348,7 +380,6 @@ async def test_runner_entrypoints_capture_same_deterministic_launch_context(
     monkeypatch.setenv("MERIDIAN_DEPTH", "1")
     monkeypatch.setenv("MERIDIAN_CHAT_ID", "c-parent")
     monkeypatch.setenv("MERIDIAN_FS_DIR", str(tmp_path / ".meridian" / "fs"))
-    monkeypatch.setenv("MERIDIAN_WORK_DIR", str(tmp_path / ".meridian" / "work"))
 
     plan = _build_context_plan()
     run = _build_context_run(plan, spawn_id="p-entry")
@@ -405,6 +436,7 @@ async def test_runner_entrypoints_capture_same_deterministic_launch_context(
             registry=registry,
             cwd=tmp_path,
             env_overrides={"CUSTOM_TOOL_HOME": "/tmp/tool"},
+            runtime_work_id="captured-work",
         )
     with pytest.raises(_StopAfterLaunchContext):
         await launch_streaming_runner.execute_with_streaming(
@@ -416,11 +448,16 @@ async def test_runner_entrypoints_capture_same_deterministic_launch_context(
             registry=registry,
             cwd=tmp_path,
             env_overrides={"CUSTOM_TOOL_HOME": "/tmp/tool"},
+            runtime_work_id="captured-work",
         )
 
     assert _deterministic_launch_tuple(captured["runner"]) == _deterministic_launch_tuple(
         captured["streaming"]
     )
+    assert captured["runner"].env_overrides["MERIDIAN_WORK_ID"] == "captured-work"
+    assert captured["runner"].env_overrides["MERIDIAN_WORK_DIR"] == (
+        tmp_path / ".meridian" / "work" / "captured-work"
+    ).as_posix()
 
 
 def test_runner_and_streaming_runner_use_shared_prepare_launch_context() -> None:

@@ -44,6 +44,7 @@ _MERIDIAN_RUNTIME_KEYS = (
     "MERIDIAN_DEPTH",
     "MERIDIAN_CHAT_ID",
     "MERIDIAN_FS_DIR",
+    "MERIDIAN_WORK_ID",
     "MERIDIAN_WORK_DIR",
 )
 
@@ -339,6 +340,38 @@ def test_inherit_child_env_derives_work_dir_from_active_session_work(tmp_path: P
     ).as_posix()
 
 
+def test_inherit_child_env_prefers_work_id_for_work_dir(tmp_path: Path) -> None:
+    state_root = tmp_path / ".meridian"
+    chat_id = start_session(
+        state_root=state_root,
+        harness="codex",
+        harness_session_id="h-1",
+        model="gpt-5.3-codex",
+        chat_id="c-parent",
+    )
+    try:
+        update_session_work_id(state_root, chat_id, "session-work")
+
+        inherited = inherit_child_env(
+            base_env={
+                "PATH": "/usr/bin",
+                "MERIDIAN_STATE_ROOT": state_root.as_posix(),
+                "MERIDIAN_CHAT_ID": chat_id,
+            },
+            env_overrides={
+                "MERIDIAN_DEPTH": "2",
+                "MERIDIAN_WORK_ID": "child-work",
+            },
+        )
+    finally:
+        stop_session(state_root, chat_id)
+
+    assert inherited["PATH"] == "/usr/bin"
+    assert inherited["MERIDIAN_WORK_DIR"] == resolve_work_scratch_dir(
+        state_root, "child-work"
+    ).as_posix()
+
+
 def test_build_harness_child_env_uses_claude_specific_blocklist() -> None:
     child_env = build_harness_child_env(
         base_env={
@@ -432,6 +465,7 @@ def test_merge_env_overrides_accepts_runtime_meridian_keys() -> None:
         "MERIDIAN_DEPTH": "2",
         "MERIDIAN_CHAT_ID": "c-parent",
         "MERIDIAN_FS_DIR": "/repo/.meridian/fs",
+        "MERIDIAN_WORK_ID": "current",
         "MERIDIAN_WORK_DIR": "/repo/.meridian/work/current",
     }
 

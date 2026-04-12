@@ -722,6 +722,7 @@ async def execute_with_streaming(
     registry: HarnessRegistry,
     cwd: Path | None = None,
     env_overrides: dict[str, str] | None = None,
+    runtime_work_id: str | None = None,
     budget: Budget | None = None,
     space_spent_usd: float = 0.0,
     guardrails: tuple[Path, ...] = (),
@@ -759,6 +760,7 @@ async def execute_with_streaming(
         state_root=state_root,
         plan_overrides=env_overrides or {},
         report_output_path=report_path,
+        runtime_work_id=runtime_work_id,
     )
     child_cwd = launch_context.child_cwd
     spec = launch_context.spec
