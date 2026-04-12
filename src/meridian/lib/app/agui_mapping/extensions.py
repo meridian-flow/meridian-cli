@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from ag_ui.core import CustomEvent, RunErrorEvent
-
 from meridian.lib.harness.connections.base import ConnectionCapabilities
 
 
