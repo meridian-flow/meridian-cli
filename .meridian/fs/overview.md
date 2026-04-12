@@ -71,7 +71,8 @@ src/meridian/
   work/                 active work scratch dirs
   work-archive/         archived work scratch dirs
   work-items/           mutable JSON per work item
-  artifacts/            per-spawn artifact dirs (.meridian/spawns/<id>/)
+  spawns/               per-spawn artifact dirs (<id>/prompt.md, report.md, ...)
+  artifacts/            artifact blob store for spawn outputs (LocalStore)
   cache/                models.json cache, other transient data
 ```
 

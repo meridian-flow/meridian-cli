@@ -57,7 +57,7 @@ Output is written to `.meridian/spawns/<id>/output.jsonl`.
 - Feeds stdin from `run_params.stdin_prompt` if set (for stdin-based prompt delivery)
 - Runs a report watchdog: if `report.md` appears during execution, can consider spawn done
 - Maps raw return codes to meridian exit codes via `map_process_exit_code()`
-- After `spawn_and_stream` returns: writes `exited` event (via `record_spawn_exited`), then runs `enrich_finalize()` to extract and persist artifacts
+- After `spawn_and_stream` returns, `execute_with_finalization()` writes the `exited` event inline (via `record_spawn_exited`), then calls `enrich_finalize()` to extract and persist artifacts
 
 ## Signal Handling
 

@@ -22,6 +22,8 @@
    - record_spawn_exited() written immediately after harness process exits
    - On exit: resolve_execution_terminal_state() from exit code +
      has_durable_report_completion() check (no enrich_finalize)
+     Special case: exit codes 143/-15 (SIGTERM) with a durable report →
+     terminated_after_completion=True → resolved as succeeded
    - extract_latest_session_id() for harness session persistence
    - Finalize spawn state (succeeded / failed / cancelled)
 

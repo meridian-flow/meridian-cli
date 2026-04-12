@@ -42,14 +42,11 @@ This event is **informational, not terminal**. The spawn status stays `running` 
 
 ## Terminal Status Merging
 
-`finalize_spawn()` uses asymmetric merging when multiple finalize events exist for the same spawn (e.g., reaper and primary process both finalize concurrently):
+`finalize_spawn()` uses **first-terminal-event-wins** semantics. The first `finalize` event that finds the spawn in an active state sets the terminal `status`, `exit_code`, and `error`; subsequent finalize events cannot change those fields. Metadata (duration, cost, tokens) is still merged from every finalize event so audit details are preserved.
 
-- `succeeded` wins over all other terminal statuses
-- For non-success states: the **first** terminal status (lowest event index) wins
+Rationale: simpler and correct for the common case. If the reaper races with the primary runner and both finalize concurrently, whoever commits first owns the status. Metadata accumulation ensures neither writer loses its cost/token contribution.
 
-Rationale: a spawn that succeeded shouldn't be retroactively marked failed because the reaper raced to finalize it. But for non-success states, the first reporter has the most accurate original reason.
-
-`finalize_spawn()` always appends the event even if the spawn is already terminal — this ensures cost/token metadata isn't lost. Returns `True` if this call moved the spawn from active → terminal, `False` if already terminal.
+`finalize_spawn()` always appends the event even if the spawn is already terminal — this ensures cost/token metadata isn't lost. Returns `True` if this call moved the spawn from active (`queued` or `running`) → terminal, `False` if the spawn was already terminal or does not exist.
 
 ## Spawn Statuses
 
@@ -97,6 +94,7 @@ The reaper runs on every read path (`spawn list`, `spawn show`, `spawn wait`, da
 
 - Uses `psutil.pid_exists()` for fast path.
 - Retrieves `psutil.Process(pid).create_time()` to guard against PID reuse: if the process was created more than 2 seconds after `created_after_epoch` (the spawn's `started_at` epoch), it's a different process that reused the PID.
+- Calls `proc.is_running()` as the final liveness confirmation after the PID-reuse guard passes.
 - Returns `True` on `psutil.AccessDenied` (process exists, can't inspect — conservatively assume alive).
 - Returns `False` on `psutil.NoSuchProcess` (process vanished between `pid_exists` and `Process(pid)` — treat as dead).
 

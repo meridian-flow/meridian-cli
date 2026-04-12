@@ -34,6 +34,7 @@ Source: `src/meridian/lib/state/`
     <work_id>/
   work-archive/        # per-work-item scratch directories (done/archived)
     <work_id>/
+  artifacts/           # artifact blob store for spawn outputs (LocalStore)
   cache/
     models.json        # model list cache (24h TTL)
   config.toml          # project config overrides
