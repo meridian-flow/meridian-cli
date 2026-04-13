@@ -3,13 +3,16 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from meridian.lib.ops.session_log import (
     SessionLogInput,
     _extract_from_event,
     parse_session_file,
+    resolve_target,
     session_log_sync,
 )
-from meridian.lib.state import spawn_store
+from meridian.lib.state import session_store, spawn_store
 
 
 def test_parse_session_file_splits_segments_on_compaction_boundary(tmp_path) -> None:
@@ -136,3 +139,49 @@ def test_session_log_resolves_opencode_storage_session_file(
     assert output.session_id == session_id
     assert output.segment_messages == 0
     assert output.messages == ()
+
+
+def test_resolve_target_chat_missing_harness_session_id_reports_unavailable_transcript(
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    state_root = repo_root / ".meridian"
+    state_root.mkdir()
+
+    chat_id = session_store.start_session(
+        state_root,
+        harness="codex",
+        harness_session_id="",
+        model="gpt-5.4",
+        chat_id="c1",
+    )
+
+    try:
+        with pytest.raises(ValueError) as exc:
+            resolve_target(
+                SessionLogInput(ref=chat_id),
+                repo_root=repo_root,
+                state_root=state_root,
+            )
+        assert str(exc.value) == (
+            "Session 'c1' exists but no transcript is available yet "
+            "(no harness session id recorded)"
+        )
+    finally:
+        session_store.stop_session(state_root, chat_id)
+
+
+def test_resolve_target_chat_not_found_preserves_missing_chat_error(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    state_root = repo_root / ".meridian"
+    state_root.mkdir()
+
+    with pytest.raises(ValueError) as exc:
+        resolve_target(
+            SessionLogInput(ref="c999"),
+            repo_root=repo_root,
+            state_root=state_root,
+        )
+    assert str(exc.value) == "Chat 'c999' not found"

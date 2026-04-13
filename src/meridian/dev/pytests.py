@@ -30,7 +30,7 @@ def build_pytest_args(
     *,
     include_last_failed: bool,
 ) -> list[str]:
-    args = ["pytest", *DEFAULT_ARGS]
+    args = [sys.executable, "-m", "pytest", *DEFAULT_ARGS]
     if include_last_failed:
         args.extend(LAST_FAILED_ARGS)
     args.extend(argv)

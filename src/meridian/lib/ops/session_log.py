@@ -15,6 +15,7 @@ from meridian.lib.core.util import FormatContext
 from meridian.lib.harness.registry import get_default_harness_registry
 from meridian.lib.harness.session_detection import infer_harness_from_untracked_session_ref
 from meridian.lib.harness.transcript import TranscriptMessage, text_from_value
+from meridian.lib.ops.reference import resolve_session_reference
 from meridian.lib.ops.runtime import (
     async_from_sync,
     resolve_runtime_root_and_config,
@@ -419,20 +420,25 @@ def _resolve_harness_session_file(
 def _resolve_from_chat_id(
     *,
     repo_root: Path,
-    state_root: Path,
     chat_id: str,
 ) -> _ResolvedTarget:
-    harness_session_id = session_store.get_session_harness_id(state_root, chat_id)
-    normalized_session_id = (harness_session_id or "").strip()
-    if not normalized_session_id:
+    resolved = resolve_session_reference(repo_root, chat_id)
+    if not resolved.tracked:
+        raise ValueError(f"Chat '{chat_id}' not found")
+    if resolved.missing_harness_session_id:
+        raise ValueError(
+            f"Session '{chat_id}' exists but no transcript is available yet "
+            "(no harness session id recorded)"
+        )
+
+    normalized_session_id = resolved.harness_session_id
+    if normalized_session_id is None:
         raise ValueError(f"Chat '{chat_id}' not found")
 
-    record = session_store.resolve_session_ref(state_root, normalized_session_id)
-    harness = record.harness if record is not None else None
     return _resolve_harness_session_file(
         repo_root=repo_root,
         session_id=normalized_session_id,
-        harness=harness,
+        harness=resolved.harness,
     )
 
 
@@ -504,7 +510,7 @@ def resolve_target(
         raise ValueError("Session reference is required unless --file is provided")
 
     if ref.startswith("c") and ref[1:].isdigit():
-        return _resolve_from_chat_id(repo_root=repo_root, state_root=state_root, chat_id=ref)
+        return _resolve_from_chat_id(repo_root=repo_root, chat_id=ref)
 
     if ref.startswith("p"):
         return _resolve_from_spawn_id(repo_root=repo_root, state_root=state_root, spawn_id=ref)
