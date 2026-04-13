@@ -1,6 +1,6 @@
 # Mars Agents Feature Gaps
 
-Context: review of `meridian-flow/mars-agents` as of April 4, 2026.
+Context: review of `mars-agents` as of April 4, 2026.
 
 This note captures feature areas that appear missing if Mars is meant to evolve from "agent/skill content sync" into a broader agent ecosystem package manager.
 

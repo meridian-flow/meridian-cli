@@ -1,6 +1,6 @@
 # mars/ — Mars Integration
 
-Mars (`meridian-flow/mars-agents`) is an external Rust binary that manages the `.agents/` directory — syncing agent profiles and skill content from declared package sources into a project-local managed root. Meridian depends on it for agent/skill distribution and model alias resolution.
+Mars (`mars-agents`) is an external Rust binary that manages the `.agents/` directory — syncing agent profiles and skill content from declared package sources into a project-local managed root. Meridian depends on it for agent/skill distribution and model alias resolution.
 
 Mars is a hard dependency for spawn-time model resolution — `resolve_model()` raises `RuntimeError` if the mars binary is absent. Model *listing* (`load_mars_aliases()`) degrades gracefully: it tries `mars models list --json` first, falls back to reading `.mars/models-merged.json` if the binary is unavailable, and returns an empty list if neither works. Bootstrap (`mars init`, `mars link`) also degrades — it suppresses `FileNotFoundError` and continues without mars.
 
