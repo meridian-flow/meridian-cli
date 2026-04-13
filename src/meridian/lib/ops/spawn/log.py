@@ -119,7 +119,12 @@ def _extract_claude_assistant_messages(payload: dict[str, object]) -> list[str]:
 
 
 def _extract_codex_assistant_messages(payload: dict[str, object]) -> list[str]:
-    event_type = str(payload.get("type", "")).strip().lower()
+    event_type = (
+        str(payload.get("event_type", payload.get("event", payload.get("type", ""))))
+        .strip()
+        .lower()
+        .replace("/", ".")
+    )
     if event_type != "item.completed":
         return []
 
@@ -128,8 +133,8 @@ def _extract_codex_assistant_messages(payload: dict[str, object]) -> list[str]:
         return []
 
     item_payload = cast("dict[str, object]", item)
-    item_type = str(item_payload.get("type", "")).strip().lower()
-    if item_type != "agent_message":
+    item_type = str(item_payload.get("type", "")).strip().lower().replace("_", "")
+    if item_type != "agentmessage":
         return []
 
     text = text_from_value(item_payload.get("text"))
@@ -162,7 +167,19 @@ def _assistant_texts_generic(payload: object) -> list[str]:
 
 
 def _extract_from_payload(payload: dict[str, object]) -> list[str]:
-    event_type = str(payload.get("type", "")).strip().lower()
+    event_type = (
+        str(payload.get("event_type", payload.get("event", payload.get("type", ""))))
+        .strip()
+        .lower()
+        .replace("/", ".")
+    )
+    if "event_type" in payload and "payload" in payload:
+        nested_payload = payload.get("payload")
+        if isinstance(nested_payload, dict):
+            merged_payload = dict(cast("dict[str, object]", nested_payload))
+            merged_payload.setdefault("event_type", payload["event_type"])
+            return _extract_from_payload(merged_payload)
+
     if event_type == "progress":
         data = payload.get("data")
         if isinstance(data, dict):

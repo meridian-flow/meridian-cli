@@ -41,6 +41,19 @@ def test_extract_assistant_messages_parses_structured_harness_events() -> None:
     assert output == ["nested message", "assistant fallback", "codex message", "wrapped"]
 
 
+def test_extract_assistant_messages_parses_streaming_codex_event_shapes() -> None:
+    output = _extract_assistant_messages(
+        _jsonl(
+            {
+                "event_type": "item/completed",
+                "payload": {"item": {"type": "agentMessage", "text": "streamed codex message"}},
+            }
+        )
+    )
+
+    assert output == ["streamed codex message"]
+
+
 def test_extract_assistant_messages_parses_unstructured_assistant_fallbacks() -> None:
     output = _extract_assistant_messages(
         _jsonl(

@@ -304,7 +304,12 @@ def _iter_json_lines_artifact(
         except json.JSONDecodeError:
             continue
         if isinstance(payload_obj, dict):
-            payloads.append(unwrap_event_payload(cast("dict[str, object]", payload_obj)))
+            line_payload = cast("dict[str, object]", payload_obj)
+            payload = unwrap_event_payload(line_payload)
+            if "event_type" in line_payload and "event_type" not in payload:
+                payload = dict(payload)
+                payload["event_type"] = line_payload["event_type"]
+            payloads.append(payload)
     return payloads
 
 
@@ -332,7 +337,12 @@ def _extract_text(value: object) -> str:
 def extract_codex_report(artifacts: ArtifactStore, spawn_id: SpawnId) -> str | None:
     last_message: str | None = None
     for payload in _iter_json_lines_artifact(artifacts, spawn_id, "output.jsonl"):
-        event_type = str(payload.get("type", "")).strip().lower()
+        event_type = (
+            str(payload.get("event_type", payload.get("event", payload.get("type", ""))))
+            .strip()
+            .lower()
+            .replace("/", ".")
+        )
         if event_type != "item.completed":
             continue
 
@@ -341,7 +351,8 @@ def extract_codex_report(artifacts: ArtifactStore, spawn_id: SpawnId) -> str | N
             continue
 
         item_payload = cast("dict[str, object]", item)
-        if str(item_payload.get("type", "")).strip().lower() != "agent_message":
+        item_type = str(item_payload.get("type", "")).strip().lower().replace("_", "")
+        if item_type != "agentmessage":
             continue
 
         text = _extract_text(item_payload.get("text"))

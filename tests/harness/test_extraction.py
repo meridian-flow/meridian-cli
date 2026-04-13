@@ -276,6 +276,25 @@ def test_extract_or_fallback_report_tolerates_malformed_jsonl_and_blank_adapter_
     assert extracted.source == "assistant_message"
 
 
+def test_extract_or_fallback_report_handles_streaming_codex_terminal_frames() -> None:
+    artifacts = InMemoryStore()
+    codex_spawn = SpawnId("r-codex-streaming-report")
+    artifacts.put(
+        make_artifact_key(codex_spawn, "output.jsonl"),
+        (
+            b'{"event_type":"item/completed","payload":{"item":'
+            b'{"id":"msg-1","type":"agentMessage","text":"streamed report"}}}\n'
+            b'{"event_type":"turn/completed","payload":{"threadId":"thread-1","turn":{"id":"turn-1","status":"completed","error":null,"items":[]}}}\n'
+        ),
+    )
+
+    assert CodexAdapter().extract_report(artifacts, codex_spawn) == "streamed report"
+
+    extracted = extract_or_fallback_report(artifacts, codex_spawn, extractor=CodexAdapter())
+    assert extracted.content == "streamed report"
+    assert extracted.source == "assistant_message"
+
+
 def test_extract_or_fallback_report_ignores_cancelled_control_frame_fallback() -> None:
     artifacts = InMemoryStore()
     spawn_id = SpawnId("r-report-cancel-control-frame")
