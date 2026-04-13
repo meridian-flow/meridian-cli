@@ -22,7 +22,7 @@ from meridian.lib.ops.runtime import (
     resolve_state_root,
 )
 from meridian.lib.ops.spawn.query import read_spawn_row
-from meridian.lib.state import session_store
+from meridian.lib.state import session_store, spawn_store
 
 _CODEX_FILENAME_RE = re.compile(
     r"^rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-(?P<session_id>[0-9a-fA-F-]{36})\.jsonl$"
@@ -426,6 +426,24 @@ def _resolve_from_chat_id(
     if not resolved.tracked:
         raise ValueError(f"Chat '{chat_id}' not found")
     if resolved.missing_harness_session_id:
+        # Fallback: check if the primary spawn for this chat has a harness session id
+        state_root = resolve_state_root(repo_root)
+        spawns = spawn_store.list_spawns(state_root, filters={"chat_id": chat_id})
+        fallback_session_id: str | None = None
+        fallback_harness: str | None = resolved.harness
+        for spawn in spawns:
+            sid = (spawn.harness_session_id or "").strip()
+            if sid:
+                fallback_session_id = sid
+                if spawn.harness:
+                    fallback_harness = spawn.harness.strip() or fallback_harness
+                break
+        if fallback_session_id:
+            return _resolve_harness_session_file(
+                repo_root=repo_root,
+                session_id=fallback_session_id,
+                harness=fallback_harness,
+            )
         raise ValueError(
             f"Session '{chat_id}' exists but no transcript is available yet "
             "(no harness session id recorded)"
