@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import asyncio
+import json
 import os
 import signal
+from collections.abc import Callable
+from contextlib import suppress
 from pathlib import Path
 from typing import Any, cast
 
@@ -168,3 +172,131 @@ async def test_signal_canceller_cli_lane_finalizes_when_runner_pid_missing(
     assert outcome.status == "cancelled"
     assert outcome.origin == "cancel"
     assert outcome.exit_code == 130
+
+
+async def _start_http_socket_server(
+    socket_path: Path,
+    *,
+    status_code: int,
+    body: dict[str, object],
+    on_request: Callable[[], None] | None = None,
+) -> asyncio.AbstractServer:
+    socket_path.unlink(missing_ok=True)
+
+    async def _handler(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        with suppress(Exception):
+            while True:
+                line = await reader.readline()
+                if not line or line == b"\r\n":
+                    break
+        if on_request is not None:
+            on_request()
+        payload = json.dumps(body, separators=(",", ":")).encode("utf-8")
+        status_text = {
+            200: "OK",
+            404: "Not Found",
+            409: "Conflict",
+            503: "Service Unavailable",
+        }.get(status_code, "Error")
+        writer.write(
+            (
+                f"HTTP/1.1 {status_code} {status_text}\r\n"
+                "Content-Type: application/json\r\n"
+                f"Content-Length: {len(payload)}\r\n"
+                "Connection: close\r\n"
+                "\r\n"
+            ).encode()
+            + payload
+        )
+        with suppress(Exception):
+            await writer.drain()
+        writer.close()
+        with suppress(Exception):
+            await writer.wait_closed()
+
+    return await asyncio.start_unix_server(_handler, path=str(socket_path))
+
+
+@pytest.mark.asyncio
+async def test_signal_canceller_app_lane_cross_process_http_success(
+    tmp_path: Path,
+) -> None:
+    state_root = resolve_state_paths(tmp_path).root_dir
+    spawn_id = _start_spawn(state_root, spawn_id="p1", launch_mode="app")
+    socket_path = state_root / "app.sock"
+
+    def _finalize_spawn() -> None:
+        spawn_store.finalize_spawn(
+            state_root,
+            spawn_id,
+            status="cancelled",
+            exit_code=143,
+            origin="runner",
+            error="cancelled",
+        )
+
+    server = await _start_http_socket_server(
+        socket_path,
+        status_code=200,
+        body={"ok": True, "status": "cancelled", "origin": "runner"},
+        on_request=_finalize_spawn,
+    )
+    try:
+        outcome = await SignalCanceller(state_root=state_root).cancel(SpawnId(spawn_id))
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    assert outcome.status == "cancelled"
+    assert outcome.origin == "runner"
+    assert outcome.exit_code == 143
+    assert outcome.finalizing is False
+
+
+@pytest.mark.asyncio
+async def test_signal_canceller_app_lane_cross_process_http_409_maps_already_terminal(
+    tmp_path: Path,
+) -> None:
+    state_root = resolve_state_paths(tmp_path).root_dir
+    spawn_id = _start_spawn(state_root, spawn_id="p1", launch_mode="app")
+    socket_path = state_root / "app.sock"
+
+    server = await _start_http_socket_server(
+        socket_path,
+        status_code=409,
+        body={"detail": "spawn already terminal: failed"},
+    )
+    try:
+        outcome = await SignalCanceller(state_root=state_root).cancel(SpawnId(spawn_id))
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    assert outcome.already_terminal is True
+    assert outcome.status == "failed"
+    assert outcome.origin == "cancel"
+    assert outcome.finalizing is False
+
+
+@pytest.mark.asyncio
+async def test_signal_canceller_app_lane_cross_process_http_503_maps_finalizing(
+    tmp_path: Path,
+) -> None:
+    state_root = resolve_state_paths(tmp_path).root_dir
+    spawn_id = _start_spawn(state_root, spawn_id="p1", launch_mode="app")
+    socket_path = state_root / "app.sock"
+
+    server = await _start_http_socket_server(
+        socket_path,
+        status_code=503,
+        body={"detail": "spawn is finalizing"},
+    )
+    try:
+        outcome = await SignalCanceller(state_root=state_root).cancel(SpawnId(spawn_id))
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    assert outcome.finalizing is True
+    assert outcome.status == "finalizing"
+    assert outcome.origin == "cancel"

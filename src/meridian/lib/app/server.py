@@ -6,21 +6,28 @@ import asyncio
 import logging
 import os
 import re
+import socket
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from importlib import import_module
 from pathlib import Path
-from typing import Protocol, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast
 from uuid import uuid4
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
+from meridian.lib.core.spawn_lifecycle import TERMINAL_SPAWN_STATUSES
 from meridian.lib.core.types import HarnessId, ModelId, SpawnId
 from meridian.lib.harness.adapter import SpawnParams
 from meridian.lib.harness.connections.base import ConnectionConfig
 from meridian.lib.harness.registry import get_default_harness_registry
 from meridian.lib.launch.launch_types import ResolvedLaunchSpec
+from meridian.lib.ops.spawn.authorization import (
+    PeercredFailure,
+    authorize,
+    caller_from_socket_peer,
+)
 from meridian.lib.safety.permissions import (
     TieredPermissionResolver,
     UnsafeNoOpPermissionResolver,
@@ -32,6 +39,11 @@ from meridian.lib.streaming.spawn_manager import SpawnManager
 
 _SPAWN_ID_RE = re.compile(r"^p\d+$")
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from starlette.requests import Request
+
+    from meridian.lib.state.spawn_store import SpawnRecord
 
 class _AppState(Protocol):
     """App state payload carrying shared runtime singletons."""
@@ -45,10 +57,19 @@ class _FastAPIApp(Protocol):
     state: _AppState
 
     def add_middleware(self, middleware_class: type[object], **kwargs: object) -> None: ...
-    def post(self, path: str) -> Callable[[Callable[..., object]], object]: ...
-    def get(self, path: str) -> Callable[[Callable[..., object]], object]: ...
-    def delete(self, path: str) -> Callable[[Callable[..., object]], object]: ...
+    def add_exception_handler(
+        self,
+        exc_class_or_status_code: object,
+        handler: Callable[..., object],
+    ) -> None: ...
+    def post(self, path: str, **kwargs: object) -> Callable[[Callable[..., object]], object]: ...
+    def get(self, path: str, **kwargs: object) -> Callable[[Callable[..., object]], object]: ...
+    def delete(self, path: str, **kwargs: object) -> Callable[[Callable[..., object]], object]: ...
     def mount(self, path: str, app: object, name: str | None = None) -> None: ...
+
+
+class _TransportLike(Protocol):
+    def get_extra_info(self, name: str, default: object | None = None) -> object | None: ...
 
 
 class _FastAPIFactory(Protocol):
@@ -60,6 +81,7 @@ class _FastAPIFactory(Protocol):
 class _FastAPIModule(Protocol):
     FastAPI: _FastAPIFactory
     HTTPException: type[Exception]
+    Depends: Callable[[Callable[..., object]], object]
 
 
 class _FastAPICorsModule(Protocol):
@@ -90,7 +112,17 @@ class SpawnCreateRequest(BaseModel):
 class InjectRequest(BaseModel):
     """REST payload for injecting one user message."""
 
-    text: str
+    text: str | None = None
+    interrupt: bool = False
+
+    @model_validator(mode="after")
+    def _exactly_one(self) -> InjectRequest:
+        text_set = self.text is not None and self.text.strip() != ""
+        if text_set and self.interrupt:
+            raise ValueError("text and interrupt are mutually exclusive")
+        if not text_set and not self.interrupt:
+            raise ValueError("provide text or interrupt: true")
+        return self
 
 
 def create_app(
@@ -113,6 +145,10 @@ def create_app(
     try:
         fastapi_module = import_module("fastapi")
         cors_module = import_module("fastapi.middleware.cors")
+        requests_module = import_module("starlette.requests")
+        validation_module = import_module("fastapi.exceptions")
+        exception_handlers_module = import_module("fastapi.exception_handlers")
+        responses_module = import_module("fastapi.responses")
     except ModuleNotFoundError as exc:
         msg = (
             "FastAPI app dependencies are not installed. "
@@ -124,7 +160,18 @@ def create_app(
     cors = cast("_FastAPICorsModule", cors_module)
     app_obj = fastapi.FastAPI(title="Meridian App", lifespan=lifespan)
     app = cast("_FastAPIApp", app_obj)
+    depends = fastapi.Depends
     http_exception_cls = cast("Callable[..., Exception]", fastapi.HTTPException)
+    request_validation_error_cls = cast(
+        "type[Exception]",
+        validation_module.RequestValidationError,
+    )
+    request_validation_exception_handler = cast(
+        "Callable[[object, Exception], object]",
+        exception_handlers_module.request_validation_exception_handler,
+    )
+    json_response_cls = cast("Callable[..., object]", responses_module.JSONResponse)
+    globals()["Request"] = requests_module.Request
 
     app.add_middleware(
         cors.CORSMiddleware,
@@ -133,6 +180,31 @@ def create_app(
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    async def _validation_error_handler(request: object, exc: Exception) -> object:
+        error_factory = getattr(exc, "errors", None)
+        if callable(error_factory):
+            error_items = cast("list[object]", error_factory())
+            for error_item in error_items:
+                if not isinstance(error_item, dict):
+                    continue
+                error_dict = cast("dict[str, object]", error_item)
+                context_obj = error_dict.get("ctx")
+                if not isinstance(context_obj, dict):
+                    continue
+                context = cast("dict[str, object]", context_obj)
+                underlying_error = context.get("error")
+                if isinstance(underlying_error, ValueError):
+                    return json_response_cls(
+                        status_code=400,
+                        content={"detail": str(underlying_error)},
+                    )
+        return await cast(
+            "Any",
+            request_validation_exception_handler,
+        )(request, exc)
+
+    app.add_exception_handler(request_validation_error_cls, _validation_error_handler)
 
     app.state.spawn_manager = spawn_manager
 
@@ -181,6 +253,63 @@ def create_app(
         if not _SPAWN_ID_RE.match(raw):
             raise http_exception_cls(status_code=400, detail=f"invalid spawn ID: {raw}")
         return SpawnId(raw)
+
+    def _spawn_is_terminal(status: str) -> bool:
+        return status in TERMINAL_SPAWN_STATUSES
+
+    def _require_spawn(spawn_id: SpawnId) -> SpawnRecord:
+        record = spawn_store.get_spawn(state_root, spawn_id)
+        if record is None:
+            raise http_exception_cls(status_code=404, detail="spawn not found")
+        return record
+
+    def _require_active_manager(spawn_id: SpawnId) -> None:
+        if spawn_manager.get_connection(spawn_id) is None:
+            raise http_exception_cls(status_code=404, detail="spawn not found")
+
+    def _require_not_terminal(record: SpawnRecord) -> None:
+        if _spawn_is_terminal(record.status):
+            raise http_exception_cls(status_code=410, detail="spawn already terminal")
+
+    def _require_not_finalizing(record: SpawnRecord) -> None:
+        if record.status == "finalizing":
+            raise http_exception_cls(
+                status_code=503,
+                detail="spawn is finalizing",
+                headers={"Retry-After": "2"},
+            )
+
+    def _caller_from_request_peercred(request: Request) -> tuple[SpawnId | None, int]:
+        scope_obj = request.scope
+        if not isinstance(scope_obj, dict):
+            raise PeercredFailure("no transport in request scope")
+        scope = cast("dict[str, object]", scope_obj)
+        transport = scope.get("transport")
+        if transport is None:
+            raise PeercredFailure("no transport in request scope")
+        socket_obj = cast("_TransportLike", transport).get_extra_info("socket")
+        if not isinstance(socket_obj, socket.socket):
+            raise PeercredFailure("missing peer socket")
+        return caller_from_socket_peer(socket_obj)
+
+    async def require_authorization(spawn_id: str, request: Request) -> None:
+        typed_spawn_id = _validate_spawn_id(spawn_id)
+        try:
+            caller, depth = _caller_from_request_peercred(request)
+        except PeercredFailure as exc:
+            logger.warning(
+                "spawn_auth_peercred_failure",
+                extra={"spawn_id": typed_spawn_id, "error": str(exc)},
+            )
+            raise http_exception_cls(status_code=403, detail="caller identity unavailable") from exc
+        decision = authorize(
+            state_root=state_root,
+            target=typed_spawn_id,
+            caller=caller,
+            depth=depth,
+        )
+        if not decision.allowed:
+            raise http_exception_cls(status_code=403, detail="caller is not authorized")
 
     async def create_spawn(body: SpawnCreateRequest) -> dict[str, object]:
         prompt = body.prompt.strip()
@@ -299,30 +428,57 @@ def create_app(
             "state": connection.state,
         }
 
-    async def inject_message(spawn_id: str, body: InjectRequest) -> dict[str, bool]:
+    async def inject_message(
+        spawn_id: str,
+        body: InjectRequest,
+        request: Request,
+    ) -> dict[str, object]:
         typed_spawn_id = _validate_spawn_id(spawn_id)
-        text = body.text.strip()
-        if not text:
-            raise http_exception_cls(
-                status_code=400,
-                detail="text is required",
-            )
+        record = _require_spawn(typed_spawn_id)
+        _require_not_terminal(record)
+        _require_not_finalizing(record)
+        _require_active_manager(typed_spawn_id)
 
+        if body.interrupt:
+            await require_authorization(spawn_id, request)
+            result = await spawn_manager.interrupt(typed_spawn_id, source="rest")
+            if not result.success:
+                raise http_exception_cls(
+                    status_code=400,
+                    detail=result.error or "interrupt failed",
+                )
+            response: dict[str, object] = {"ok": True}
+            if result.inbound_seq is not None:
+                response["inbound_seq"] = result.inbound_seq
+            if result.noop:
+                response["noop"] = True
+            return response
+
+        text = (body.text or "").strip()
         result = await spawn_manager.inject(typed_spawn_id, text, source="rest")
         if not result.success:
             raise http_exception_cls(
                 status_code=400,
                 detail=result.error or "inject failed",
             )
-        return {"ok": True}
+        response = {"ok": True}
+        if result.inbound_seq is not None:
+            response["inbound_seq"] = result.inbound_seq
+        return response
 
     async def cancel_spawn(spawn_id: str) -> dict[str, object]:
         typed_spawn_id = _validate_spawn_id(spawn_id)
+        record = _require_spawn(typed_spawn_id)
+        if _spawn_is_terminal(record.status):
+            raise http_exception_cls(
+                status_code=409,
+                detail=f"spawn already terminal: {record.status}",
+            )
         canceller = SignalCanceller(state_root=state_root, manager=spawn_manager)
         try:
             outcome = await canceller.cancel(typed_spawn_id)
         except ValueError as exc:
-            raise http_exception_cls(status_code=404, detail=str(exc)) from exc
+            raise http_exception_cls(status_code=404, detail="spawn not found") from exc
         if outcome.already_terminal:
             raise http_exception_cls(
                 status_code=409,
@@ -332,14 +488,30 @@ def create_app(
             raise http_exception_cls(
                 status_code=503,
                 detail="spawn is finalizing",
+                headers={"Retry-After": "2"},
             )
-        return {"ok": True, "status": outcome.status}
+        return {
+            "ok": True,
+            "status": outcome.status,
+            "origin": outcome.origin,
+        }
+
+    async def legacy_delete_spawn(spawn_id: str) -> None:
+        _ = _validate_spawn_id(spawn_id)
+        raise http_exception_cls(
+            status_code=405,
+            detail="use POST /api/spawns/{id}/cancel for lifecycle cancel",
+        )
 
     app.post("/api/spawns")(create_spawn)
     app.get("/api/spawns")(list_spawns)
     app.get("/api/spawns/{spawn_id}")(get_spawn)
     app.post("/api/spawns/{spawn_id}/inject")(inject_message)
-    app.delete("/api/spawns/{spawn_id}")(cancel_spawn)
+    app.post(
+        "/api/spawns/{spawn_id}/cancel",
+        dependencies=[depends(require_authorization)],
+    )(cancel_spawn)
+    app.delete("/api/spawns/{spawn_id}")(legacy_delete_spawn)
 
     from meridian.lib.app.ws_endpoint import register_ws_routes
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import socket
 import sys
 import types
 from collections.abc import Callable
@@ -16,16 +17,40 @@ from meridian.lib.core.types import HarnessId, SpawnId
 from meridian.lib.harness.adapter import SpawnParams
 from meridian.lib.harness.connections.base import ConnectionCapabilities, ConnectionConfig
 from meridian.lib.harness.launch_spec import ResolvedLaunchSpec
+from meridian.lib.ops.spawn.authorization import AuthorizationDecision
+from meridian.lib.state import spawn_store
 from meridian.lib.state.paths import resolve_state_paths
 from meridian.lib.state.spawn_store import get_spawn
+from meridian.lib.streaming.signal_canceller import CancelOutcome
 from meridian.lib.streaming.spawn_manager import DrainOutcome
 
 
 class FakeHTTPException(Exception):
-    def __init__(self, *, status_code: int, detail: str) -> None:
+    def __init__(
+        self,
+        *,
+        status_code: int,
+        detail: str,
+        headers: dict[str, str] | None = None,
+    ) -> None:
         super().__init__(detail)
         self.status_code = status_code
         self.detail = detail
+        self.headers = headers or {}
+
+
+class FakeJSONResponse:
+    def __init__(self, *, status_code: int, content: dict[str, object]) -> None:
+        self.status_code = status_code
+        self.content = content
+
+
+class FakeRequestValidationError(Exception):
+    def __init__(self, errors: list[dict[str, object]]) -> None:
+        self._errors = errors
+
+    def errors(self) -> list[dict[str, object]]:
+        return self._errors
 
 
 class FakeApp:
@@ -36,27 +61,37 @@ class FakeApp:
         self.post_routes: dict[str, object] = {}
         self.get_routes: dict[str, object] = {}
         self.delete_routes: dict[str, object] = {}
+        self.post_route_options: dict[str, dict[str, object]] = {}
+        self.get_route_options: dict[str, dict[str, object]] = {}
+        self.delete_route_options: dict[str, dict[str, object]] = {}
+        self.exception_handlers: dict[object, object] = {}
 
     def add_middleware(self, middleware_class: type[object], **kwargs: object) -> None:
         _ = middleware_class, kwargs
 
-    def post(self, path: str):
+    def add_exception_handler(self, exc_class_or_status_code: object, handler: object) -> None:
+        self.exception_handlers[exc_class_or_status_code] = handler
+
+    def post(self, path: str, **kwargs: object):
         def decorator(handler: object) -> object:
             self.post_routes[path] = handler
+            self.post_route_options[path] = kwargs
             return handler
 
         return decorator
 
-    def get(self, path: str):
+    def get(self, path: str, **kwargs: object):
         def decorator(handler: object) -> object:
             self.get_routes[path] = handler
+            self.get_route_options[path] = kwargs
             return handler
 
         return decorator
 
-    def delete(self, path: str):
+    def delete(self, path: str, **kwargs: object):
         def decorator(handler: object) -> object:
             self.delete_routes[path] = handler
+            self.delete_route_options[path] = kwargs
             return handler
 
         return decorator
@@ -69,12 +104,40 @@ class FakeFastAPIModule:
     HTTPException = FakeHTTPException
 
     @staticmethod
+    def Depends(callable_dep: object) -> object:
+        return callable_dep
+
+    @staticmethod
     def FastAPI(*, title: str, lifespan: object) -> object:
         return FakeApp(title=title, lifespan=lifespan)
 
 
 class FakeCorsModule:
     CORSMiddleware = object
+
+
+class FakeRequestsModule:
+    class Request:
+        def __init__(self) -> None:
+            self.scope: dict[str, object] = {}
+
+
+class FakeValidationModule:
+    RequestValidationError = FakeRequestValidationError
+
+
+class FakeExceptionHandlersModule:
+    @staticmethod
+    async def request_validation_exception_handler(
+        request: object,
+        exc: FakeRequestValidationError,
+    ) -> dict[str, object]:
+        _ = request
+        return {"status_code": 422, "detail": exc.errors()}
+
+
+class FakeResponsesModule:
+    JSONResponse = FakeJSONResponse
 
 
 class FakeStaticFilesModule:
@@ -88,6 +151,14 @@ def _fake_import_module(name: str) -> object:
         return FakeFastAPIModule
     if name == "fastapi.middleware.cors":
         return FakeCorsModule
+    if name == "starlette.requests":
+        return FakeRequestsModule
+    if name == "fastapi.exceptions":
+        return FakeValidationModule
+    if name == "fastapi.exception_handlers":
+        return FakeExceptionHandlersModule
+    if name == "fastapi.responses":
+        return FakeResponsesModule
     if name == "starlette.staticfiles":
         return FakeStaticFilesModule
     raise AssertionError(f"unexpected import: {name}")
@@ -121,14 +192,26 @@ class FakeManager:
         self._completion_ready = completion_ready
         self._wait_calls = wait_calls
         self._heartbeat_calls = heartbeat_calls
+        self.inject_calls: list[tuple[SpawnId, str, str]] = []
+        self.interrupt_calls: list[tuple[SpawnId, str]] = []
+        self.inject_result = types.SimpleNamespace(success=True, error=None, inbound_seq=2)
+        self.interrupt_result = types.SimpleNamespace(
+            success=True,
+            error=None,
+            inbound_seq=3,
+            noop=False,
+        )
+        self._connections: dict[SpawnId, object] = {}
 
     async def start_spawn(
         self,
         config: ConnectionConfig,
         spec: ResolvedLaunchSpec | None = None,
     ) -> FakeConnection:
-        _ = config, spec
-        return FakeConnection()
+        _ = spec
+        connection = FakeConnection()
+        self._connections[config.spawn_id] = connection
+        return connection
 
     async def _start_heartbeat(self, spawn_id: SpawnId) -> None:
         self._heartbeat_calls.append(spawn_id)
@@ -154,17 +237,22 @@ class FakeManager:
     def list_spawns(self) -> list[SpawnId]:
         return []
 
-    def get_connection(self, spawn_id: SpawnId) -> None:
-        _ = spawn_id
-        return None
+    def get_connection(self, spawn_id: SpawnId) -> object | None:
+        return self._connections.get(spawn_id)
 
     async def inject(self, spawn_id: SpawnId, message: str, source: str = "rest") -> object:
-        _ = spawn_id, message, source
-        return types.SimpleNamespace(success=True, error=None)
+        self.inject_calls.append((spawn_id, message, source))
+        return self.inject_result
 
-    async def cancel(self, spawn_id: SpawnId, source: str = "rest") -> object:
-        _ = spawn_id, source
-        return types.SimpleNamespace(success=True, error=None)
+    async def interrupt(self, spawn_id: SpawnId, source: str = "rest") -> object:
+        self.interrupt_calls.append((spawn_id, source))
+        return self.interrupt_result
+
+    def set_connection(self, spawn_id: SpawnId, connection: object | None) -> None:
+        if connection is None:
+            self._connections.pop(spawn_id, None)
+            return
+        self._connections[spawn_id] = connection
 
 
 def _read_spawn_events(state_root: Path) -> list[dict[str, object]]:
@@ -184,7 +272,7 @@ async def _wait_until(predicate: Callable[[], bool], *, attempts: int = 200) -> 
     raise AssertionError("timed out waiting for condition")
 
 
-def _create_spawn_handler(
+def _create_test_app(
     *,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -192,7 +280,7 @@ def _create_spawn_handler(
     wait_calls: list[SpawnId],
     heartbeat_calls: list[SpawnId],
     allow_unsafe_no_permissions: bool = False,
-) -> Callable[[server_module.SpawnCreateRequest], Any]:
+) -> tuple[FakeApp, FakeManager]:
     fake_ws_module = types.SimpleNamespace(
         register_ws_routes=lambda app_obj, manager, validate_spawn_id=None: None
     )
@@ -210,8 +298,42 @@ def _create_spawn_handler(
         cast("Any", manager),
         allow_unsafe_no_permissions=allow_unsafe_no_permissions,
     )
-    app = cast("Any", app_obj)
+    return cast("FakeApp", app_obj), manager
+
+
+def _create_spawn_handler(
+    *,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    completion_ready: asyncio.Event,
+    wait_calls: list[SpawnId],
+    heartbeat_calls: list[SpawnId],
+    allow_unsafe_no_permissions: bool = False,
+) -> Callable[[server_module.SpawnCreateRequest], Any]:
+    app, _manager = _create_test_app(
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+        completion_ready=completion_ready,
+        wait_calls=wait_calls,
+        heartbeat_calls=heartbeat_calls,
+        allow_unsafe_no_permissions=allow_unsafe_no_permissions,
+    )
     return cast("Callable[[server_module.SpawnCreateRequest], Any]", app.post_routes["/api/spawns"])
+
+
+def _start_running_app_spawn(state_root: Path, spawn_id: str = "p1") -> SpawnId:
+    created = spawn_store.start_spawn(
+        state_root,
+        chat_id="chat",
+        model="gpt-5.4",
+        agent="coder",
+        harness="codex",
+        prompt="hello",
+        spawn_id=spawn_id,
+        launch_mode="app",
+        status="running",
+    )
+    return SpawnId(created)
 
 
 @pytest.mark.asyncio
@@ -426,3 +548,324 @@ async def test_app_server_start_spawn_failure_tags_launch_failure_origin(
     assert [event["event"] for event in events] == ["start", "finalize"]
     assert events[-1]["status"] == "failed"
     assert events[-1]["origin"] == "launch_failure"
+
+
+@pytest.mark.asyncio
+async def test_inject_text_does_not_invoke_authorization(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    completion_ready = asyncio.Event()
+    wait_calls: list[SpawnId] = []
+    heartbeat_calls: list[SpawnId] = []
+    app, manager = _create_test_app(
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+        completion_ready=completion_ready,
+        wait_calls=wait_calls,
+        heartbeat_calls=heartbeat_calls,
+    )
+
+    spawn_id = _start_running_app_spawn(manager.state_root, spawn_id="p1")
+    manager.set_connection(spawn_id, FakeConnection())
+    inject_handler = cast("Any", app.post_routes["/api/spawns/{spawn_id}/inject"])
+
+    def _unexpected_peercred(_sock: socket.socket | None) -> tuple[SpawnId | None, int]:
+        raise AssertionError("authorization should not run for text inject")
+
+    monkeypatch.setattr(server_module, "caller_from_socket_peer", _unexpected_peercred)
+
+    response = await inject_handler(
+        "p1",
+        server_module.InjectRequest(text="hello"),
+        FakeRequestsModule.Request(),
+    )
+
+    assert response == {"ok": True, "inbound_seq": 2}
+    assert manager.inject_calls == [(SpawnId("p1"), "hello", "rest")]
+    assert manager.interrupt_calls == []
+
+
+@pytest.mark.asyncio
+async def test_inject_interrupt_requires_authorization(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    completion_ready = asyncio.Event()
+    wait_calls: list[SpawnId] = []
+    heartbeat_calls: list[SpawnId] = []
+    app, manager = _create_test_app(
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+        completion_ready=completion_ready,
+        wait_calls=wait_calls,
+        heartbeat_calls=heartbeat_calls,
+    )
+
+    _start_running_app_spawn(manager.state_root, spawn_id="p1")
+    manager.set_connection(SpawnId("p1"), FakeConnection())
+    inject_handler = cast("Any", app.post_routes["/api/spawns/{spawn_id}/inject"])
+
+    left, right = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+    request = FakeRequestsModule.Request()
+    request.scope["transport"] = types.SimpleNamespace(
+        get_extra_info=lambda name, default=None: left if name == "socket" else default
+    )
+
+    monkeypatch.setattr(
+        server_module,
+        "caller_from_socket_peer",
+        lambda _sock: (SpawnId("p999"), 1),
+    )
+    monkeypatch.setattr(
+        server_module,
+        "authorize",
+        lambda **kwargs: AuthorizationDecision(
+            allowed=False,
+            reason="not_in_ancestry",
+            caller_id=SpawnId("p999"),
+            target_id=SpawnId("p1"),
+        ),
+    )
+
+    try:
+        with pytest.raises(FakeHTTPException) as exc_info:
+            await inject_handler(
+                "p1",
+                server_module.InjectRequest(interrupt=True),
+                request,
+            )
+    finally:
+        left.close()
+        right.close()
+
+    assert exc_info.value.status_code == 403
+    assert exc_info.value.detail == "caller is not authorized"
+    assert manager.interrupt_calls == []
+
+
+@pytest.mark.asyncio
+async def test_inject_interrupt_dispatches_when_authorized(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    completion_ready = asyncio.Event()
+    wait_calls: list[SpawnId] = []
+    heartbeat_calls: list[SpawnId] = []
+    app, manager = _create_test_app(
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+        completion_ready=completion_ready,
+        wait_calls=wait_calls,
+        heartbeat_calls=heartbeat_calls,
+    )
+
+    _start_running_app_spawn(manager.state_root, spawn_id="p1")
+    manager.set_connection(SpawnId("p1"), FakeConnection())
+    manager.interrupt_result = types.SimpleNamespace(
+        success=True,
+        error=None,
+        inbound_seq=9,
+        noop=True,
+    )
+    inject_handler = cast("Any", app.post_routes["/api/spawns/{spawn_id}/inject"])
+
+    left, right = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+    request = FakeRequestsModule.Request()
+    request.scope["transport"] = types.SimpleNamespace(
+        get_extra_info=lambda name, default=None: left if name == "socket" else default
+    )
+
+    monkeypatch.setattr(
+        server_module,
+        "caller_from_socket_peer",
+        lambda _sock: (SpawnId("p1"), 0),
+    )
+    monkeypatch.setattr(
+        server_module,
+        "authorize",
+        lambda **kwargs: AuthorizationDecision(
+            allowed=True,
+            reason="self",
+            caller_id=SpawnId("p1"),
+            target_id=SpawnId("p1"),
+        ),
+    )
+
+    try:
+        response = await inject_handler(
+            "p1",
+            server_module.InjectRequest(interrupt=True),
+            request,
+        )
+    finally:
+        left.close()
+        right.close()
+
+    assert response == {"ok": True, "inbound_seq": 9, "noop": True}
+    assert manager.interrupt_calls == [(SpawnId("p1"), "rest")]
+    assert manager.inject_calls == []
+
+
+@pytest.mark.asyncio
+async def test_inject_rejects_terminal_and_finalizing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    completion_ready = asyncio.Event()
+    wait_calls: list[SpawnId] = []
+    heartbeat_calls: list[SpawnId] = []
+    app, manager = _create_test_app(
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+        completion_ready=completion_ready,
+        wait_calls=wait_calls,
+        heartbeat_calls=heartbeat_calls,
+    )
+
+    terminal_id = _start_running_app_spawn(manager.state_root, spawn_id="p1")
+    manager.set_connection(terminal_id, FakeConnection())
+    spawn_store.finalize_spawn(
+        manager.state_root,
+        terminal_id,
+        status="failed",
+        exit_code=1,
+        origin="runner",
+        error="boom",
+    )
+
+    inject_handler = cast("Any", app.post_routes["/api/spawns/{spawn_id}/inject"])
+    with pytest.raises(FakeHTTPException) as terminal_exc:
+        await inject_handler(
+            "p1",
+            server_module.InjectRequest(text="hello"),
+            FakeRequestsModule.Request(),
+        )
+    assert terminal_exc.value.status_code == 410
+    assert terminal_exc.value.detail == "spawn already terminal"
+
+    finalizing_id = _start_running_app_spawn(manager.state_root, spawn_id="p2")
+    manager.set_connection(finalizing_id, FakeConnection())
+    assert spawn_store.mark_finalizing(manager.state_root, finalizing_id) is True
+
+    with pytest.raises(FakeHTTPException) as finalizing_exc:
+        await inject_handler(
+            "p2",
+            server_module.InjectRequest(text="hello"),
+            FakeRequestsModule.Request(),
+        )
+    assert finalizing_exc.value.status_code == 503
+    assert finalizing_exc.value.detail == "spawn is finalizing"
+
+
+@pytest.mark.asyncio
+async def test_cancel_endpoint_returns_origin_and_uses_auth_dependency(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    completion_ready = asyncio.Event()
+    wait_calls: list[SpawnId] = []
+    heartbeat_calls: list[SpawnId] = []
+    app, manager = _create_test_app(
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+        completion_ready=completion_ready,
+        wait_calls=wait_calls,
+        heartbeat_calls=heartbeat_calls,
+    )
+
+    spawn_id = _start_running_app_spawn(manager.state_root, spawn_id="p1")
+
+    class _FakeCanceller:
+        def __init__(self, *, state_root: Path, manager: FakeManager) -> None:
+            _ = state_root, manager
+
+        async def cancel(self, cancel_spawn_id: SpawnId) -> CancelOutcome:
+            assert cancel_spawn_id == spawn_id
+            return CancelOutcome(status="cancelled", origin="runner", exit_code=143)
+
+    monkeypatch.setattr(server_module, "SignalCanceller", _FakeCanceller)
+
+    cancel_handler = cast("Any", app.post_routes["/api/spawns/{spawn_id}/cancel"])
+    response = await cancel_handler("p1")
+    assert response == {"ok": True, "status": "cancelled", "origin": "runner"}
+
+    cancel_options = app.post_route_options["/api/spawns/{spawn_id}/cancel"]
+    dependencies = cast("list[object]", cancel_options["dependencies"])
+    assert len(dependencies) == 1
+
+
+@pytest.mark.asyncio
+async def test_cancel_endpoint_rejects_terminal_and_legacy_delete_is_405(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    completion_ready = asyncio.Event()
+    wait_calls: list[SpawnId] = []
+    heartbeat_calls: list[SpawnId] = []
+    app, manager = _create_test_app(
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+        completion_ready=completion_ready,
+        wait_calls=wait_calls,
+        heartbeat_calls=heartbeat_calls,
+    )
+
+    terminal_id = _start_running_app_spawn(manager.state_root, spawn_id="p1")
+    spawn_store.finalize_spawn(
+        manager.state_root,
+        terminal_id,
+        status="cancelled",
+        exit_code=143,
+        origin="runner",
+        error="cancelled",
+    )
+
+    cancel_handler = cast("Any", app.post_routes["/api/spawns/{spawn_id}/cancel"])
+    with pytest.raises(FakeHTTPException) as cancel_exc:
+        await cancel_handler("p1")
+    assert cancel_exc.value.status_code == 409
+    assert cancel_exc.value.detail == "spawn already terminal: cancelled"
+
+    delete_handler = cast("Any", app.delete_routes["/api/spawns/{spawn_id}"])
+    with pytest.raises(FakeHTTPException) as delete_exc:
+        await delete_handler("p1")
+    assert delete_exc.value.status_code == 405
+    assert delete_exc.value.detail == "use POST /api/spawns/{id}/cancel for lifecycle cancel"
+
+
+@pytest.mark.asyncio
+async def test_validation_error_handler_maps_model_validator_value_errors_to_400(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    completion_ready = asyncio.Event()
+    wait_calls: list[SpawnId] = []
+    heartbeat_calls: list[SpawnId] = []
+    app, _manager = _create_test_app(
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+        completion_ready=completion_ready,
+        wait_calls=wait_calls,
+        heartbeat_calls=heartbeat_calls,
+    )
+
+    handler = cast(
+        "Callable[[object, FakeRequestValidationError], Any]",
+        app.exception_handlers[FakeRequestValidationError],
+    )
+
+    semantic_response = await handler(
+        object(),
+        FakeRequestValidationError(
+            [{"ctx": {"error": ValueError("text and interrupt are mutually exclusive")}}]
+        ),
+    )
+    assert isinstance(semantic_response, FakeJSONResponse)
+    assert semantic_response.status_code == 400
+    assert semantic_response.content == {
+        "detail": "text and interrupt are mutually exclusive"
+    }
+
+    schema_response = await handler(object(), FakeRequestValidationError([{"type": "missing"}]))
+    assert schema_response == {"status_code": 422, "detail": [{"type": "missing"}]}

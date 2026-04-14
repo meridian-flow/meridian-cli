@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import signal
 import time
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from importlib import import_module
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -136,8 +138,73 @@ class SignalCanceller:
         )
 
     async def _cancel_app_spawn_over_http(self, spawn_id: SpawnId) -> CancelOutcome:
-        _ = spawn_id
-        raise RuntimeError("cross-process app cancel dispatch is not implemented yet")
+        socket_path = self._state_root / "app.sock"
+        if not socket_path.exists():
+            raise RuntimeError(f"app socket not found: {socket_path}")
+
+        aiohttp = import_module("aiohttp")
+        connector = cast("object", aiohttp.UnixConnector(path=str(socket_path)))
+        timeout = cast("object", aiohttp.ClientTimeout(total=10.0))
+        url = f"http://localhost/api/spawns/{spawn_id}/cancel"
+
+        try:
+            async with (
+                aiohttp.ClientSession(connector=connector, timeout=timeout) as session,
+                session.post(url) as response,
+            ):
+                status_code = int(response.status)
+                raw_body = await response.text()
+        except Exception as exc:
+            raise RuntimeError(f"cross-process app cancel request failed: {exc}") from exc
+
+        payload = _parse_json_object(raw_body)
+        detail = payload.get("detail")
+        detail_text = detail if isinstance(detail, str) else ""
+        latest = spawn_store.get_spawn(self._state_root, spawn_id)
+
+        if status_code == 200:
+            status_value = payload.get("status")
+            origin_value = payload.get("origin")
+            resolved_status = _status_or_default(str(status_value))
+            resolved_origin = _origin_or_default(
+                cast("SpawnOrigin | None", origin_value if isinstance(origin_value, str) else None)
+            )
+            if latest is not None and _is_terminal(latest.status):
+                return CancelOutcome(
+                    status=resolved_status,
+                    origin=resolved_origin,
+                    exit_code=_exit_code_or_default(latest),
+                )
+            return CancelOutcome(status=resolved_status, origin=resolved_origin, exit_code=1)
+
+        if status_code == 409:
+            if latest is not None and _is_terminal(latest.status):
+                return _outcome_from_record(latest, already_terminal=True)
+            inferred_status = _status_from_terminal_detail(detail_text) or "failed"
+            return CancelOutcome(
+                status=_status_or_default(inferred_status),
+                origin="cancel",
+                exit_code=1,
+                already_terminal=True,
+            )
+
+        if status_code == 503:
+            if latest is not None:
+                return CancelOutcome(
+                    status="finalizing",
+                    origin="cancel",
+                    exit_code=_exit_code_or_default(latest),
+                    finalizing=True,
+                )
+            return CancelOutcome(status="finalizing", origin="cancel", exit_code=1, finalizing=True)
+
+        if status_code == 404:
+            raise ValueError(f"Spawn '{spawn_id}' not found")
+
+        detail_message = detail_text or "unknown error"
+        raise RuntimeError(
+            f"cross-process app cancel request failed ({status_code}): {detail_message}"
+        )
 
     def _resolve_runner_pid(self, record: SpawnRecord) -> int | None:
         started_epoch = _started_at_epoch(record.started_at)
@@ -232,6 +299,27 @@ def _started_at_epoch(started_at: str | None) -> float | None:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=UTC)
     return parsed.timestamp()
+
+
+def _parse_json_object(raw: str) -> dict[str, object]:
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    return cast("dict[str, object]", payload)
+
+
+def _status_from_terminal_detail(detail: str) -> str | None:
+    prefix = "spawn already terminal:"
+    normalized = detail.strip()
+    if not normalized.startswith(prefix):
+        return None
+    status = normalized[len(prefix):].strip()
+    if not status:
+        return None
+    return status
 
 
 __all__ = ["CancelOutcome", "SignalCanceller"]
