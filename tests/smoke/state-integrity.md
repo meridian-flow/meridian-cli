@@ -149,3 +149,80 @@ assert orphan_stamped, "expected orphan_run finalize stamp after stale heartbeat
 print("PASS: stale heartbeat window triggered orphan_run reconciliation")
 PY
 ```
+
+### STATE-7. Cancel path stamps `origin=\"cancel\"` [CRITICAL]
+
+```bash
+uv run python - <<'PY'
+import json, os, pathlib, subprocess, uuid
+from meridian.lib.state.spawn_store import start_spawn
+
+root = pathlib.Path(os.environ["MERIDIAN_STATE_ROOT"])
+spawn_id = f"p-origin-cancel-{uuid.uuid4().hex[:8]}"
+start_spawn(
+    root,
+    spawn_id=spawn_id,
+    chat_id="c-state",
+    model="gpt-5.4",
+    agent="smoke",
+    harness="codex",
+    prompt="cancel origin smoke",
+    status="running",
+)
+
+subprocess.run(
+    ["uv", "run", "meridian", "spawn", "cancel", spawn_id],
+    check=True,
+    stdout=subprocess.DEVNULL,
+    stderr=subprocess.DEVNULL,
+)
+
+events = []
+with (root / "spawns.jsonl").open(encoding="utf-8") as fh:
+    for line in fh:
+        line = line.strip()
+        if line:
+            events.append(json.loads(line))
+
+finalize_events = [
+    event for event in events
+    if event.get("event") == "finalize" and event.get("id") == spawn_id
+]
+assert finalize_events, "expected finalize event for cancelled smoke spawn"
+latest = finalize_events[-1]
+assert latest.get("status") == "cancelled"
+assert latest.get("origin") == "cancel"
+print("PASS: cancel flow writes finalize origin=cancel")
+PY
+```
+
+### STATE-8. Success path records `origin=\"runner\"` [IMPORTANT]
+
+```bash
+uv run python - <<'PY'
+import json, os, pathlib
+
+root = pathlib.Path(os.environ["MERIDIAN_STATE_ROOT"])
+spawns_jsonl = root / "spawns.jsonl"
+if not spawns_jsonl.exists():
+    raise AssertionError("spawns.jsonl missing")
+
+found = False
+with spawns_jsonl.open(encoding="utf-8") as fh:
+    for line in fh:
+        line = line.strip()
+        if not line:
+            continue
+        event = json.loads(line)
+        if (
+            event.get("event") == "finalize"
+            and event.get("status") == "succeeded"
+            and event.get("origin") == "runner"
+        ):
+            found = True
+            break
+
+assert found, "expected at least one successful finalize with origin=runner"
+print("PASS: success finalize origin=runner observed")
+PY
+```

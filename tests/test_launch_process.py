@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 # pyright: reportPrivateUsage=false
 import re
 import signal
@@ -201,6 +203,14 @@ def test_run_harness_process_fork_uses_new_chat_and_materialized_session(
     assert captured["start_harness_session_id"] == "forked-session"
     assert captured["forked_from_chat_id"] == "c7"
     assert outcome.chat_id == "c999"
+    events = [
+        json.loads(line)
+        for line in (plan.state_root / "spawns.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    finalize_events = [event for event in events if event.get("event") == "finalize"]
+    assert len(finalize_events) == 1
+    assert finalize_events[0]["origin"] == "launcher"
 
 
 def _build_context_plan(prompt: str = "hello") -> PreparedSpawnPlan:

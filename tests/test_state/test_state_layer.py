@@ -28,6 +28,7 @@ def _write_start_and_finalize(repo_root: str, idx: int) -> None:
         spawn_id,
         "succeeded",
         0,
+        origin="runner",
         duration_secs=0.1,
         finished_at="2026-02-25T00:00:01Z",
     )

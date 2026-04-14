@@ -194,6 +194,7 @@ class ModelStats(BaseModel):
     failed: int = 0
     cancelled: int = 0
     running: int = 0
+    finalizing: int = 0
     cost_usd: float = 0.0
 
     def success_rate(self) -> str:
@@ -211,6 +212,7 @@ class SpawnStatsOutput(BaseModel):
     failed: int
     cancelled: int
     running: int
+    finalizing: int = 0
     total_duration_secs: float
     total_cost_usd: float
     models: dict[str, ModelStats]
@@ -229,6 +231,7 @@ class SpawnStatsOutput(BaseModel):
             f"failed: {self.failed} ({self._pct(self.failed)})",
             f"cancelled: {self.cancelled} ({self._pct(self.cancelled)})",
             f"running: {self.running}",
+            f"finalizing: {self.finalizing}",
             f"total_duration: {self.total_duration_secs:.1f}s",
             f"total_cost: ${self.total_cost_usd:.4f}",
         ]
@@ -272,7 +275,7 @@ class SpawnListEntry(BaseModel):
         """Return columnar cells for tabular alignment."""
         return [
             self.spawn_id,
-            self.status_display or self.status,
+            self.status,
             _truncate_cell(self.model, max_chars=18),
             f"{self.duration_secs:.1f}s" if self.duration_secs is not None else "-",
         ]
@@ -388,9 +391,8 @@ class SpawnDetailOutput(BaseModel):
         from meridian.cli.format_helpers import kv_block
 
         status_str = self.status
-        if self.status == "running" and self.exited_at is not None:
-            exited_code = "?" if self.process_exit_code is None else str(self.process_exit_code)
-            status_str = f"running (exited {exited_code}, awaiting finalization)"
+        if self.status == "finalizing":
+            status_str = "finalizing (cleanup in progress)"
         elif self.exit_code is not None:
             status_str += f" (exit {self.exit_code})"
 
@@ -401,8 +403,14 @@ class SpawnDetailOutput(BaseModel):
         cost_value: str | None = None if self.cost_usd is None else f"${self.cost_usd:.4f}"
 
         failure_label: str | None = None
-        if self.failure_reason is not None:
+        failure_value = self.failure_reason
+        if failure_value is not None:
             failure_label = "Warning" if self.status == "succeeded" else "Failure"
+            if failure_value == "orphan_finalization":
+                failure_value = (
+                    "orphan_finalization (harness likely completed; "
+                    "report.md may still contain useful content)"
+                )
 
         work_value = (self.work_id or "").strip() or None
         desc_value = (self.desc or "").strip() or None
@@ -422,7 +430,7 @@ class SpawnDetailOutput(BaseModel):
             ("Parent", parent_value),
             ("Work", work_value),
             ("Desc", desc_value),
-            (failure_label or "Failure", self.failure_reason),
+            (failure_label or "Failure", failure_value),
             ("Cost", cost_value),
             ("Report", self.report_path),
             ("Last message", self.last_message),

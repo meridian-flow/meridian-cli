@@ -1,11 +1,20 @@
+import inspect
 import json
 from pathlib import Path
+from typing import Any, get_args
+
+import pytest
 
 from meridian.lib.state.spawn_store import (
+    AUTHORITATIVE_ORIGINS,
+    LEGACY_RECONCILER_ERRORS,
+    SpawnFinalizeEvent,
+    SpawnOrigin,
     finalize_spawn,
     get_spawn,
     list_spawns,
     record_spawn_exited,
+    resolve_finalize_origin,
     start_spawn,
     update_spawn,
 )
@@ -17,10 +26,22 @@ def _state_root(tmp_path: Path) -> Path:
     return state_dir
 
 
+def _start_test_spawn(state_root: Path) -> str:
+    return str(
+        start_spawn(
+            state_root,
+            chat_id="c1",
+            model="gpt-5.4",
+            agent="coder",
+            harness="codex",
+            prompt="hello",
+        )
+    )
+
+
 def _write_mixed_valid_and_malformed_spawns_jsonl(state_root: Path) -> None:
     spawns_jsonl = state_root / "spawns.jsonl"
     with spawns_jsonl.open("w", encoding="utf-8") as handle:
-        # valid start row
         handle.write(
             json.dumps(
                 {
@@ -38,9 +59,7 @@ def _write_mixed_valid_and_malformed_spawns_jsonl(state_root: Path) -> None:
             )
             + "\n"
         )
-        # invalid JSON
         handle.write("{ this is not json }\n")
-        # valid JSON but invalid schema (status does not match SpawnStatus)
         handle.write(
             json.dumps(
                 {
@@ -53,9 +72,7 @@ def _write_mixed_valid_and_malformed_spawns_jsonl(state_root: Path) -> None:
             )
             + "\n"
         )
-        # truncated JSON line
         handle.write('{"v":1,"event":"update","id":"p1","status":"running"\n')
-        # valid finalize row for p1
         handle.write(
             json.dumps(
                 {
@@ -65,11 +82,11 @@ def _write_mixed_valid_and_malformed_spawns_jsonl(state_root: Path) -> None:
                     "status": "succeeded",
                     "exit_code": 0,
                     "finished_at": "2026-03-01T00:01:00Z",
+                    "origin": "runner",
                 }
             )
             + "\n"
         )
-        # second valid start row
         handle.write(
             json.dumps(
                 {
@@ -87,6 +104,40 @@ def _write_mixed_valid_and_malformed_spawns_jsonl(state_root: Path) -> None:
             )
             + "\n"
         )
+
+
+def test_spawn_origin_enum_is_complete() -> None:
+    assert set(get_args(SpawnOrigin)) == {
+        "runner",
+        "launcher",
+        "launch_failure",
+        "cancel",
+        "reconciler",
+    }
+    assert {
+        "runner",
+        "launcher",
+        "launch_failure",
+        "cancel",
+    } == AUTHORITATIVE_ORIGINS
+    assert {
+        "orphan_run",
+        "orphan_finalization",
+        "missing_worker_pid",
+        "harness_completed",
+    } == LEGACY_RECONCILER_ERRORS
+
+
+def test_finalize_spawn_requires_keyword_origin(tmp_path: Path) -> None:
+    signature = inspect.signature(finalize_spawn)
+    origin_param = signature.parameters["origin"]
+    assert origin_param.kind is inspect.Parameter.KEYWORD_ONLY
+    assert origin_param.default is inspect.Parameter.empty
+
+    state_root = _state_root(tmp_path)
+    spawn_id = _start_test_spawn(state_root)
+    with pytest.raises(TypeError):
+        finalize_spawn(state_root, spawn_id, status="succeeded", exit_code=0)
 
 
 def test_list_runs_skips_truncated_trailing_json(tmp_path: Path) -> None:
@@ -141,79 +192,170 @@ def test_get_spawn_survives_mixed_malformed_rows(tmp_path: Path) -> None:
     assert row.status == "running"
 
 
-def test_first_terminal_finalize_preserves_error_when_later_succeeds(
+def test_projection_authority_reconciler_then_runner_replaces_terminal_tuple(
     tmp_path: Path,
 ) -> None:
-    """First terminal status wins, even when a later finalize reports success."""
     state_root = _state_root(tmp_path)
-
-    spawn_id = start_spawn(
-        state_root,
-        chat_id="c1",
-        model="gpt-5.4",
-        agent="coder",
-        harness="codex",
-        prompt="hello",
-    )
-
-    # First finalize: reaper synthesizes a failed status with orphan_run error
-    finalize_spawn(state_root, spawn_id, status="failed", exit_code=1, error="orphan_run")
-    row = get_spawn(state_root, spawn_id)
-    assert row is not None
-    assert row.status == "failed"
-    assert row.error == "orphan_run"
-
-    # Second finalize: later writer reports success.
-    finalize_spawn(state_root, spawn_id, status="succeeded", exit_code=0)
-    row = get_spawn(state_root, spawn_id)
-    assert row is not None
-    assert row.status == "failed"
-    assert row.exit_code == 1
-    assert row.error == "orphan_run"
-
-
-def test_finalize_spawn_returns_ownership_and_always_writes(tmp_path: Path) -> None:
-    """finalize_spawn always appends the event.
-
-    It returns True only for the first terminal write.
-    """
-    state_root = _state_root(tmp_path)
-    spawn_id = start_spawn(
-        state_root,
-        chat_id="c1",
-        model="gpt-5.4",
-        agent="coder",
-        harness="codex",
-        prompt="hello",
-    )
+    spawn_id = _start_test_spawn(state_root)
 
     assert (
-        finalize_spawn(state_root, spawn_id, status="failed", exit_code=1, error="orphan_run")
+        finalize_spawn(
+            state_root,
+            spawn_id,
+            status="failed",
+            exit_code=1,
+            origin="reconciler",
+            error="orphan_run",
+        )
         is True
     )
     assert (
-        finalize_spawn(state_root, spawn_id, status="succeeded", exit_code=0, duration_secs=100.0)
+        finalize_spawn(
+            state_root,
+            spawn_id,
+            status="succeeded",
+            exit_code=0,
+            origin="runner",
+            duration_secs=12.5,
+        )
         is False
     )
 
     row = get_spawn(state_root, spawn_id)
     assert row is not None
+    assert row.status == "succeeded"
+    assert row.exit_code == 0
+    assert row.error is None
+    assert row.terminal_origin == "runner"
+    assert row.duration_secs == 12.5
+
+
+def test_projection_authority_runner_then_reconciler_does_not_override(
+    tmp_path: Path,
+) -> None:
+    state_root = _state_root(tmp_path)
+    spawn_id = _start_test_spawn(state_root)
+
+    finalize_spawn(
+        state_root,
+        spawn_id,
+        status="failed",
+        exit_code=1,
+        origin="runner",
+        error="timeout",
+    )
+    finalize_spawn(
+        state_root,
+        spawn_id,
+        status="succeeded",
+        exit_code=0,
+        origin="reconciler",
+        duration_secs=9.0,
+    )
+
+    row = get_spawn(state_root, spawn_id)
+    assert row is not None
+    assert row.status == "failed"
+    assert row.exit_code == 1
+    assert row.error == "timeout"
+    assert row.terminal_origin == "runner"
+    assert row.duration_secs == 9.0
+
+
+def test_projection_authority_reconciler_then_reconciler_first_wins(tmp_path: Path) -> None:
+    state_root = _state_root(tmp_path)
+    spawn_id = _start_test_spawn(state_root)
+
+    finalize_spawn(
+        state_root,
+        spawn_id,
+        status="failed",
+        exit_code=1,
+        origin="reconciler",
+        error="orphan_run",
+    )
+    finalize_spawn(
+        state_root,
+        spawn_id,
+        status="succeeded",
+        exit_code=0,
+        origin="reconciler",
+        duration_secs=4.0,
+    )
+
+    row = get_spawn(state_root, spawn_id)
+    assert row is not None
     assert row.status == "failed"
     assert row.exit_code == 1
     assert row.error == "orphan_run"
-    assert row.duration_secs == 100.0
+    assert row.terminal_origin == "reconciler"
+    assert row.duration_secs == 4.0
+
+
+def test_projection_authority_runner_then_runner_first_wins(tmp_path: Path) -> None:
+    state_root = _state_root(tmp_path)
+    spawn_id = _start_test_spawn(state_root)
+
+    finalize_spawn(
+        state_root,
+        spawn_id,
+        status="cancelled",
+        exit_code=130,
+        origin="runner",
+        error="cancelled",
+    )
+    finalize_spawn(
+        state_root,
+        spawn_id,
+        status="succeeded",
+        exit_code=0,
+        origin="runner",
+        duration_secs=3.2,
+    )
+
+    row = get_spawn(state_root, spawn_id)
+    assert row is not None
+    assert row.status == "cancelled"
+    assert row.exit_code == 130
+    assert row.error == "cancelled"
+    assert row.terminal_origin == "runner"
+    assert row.duration_secs == 3.2
+
+
+def test_resolve_finalize_origin_prefers_explicit_origin() -> None:
+    event = SpawnFinalizeEvent(
+        id="p1",
+        status="failed",
+        exit_code=1,
+        error="orphan_run",
+        origin="cancel",
+    )
+    assert resolve_finalize_origin(event) == "cancel"
+
+
+def test_resolve_finalize_origin_maps_legacy_reconciler_errors() -> None:
+    event = SpawnFinalizeEvent(
+        id="p1",
+        status="failed",
+        exit_code=1,
+        error="orphan_run",
+    )
+    assert resolve_finalize_origin(event) == "reconciler"
+
+
+def test_resolve_finalize_origin_defaults_legacy_rows_to_runner() -> None:
+    event = SpawnFinalizeEvent(
+        id="p1",
+        status="failed",
+        exit_code=1,
+        error="timeout",
+    )
+    assert resolve_finalize_origin(event) == "runner"
 
 
 def test_exited_event_is_non_terminal_and_projects_process_exit(tmp_path: Path) -> None:
     state_root = _state_root(tmp_path)
-    spawn_id = start_spawn(
-        state_root,
-        chat_id="c1",
-        model="gpt-5.4",
-        agent="coder",
-        harness="codex",
-        prompt="hello",
-    )
+    spawn_id = _start_test_spawn(state_root)
 
     record_spawn_exited(
         state_root,
@@ -232,14 +374,16 @@ def test_exited_event_is_non_terminal_and_projects_process_exit(tmp_path: Path) 
 
 def test_runner_pid_projects_from_start_and_update(tmp_path: Path) -> None:
     state_root = _state_root(tmp_path)
-    spawn_id = start_spawn(
-        state_root,
-        chat_id="c1",
-        model="gpt-5.4",
-        agent="coder",
-        harness="codex",
-        prompt="hello",
-        runner_pid=1111,
+    spawn_id = str(
+        start_spawn(
+            state_root,
+            chat_id="c1",
+            model="gpt-5.4",
+            agent="coder",
+            harness="codex",
+            prompt="hello",
+            runner_pid=1111,
+        )
     )
 
     row = get_spawn(state_root, spawn_id)
@@ -252,146 +396,58 @@ def test_runner_pid_projects_from_start_and_update(tmp_path: Path) -> None:
     assert row.runner_pid == 2222
 
 
-def test_succeeded_cannot_be_overwritten_by_later_failed(tmp_path: Path) -> None:
-    """Once a spawn is succeeded, a racing failed finalize cannot downgrade it.
+def _paired_orphan_run_then_succeeded_finalize_ids(events: list[dict[str, Any]]) -> list[str]:
+    per_spawn: dict[str, list[dict[str, Any]]] = {}
+    for event in events:
+        if event.get("event") != "finalize":
+            continue
+        spawn_id = str(event.get("id", "")).strip()
+        if not spawn_id:
+            continue
+        per_spawn.setdefault(spawn_id, []).append(event)
 
-    This is the core invariant that prevents the reaper/runner double-finalization
-    race: the projection treats 'succeeded' as dominant over 'failed' regardless
-    of event ordering, and merges metadata from all finalize events.
-    """
+    paired: list[str] = []
+    for spawn_id, finalize_events in per_spawn.items():
+        saw_orphan_run = False
+        for event in finalize_events:
+            if event.get("error") == "orphan_run":
+                saw_orphan_run = True
+            if saw_orphan_run and event.get("status") == "succeeded":
+                paired.append(spawn_id)
+                break
+    return sorted(paired)
+
+
+def test_backfill_regression_live_state_rows_project_to_succeeded(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    source_jsonl = repo_root / ".meridian" / "spawns.jsonl"
+    if not source_jsonl.is_file():
+        pytest.skip("Live .meridian/spawns.jsonl not present in this workspace.")
+
     state_root = _state_root(tmp_path)
+    target_jsonl = state_root / "spawns.jsonl"
+    target_jsonl.write_text(source_jsonl.read_text(encoding="utf-8"), encoding="utf-8")
 
-    spawn_id = start_spawn(
-        state_root,
-        chat_id="c1",
-        model="gpt-5.4",
-        agent="coder",
-        harness="codex",
-        prompt="hello",
-    )
+    projected = {row.id: row for row in list_spawns(state_root)}
+    required_ids = ("p1711", "p1712", "p1731", "p1732")
+    for spawn_id in required_ids:
+        assert spawn_id in projected, f"expected {spawn_id} to exist in live spawns.jsonl"
+        assert projected[spawn_id].status == "succeeded"
 
-    # First finalize: reaper correctly writes succeeded (no duration)
-    finalize_spawn(state_root, spawn_id, status="succeeded", exit_code=0)
-    row = get_spawn(state_root, spawn_id)
-    assert row is not None
-    assert row.status == "succeeded"
-    assert row.exit_code == 0
+    parsed_events: list[dict[str, Any]] = []
+    for line in source_jsonl.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        try:
+            event = json.loads(stripped)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(event, dict):
+            parsed_events.append(event)
 
-    # Second finalize: runner races in with failed/143 (has duration)
-    finalize_spawn(
-        state_root,
-        spawn_id,
-        status="failed",
-        exit_code=143,
-        duration_secs=312.5,
-        error="signal",
-    )
-    row = get_spawn(state_root, spawn_id)
-    assert row is not None
-    # Status must remain succeeded — terminal immutability
-    assert row.status == "succeeded"
-    assert row.exit_code == 0
-    assert row.error is None
-    # But metadata from the second event IS merged
-    assert row.duration_secs == 312.5
-
-
-def test_failed_cannot_be_overwritten_by_another_failed(tmp_path: Path) -> None:
-    """Among non-success terminal states, the first one wins."""
-    state_root = _state_root(tmp_path)
-
-    spawn_id = start_spawn(
-        state_root,
-        chat_id="c1",
-        model="gpt-5.4",
-        agent="coder",
-        harness="codex",
-        prompt="hello",
-    )
-
-    finalize_spawn(state_root, spawn_id, status="failed", exit_code=1, error="timeout")
-    finalize_spawn(state_root, spawn_id, status="failed", exit_code=143, error="signal")
-
-    row = get_spawn(state_root, spawn_id)
-    assert row is not None
-    assert row.status == "failed"
-    assert row.exit_code == 1  # first failure's exit code
-    assert row.error == "timeout"  # first failure's error reason is locked
-
-
-def test_terminal_status_first_wins_cancelled_then_succeeded_audit_visible(
-    tmp_path: Path,
-) -> None:
-    state_root = _state_root(tmp_path)
-
-    spawn_id = start_spawn(
-        state_root,
-        chat_id="c1",
-        model="gpt-5.4",
-        agent="coder",
-        harness="codex",
-        prompt="hello",
-    )
-
-    assert (
-        finalize_spawn(state_root, spawn_id, status="cancelled", exit_code=130, error="cancelled")
-        is True
-    )
-    assert finalize_spawn(state_root, spawn_id, status="succeeded", exit_code=0) is False
-
-    row = get_spawn(state_root, spawn_id)
-    assert row is not None
-    assert row.status == "cancelled"
-    assert row.exit_code == 130
-    assert row.error == "cancelled"
-
-    events = [
-        json.loads(line)
-        for line in (state_root / "spawns.jsonl").read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
-    finalize_statuses = [
-        event.get("status")
-        for event in events
-        if event.get("event") == "finalize" and event.get("id") == str(spawn_id)
-    ]
-    assert finalize_statuses == ["cancelled", "succeeded"]
-
-
-def test_terminal_status_first_wins_succeeded_then_cancelled_audit_visible(
-    tmp_path: Path,
-) -> None:
-    state_root = _state_root(tmp_path)
-
-    spawn_id = start_spawn(
-        state_root,
-        chat_id="c1",
-        model="gpt-5.4",
-        agent="coder",
-        harness="codex",
-        prompt="hello",
-    )
-
-    assert finalize_spawn(state_root, spawn_id, status="succeeded", exit_code=0) is True
-    assert (
-        finalize_spawn(state_root, spawn_id, status="cancelled", exit_code=130, error="cancelled")
-        is False
-    )
-
-    row = get_spawn(state_root, spawn_id)
-    assert row is not None
-    assert row.status == "succeeded"
-    assert row.exit_code == 0
-    assert row.error is None
-
-    events = [
-        json.loads(line)
-        for line in (state_root / "spawns.jsonl").read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
-    finalize_statuses = [
-        event.get("status")
-        for event in events
-        if event.get("event") == "finalize" and event.get("id") == str(spawn_id)
-    ]
-    assert finalize_statuses == ["succeeded", "cancelled"]
+    paired_ids = _paired_orphan_run_then_succeeded_finalize_ids(parsed_events)
+    for spawn_id in paired_ids:
+        row = projected.get(spawn_id)
+        assert row is not None, f"missing projected row for paired finalize spawn {spawn_id}"
+        assert row.status == "succeeded"

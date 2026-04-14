@@ -197,11 +197,7 @@ def spawn_list_sync(
             SpawnListEntry(
                 spawn_id=row.id,
                 status=row.status,
-                status_display=(
-                    "running*"
-                    if row.status == "running" and row.exited_at is not None
-                    else None
-                ),
+                status_display=None,
                 model=row.model or "",
                 duration_secs=row.duration_secs,
                 cost_usd=row.total_cost_usd,
@@ -280,6 +276,7 @@ def spawn_stats_sync(
     failed = 0
     cancelled = 0
     running = 0
+    finalizing = 0
 
     for row in spawns:
         if row.status == "succeeded":
@@ -290,14 +287,16 @@ def spawn_stats_sync(
             cancelled += 1
         elif row.status == "running":
             running += 1
+        elif row.status == "finalizing":
+            finalizing += 1
 
         model_key = row.model or ""
         acc = model_accum.setdefault(model_key, {
             "total": 0, "succeeded": 0, "failed": 0,
-            "cancelled": 0, "running": 0, "cost_usd": 0.0,
+            "cancelled": 0, "running": 0, "finalizing": 0, "cost_usd": 0.0,
         })
         acc["total"] = int(acc["total"]) + 1
-        if row.status in ("succeeded", "failed", "cancelled", "running"):
+        if row.status in ("succeeded", "failed", "cancelled", "running", "finalizing"):
             acc[row.status] = int(acc[row.status]) + 1
         if row.total_cost_usd is not None:
             acc["cost_usd"] = float(acc["cost_usd"]) + row.total_cost_usd
@@ -314,6 +313,7 @@ def spawn_stats_sync(
             failed=int(v["failed"]),
             cancelled=int(v["cancelled"]),
             running=int(v["running"]),
+            finalizing=int(v["finalizing"]),
             cost_usd=float(v["cost_usd"]),
         )
         for k, v in model_accum.items()
@@ -341,6 +341,7 @@ def spawn_stats_sync(
         failed=failed,
         cancelled=cancelled,
         running=running,
+        finalizing=finalizing,
         total_duration_secs=total_duration_secs,
         total_cost_usd=total_cost_usd,
         models=models,
@@ -495,6 +496,7 @@ def spawn_cancel_sync(
         spawn_id,
         status="cancelled",
         exit_code=130,
+        origin="cancel",
         error="cancelled",
     )
     if not finalized:

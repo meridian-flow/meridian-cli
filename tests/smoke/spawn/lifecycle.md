@@ -143,3 +143,45 @@ assert not orphan_stamped, "depth>0 read unexpectedly stamped orphan_run"
 print("PASS: depth>0 read path skipped orphan reconciliation")
 PY
 ```
+
+### LIFE-7. List filter accepts `finalizing` and returns matching rows [IMPORTANT]
+
+```bash
+uv run python - <<'PY'
+import json, os, pathlib
+
+root = pathlib.Path(os.environ["MERIDIAN_STATE_ROOT"])
+spawns_jsonl = root / "spawns.jsonl"
+spawn_id = "p-finalizing-filter-smoke"
+
+start_event = {
+    "v": 1,
+    "event": "start",
+    "id": spawn_id,
+    "chat_id": "c-finalizing",
+    "model": "gpt-5.4",
+    "agent": "smoke",
+    "harness": "codex",
+    "kind": "child",
+    "prompt": "finalizing filter smoke",
+    "status": "finalizing",
+    "runner_pid": os.getpid(),
+    "started_at": "2026-04-12T15:00:00Z",
+}
+spawns_jsonl.parent.mkdir(parents=True, exist_ok=True)
+with spawns_jsonl.open("a", encoding="utf-8") as fh:
+    fh.write(json.dumps(start_event) + "\n")
+print("seeded", spawn_id)
+PY
+
+uv run meridian --json spawn list --status finalizing --limit 20 > /tmp/meridian-lifecycle-finalizing-list.json && \
+uv run python - <<'PY'
+import json
+
+doc = json.load(open("/tmp/meridian-lifecycle-finalizing-list.json"))
+spawns = doc.get("spawns", [])
+assert any(row.get("spawn_id") == "p-finalizing-filter-smoke" for row in spawns), "missing seeded finalizing row"
+assert all(row.get("status") == "finalizing" for row in spawns), "non-finalizing row returned"
+print("PASS: --status finalizing returned only finalizing rows")
+PY
+```

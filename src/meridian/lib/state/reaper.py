@@ -179,7 +179,12 @@ def _finalize_and_log(
     error: str | None, reason: str, snapshot: ArtifactSnapshot, now: float
 ) -> SpawnRecord:
     if not finalize_spawn(
-        state_root, SpawnId(record.id), status=status, exit_code=exit_code, error=error
+        state_root,
+        SpawnId(record.id),
+        status=status,
+        exit_code=exit_code,
+        origin="reconciler",
+        error=error,
     ):
         return record
     inactivity_secs = (

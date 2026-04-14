@@ -580,6 +580,7 @@ def execute_spawn_background(
             context.spawn.spawn_id,
             status="failed",
             exit_code=1,
+            origin="launch_failure",
             error=str(exc),
         )
         _cleanup_background_runtime_artifacts(log_dir)
@@ -639,6 +640,7 @@ def execute_spawn_background(
             context.spawn.spawn_id,
             status="failed",
             exit_code=1,
+            origin="launch_failure",
             error=str(exc),
         )
         _cleanup_background_runtime_artifacts(log_dir)
@@ -883,6 +885,7 @@ def _background_worker_main(
                 spawn_id,
                 status="failed",
                 exit_code=1,
+                origin="launch_failure",
                 error=error,
             )
             logger.error(

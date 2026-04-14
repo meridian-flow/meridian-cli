@@ -65,6 +65,7 @@ def _seed_spawn(
         spawn_id,
         status=status,
         exit_code=exit_code,
+        origin="runner",
         error=None if status == "succeeded" else "failed",
     )
     if report_text is not None:

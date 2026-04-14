@@ -2,7 +2,12 @@ import os
 from pathlib import Path
 
 import meridian.lib.ops.spawn.api as spawn_api
-from meridian.lib.ops.spawn.models import SpawnListInput, SpawnShowInput
+from meridian.lib.ops.spawn.models import (
+    ModelStats,
+    SpawnListInput,
+    SpawnShowInput,
+    SpawnStatsOutput,
+)
 from meridian.lib.state import spawn_store
 from meridian.lib.state.paths import resolve_state_paths
 
@@ -26,7 +31,9 @@ def _seed_running_spawn(state_root: Path, spawn_id: str) -> None:
     )
 
 
-def test_spawn_show_sync_renders_running_post_exit_finalization_state(tmp_path: Path) -> None:
+def test_spawn_show_sync_renders_finalizing_status_and_orphan_finalization_hint(
+    tmp_path: Path,
+) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
     state_root = _state_root(repo_root)
@@ -36,6 +43,12 @@ def test_spawn_show_sync_renders_running_post_exit_finalization_state(tmp_path: 
         "p1",
         exit_code=143,
         exited_at="2026-04-12T14:00:00Z",
+    )
+    spawn_store.update_spawn(
+        state_root,
+        "p1",
+        status="finalizing",
+        error="orphan_finalization",
     )
 
     output = spawn_api.spawn_show_sync(
@@ -47,13 +60,17 @@ def test_spawn_show_sync_renders_running_post_exit_finalization_state(tmp_path: 
     )
 
     assert output.spawn_id == "p1"
-    assert output.status == "running"
+    assert output.status == "finalizing"
     assert output.exited_at == "2026-04-12T14:00:00Z"
     assert output.process_exit_code == 143
-    assert "running (exited 143, awaiting finalization)" in output.format_text()
+    rendered = output.format_text()
+    assert "Status: finalizing (cleanup in progress)" in rendered
+    assert "orphan_finalization" in rendered
+    assert "report.md may still contain useful content" in rendered
+    assert "awaiting finalization" not in rendered
 
 
-def test_spawn_list_sync_marks_running_post_exit_with_asterisk(tmp_path: Path) -> None:
+def test_spawn_list_sync_no_longer_renders_running_asterisk_suffix(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
     state_root = _state_root(repo_root)
@@ -69,5 +86,37 @@ def test_spawn_list_sync_marks_running_post_exit_with_asterisk(tmp_path: Path) -
 
     assert len(output.spawns) == 1
     assert output.spawns[0].status == "running"
-    assert output.spawns[0].status_display == "running*"
-    assert "running*" in output.format_text()
+    assert output.spawns[0].status_display is None
+    rendered = output.format_text()
+    assert "running*" not in rendered
+    assert "running" in rendered
+
+
+def test_spawn_stats_output_tracks_finalizing_as_active_bucket() -> None:
+    stats = SpawnStatsOutput(
+        total_runs=3,
+        succeeded=1,
+        failed=1,
+        cancelled=0,
+        running=1,
+        finalizing=1,
+        total_duration_secs=7.5,
+        total_cost_usd=0.12,
+        models={
+            "gpt-5.3-codex": ModelStats(
+                total=3,
+                succeeded=1,
+                failed=1,
+                cancelled=0,
+                running=1,
+                finalizing=1,
+                cost_usd=0.12,
+            )
+        },
+    )
+
+    assert stats.model_dump()["finalizing"] == 1
+    assert stats.models["gpt-5.3-codex"].finalizing == 1
+    rendered = stats.format_text()
+    assert "running: 1" in rendered
+    assert "finalizing: 1" in rendered

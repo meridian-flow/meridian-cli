@@ -428,6 +428,7 @@ def run_harness_process(
                         primary_spawn_id,
                         status=status,
                         exit_code=exit_code,
+                        origin="launcher",
                         duration_secs=duration,
                     )
                 try:

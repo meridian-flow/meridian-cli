@@ -240,6 +240,7 @@ async def test_app_server_create_spawn_background_finalizer_writes_finalize(
     assert events[-1]["status"] == "succeeded"
     assert events[-1]["exit_code"] == 0
     assert events[-1]["duration_secs"] == 2.5
+    assert events[-1]["origin"] == "launcher"
     assert wait_calls == [SpawnId("p1")]
 
     row = get_spawn(state_root, "p1")
@@ -358,3 +359,49 @@ async def test_app_server_threads_permission_resolver_into_streaming_spec(
     assert resolver is not None
     assert cast("Any", resolver).config.sandbox == "read-only"
     assert cast("Any", resolver).config.approval == "auto"
+
+
+@pytest.mark.asyncio
+async def test_app_server_start_spawn_failure_tags_launch_failure_origin(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state_root = resolve_state_paths(tmp_path).root_dir
+    completion_ready = asyncio.Event()
+    wait_calls: list[SpawnId] = []
+
+    async def _raising_start_spawn(
+        self: FakeManager,
+        config: ConnectionConfig,
+        spec: ResolvedLaunchSpec | None = None,
+    ) -> FakeConnection:
+        _ = self, config, spec
+        raise RuntimeError("start failed")
+
+    monkeypatch.setattr(FakeManager, "start_spawn", _raising_start_spawn)
+    create_spawn_handler = _create_spawn_handler(
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+        completion_ready=completion_ready,
+        wait_calls=wait_calls,
+    )
+
+    with pytest.raises(FakeHTTPException) as exc_info:
+        await create_spawn_handler(
+            server_module.SpawnCreateRequest(
+                harness="codex",
+                prompt="hello",
+                permissions=server_module.PermissionRequest(
+                    sandbox="workspace-write",
+                    approval="confirm",
+                ),
+            )
+        )
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail == "start failed"
+    assert wait_calls == []
+    events = _read_spawn_events(state_root)
+    assert [event["event"] for event in events] == ["start", "finalize"]
+    assert events[-1]["status"] == "failed"
+    assert events[-1]["origin"] == "launch_failure"

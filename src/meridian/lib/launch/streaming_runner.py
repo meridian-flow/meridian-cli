@@ -1215,6 +1215,7 @@ async def execute_with_streaming(
                     run.spawn_id,
                     status=status,
                     exit_code=exit_code,
+                    origin="runner",
                     duration_secs=duration_seconds,
                     total_cost_usd=(
                         finalized_usage.total_cost_usd if finalized_usage is not None else None

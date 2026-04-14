@@ -298,6 +298,7 @@ def test_decide_reconciliation_recent_heartbeat_skips() -> None:
         input_tokens=None,
         output_tokens=None,
         error=None,
+        terminal_origin=None,
     )
     now = 1_000.0
     snapshot = ArtifactSnapshot(
@@ -346,6 +347,7 @@ def test_decide_reconciliation_stale_dead_runner_fails_orphan_run() -> None:
         input_tokens=None,
         output_tokens=None,
         error=None,
+        terminal_origin=None,
     )
     now = 1_000.0
     snapshot = ArtifactSnapshot(
@@ -394,6 +396,7 @@ def test_decide_reconciliation_dead_runner_ignores_fallback_recent_activity() ->
         input_tokens=None,
         output_tokens=None,
         error=None,
+        terminal_origin=None,
     )
     now = 1_000.0
     snapshot = ArtifactSnapshot(
@@ -442,6 +445,7 @@ def test_decide_reconciliation_live_runner_accepts_fallback_recent_activity() ->
         input_tokens=None,
         output_tokens=None,
         error=None,
+        terminal_origin=None,
     )
     now = 1_000.0
     snapshot = ArtifactSnapshot(
@@ -490,6 +494,7 @@ def test_decide_reconciliation_durable_report_succeeds() -> None:
         input_tokens=None,
         output_tokens=None,
         error=None,
+        terminal_origin=None,
     )
     snapshot = ArtifactSnapshot(
         started_epoch=900.0,
@@ -730,6 +735,7 @@ def test_decide_reconciliation_is_pure_after_snapshot_construction(
         input_tokens=None,
         output_tokens=None,
         error=None,
+        terminal_origin=None,
     )
     snapshot = ArtifactSnapshot(
         started_epoch=900.0,

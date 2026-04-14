@@ -5,7 +5,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from meridian.lib.ops.spawn.models import SpawnActionOutput, SpawnContinueInput, SpawnCreateInput
+from meridian.lib.ops.spawn.models import (
+    SpawnActionOutput,
+    SpawnContinueInput,
+    SpawnCreateInput,
+    SpawnListInput,
+    SpawnListOutput,
+)
 
 spawn_cli = importlib.import_module("meridian.cli.spawn")
 cli_main = importlib.import_module("meridian.cli.main")
@@ -60,6 +66,23 @@ def _capture_continue_prompt(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
         return SpawnActionOutput(command="spawn.continue", status="dry-run")
 
     monkeypatch.setattr(spawn_cli, "spawn_continue_sync", _fake_spawn_continue_sync)
+    monkeypatch.setattr(spawn_cli, "current_output_sink", lambda: None)
+    return captured
+
+
+def _capture_list_payload(monkeypatch: pytest.MonkeyPatch) -> dict[str, SpawnListInput]:
+    captured: dict[str, SpawnListInput] = {}
+
+    def _fake_spawn_list_sync(
+        payload: SpawnListInput,
+        *,
+        sink=None,
+    ) -> SpawnListOutput:
+        _ = sink
+        captured["payload"] = payload
+        return SpawnListOutput(spawns=())
+
+    monkeypatch.setattr(spawn_cli, "spawn_list_sync", _fake_spawn_list_sync)
     monkeypatch.setattr(spawn_cli, "current_output_sink", lambda: None)
     return captured
 
@@ -446,3 +469,27 @@ def test_spawn_continue_reads_passthrough_from_global_options(
     )
 
     assert captured["passthrough"] == ("--add-dir", "/foo")
+
+
+def test_spawn_create_exit_code_treats_finalizing_as_success() -> None:
+    result = SpawnActionOutput(command="spawn.create", status="finalizing")
+    assert spawn_cli._spawn_create_exit_code(result) == 0
+
+
+def test_spawn_list_accepts_status_finalizing(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured = _capture_list_payload(monkeypatch)
+
+    spawn_cli._spawn_list(lambda _payload: None, status="finalizing")
+
+    assert captured["payload"].status == "finalizing"
+    assert captured["payload"].statuses is None
+
+
+def test_spawn_list_active_view_includes_finalizing(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured = _capture_list_payload(monkeypatch)
+
+    spawn_cli._spawn_list(lambda _payload: None, view="active")
+
+    assert captured["payload"].statuses is not None
+    assert set(captured["payload"].statuses) == spawn_cli.ACTIVE_SPAWN_STATUSES
+    assert "finalizing" in captured["payload"].statuses

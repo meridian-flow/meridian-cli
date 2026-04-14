@@ -117,6 +117,7 @@ async def streaming_serve(
                 spawn_id,
                 status=outcome_status,
                 exit_code=outcome_exit_code,
+                origin="launcher",
                 duration_secs=max(0.0, time.monotonic() - start_monotonic),
                 error=failure_message if outcome_status == "failed" else None,
             )

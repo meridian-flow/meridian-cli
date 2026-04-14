@@ -48,6 +48,23 @@ def next_spawn_id(state_root: Path) -> SpawnId:
 LaunchMode = Literal["background", "foreground"]
 BACKGROUND_LAUNCH_MODE: LaunchMode = "background"
 FOREGROUND_LAUNCH_MODE: LaunchMode = "foreground"
+SpawnOrigin = Literal["runner", "launcher", "launch_failure", "cancel", "reconciler"]
+
+_AUTHORITATIVE_ORIGIN_VALUES: tuple[SpawnOrigin, ...] = (
+    "runner",
+    "launcher",
+    "launch_failure",
+    "cancel",
+)
+AUTHORITATIVE_ORIGINS: frozenset[SpawnOrigin] = frozenset(_AUTHORITATIVE_ORIGIN_VALUES)
+
+_LEGACY_RECONCILER_ERROR_VALUES: tuple[str, ...] = (
+    "orphan_run",
+    "orphan_finalization",
+    "missing_worker_pid",
+    "harness_completed",
+)
+LEGACY_RECONCILER_ERRORS: frozenset[str] = frozenset(_LEGACY_RECONCILER_ERROR_VALUES)
 
 ACTIVE_SPAWN_STATUSES = _ACTIVE_SPAWN_STATUSES
 is_active_spawn_status = _is_active_spawn_status
@@ -93,6 +110,7 @@ class SpawnRecord(BaseModel):
     input_tokens: int | None
     output_tokens: int | None
     error: str | None
+    terminal_origin: SpawnOrigin | None
 
 
 class SpawnStartEvent(BaseModel):
@@ -164,6 +182,7 @@ class SpawnFinalizeEvent(BaseModel):
     input_tokens: int | None = None
     output_tokens: int | None = None
     error: str | None = None
+    origin: SpawnOrigin | None = None
 
 
 type SpawnEvent = SpawnStartEvent | SpawnUpdateEvent | SpawnExitedEvent | SpawnFinalizeEvent
@@ -320,6 +339,7 @@ def finalize_spawn(
     status: SpawnStatus,
     exit_code: int,
     *,
+    origin: SpawnOrigin,
     duration_secs: float | None = None,
     total_cost_usd: float | None = None,
     input_tokens: int | None = None,
@@ -351,6 +371,7 @@ def finalize_spawn(
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             error=error,
+            origin=origin,
         )
         append_event(
             paths.spawns_jsonl,
@@ -414,6 +435,7 @@ def _empty_record(spawn_id: str) -> SpawnRecord:
         input_tokens=None,
         output_tokens=None,
         error=None,
+        terminal_origin=None,
     )
 
 
@@ -422,6 +444,14 @@ def _normalized_work_id(work_id: str | None) -> str | None:
         return None
     normalized = work_id.strip()
     return normalized or None
+
+
+def resolve_finalize_origin(event: SpawnFinalizeEvent) -> SpawnOrigin:
+    if event.origin is not None:
+        return event.origin
+    if event.error in LEGACY_RECONCILER_ERRORS:
+        return "reconciler"
+    return "runner"
 
 
 def _record_from_events(events: list[SpawnEvent]) -> dict[str, SpawnRecord]:
@@ -484,9 +514,12 @@ def _record_from_events(events: list[SpawnEvent]) -> dict[str, SpawnRecord]:
             continue
 
         if isinstance(event, SpawnUpdateEvent):
+            resolved_status = current.status
+            if event.status is not None and current.status not in _TERMINAL_SPAWN_STATUSES:
+                resolved_status = event.status
             records[spawn_id] = current.model_copy(
                 update={
-                    "status": event.status if event.status is not None else current.status,
+                    "status": resolved_status,
                     "launch_mode": (
                         event.launch_mode if event.launch_mode is not None else current.launch_mode
                     ),
@@ -531,18 +564,19 @@ def _record_from_events(events: list[SpawnEvent]) -> dict[str, SpawnRecord]:
             )
             continue
 
-        # Terminal state resolution is first-wins and idempotent:
-        # once a spawn reaches any terminal state, later finalize
-        # events cannot change status/exit_code/error. Metadata
-        # (duration, cost, tokens) is still merged from every finalize
-        # event so audit details are preserved.
+        incoming_origin = resolve_finalize_origin(event)
+        incoming_authoritative = incoming_origin in AUTHORITATIVE_ORIGINS
         already_terminal = current.status in _TERMINAL_SPAWN_STATUSES
-        if already_terminal:
+        replace_terminal = (
+            not already_terminal
+            or (current.terminal_origin == "reconciler" and incoming_authoritative)
+        )
+        if not replace_terminal:
             resolved_status = current.status
             resolved_exit_code = current.exit_code
             resolved_error = current.error
+            resolved_terminal_origin = current.terminal_origin
         else:
-            # First terminal event.
             event_status = event.status if event.status is not None else current.status
             resolved_status = event_status
             resolved_exit_code = (
@@ -555,6 +589,7 @@ def _record_from_events(events: list[SpawnEvent]) -> dict[str, SpawnRecord]:
                 if event.error is not None
                 else current.error
             )
+            resolved_terminal_origin = incoming_origin
         records[spawn_id] = current.model_copy(
             update={
                 "status": resolved_status,
@@ -581,6 +616,7 @@ def _record_from_events(events: list[SpawnEvent]) -> dict[str, SpawnRecord]:
                     else current.output_tokens
                 ),
                 "error": resolved_error,
+                "terminal_origin": resolved_terminal_origin,
             }
         )
 

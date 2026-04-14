@@ -147,6 +147,7 @@ def create_app(
             spawn_id,
             status=outcome.status,
             exit_code=outcome.exit_code,
+            origin="launcher",
             duration_secs=outcome.duration_secs,
             error=outcome.error,
         )
@@ -258,6 +259,7 @@ def create_app(
                 spawn_id,
                 status="failed",
                 exit_code=1,
+                origin="launch_failure",
                 error=str(exc),
             )
             raise http_exception_cls(

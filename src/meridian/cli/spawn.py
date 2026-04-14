@@ -5,7 +5,7 @@ import sys
 from collections.abc import Callable
 from functools import partial
 from pathlib import Path
-from typing import Annotated, Any, cast
+from typing import Annotated, Any, cast, get_args
 
 from cyclopts import App, Parameter
 
@@ -14,6 +14,7 @@ from meridian.cli.registration import register_manifest_cli_group
 from meridian.cli.spawn_inject import inject_message
 from meridian.cli.utils import missing_fork_session_error, parse_csv_list
 from meridian.lib.core.domain import SpawnStatus
+from meridian.lib.core.spawn_lifecycle import ACTIVE_SPAWN_STATUSES
 from meridian.lib.ops.reference import resolve_session_reference
 from meridian.lib.ops.runtime import resolve_runtime_root_and_config, resolve_state_root
 from meridian.lib.ops.spawn.api import (
@@ -46,12 +47,18 @@ from meridian.lib.state import spawn_store
 _HUMAN_ONLY = not agent_mode_enabled()
 
 Emitter = Callable[[Any], None]
+_SPAWN_STATUS_VALUES: tuple[SpawnStatus, ...] = cast(
+    "tuple[SpawnStatus, ...]", get_args(SpawnStatus)
+)
+_ACTIVE_VIEW_STATUSES: tuple[SpawnStatus, ...] = tuple(
+    status for status in _SPAWN_STATUS_VALUES if status in ACTIVE_SPAWN_STATUSES
+)
 
 
 def _spawn_create_exit_code(result: SpawnActionOutput) -> int:
     if result.exit_code is not None:
         return result.exit_code
-    if result.status in {"succeeded", "running", "dry-run"}:
+    if result.status in {"succeeded", "running", "finalizing", "dry-run"}:
         return 0
     return 1
 
@@ -414,7 +421,7 @@ def _spawn_list(
         str | None,
         Parameter(
             name="--status",
-            help="Filter by status: queued, running, succeeded, failed, cancelled.",
+            help="Filter by status: queued, running, finalizing, succeeded, failed, cancelled.",
         ),
     ] = None,
     view: Annotated[
@@ -451,7 +458,7 @@ def _spawn_list(
         if limit == 20:  # user didn't override the default
             limit = 5
     view_map: dict[str, tuple[SpawnStatus, ...]] = {
-        "active": ("queued", "running"),
+        "active": _ACTIVE_VIEW_STATUSES,
         "all": (),
         "running": ("running",),
         "queued": ("queued",),
@@ -465,9 +472,9 @@ def _spawn_list(
 
     if status is not None and status.strip():
         candidate = status.strip()
-        if candidate not in {"queued", "running", "succeeded", "failed", "cancelled"}:
+        if candidate not in _SPAWN_STATUS_VALUES:
             raise ValueError(f"Unsupported spawn status '{status}'")
-        normalized_status = cast("SpawnStatus", candidate)
+        normalized_status = candidate
     elif failed:
         normalized_statuses = ("failed",)
     else:
