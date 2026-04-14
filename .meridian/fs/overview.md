@@ -30,16 +30,18 @@ src/meridian/
 **Launch flow:**
 1. `ops/spawn/prepare.py` — validates input, resolves model aliases (via catalog), loads agent profile and skills, renders reference files and prior context, computes permission policy
 2. `lib/launch/resolve.py` — two-pass policy resolution: agent profile selection influences the final model/harness/safety layers
-3. `lib/launch/process.py` — creates session, starts spawn as queued (recording runner_pid), attaches to work item, calls runner
-4. `lib/launch/runner.py` — `spawn_and_stream()`: subprocess execution, stdout/stderr capture, report watchdog, stdin feeding, exit code mapping; writes exited event immediately after process exits
-5. `lib/launch/extract.py` + `report.py` — extract usage/session/report from harness output, persist report artifact
+3. Dispatch splits by launch type:
+   - **Primary (CLI) path:** `lib/launch/process.py` (`run_harness_process()`) — creates session, starts spawn as queued (recording runner_pid), attaches to work item, runs PTY/pipe subprocess, finalizes inline (no `enrich_finalize`)
+   - **Subagent/spawn path:** `ops/spawn/execute.py` dispatches directly to `execute_with_finalization()` or `execute_with_streaming()` in `runner.py` — `process.py` is not involved
+4. `lib/launch/runner.py` — `spawn_and_stream()`: async subprocess execution, stdout/stderr capture, report watchdog, stdin feeding, exit code mapping; writes exited event immediately after process exits
+5. `lib/launch/extract.py` + `report.py` — extract usage/session/report from harness output, persist report artifact (subagent path only)
 
 **State flow:**
 - Every spawn is append-only JSONL events in `.meridian/spawns.jsonl`
 - Session state is JSONL events in `.meridian/sessions.jsonl`
 - Work items are mutable JSON under `.meridian/work-items/`
 - All writes are atomic (tmp+rename) with `fcntl.flock` for concurrency
-- Crash recovery: the reaper (`lib/state/reaper.py`) detects orphaned spawns on read paths — psutil liveness checks on `runner_pid` (`lib/state/liveness.py:is_process_alive()`), `exited_at` event presence, durable report completion — no explicit recovery step
+- Crash recovery: the reaper (`lib/state/reaper.py`) detects orphaned spawns on read paths — heartbeat file recency (primary signal, 120s window), psutil `runner_pid` liveness (secondary, skipped for `finalizing` rows), and durable report completion. Active statuses: `queued`, `running`, `finalizing`. Terminal: `succeeded`, `failed`, `cancelled`. The `finalizing` state (entered via `mark_finalizing` CAS after harness exit) narrows the reap target to the drain/report window and enables `orphan_finalization` vs `orphan_run` distinction. Runner-origin terminal writes supersede reconciler-origin via the projection authority rule — no explicit recovery step needed.
 
 **Mars integration:**
 - `meridian mars ...` is a passthrough to the bundled `mars` binary

@@ -10,7 +10,7 @@ Source: `src/meridian/lib/state/`
 
 ```
 .meridian/
-  spawns.jsonl         # all spawn events (start/update/finalize), append-only
+  spawns.jsonl         # all spawn events (start/update/exited/finalize), append-only
   spawns.jsonl.flock   # fcntl lock file for spawns.jsonl writes
   sessions.jsonl       # all session events (start/stop/update), append-only
   sessions.jsonl.flock # fcntl lock file for sessions.jsonl writes
@@ -26,6 +26,7 @@ Source: `src/meridian/lib/state/`
       stderr.log
       params.json
       tokens.json
+      heartbeat        # touched every 30s by runner; reaper liveness signal
       ...
   work-items/          # per-work-item metadata JSON files
     <work_id>.json
@@ -49,7 +50,7 @@ Override root via `MERIDIAN_STATE_ROOT` env var.
 
 **Per-file mutable JSON** (work items): one `<slug>.json` per item. Atomic overwrites via `tmp + os.replace()`. Better for mutable records correlated with a directory that moves on rename.
 
-**Artifact directories** (spawns): one directory per spawn under `.meridian/spawns/<id>/`. Contains only durable artifacts — stdout capture, stderr, report, params, tokens. No PID files or coordination signals; those live in the event stream.
+**Artifact directories** (spawns): one directory per spawn under `.meridian/spawns/<id>/`. Contains durable artifacts (stdout capture, stderr, report, params, tokens) plus the `heartbeat` coordination file touched every 30s by the runner. No PID files; PID and status transitions live in the event stream. The `heartbeat` file is the exception — it is a live coordination artifact read by the reaper for liveness.
 
 ## Crash Tolerance
 
@@ -57,7 +58,7 @@ Crash-only design: every write path is designed to be safely restartable.
 - JSONL appends: truncated lines are skipped on read. Missing lines don't corrupt earlier lines.
 - Work item renames: a `work-items.rename.intent.json` file is written before any renames begin. On startup/reconciliation, any leftover intent is replayed to completion.
 - Atomic writes: any file that needs to be replaced goes through `tmp + os.replace()` (via `atomic_write_text()` in `state/atomic.py`).
-- Spawn reconciliation: active spawns are auto-finalized on every read path (list, show, wait, dashboard) by checking `runner_pid` liveness via psutil. No separate GC command. See `state/spawns.md` for full reaper logic.
+- Spawn reconciliation: active spawns are auto-finalized on every read path (list, show, wait, dashboard). The reaper skips nested invocations (`MERIDIAN_DEPTH > 0`), checks heartbeat file recency as the primary liveness signal, and consults `runner_pid` psutil liveness for non-`finalizing` rows. No separate GC command. See `state/spawns.md` for full reaper logic.
 
 ## Locking
 

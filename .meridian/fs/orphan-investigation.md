@@ -1,5 +1,7 @@
 # orphan_run false-failure investigation
 
+> **Archived investigation context.** This document traces the root-cause analysis for issue #14. The "Current reaper logic" and "Resolution" sections reflect intermediate rearchitecture, not the final shipped state. For current reaper logic, lifecycle states, and projection rules see `state/spawns.md`.
+
 ## Summary
 
 Tracked issue: `meridian-flow/meridian-cli#14` ("Bug: reaper can stamp orphan_run during post-exit pipe drain")
@@ -14,9 +16,11 @@ The later success did not repair the earlier failure because spawn projection is
 
 The durable report predicate is not the bug. `p1579/report.md` is plain markdown and matches `has_durable_report_completion()` immediately once it exists. The failure is the reaper deciding the spawn was orphaned during the runner's post-exit drain/finalization window, before `report.md` had been written.
 
-## Current reaper logic
+## Reaper logic at time of investigation (pre-issue-#14 fix)
 
-The old 500-line state machine was replaced by a single `reconcile_active_spawn()` function (~60 lines) in `src/meridian/lib/state/reaper.py`. The rearchitecture that fixed p1579 eliminated PID files, heartbeat checks, launch-mode dispatch, and staleness heuristics entirely.
+> Describes the intermediate state at investigation time. Issue #14 PR1+PR2 changed this further — see `state/spawns.md` for current logic.
+
+The old 500-line state machine was replaced by a single `reconcile_active_spawn()` function (~60 lines) in `src/meridian/lib/state/reaper.py`. That rearchitecture eliminated PID files, launch-mode dispatch, and staleness heuristics — but the heartbeat and `finalizing` state were not yet present.
 
 `reconcile_active_spawn(state_root, record)` checks one active spawn:
 
@@ -43,7 +47,7 @@ The old 500-line state machine was replaced by a single `reconcile_active_spawn(
 | `orphan_finalization` | Runner dead after exited event, no report — crash during post-exit finalization |
 | `missing_worker_pid` | No runner_pid recorded, startup grace elapsed — launch failure |
 
-`orphan_stale_harness` no longer exists — staleness detection via heartbeat was eliminated entirely. No heartbeat files are written.
+`orphan_stale_harness` no longer exists as of this rearchitecture. Note: at the time of writing this section, heartbeat files were not yet present. Issue #14 PR1 later re-introduced runner-owned heartbeats as a first-class liveness mechanism (see "Resolution" section and `state/spawns.md`).
 
 ## Why `p1579` matched the report predicate
 
@@ -165,21 +169,27 @@ My conclusion:
 
 In other words, both bugs point at lifecycle ambiguity around finalization, but `p1579` gives a concrete root cause that is narrower than the symptom reported in #10.
 
-## Resolution
+## Resolution (issue #14 PR1 + PR2 + final-review)
 
-The rearchitecture that landed after this investigation fixed the root cause directly rather than patching the old state machine. Key changes:
+The shipped fix has two complementary layers. See `state/spawns.md` for full current spec.
 
-**`exited` event in the spawn stream**: `runner.py` and `process.py` now write `record_spawn_exited()` immediately after the harness process exits, before pipe drain or report extraction. The `exited_at` field on `SpawnRecord` tells the reaper: “harness is done, runner is still working.” The `exited` event does NOT change the spawn's `status` — the spawn stays `running` until `finalize`.
+**Fix A — Heartbeat + depth gate (PR1)**
 
-**runner_pid in start event**: The `runner_pid` field in the spawn start event records the PID of the process responsible for finalization. The reaper checks this PID (not the harness/child PID) via psutil, eliminating the ambiguous “dead child but parent still cleaning up” window that caused p1579.
+`runner.py` writes a `heartbeat` artifact every 30s starting when the worker process/connection starts (inside the `running` transition) and continuing through `finalizing`. It does not cover the `queued` interval before the worker starts. The reaper uses this as its primary liveness signal — any artifact in `{heartbeat, output.jsonl, stderr.log, report.md}` touched within 120s suppresses reconciliation. The reaper also short-circuits when `MERIDIAN_DEPTH > 0` so nested spawns never reap their siblings. Fix A protects the `running` state against psutil false-negatives (the direct trigger for p1579).
 
-**Simplified reaper**: The old 500-line state machine with background/foreground/legacy paths, PID file inspection, and heartbeat staleness checks was replaced by a single ~60-line function (see “Current reaper logic” above). The `orphan_stale_harness` error code is gone. `orphan_finalization` distinguishes “runner crashed during post-exit work” from `orphan_run` (crash before any exit processing).
+**Fix B — `finalizing` lifecycle state (PR2)**
 
-**Heartbeat eliminated**: `heartbeat.py` was deleted. No heartbeat files are written. Staleness detection via filesystem timestamps is gone. The `exited` event + psutil liveness is definitive.
+A new `finalizing` status is inserted between `running` and terminal. `mark_finalizing(state_root, spawn_id)` is a CAS helper that transitions `running → finalizing` under the spawns flock after harness exit. Spawns in `finalizing` are heartbeat-gated only (psutil liveness not consulted). The reaper classifies stale `finalizing` rows as `orphan_finalization` — a lifecycle fact, not an `exited_at` heuristic. Fix B protects the post-exit drain window structurally.
 
-**Spawn directories artifact-only**: `harness.pid`, `background.pid`, and `heartbeat` files no longer exist. All runtime coordination lives in `spawns.jsonl`. Spawn directories contain only durable artifacts (`output.jsonl`, `stderr.log`, `report.md`, `tokens.json`, `params.json`).
+**Projection authority rule**
 
-The first-terminal-event-wins invariant is preserved. The fix works by preventing the reaper from issuing a premature terminal event in the first place — not by weakening the projection model.
+The projection model changed from first-terminal-event-wins to authority-based: `AUTHORITATIVE_ORIGINS = {“runner”, “launcher”, “launch_failure”, “cancel”}` can overwrite a prior `reconciler`-origin terminal. This is the recovery path for existing poisoned rows — if the runner reports after a reaper stamp, the runner wins. Authoritative-vs-authoritative races remain first-wins.
+
+**Legacy row shim**
+
+Existing rows without an `origin` field are classified via `resolve_finalize_origin()` using `LEGACY_RECONCILER_ERRORS`. This allows the authority rule to self-repair historical poisoned rows without a migration.
+
+The fix prevents premature reaps (Fix A + Fix B) and provides a recovery path when prevention fails (authority rule).
 
 ## Bottom line
 

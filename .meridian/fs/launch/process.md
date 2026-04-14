@@ -31,8 +31,8 @@
 6. Finalization (inline, no enrich_finalize)
    - has_durable_report_completion() checks if report.md exists with completion marker
    - resolve_execution_terminal_state() maps exit code + report presence → status
-   - extract_latest_session_id() discovers harness session post-launch
-   - spawn_store.finalize_spawn() → terminal state
+   - spawn_store.finalize_spawn() → terminal state (written before session ID extraction)
+   - extract_latest_session_id() discovers harness session post-launch (best-effort, after finalize)
 
 7. stop_session() [session_store]
 ```
@@ -58,6 +58,14 @@ Output is written to `.meridian/spawns/<id>/output.jsonl`.
 - Runs a report watchdog: if `report.md` appears during execution, can consider spawn done
 - Maps raw return codes to meridian exit codes via `map_process_exit_code()`
 - After `spawn_and_stream` returns, `execute_with_finalization()` writes the `exited` event inline (via `record_spawn_exited`), then calls `enrich_finalize()` to extract and persist artifacts
+
+`execute_with_finalization()` owns the full subagent lifecycle including the new finalization handshake:
+
+**Heartbeat task:** `_run_heartbeat_task()` touches `.meridian/spawns/<id>/heartbeat` every 30 seconds (`_HEARTBEAT_INTERVAL_SECS = 30.0`). Started in `_ensure_heartbeat_task()` when the worker process starts. Cancelled in the **outer `finally`** block — the heartbeat keeps running across `mark_finalizing` and `finalize_spawn` calls so it covers the entire active window (`running` + `finalizing`). This is the primary liveness signal the reaper uses; see `state/spawns.md`.
+
+**`mark_finalizing` CAS:** in the finalization `finally` block, after the harness has exited and drain/report extraction and retry handling are complete, `spawn_store.mark_finalizing(state_root, run.spawn_id)` is called immediately before `finalize_spawn()`. This is a CAS: it acquires the spawns flock, checks that current status is exactly `running`, and appends `status="finalizing"` only if so. Returns `True` on success, `False` on miss (already terminal, reaper won the race, etc.). On miss, the runner logs INFO and proceeds — `finalize_spawn(origin="runner")` still runs, and the projection authority rule ensures the runner's terminal state wins over any earlier reconciler stamp. The `finalizing` window is narrow: it signals "terminal state is being committed" rather than "draining output" — all drain/report work has already completed before this CAS runs.
+
+**Outer `finally` — heartbeat shutdown:** cancels and awaits the heartbeat task unconditionally, even if `finalize_spawn` raises. This ensures the heartbeat always terminates and doesn't outlive the runner's work.
 
 ## Signal Handling
 
@@ -97,7 +105,7 @@ Each spawn writes to `.meridian/spawns/<id>/`:
 - `tokens.json` — token usage (extracted from output stream)
 - `report.md` — extracted report (written by `enrich_finalize()`)
 
-Spawn directories contain only durable artifacts. Runtime coordination (PIDs, exit status, timestamps) lives exclusively in the `spawns.jsonl` event stream. No PID files, heartbeat files, or marker files are written to disk.
+Spawn directories contain durable artifacts plus the runner heartbeat file. Runtime coordination (PIDs, exit status, timestamps) lives in the `spawns.jsonl` event stream. The `heartbeat` file is the exception: it is a live coordination artifact touched every 30s by the runner and read by the reaper for liveness. No PID files or other marker files are written to disk.
 
 ## Error Classification
 

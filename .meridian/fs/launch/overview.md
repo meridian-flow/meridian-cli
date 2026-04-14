@@ -24,15 +24,20 @@
      has_durable_report_completion() check (no enrich_finalize)
      Special case: exit codes 143/-15 (SIGTERM) with a durable report →
      terminated_after_completion=True → resolved as succeeded
-   - extract_latest_session_id() for harness session persistence
    - Finalize spawn state (succeeded / failed / cancelled)
+   - extract_latest_session_id() for harness session persistence
 
 2b. spawn_and_stream()               [runner.py] — SPAWN/SUBAGENT PATH
    - Async subprocess execution with stdout/stderr capture
+   - Heartbeat task started when worker PID is known; touches heartbeat artifact every 30s
    - Report watchdog, stdin feeding
    - record_spawn_exited() written immediately after process exits, before enrich_finalize
    - On exit: enrich_finalize() extracts report, usage, session ID
-   - Finalize spawn state (succeeded / failed / cancelled)
+   - Retry handling (guardrails, retry backoff)
+   - mark_finalizing() CAS: transitions running → finalizing under flock, in finalization
+     finally block, after drain/report work and retry handling, immediately before finalize_spawn
+   - finalize_spawn(origin="runner") — terminal state
+   - Heartbeat task cancelled in outer finally (after finalize_spawn returns or raises)
 
 3. enrich_finalize()                 [extract.py] — SPAWN PATH ONLY
    - adapter.extract_usage() → TokenUsage
@@ -89,7 +94,7 @@ launch/
 
 **Two-pass policy resolution**: `resolve_policies()` runs a pre-profile merge first to select the agent profile, then re-merges with the profile's overrides. Required because the profile may specify a model/harness that needs to win over config defaults, but profile selection itself may depend on the pre-profile resolved agent name.
 
-**Crash tolerance**: Exited events + psutil-based liveness mean a crashed runner doesn't orphan state permanently. The reaper (`state/reaper.py`) detects orphaned spawns on read paths by checking `runner_pid` liveness via `liveness.py:is_process_alive()`, branching on `exited_at` event presence, and falling back to durable report completion.
+**Crash tolerance**: The runner writes a `heartbeat` artifact every 30s for the full active window (`running` + `finalizing`). The reaper uses heartbeat recency as its primary liveness signal; psutil `runner_pid` liveness is a secondary check (skipped entirely for `finalizing` rows). A `mark_finalizing` CAS after drain/report work (immediately before `finalize_spawn`) lets the reaper distinguish `orphan_finalization` (runner entered controlled drain but crashed before writing terminal state) from `orphan_run` (crashed during execution) — the distinction is a lifecycle fact, not an `exited_at` heuristic. If the runner reports a terminal state after the reaper has already stamped an orphan, the runner's `origin="runner"` finalize supersedes the reconciler stamp via the projection authority rule. See `state/spawns.md` for full projection and reaper logic.
 
 ## Related Docs
 
