@@ -12,6 +12,7 @@ from meridian.lib.state.paths import StateRootPaths
 from meridian.lib.state.spawn_store import (
     AUTHORITATIVE_ORIGINS,
     LEGACY_RECONCILER_ERRORS,
+    LaunchMode,
     SpawnFinalizeEvent,
     SpawnOrigin,
     SpawnUpdateEvent,
@@ -132,6 +133,34 @@ def test_spawn_origin_enum_is_complete() -> None:
         "missing_worker_pid",
         "harness_completed",
     } == LEGACY_RECONCILER_ERRORS
+
+
+def test_launch_mode_enum_includes_app() -> None:
+    assert set(get_args(LaunchMode)) == {
+        "background",
+        "foreground",
+        "app",
+    }
+
+
+def test_start_spawn_accepts_app_launch_mode_and_projects_it(tmp_path: Path) -> None:
+    state_root = _state_root(tmp_path)
+    spawn_id = str(
+        start_spawn(
+            state_root,
+            chat_id="c1",
+            model="gpt-5.4",
+            agent="coder",
+            harness="codex",
+            prompt="hello",
+            launch_mode="app",
+        )
+    )
+
+    row = get_spawn(state_root, spawn_id)
+
+    assert row is not None
+    assert row.launch_mode == "app"
 
 
 def test_finalize_spawn_requires_keyword_origin(tmp_path: Path) -> None:

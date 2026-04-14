@@ -51,7 +51,7 @@ def next_spawn_id(state_root: Path) -> SpawnId:
     return SpawnId(f"p{starts + 1}")
 
 
-LaunchMode = Literal["background", "foreground"]
+LaunchMode = Literal["background", "foreground", "app"]
 BACKGROUND_LAUNCH_MODE: LaunchMode = "background"
 FOREGROUND_LAUNCH_MODE: LaunchMode = "foreground"
 SpawnOrigin = Literal["runner", "launcher", "launch_failure", "cancel", "reconciler"]
@@ -138,7 +138,7 @@ class SpawnStartEvent(BaseModel):
     work_id: str | None = None
     harness_session_id: str | None = None
     execution_cwd: str | None = None
-    launch_mode: str | None = None
+    launch_mode: LaunchMode | None = None
     worker_pid: int | None = None
     runner_pid: int | None = None
     status: SpawnStatus = "running"

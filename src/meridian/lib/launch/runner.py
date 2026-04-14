@@ -28,11 +28,13 @@ from meridian.lib.harness.registry import HarnessRegistry
 from meridian.lib.safety.budget import Budget, BudgetBreach, LiveBudgetTracker
 from meridian.lib.safety.guardrails import run_guardrails
 from meridian.lib.safety.redaction import SecretSpec, redact_secret_bytes
+from meridian.lib.state import paths as state_paths
 from meridian.lib.state import spawn_store
 from meridian.lib.state.artifact_store import ArtifactStore, make_artifact_key
 from meridian.lib.state.atomic import atomic_write_bytes
 from meridian.lib.state.paths import resolve_spawn_log_dir
 from meridian.lib.state.spawn_store import FOREGROUND_LAUNCH_MODE
+from meridian.lib.streaming.heartbeat import heartbeat_loop
 
 from .constants import (
     DEFAULT_INFRA_EXIT_CODE,
@@ -127,20 +129,10 @@ def run_log_dir(repo_root: Path, spawn_id: SpawnId) -> Path:
     return resolve_spawn_log_dir(repo_root, spawn_id)
 
 
-def _heartbeat_path(state_root: Path, spawn_id: SpawnId) -> Path:
-    return state_root / "spawns" / str(spawn_id) / "heartbeat"
-
-
 def _touch_heartbeat_file(state_root: Path, spawn_id: SpawnId) -> None:
-    heartbeat_path = _heartbeat_path(state_root, spawn_id)
+    heartbeat_path = state_paths.heartbeat_path(state_root, spawn_id)
     heartbeat_path.parent.mkdir(parents=True, exist_ok=True)
     heartbeat_path.touch(exist_ok=True)
-
-
-async def _run_heartbeat_task(state_root: Path, spawn_id: SpawnId) -> None:
-    while True:
-        await asyncio.sleep(_HEARTBEAT_INTERVAL_SECS)
-        _touch_heartbeat_file(state_root, spawn_id)
 
 
 def _read_captured_output(path: Path) -> bytes:
@@ -585,7 +577,14 @@ async def execute_with_finalization(
         nonlocal heartbeat_task
         _touch_heartbeat_file(state_root, run.spawn_id)
         if heartbeat_task is None or heartbeat_task.done():
-            heartbeat_task = asyncio.create_task(_run_heartbeat_task(state_root, run.spawn_id))
+            heartbeat_task = asyncio.create_task(
+                heartbeat_loop(
+                    state_root,
+                    run.spawn_id,
+                    interval=_HEARTBEAT_INTERVAL_SECS,
+                    touch=_touch_heartbeat_file,
+                )
+            )
 
     try:
         try:

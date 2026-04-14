@@ -182,6 +182,12 @@ def resolve_spawn_log_dir(repo_root: Path, spawn_id: SpawnId | str) -> Path:
     return resolve_state_paths(repo_root).root_dir / spawn_log_subpath(spawn_id)
 
 
+def heartbeat_path(state_root: Path, spawn_id: SpawnId | str) -> Path:
+    """Return heartbeat sentinel path for a spawn under a state root."""
+
+    return StateRootPaths.from_root_dir(state_root).spawns_dir / str(spawn_id) / "heartbeat"
+
+
 def ensure_gitignore(repo_root: Path) -> Path:
     """Seed `.meridian/.gitignore` and non-destructively add required tracked entries."""
 

@@ -80,19 +80,51 @@ class ControlSocketServer:
             text = payload.get("text")
             if not isinstance(text, str):
                 return {"ok": False, "error": "user_message requires text"}
+            response: dict[str, object] | None = None
+
+            def _on_result(inject_result: InjectResult) -> None:
+                nonlocal response
+                response = self._result_to_response(inject_result)
+
             result = await self._manager.inject(
-                self._spawn_id, message=text, source="control_socket"
+                self._spawn_id,
+                message=text,
+                source="control_socket",
+                on_result=_on_result,
             )
+            return response or self._result_to_response(result)
         elif message_type == "interrupt":
-            result = await self._manager.interrupt(self._spawn_id, source="control_socket")
+            response: dict[str, object] | None = None
+
+            def _on_result(inject_result: InjectResult) -> None:
+                nonlocal response
+                response = self._result_to_response(inject_result)
+
+            result = await self._manager.interrupt(
+                self._spawn_id,
+                source="control_socket",
+                on_result=_on_result,
+            )
+            return response or self._result_to_response(result)
         elif message_type == "cancel":
             result = await self._manager.cancel(self._spawn_id, source="control_socket")
         else:
             return {"ok": False, "error": f"unsupported request type: {message_type}"}
 
+        return self._result_to_response(result)
+
+    @staticmethod
+    def _result_to_response(result: InjectResult) -> dict[str, object]:
+        response: dict[str, object]
         if result.success:
-            return {"ok": True}
-        return {"ok": False, "error": result.error or "request failed"}
+            response = {"ok": True}
+            if result.noop:
+                response["noop"] = True
+        else:
+            response = {"ok": False, "error": result.error or "request failed"}
+        if result.inbound_seq is not None:
+            response["inbound_seq"] = result.inbound_seq
+        return response
 
     async def stop(self) -> None:
         """Close the server and remove the socket path."""

@@ -33,6 +33,8 @@ class InjectResult:
     """Outcome of attempting to inject one control message."""
 
     success: bool
+    inbound_seq: int | None = None
+    noop: bool = False
     error: str | None = None
 
 

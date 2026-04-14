@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Callable
+from dataclasses import fields
 from pathlib import Path
 from typing import cast
 
@@ -19,10 +20,14 @@ from meridian.lib.harness.connections.base import (
 from meridian.lib.harness.ids import TransportId
 from meridian.lib.harness.launch_spec import CodexLaunchSpec, ResolvedLaunchSpec
 from meridian.lib.safety.permissions import UnsafeNoOpPermissionResolver
+from meridian.lib.state import paths
 from meridian.lib.state.paths import resolve_state_paths
-from meridian.lib.state.spawn_store import get_spawn, start_spawn
+from meridian.lib.state.spawn_store import finalize_spawn, get_spawn, start_spawn
 from meridian.lib.streaming import spawn_manager as spawn_manager_module
+from meridian.lib.streaming.heartbeat import heartbeat_loop
+from meridian.lib.streaming.inject_lock import get_lock
 from meridian.lib.streaming.spawn_manager import SpawnManager
+from meridian.lib.streaming.types import InjectResult
 
 
 def _read_output_lines(state_root: Path, spawn_id: str) -> list[dict[str, object]]:
@@ -43,6 +48,15 @@ def _read_spawn_events(state_root: Path) -> list[dict[str, object]]:
     ]
 
 
+def _read_inbound_lines(state_root: Path, spawn_id: str) -> list[dict[str, object]]:
+    inbound_path = state_root / "spawns" / spawn_id / "inbound.jsonl"
+    return [
+        cast("dict[str, object]", json.loads(line))
+        for line in inbound_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+
 def _build_config(spawn_id: str, repo_root: Path) -> ConnectionConfig:
     return ConnectionConfig(
         spawn_id=spawn_id,
@@ -59,6 +73,351 @@ async def _wait_until(predicate: Callable[[], bool], *, attempts: int = 200) -> 
             return
         await asyncio.sleep(0)
     raise AssertionError("timed out waiting for condition")
+
+
+async def _start_recording_manager(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    user_message_gate: asyncio.Event | None = None,
+    user_message_started: asyncio.Event | None = None,
+) -> tuple[SpawnManager, Path, str, object]:
+    repo_root = tmp_path
+    state_root = resolve_state_paths(repo_root).root_dir
+
+    class FakeControlSocketServer:
+        def __init__(self, spawn_id: str, socket_path: Path, manager: SpawnManager) -> None:
+            _ = spawn_id, manager
+            self.socket_path = socket_path
+
+        async def start(self) -> None:
+            self.socket_path.parent.mkdir(parents=True, exist_ok=True)
+
+        async def stop(self) -> None:
+            pass
+
+    class RecordingConnection:
+        latest: RecordingConnection | None = None
+
+        def __init__(self) -> None:
+            type(self).latest = self
+            self._spawn_id = ""
+            self.state = "created"
+            self.operations: list[tuple[str, str | None]] = []
+            self.capabilities = ConnectionCapabilities(
+                mid_turn_injection="queue",
+                supports_steer=True,
+                supports_interrupt=True,
+                supports_cancel=True,
+                runtime_model_switch=False,
+                structured_reasoning=False,
+            )
+
+        @property
+        def harness_id(self) -> HarnessId:
+            return HarnessId.CODEX
+
+        @property
+        def spawn_id(self) -> str:
+            return self._spawn_id
+
+        async def start(self, config: ConnectionConfig, spec: ResolvedLaunchSpec) -> None:
+            _ = spec
+            self._spawn_id = config.spawn_id
+            self.state = "connected"
+
+        async def stop(self) -> None:
+            self.state = "stopped"
+
+        def health(self) -> bool:
+            return True
+
+        async def send_user_message(self, text: str) -> None:
+            self.operations.append(("user_message", text))
+            if user_message_started is not None:
+                user_message_started.set()
+            if user_message_gate is not None:
+                await user_message_gate.wait()
+
+        async def send_interrupt(self) -> None:
+            self.operations.append(("interrupt", None))
+
+        async def send_cancel(self) -> None:
+            self.operations.append(("cancel", None))
+
+        async def events(self):  # type: ignore[no-untyped-def]
+            while True:
+                await asyncio.sleep(3600)
+                if False:
+                    yield HarnessEvent(
+                        event_type="noop",
+                        harness_id="codex",
+                        payload={},
+                    )
+
+    monkeypatch.setattr(spawn_manager_module, "ControlSocketServer", FakeControlSocketServer)
+    monkeypatch.setattr(
+        "meridian.lib.harness.connections.get_connection_class",
+        lambda harness_id: RecordingConnection,
+    )
+
+    spawn_id = str(
+        start_spawn(
+            state_root,
+            chat_id="c1",
+            model="gpt-5.3-codex",
+            agent="coder",
+            harness="codex",
+            kind="streaming",
+            prompt="hello",
+            launch_mode="foreground",
+            status="running",
+        )
+    )
+    manager = SpawnManager(state_root=state_root, repo_root=repo_root)
+    await manager.start_spawn(
+        _build_config(spawn_id, repo_root),
+        CodexLaunchSpec(
+            prompt="hello",
+            permission_resolver=UnsafeNoOpPermissionResolver(_suppress_warning=True),
+        ),
+    )
+    connection = RecordingConnection.latest
+    assert connection is not None
+    return manager, state_root, spawn_id, connection
+
+
+def test_inject_result_exposes_phase_1_fields() -> None:
+    assert [field.name for field in fields(InjectResult)] == [
+        "success",
+        "inbound_seq",
+        "noop",
+        "error",
+    ]
+    assert InjectResult(success=True) == InjectResult(
+        success=True,
+        inbound_seq=None,
+        noop=False,
+        error=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_loop_creates_missing_sentinel(tmp_path: Path) -> None:
+    state_root = tmp_path / ".meridian"
+    spawn_id = SpawnId("p-heartbeat")
+    sentinel = paths.heartbeat_path(state_root, spawn_id)
+
+    task = asyncio.create_task(heartbeat_loop(state_root, spawn_id, interval=0.01))
+    try:
+        await _wait_until(sentinel.exists)
+    finally:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_loop_uses_configured_interval_touching(tmp_path: Path) -> None:
+    state_root = tmp_path / ".meridian"
+    spawn_id = SpawnId("p-heartbeat")
+    sentinel = paths.heartbeat_path(state_root, spawn_id)
+    touch_count = 0
+
+    def _touch(_state_root: Path, _spawn_id: SpawnId) -> None:
+        nonlocal touch_count
+        touch_count += 1
+        sentinel.touch()
+
+    task = asyncio.create_task(
+        heartbeat_loop(state_root, spawn_id, interval=0.01, touch=_touch)
+    )
+    try:
+        await asyncio.sleep(0.035)
+        assert touch_count >= 2
+        assert sentinel.exists()
+    finally:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+
+@pytest.mark.asyncio
+async def test_spawn_manager_concurrent_injects_assign_distinct_monotonic_inbound_seq(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager, state_root, spawn_id, connection = await _start_recording_manager(
+        tmp_path,
+        monkeypatch,
+    )
+    try:
+        first, second = await asyncio.gather(
+            manager.inject(SpawnId(spawn_id), "A"),
+            manager.inject(SpawnId(spawn_id), "B"),
+        )
+
+        inbound_lines = _read_inbound_lines(state_root, spawn_id)
+        assert [line["action"] for line in inbound_lines] == ["user_message", "user_message"]
+        assert [line["data"]["text"] for line in inbound_lines] == [
+            payload for action, payload in connection.operations if action == "user_message"
+        ]
+        assert {first.inbound_seq, second.inbound_seq} == {0, 1}
+        assert sorted(
+            cast("list[int]", [first.inbound_seq, second.inbound_seq])
+        ) == [0, 1]
+        row = get_spawn(state_root, SpawnId(spawn_id))
+        assert row is not None
+        assert row.status == "running"
+    finally:
+        await manager.stop_spawn(SpawnId(spawn_id))
+
+
+@pytest.mark.asyncio
+async def test_spawn_manager_interrupt_and_inject_share_one_linearized_sequence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager, state_root, spawn_id, connection = await _start_recording_manager(
+        tmp_path,
+        monkeypatch,
+    )
+    try:
+        inject_result, interrupt_result = await asyncio.gather(
+            manager.inject(SpawnId(spawn_id), "A"),
+            manager.interrupt(SpawnId(spawn_id), source="control_socket"),
+        )
+
+        inbound_lines = _read_inbound_lines(state_root, spawn_id)
+        assert [line["action"] for line in inbound_lines] == [
+            action for action, _ in connection.operations if action != "cancel"
+        ]
+        assert {inject_result.inbound_seq, interrupt_result.inbound_seq} == {0, 1}
+        assert sorted(
+            cast("list[int]", [inject_result.inbound_seq, interrupt_result.inbound_seq])
+        ) == [0, 1]
+        row = get_spawn(state_root, SpawnId(spawn_id))
+        assert row is not None
+        assert row.status == "running"
+    finally:
+        await manager.stop_spawn(SpawnId(spawn_id))
+
+
+@pytest.mark.asyncio
+async def test_spawn_manager_on_result_callback_runs_before_lock_is_released(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first_send_started = asyncio.Event()
+    release_first_send = asyncio.Event()
+    manager, _state_root, spawn_id, _connection = await _start_recording_manager(
+        tmp_path,
+        monkeypatch,
+        user_message_gate=release_first_send,
+        user_message_started=first_send_started,
+    )
+    try:
+        callback_lock_states: list[bool] = []
+        callback_second_task_done: list[bool] = []
+
+        def _on_result(_result: InjectResult) -> None:
+            callback_lock_states.append(get_lock(SpawnId(spawn_id)).locked())
+            callback_second_task_done.append(second_task.done())
+
+        first_task = asyncio.create_task(
+            manager.inject(SpawnId(spawn_id), "A", on_result=_on_result)
+        )
+        await first_send_started.wait()
+        second_task = asyncio.create_task(manager.inject(SpawnId(spawn_id), "B"))
+        await asyncio.sleep(0)
+        assert second_task.done() is False
+        release_first_send.set()
+        await first_task
+        await second_task
+
+        assert callback_lock_states == [True]
+        assert callback_second_task_done == [False]
+    finally:
+        await manager.stop_spawn(SpawnId(spawn_id))
+
+
+@pytest.mark.asyncio
+async def test_spawn_manager_inject_rejects_when_spawn_is_not_active(tmp_path: Path) -> None:
+    repo_root = tmp_path
+    state_root = resolve_state_paths(repo_root).root_dir
+    spawn_id = start_spawn(
+        state_root,
+        chat_id="c1",
+        model="gpt-5.3-codex",
+        agent="coder",
+        harness="codex",
+        kind="streaming",
+        prompt="hello",
+        launch_mode="foreground",
+        status="succeeded",
+    )
+    manager = SpawnManager(state_root=state_root, repo_root=repo_root)
+
+    result = await manager.inject(spawn_id, "late message")
+
+    assert result == InjectResult(
+        success=False,
+        error="spawn not running: succeeded",
+    )
+
+
+@pytest.mark.asyncio
+async def test_spawn_manager_inject_rejects_when_spawn_is_terminal_before_session_cleanup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager, state_root, spawn_id, _connection = await _start_recording_manager(
+        tmp_path,
+        monkeypatch,
+    )
+    try:
+        finalized = finalize_spawn(
+            state_root,
+            SpawnId(spawn_id),
+            status="succeeded",
+            exit_code=0,
+            origin="runner",
+        )
+        assert finalized is True
+        result = await manager.inject(SpawnId(spawn_id), "late message")
+        assert result == InjectResult(
+            success=False,
+            error="spawn not running: succeeded",
+        )
+    finally:
+        await manager.stop_spawn(SpawnId(spawn_id))
+
+
+@pytest.mark.asyncio
+async def test_spawn_manager_interrupt_rejects_when_spawn_is_terminal_before_session_cleanup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager, state_root, spawn_id, _connection = await _start_recording_manager(
+        tmp_path,
+        monkeypatch,
+    )
+    try:
+        finalized = finalize_spawn(
+            state_root,
+            SpawnId(spawn_id),
+            status="succeeded",
+            exit_code=0,
+            origin="runner",
+        )
+        assert finalized is True
+        result = await manager.interrupt(SpawnId(spawn_id), source="control_socket")
+        assert result == InjectResult(
+            success=False,
+            error="spawn not running: succeeded",
+        )
+    finally:
+        await manager.stop_spawn(SpawnId(spawn_id))
 
 
 @pytest.mark.asyncio

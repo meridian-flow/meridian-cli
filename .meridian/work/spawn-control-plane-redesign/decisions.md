@@ -337,3 +337,60 @@ zero-based appended line index and threads that through `InjectResult`.
 **Why.** `inbound.jsonl` is the durable ordering authority. Returning the
 line index avoids inventing a second sequence source just to satisfy the
 HTTP/control-socket acknowledgement contract.
+
+## Impl-01 — Planning phase: parallel-capable decomposition required
+
+**Choice.** Plan must exploit natural parallelism in the refactor agenda. Sequential execution of independent phases (e.g., D/F after B when they don't depend on B) would trigger redesign brief.
+
+**Why.** Phases D (classifier, R-04) and F (liveness, R-07) depend only on Phase A (foundation). They share no files with Phase B (transport + auth) or Phase C (cancel pipeline). Sequential coupling would waste execution time for no safety benefit.
+
+## Impl-02 — Smoke testing mandatory for integration phases
+
+**Choice.** Phases touching AF_UNIX socket (B), SIGTERM handling (C), and HTTP endpoint reshape (E) get @smoke-tester lanes. Foundation-only phases (A) get @verifier only.
+
+**Why.** Integration code can only be verified by running against the real system. Per agent-staffing skill: "smoke tests prove it actually works end-to-end against real inputs."
+
+## Impl-03 — Planner splits cancel core from HTTP cancel convergence
+
+**Choice.** The implementation plan lands `SignalCanceller` core behavior
+before the AF_UNIX `/cancel` endpoint convergence. Phase 5 owns the
+shared cancel semantics (`CAN-001`, `CAN-003`, `CAN-006`, `CAN-007`,
+`CAN-008`) and removes control-socket cancel. Phase 6 then wires the
+HTTP endpoint and cross-process app-managed cancel path (`R-05`, `R-09`)
+and claims the HTTP-facing cancel leaves (`CAN-002`, `CAN-004`,
+`CAN-005`).
+
+**Why.** The refactor hints cluster `R-09` ahead of `R-05`, but the
+actual cross-process app cancel bridge needs the new `/api/spawns/{id}/cancel`
+endpoint to exist. Forcing them into one earlier phase would either
+expose an incomplete HTTP lifecycle surface or make the cancel phase
+non-verifiable. Splitting the core semantics from HTTP convergence keeps
+every phase independently testable.
+
+**Alternative rejected.** Move all cancel + HTTP work into one large
+server-centric phase. Rejected because it collapses cancellation,
+transport, schema, and endpoint work into one hotspot and destroys the
+only safe fan-out available after the foundation round.
+
+## Impl-04 — Parallelism posture is limited by shared hotspots, not by missing design
+
+**Choice.** The plan uses four rounds with one real fan-out round:
+foundation first, then transport/auth + interrupt-classifier + liveness
+in parallel, then cancel core, then HTTP convergence.
+
+**Why.** `app/server.py`, `spawn_manager.py`, and the lifecycle surfaces
+are the structural hotspots. Pushing for the design hint's broader
+parallelism would create overlapping write ownership and ambiguous test
+boundaries. The chosen posture keeps the concurrent phases file-disjoint
+enough for independent coders and testers while still exploiting the
+parallelism that the design safely supports.
+
+**Alternative rejected.** Serializing everything after the foundation
+round. Rejected because the interrupt classifier and liveness work do not
+depend on transport/auth decisions and can advance safely in parallel.
+
+## Impl-03 — INJ-004 terminal rejection gap
+
+**Finding.** Verifier (p1804) found `SpawnManager.inject()` only rejects when session is absent, not when spawn status is already terminal but session cleanup hasn't run. A `turn/completed` event can make the spawn terminal while the session dict still has an entry.
+
+**Fix.** Add an explicit terminal status check in `inject()` and `interrupt()` before the session lookup. Read spawn record from store and reject if status is terminal.

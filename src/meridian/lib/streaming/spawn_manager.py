@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from meridian.lib.core.domain import SpawnStatus
+from meridian.lib.core.spawn_lifecycle import TERMINAL_SPAWN_STATUSES
 from meridian.lib.core.types import SpawnId
 from meridian.lib.harness.adapter import SpawnParams
 from meridian.lib.harness.bundle import get_harness_bundle
@@ -20,8 +21,10 @@ from meridian.lib.harness.connections.base import HarnessEvent
 from meridian.lib.harness.errors import HarnessBinaryNotFound
 from meridian.lib.launch.launch_types import ResolvedLaunchSpec
 from meridian.lib.safety.permissions import UnsafeNoOpPermissionResolver
+from meridian.lib.state import spawn_store
 from meridian.lib.state.atomic import append_text_line
 from meridian.lib.streaming.control_socket import ControlSocketServer
+from meridian.lib.streaming.inject_lock import drop_lock, get_lock
 from meridian.lib.streaming.types import InjectResult
 
 if TYPE_CHECKING:
@@ -32,6 +35,7 @@ if TYPE_CHECKING:
     from meridian.lib.observability.debug_tracer import DebugTracer
 
 logger = logging.getLogger(__name__)
+InjectResultCallback = Callable[[InjectResult], None]
 
 
 @dataclass(frozen=True)
@@ -324,43 +328,97 @@ class SpawnManager:
         spawn_id: SpawnId,
         message: str,
         source: str = "control_socket",
+        on_result: InjectResultCallback | None = None,
     ) -> InjectResult:
         """Record and route one user message injection to the target connection."""
 
-        session = self._sessions.get(spawn_id)
-        if session is None:
-            return InjectResult(success=False, error=f"Spawn {spawn_id} is not active")
-
-        try:
-            await self._record_inbound(
-                spawn_id,
-                action="user_message",
-                data={"text": message},
-                source=source,
+        record = spawn_store.get_spawn(self._state_root, spawn_id)
+        if record is not None and record.status in TERMINAL_SPAWN_STATUSES:
+            result = InjectResult(
+                success=False,
+                error=f"spawn not running: {record.status}",
             )
-            await session.connection.send_user_message(message)
-        except Exception as exc:
-            return InjectResult(success=False, error=str(exc))
-        return InjectResult(success=True)
+            if on_result is not None:
+                on_result(result)
+            return result
 
-    async def interrupt(self, spawn_id: SpawnId, source: str) -> InjectResult:
+        async with get_lock(spawn_id):
+            session = self._sessions.get(spawn_id)
+            if session is None:
+                result = InjectResult(
+                    success=False,
+                    error=f"Spawn {spawn_id} is not active",
+                )
+                if on_result is not None:
+                    on_result(result)
+                return result
+
+            try:
+                inbound_seq = await self._record_inbound(
+                    spawn_id,
+                    action="user_message",
+                    data={"text": message},
+                    source=source,
+                )
+                await session.connection.send_user_message(message)
+            except Exception as exc:
+                result = InjectResult(success=False, error=str(exc))
+                if on_result is not None:
+                    on_result(result)
+                return result
+
+            result = InjectResult(success=True, inbound_seq=inbound_seq)
+            if on_result is not None:
+                on_result(result)
+            return result
+
+    async def interrupt(
+        self,
+        spawn_id: SpawnId,
+        source: str,
+        on_result: InjectResultCallback | None = None,
+    ) -> InjectResult:
         """Record and route one interrupt request to the target connection."""
 
-        session = self._sessions.get(spawn_id)
-        if session is None:
-            return InjectResult(success=False, error=f"Spawn {spawn_id} is not active")
-
-        try:
-            await self._record_inbound(
-                spawn_id,
-                action="interrupt",
-                data={},
-                source=source,
+        record = spawn_store.get_spawn(self._state_root, spawn_id)
+        if record is not None and record.status in TERMINAL_SPAWN_STATUSES:
+            result = InjectResult(
+                success=False,
+                error=f"spawn not running: {record.status}",
             )
-            await session.connection.send_interrupt()
-        except Exception as exc:
-            return InjectResult(success=False, error=str(exc))
-        return InjectResult(success=True)
+            if on_result is not None:
+                on_result(result)
+            return result
+
+        async with get_lock(spawn_id):
+            session = self._sessions.get(spawn_id)
+            if session is None:
+                result = InjectResult(
+                    success=False,
+                    error=f"Spawn {spawn_id} is not active",
+                )
+                if on_result is not None:
+                    on_result(result)
+                return result
+
+            try:
+                inbound_seq = await self._record_inbound(
+                    spawn_id,
+                    action="interrupt",
+                    data={},
+                    source=source,
+                )
+                await session.connection.send_interrupt()
+            except Exception as exc:
+                result = InjectResult(success=False, error=str(exc))
+                if on_result is not None:
+                    on_result(result)
+                return result
+
+            result = InjectResult(success=True, inbound_seq=inbound_seq)
+            if on_result is not None:
+                on_result(result)
+            return result
 
     async def cancel(self, spawn_id: SpawnId, source: str) -> InjectResult:
         """Record and route one cancellation request to the target connection."""
@@ -387,16 +445,19 @@ class SpawnManager:
         action: str,
         data: dict[str, object],
         source: str,
-    ) -> None:
+    ) -> int:
         """Append one inbound action to the spawn write-ahead control log."""
 
+        log_path = self._inbound_log_path(spawn_id)
+        inbound_seq = await asyncio.to_thread(self._count_jsonl_lines, log_path)
         payload = {
             "action": action,
             "data": data,
             "ts": time.time(),
             "source": source,
         }
-        await self._append_jsonl(self._inbound_log_path(spawn_id), payload)
+        await self._append_jsonl(log_path, payload)
+        return inbound_seq
 
     def get_connection(self, spawn_id: SpawnId) -> HarnessConnection[Any] | None:
         """Return the active connection for one spawn, if present."""
@@ -424,6 +485,7 @@ class SpawnManager:
 
         session = self._sessions.get(spawn_id)
         if session is None:
+            drop_lock(spawn_id)
             return None
 
         if status == "cancelled" and not session.cancel_sent:
@@ -465,6 +527,7 @@ class SpawnManager:
         self._fan_out_event(spawn_id, None)
         self._sessions.pop(spawn_id, None)
         self._completion_futures.pop(spawn_id, None)
+        drop_lock(spawn_id)
         return outcome
 
     async def _emit_cancelled_terminal_event(
@@ -522,6 +585,12 @@ class SpawnManager:
         line = json.dumps(payload, separators=(",", ":"), sort_keys=True) + "\n"
         await asyncio.to_thread(append_text_line, path, line)
 
+    def _count_jsonl_lines(self, path: Path) -> int:
+        if not path.exists():
+            return 0
+        with path.open("rb") as handle:
+            return sum(1 for _ in handle)
+
     def _fan_out_event(self, spawn_id: SpawnId, event: HarnessEvent | None) -> None:
         session = self._sessions.get(spawn_id)
         if session is None or session.subscriber is None:
@@ -566,6 +635,7 @@ class SpawnManager:
 
         session = self._sessions.pop(spawn_id, None)
         if session is None:
+            drop_lock(spawn_id)
             return
         if session.debug_tracer is not None:
             session.debug_tracer.close()
@@ -573,6 +643,7 @@ class SpawnManager:
             await session.connection.stop()
         with suppress(Exception):
             await session.control_server.stop()
+        drop_lock(spawn_id)
 
     def _resolve_completion_future(
         self,
