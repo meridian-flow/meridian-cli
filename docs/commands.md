@@ -76,6 +76,19 @@ Common `spawn` flags:
 | `meridian mars upgrade` | Fetch latest versions and sync |
 | `meridian mars doctor` | Check for drift and integrity issues |
 
+## Spawn Statuses
+
+| Status | Meaning |
+| ------ | ------- |
+| `queued` | Registered but harness not yet started |
+| `running` | Harness process is active |
+| `finalizing` | All post-exit work is done; runner is committing the terminal state — no new work will happen, but the spawn is not yet terminal |
+| `succeeded` | Completed successfully |
+| `failed` | Completed with an error |
+| `cancelled` | Cancelled before or during execution |
+
+`queued`, `running`, and `finalizing` are active (in-flight) statuses. They all count toward active spawn counts in `spawn list` and the `work` dashboard. `finalizing` is typically brief — a few seconds at most — but is visible between harness exit and final persistence.
+
 ## Spawn References
 
 Several commands accept symbolic spawn references in addition to literal IDs:

@@ -268,9 +268,16 @@ graph TD
 Spawn lifecycle is tracked as append-only JSONL events in `spawns.jsonl`:
 
 ```json
-{"v":1,"event":"start","id":"p1","chat_id":"c1","model":"claude-opus-4-6","harness":"claude","kind":"primary","status":"running","prompt":"...","started_at":"..."}
-{"v":1,"event":"finalize","id":"p1","status":"succeeded","exit_code":0,"finished_at":"...","duration_secs":42.5}
+{"v":1,"event":"start","id":"p1","chat_id":"c1","model":"claude-opus-4-6","harness":"claude","kind":"primary","status":"queued","prompt":"...","started_at":"..."}
+{"v":1,"event":"update","id":"p1","status":"finalizing"}
+{"v":1,"event":"finalize","id":"p1","status":"succeeded","exit_code":0,"finished_at":"...","duration_secs":42.5,"origin":"runner"}
 ```
+
+The `update` event with `status":"finalizing"` is written atomically (under `spawns.jsonl.flock`) after the runner completes all post-exit work (output drain, report extraction, session ID extraction) and immediately before writing the terminal `finalize` event. The `finalize` event writes the terminal outcome.
+
+The `origin` field on `finalize` records who wrote the terminal state:
+- `runner` / `launcher` / `cancel` / `launch_failure` — authoritative; the process that ran the work has full evidence
+- `reconciler` — best-effort; based on heartbeat/artifact recency, may be superseded by a late authoritative finalize
 
 Session lifecycle follows the same pattern in `sessions.jsonl` with `start`, `stop`, and `update` events. Both use Pydantic event models for typed serialization at I/O boundaries.
 
@@ -375,7 +382,7 @@ Safety enforcement is delegated to the harnesses. Meridian's `safety/` package i
 The `launch/` package owns the entire harness process lifecycle, unifying what was previously split across four separate packages:
 
 ```
-resolve -> build prompt -> build command -> fork process -> stream output -> extract results -> finalize
+resolve -> build prompt -> build command -> fork process -> stream output -> extract results -> mark finalizing -> finalize
 ```
 
 ```mermaid
@@ -388,10 +395,44 @@ graph TD
     Subprocess --> Signals["signals.py<br/>SIGINT/SIGTERM forwarding"]
     Subprocess --> Timeout["timeout.py<br/>SIGTERM -> grace -> SIGKILL"]
     Stream --> Extract["extract.py<br/>tokens + session + report"]
-    Extract --> Done["finalize_spawn event"]
+    Extract --> MarkFinalizing["mark_finalizing()<br/>running → finalizing (CAS)"]
+    MarkFinalizing --> Done["finalize_spawn event<br/>origin=runner"]
 ```
 
+The `running → finalizing` transition is a compare-and-swap operation under `spawns.jsonl.flock`. If the CAS misses (spawn already moved to terminal), the runner continues to its authoritative `finalize_spawn` write, which supersedes any earlier reconciler-origin terminal.
+
+The runner maintains a heartbeat file (`spawns/<id>/heartbeat`) updated every 30 seconds for the full duration of `running` and `finalizing`. The reconciler uses this (along with `output.jsonl`, `stderr.log`, and `report.md`) to detect genuinely dead processes; 120 seconds of silence triggers orphan classification.
+
 Both primary agent launch (`meridian`) and spawn execution (`meridian spawn`, backed by the internal `spawn.create` operation) use the same lifecycle.
+
+---
+
+## Reconciler
+
+The reconciler runs on read paths (`spawn list`, `spawn show`, `work` dashboard, `meridian doctor`) and resolves active spawns where the runner process has gone silent.
+
+### Orphan classification
+
+| Error value | Status before | Meaning |
+| ----------- | ------------- | ------- |
+| `orphan_run` | `running` / `queued` | Runner died during execution; harness may have been mid-task |
+| `orphan_finalization` | `finalizing` | Spawn was in 'finalizing' status when reaped (runner crashed after post-exit work, before terminal finalize) |
+| `missing_worker_pid` | `running` | No worker PID was recorded and no recent activity detected |
+
+Both `orphan_run` and `orphan_finalization` result in terminal status `failed`. `orphan_finalization` is more likely to have a usable `report.md` on disk.
+
+### Authority rule
+
+Reconciler-origin terminals can be superseded by a later authoritative terminal (runner, launcher, or cancel). If `spawn show` shows `succeeded` for a spawn that briefly appeared orphaned, the runner completed after the reconciler's read — no inconsistency.
+
+Authoritative-origin terminals are first-wins among themselves; a `succeeded` from the runner cannot be overwritten by a later `cancelled` or `failed` from any source.
+
+### Reconciler gates
+
+- Reconciliation is skipped when `MERIDIAN_DEPTH > 0` (nested spawns run under a parent that has already reconciled — prevents false-positive orphan stamps from sandboxed child perspective).
+- Startup grace: 15 seconds after `started_at` before classifying missing-PID spawns.
+- Heartbeat window: 120 seconds. Activity from any artifact (`heartbeat`, `output.jsonl`, `stderr.log`, `report.md`) within that window suppresses reconciliation.
+- PID reuse margin: 30 seconds (protects against a recycled PID being misread as the original runner).
 
 ---
 

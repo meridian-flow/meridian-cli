@@ -33,6 +33,21 @@ Current MCP tools:
 
 Not MCP-exposed (CLI-only): config_*, skills_search, sync_*.
 
+## Spawn Statuses
+
+Spawn records returned by `spawn_show`, `spawn_list`, `spawn_wait`, and `spawn_stats` carry a `status` field with one of these values:
+
+| Status | Meaning |
+| ------ | ------- |
+| `queued` | Registered; harness not yet started |
+| `running` | Harness process is active |
+| `finalizing` | All post-exit work is done; runner is committing the terminal state — not yet terminal |
+| `succeeded` | Completed successfully |
+| `failed` | Completed with an error |
+| `cancelled` | Cancelled before or during execution |
+
+`queued`, `running`, and `finalizing` are active (in-flight). `succeeded`, `failed`, and `cancelled` are terminal. `finalizing` is typically brief but is visible in responses between harness exit and final persistence. Treat it the same as `running` when deciding whether to poll again.
+
 ## Spawn Tools
 
 ### `spawn_create`

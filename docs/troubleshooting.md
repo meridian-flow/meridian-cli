@@ -51,15 +51,36 @@ meridian work                      # dashboard with attached spawns
 meridian report search "keyword"   # search across all spawn reports
 ```
 
+## Spawn shows as `finalizing`
+
+`finalizing` is a normal, short-lived active status. It means the runner has finished its post-exit work (output drain, report extraction) and is committing the terminal state. You may briefly see it in `spawn list` or the `work` dashboard between harness exit and terminal persistence. No action needed — the spawn will move to `succeeded` or `failed` momentarily.
+
+If a spawn stays in `finalizing` for more than a minute or two, the runner may have crashed in the finalization window. In that case `meridian doctor` will reclassify it (see below).
+
 ## Spawn shows as orphaned
 
-Orphan state usually means the harness process died without finalizing. Run:
+Meridian classifies a spawn as orphaned when its runner process is gone and there has been no recent activity on the spawn's artifacts (heartbeat, output, stderr, or report) for 120 seconds. There are two distinct orphan errors:
+
+- **`orphan_run`** — the spawn record was `status=running` (or `queued`) when reaped. The runner died before completing post-exit work; because output drain and report extraction happen while status is still `running`, a crash during drain also produces this error. The spawn likely produced partial or no output.
+- **`orphan_finalization`** — the spawn record was `status=finalizing` when reaped, meaning the runner completed all post-exit work but crashed in the narrow window before persisting the terminal state. The spawn is likely to have a usable `report.md` on disk even though it was classified as failed.
+
+To detect and reconcile orphaned state, run:
 
 ```bash
 meridian doctor
 ```
 
-This detects and reconciles orphaned state. The spawn record is updated to reflect the actual outcome. Relaunch the spawn if it did not complete.
+After reconciliation, inspect the spawn:
+
+```bash
+meridian spawn show ID          # check status, report, and error field
+```
+
+If `report.md` exists and looks complete, the work product is likely usable even though the spawn is marked `failed`. Relaunch only if the work wasn't done.
+
+### A spawn briefly showed orphaned but now shows `succeeded`
+
+This is expected, not a bug. Meridian's read-path reconciler makes a best-effort assessment based on heartbeat and artifact recency. If the runner was slow (not dead) and later completed normally, its terminal status overwrites the reconciler's orphan stamp — the process that actually ran the work has final say. You can confirm by checking `meridian spawn show ID`.
 
 ## Spawn exited with code 143 or 137
 
