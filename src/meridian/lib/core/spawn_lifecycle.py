@@ -10,12 +10,13 @@ from typing import cast
 
 from meridian.lib.core.domain import SpawnStatus
 
-ACTIVE_SPAWN_STATUSES: frozenset[str] = frozenset({"queued", "running"})
+ACTIVE_SPAWN_STATUSES: frozenset[str] = frozenset({"queued", "running", "finalizing"})
 TERMINAL_SPAWN_STATUSES: frozenset[str] = frozenset({"succeeded", "failed", "cancelled"})
 
 _ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
     "queued": frozenset({"running", "succeeded", "failed", "cancelled"}),
-    "running": frozenset({"succeeded", "failed", "cancelled"}),
+    "running": frozenset({"finalizing", "succeeded", "failed", "cancelled"}),
+    "finalizing": frozenset({"succeeded", "failed", "cancelled"}),
 }
 
 
