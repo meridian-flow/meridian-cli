@@ -4,11 +4,20 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- New `finalizing` spawn state between `running` and terminal. Covers the harness-exited-but-drain-in-flight window so the reaper stops stamping live spawns mid-drain. Shows up in `spawn show`, stats, and `--status` filter.
+- `spawn show` renders `orphan_finalization` distinct from `orphan_run` — tells apart drain-window hangs from runner-dead-during-run.
+
 ### Changed
+- Reaper no longer false-positives over live spawns. Heartbeat window 120s, 15s startup grace, PID-reuse margin 30s, depth-gated so nested sweeps can't stamp their parents. Authority rule: runner/launcher/cancel writes always win over reconciler writes, so a late report corrects a premature stamp. Fixes recurrence of #14.
+- Runner owns the heartbeat task now (30s tick, cancelled in outer `finally`), not the reaper.
+- `finalize_spawn(..., origin=...)` is mandatory at every call site.
+- `update_spawn` no longer accepts `status=` — lifecycle transitions go through `mark_finalizing` / `finalize_spawn` only.
 - `meridian-base` package ref bumped to pick up refined prompt-writing guidance in `agent-creator` and `skill-creator`.
 - Bundled `mars-agents` bumped from `0.0.14` to `0.1.1`.
 
 ### Removed
+- "awaiting finalization" heuristic in detail view. Replaced by real `finalizing` status.
 - Checked-in git submodules `meridian-base/` and `meridian-dev-workflow/`. Mars package deps now source of truth.
 
 ## [0.0.28] - 2026-04-13
