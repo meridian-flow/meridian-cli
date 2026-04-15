@@ -1,11 +1,9 @@
-# Plan Status Seed — dead-code sweep
+# Plan Status — dead-code sweep
 
 | Phase | Round | State | Depends on | Notes |
 |---|---|---|---|---|
-| `Phase 1 — auth-lifecycle-surface` | `Round 1` | `pending` |  | Foundational deletion phase. Removes auth and lifecycle cancel surface first. |
-| `Phase 2 — state-schema-cleanup` | `Round 2` | `pending` | `Phase 1` | Owns dead schema/state ballast and stale lifecycle terminology. |
-| `Phase 3 — module-compat-cleanup` | `Round 2` | `pending` | `Phase 1` | Safe parallel lane for wrappers, import redirects, and dead modules. |
-| `Phase 4 — install-baseline-verification` | `Round 3` | `pending` | `Phase 2`, `Phase 3` | Closure gate before smoke. |
-| `Phase 5 — smoke-retest-survivors` | `Round 4` | `pending` | `Phase 4` | Evidence-only smoke rerun and survivor capture. |
-
-No prior phase is preserved. This work item starts with the full plan pending.
+| `Phase 1 — auth-lifecycle-surface` | `Round 1` | `done` |  | Committed: da59ccd. Auth deleted, MCP cancel removed, D-25 added. |
+| `Phase 2 — state-schema-cleanup` | `Round 2` | `done` | `Phase 1` | Committed: f0a89d5. All 8 items deleted/renamed. |
+| `Phase 3 — module-compat-cleanup` | `Round 2` | `done` | `Phase 1` | Committed: 9da11ae. 5 orphaned modules + 2 shims deleted. |
+| `Phase 4 — install-baseline-verification` | `Round 3` | `done` | `Phase 2`, `Phase 3` | ruff/pyright clean. Binary reinstalled v0.0.28. pytest has 1 pre-existing failure. |
+| `Phase 5 — smoke-retest-survivors` | `Round 4` | `done` | `Phase 4` | Cancel lane: all PASS (p1830). AF_UNIX lane: all BLOCKED by app deps (p1831). |
