@@ -43,43 +43,10 @@ def _setup_warning_shape_case(
         lambda *_args, **_kwargs: mars_ops.UpgradeAvailability(),
     )
     monkeypatch.setattr(
-        diag,
-        "_configured_default_agent_doctor_warning",
-        lambda **_kwargs: None,
-    )
-    monkeypatch.setattr(
         diag.spawn_store,
         "list_spawns",
         lambda *_args, **_kwargs: [],
     )
-
-
-def _set_configured_agent_warning_trigger(
-    monkeypatch: pytest.MonkeyPatch,
-    expected_code: str,
-) -> None:
-    def _fake_configured_warning(
-        *,
-        code: str,
-        repo_root: Path,
-        configured_agent: str,
-        builtin_default: str,
-        config_key: str,
-    ) -> diag.DoctorWarning | None:
-        del repo_root
-        if code != expected_code:
-            return None
-        return diag.DoctorWarning(
-            code=code,
-            message=f"Configured {config_key} '{configured_agent}' is unavailable locally.",
-            payload={
-                "configured_agent": configured_agent,
-                "builtin_default": builtin_default,
-                "config_key": config_key,
-            },
-        )
-
-    monkeypatch.setattr(diag, "_configured_default_agent_doctor_warning", _fake_configured_warning)
 
 
 def _apply_warning_trigger(
@@ -102,14 +69,6 @@ def _apply_warning_trigger(
             create_agents_dir=False,
             create_skills_dir=True,
         )
-        return
-    if trigger == "configured_primary_agent_unavailable":
-        _setup_warning_shape_case(repo_root, monkeypatch)
-        _set_configured_agent_warning_trigger(monkeypatch, trigger)
-        return
-    if trigger == "configured_subagent_unavailable":
-        _setup_warning_shape_case(repo_root, monkeypatch)
-        _set_configured_agent_warning_trigger(monkeypatch, trigger)
         return
     if trigger == "legacy_install_artifacts":
         _setup_warning_shape_case(repo_root, monkeypatch)
@@ -134,16 +93,6 @@ def _apply_warning_trigger(
     [
         ("missing_skills_directories", "missing_skills_directories", ()),
         ("missing_agent_profile_directories", "missing_agent_profile_directories", ()),
-        (
-            "configured_primary_agent_unavailable",
-            "configured_primary_agent_unavailable",
-            ("configured_agent", "builtin_default", "config_key"),
-        ),
-        (
-            "configured_subagent_unavailable",
-            "configured_subagent_unavailable",
-            ("configured_agent", "builtin_default", "config_key"),
-        ),
         ("legacy_install_artifacts", "legacy_install_artifacts", ("paths",)),
         ("active_spawns_present", "active_spawns_present", ("spawn_ids",)),
     ],

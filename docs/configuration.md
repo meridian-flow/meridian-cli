@@ -50,8 +50,6 @@ Canonical keys accepted by `meridian config set/get/reset`:
 | `defaults.max_depth` | int | Max nested agent depth |
 | `defaults.max_retries` | int | Retry attempts per run |
 | `defaults.retry_backoff_seconds` | float | Retry backoff multiplier |
-| `defaults.primary_agent` | str | Default primary/orchestrator profile |
-| `defaults.agent` | str | Default spawned subagent profile |
 | `defaults.model` | str | Default model for spawn when unset |
 | `timeouts.kill_grace_minutes` | float | Grace before force-kill (minutes) |
 | `timeouts.guardrail_minutes` | float | Guardrail timeout (minutes) |
@@ -62,6 +60,8 @@ Canonical keys accepted by `meridian config set/get/reset`:
 | `output.show` | array[str] | Stream categories shown |
 | `output.verbosity` | str\|null | `quiet\|normal\|verbose\|debug` |
 
+Agent profiles are opt-in. When `--agent/-a` is omitted and `primary.agent` is unset, Meridian runs without a predefined profile.
+
 Scaffolded but not exposed via `config set` shorthand keys:
 
 - `[primary] autocompact_pct`
@@ -71,8 +71,6 @@ Scaffolded but not exposed via `config set` shorthand keys:
 ```toml
 [defaults]
 max_depth = 4
-primary_agent = "meridian-default-orchestrator"
-agent = "meridian-subagent"
 model = "gpt-5.3-codex"
 
 [harness]
@@ -161,8 +159,6 @@ Use `meridian models config init/show/get/set/reset` to manage this file from th
 - `MERIDIAN_KILL_GRACE_MINUTES`
 - `MERIDIAN_GUARDRAIL_TIMEOUT_MINUTES`
 - `MERIDIAN_WAIT_TIMEOUT_MINUTES`
-- `MERIDIAN_PRIMARY_AGENT`
-- `MERIDIAN_DEFAULT_AGENT`
 - `MERIDIAN_DEFAULT_MODEL`
 - `MERIDIAN_HARNESS_MODEL_CLAUDE`
 - `MERIDIAN_HARNESS_MODEL_CODEX`

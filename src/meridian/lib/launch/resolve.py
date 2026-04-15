@@ -13,9 +13,6 @@ from meridian.lib.core.overrides import RuntimeOverrides, resolve
 from meridian.lib.core.types import HarnessId, ModelId
 from meridian.lib.harness.adapter import SubprocessHarness
 from meridian.lib.harness.registry import HarnessRegistry
-from meridian.lib.launch.default_agent_policy import (
-    resolve_agent_profile_with_builtin_fallback,
-)
 
 from .prompt import dedupe_skill_names, load_skill_contents
 
@@ -24,8 +21,8 @@ def load_agent_profile_with_fallback(
     *,
     repo_root: Path,
     requested_agent: str | None = None,
-    configured_default: str = "",
-) -> AgentProfile | None:
+    configured_default: str | None = None,
+) -> tuple[AgentProfile | None, str | None]:
     """Load agent profile with a standard fallback chain.
 
     Resolution order:
@@ -36,19 +33,32 @@ def load_agent_profile_with_fallback(
 
     requested_profile = requested_agent.strip() if requested_agent is not None else ""
     if requested_profile:
-        return load_agent_profile(
-            requested_profile,
-            repo_root=repo_root,
+        return (
+            load_agent_profile(
+                requested_profile,
+                repo_root=repo_root,
+            ),
+            None,
         )
 
-    configured_profile = configured_default.strip()
+    configured_profile = configured_default.strip() if configured_default is not None else ""
     if configured_profile:
-        return load_agent_profile(
-            configured_profile,
-            repo_root=repo_root,
-        )
+        try:
+            return (
+                load_agent_profile(
+                    configured_profile,
+                    repo_root=repo_root,
+                ),
+                None,
+            )
+        except FileNotFoundError:
+            return (
+                None,
+                "Configured agent profile "
+                f"'{configured_profile}' is unavailable; running without an agent profile.",
+            )
 
-    return None
+    return None, None
 
 
 class ResolvedSkills(BaseModel):
@@ -224,7 +234,6 @@ def resolve_policies(
     config_overrides: RuntimeOverrides,
     config: MeridianConfig,
     harness_registry: HarnessRegistry,
-    builtin_default_agent: str = '',
     configured_default_harness: str = 'claude',
     skills_readonly: bool = True,
 ) -> ResolvedPolicies:
@@ -233,15 +242,12 @@ def resolve_policies(
     # resolution for model/harness/safety fields.
     pre_profile_resolved = resolve(*layers, config_overrides)
     requested_agent = resolve(*layers).agent
-    configured_default_agent = (
-        (pre_profile_resolved.agent or builtin_default_agent) if not requested_agent else ""
-    )
+    configured_default_agent = pre_profile_resolved.agent if not requested_agent else ""
 
-    profile, profile_warning = resolve_agent_profile_with_builtin_fallback(
+    profile, profile_warning = load_agent_profile_with_fallback(
         repo_root=repo_root,
         requested_agent=requested_agent,
         configured_default=configured_default_agent,
-        builtin_default=builtin_default_agent,
     )
     profile_overrides = RuntimeOverrides.from_agent_profile(profile)
     full_layers = (*layers, profile_overrides, config_overrides)

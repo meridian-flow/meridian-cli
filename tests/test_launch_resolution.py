@@ -22,9 +22,10 @@ def _write_minimal_mars_config(repo_root: Path) -> None:
     )
 
 
-def test_resolve_policies_treats_config_agent_as_configured_default(tmp_path: Path) -> None:
+def test_resolve_policies_warns_and_uses_no_profile_when_config_agent_is_missing(
+    tmp_path: Path,
+) -> None:
     _write_minimal_mars_config(tmp_path)
-    write_agent(tmp_path, name="meridian-subagent", model="gpt-5.4")
 
     policies = resolve_policies(
         repo_root=tmp_path,
@@ -32,30 +33,25 @@ def test_resolve_policies_treats_config_agent_as_configured_default(tmp_path: Pa
         config_overrides=RuntimeOverrides(agent="missing-config-agent"),
         config=MeridianConfig(),
         harness_registry=get_default_harness_registry(),
-        builtin_default_agent="meridian-subagent",
         configured_default_harness="codex",
     )
 
-    assert policies.profile is not None
-    assert policies.profile.name == "meridian-subagent"
+    assert policies.profile is None
     assert policies.warning is not None
     assert "missing-config-agent" in policies.warning
 
 
-def test_resolve_primary_launch_plan_uses_defaults_primary_agent(tmp_path: Path) -> None:
+def test_resolve_primary_launch_plan_has_no_profile_when_agent_is_unset(tmp_path: Path) -> None:
     _write_minimal_mars_config(tmp_path)
-    write_agent(tmp_path, name="custom-primary", model="gpt-5.4")
-    config = MeridianConfig(primary_agent="custom-primary")
 
     plan = resolve_primary_launch_plan(
         repo_root=tmp_path,
         request=LaunchRequest(),
         harness_registry=get_default_harness_registry(),
-        config=config,
     )
 
-    assert plan.session_metadata.agent == "custom-primary"
-    assert plan.session_metadata.agent_path.endswith("/.agents/agents/custom-primary.md")
+    assert plan.session_metadata.agent == ""
+    assert plan.session_metadata.agent_path == ""
 
 
 def test_spawn_prepare_derives_harness_from_model_before_default_harness(tmp_path: Path) -> None:

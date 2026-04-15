@@ -8,7 +8,6 @@ from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.core.spawn_lifecycle import is_active_spawn_status
 from meridian.lib.core.util import FormatContext
-from meridian.lib.launch.default_agent_policy import configured_default_agent_warning
 from meridian.lib.ops.mars import check_upgrade_availability, format_upgrade_availability
 from meridian.lib.ops.runtime import build_runtime, resolve_state_root
 from meridian.lib.state import spawn_store
@@ -79,33 +78,6 @@ def _repair_orphan_runs(repo_root: Path) -> int:
     return running_before - running_after
 
 
-def _configured_default_agent_doctor_warning(
-    *,
-    code: str,
-    repo_root: Path,
-    configured_agent: str,
-    builtin_default: str,
-    config_key: str,
-) -> DoctorWarning | None:
-    message = configured_default_agent_warning(
-        repo_root=repo_root,
-        configured_agent=configured_agent,
-        builtin_default=builtin_default,
-        config_key=config_key,
-    )
-    if message is None:
-        return None
-    return DoctorWarning(
-        code=code,
-        message=message,
-        payload={
-            "configured_agent": configured_agent,
-            "builtin_default": builtin_default,
-            "config_key": config_key,
-        },
-    )
-
-
 def _legacy_install_artifacts_warning(repo_root: Path) -> DoctorWarning | None:
     state_root = resolve_state_root(repo_root)
     candidates = (
@@ -167,24 +139,6 @@ def doctor_sync(payload: DoctorInput) -> DoctorOutput:
                 message="No configured agent profile directories were found.",
             )
         )
-    default_agent_warning = _configured_default_agent_doctor_warning(
-        code="configured_primary_agent_unavailable",
-        repo_root=runtime.repo_root,
-        configured_agent=runtime.config.primary_agent,
-        builtin_default="meridian-default-orchestrator",
-        config_key="defaults.primary_agent",
-    )
-    if default_agent_warning is not None:
-        warnings.append(default_agent_warning)
-    subagent_warning = _configured_default_agent_doctor_warning(
-        code="configured_subagent_unavailable",
-        repo_root=runtime.repo_root,
-        configured_agent=runtime.config.default_agent,
-        builtin_default="meridian-subagent",
-        config_key="defaults.agent",
-    )
-    if subagent_warning is not None:
-        warnings.append(subagent_warning)
     legacy_install_artifacts = _legacy_install_artifacts_warning(runtime.repo_root)
     if legacy_install_artifacts is not None:
         warnings.append(legacy_install_artifacts)

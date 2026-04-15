@@ -205,7 +205,6 @@ def build_create_payload(
         config_overrides=config_overrides,
         config=runtime_view.config,
         harness_registry=runtime_view.harness_registry,
-        builtin_default_agent="meridian-subagent",
         configured_default_harness=runtime_view.config.default_harness,
         skills_readonly=payload.dry_run,
     )

@@ -16,20 +16,12 @@ from meridian.lib.config.settings import (
     resolve_repo_root,
 )
 from meridian.lib.core.util import FormatContext, to_jsonable
-from meridian.lib.launch.default_agent_policy import configured_default_agent_warning
 from meridian.lib.ops.runtime import async_from_sync
 from meridian.lib.state.atomic import atomic_write_text
 from meridian.lib.state.paths import ensure_gitignore, resolve_state_paths
 
 _SECTION_ORDER: tuple[str, ...] = ("defaults", "timeouts", "harness", "primary", "output")
 _OUTPUT_VERBOSITY_PRESETS = frozenset({"quiet", "normal", "verbose", "debug"})
-
-
-def _merge_warnings(*warnings: str | None) -> str | None:
-    parts = [item.strip() for item in warnings if item and item.strip()]
-    if not parts:
-        return None
-    return "; ".join(parts)
 
 
 class _ConfigKeySpec(BaseModel):
@@ -71,24 +63,6 @@ _CONFIG_KEY_SPECS: tuple[_ConfigKeySpec, ...] = (
         value_kind="float",
         env_var="MERIDIAN_RETRY_BACKOFF_SECONDS",
         aliases=("retry_backoff_seconds",),
-    ),
-    _ConfigKeySpec(
-        canonical_key="defaults.primary_agent",
-        section="defaults",
-        file_key="primary_agent",
-        field_path=("primary_agent",),
-        value_kind="str",
-        env_var="MERIDIAN_PRIMARY_AGENT",
-        aliases=("primary_agent",),
-    ),
-    _ConfigKeySpec(
-        canonical_key="defaults.agent",
-        section="defaults",
-        file_key="agent",
-        field_path=("default_agent",),
-        value_kind="str",
-        env_var="MERIDIAN_DEFAULT_AGENT",
-        aliases=("default_agent", "agent"),
     ),
     _ConfigKeySpec(
         canonical_key="defaults.model",
@@ -632,10 +606,6 @@ def _scaffold_template() -> str:
         f"# max_retries = {defaults['defaults.max_retries']}",
         "# Delay multiplier between retries in seconds (float).",
         f"# retry_backoff_seconds = {defaults['defaults.retry_backoff_seconds']}",
-        "# Profile name for the primary agent (str).",
-        (f"# primary_agent = {_toml_literal(cast('str', defaults['defaults.primary_agent']))}"),
-        "# Profile name for the default non-primary agent (str).",
-        f"# agent = {_toml_literal(cast('str', defaults['defaults.agent']))}",
         "# Default model for spawns when --model and profile model are both unset",
         "# (str model id).",
         f"# model = {_toml_literal(cast('str', defaults['defaults.model']))}",
@@ -680,7 +650,7 @@ def _scaffold_template() -> str:
         '# model = ""',
         "# Harness override for the primary agent (str; unset = use defaults.harness).",
         '# harness = ""',
-        "# Agent profile name for the primary session (str; unset = use defaults.primary_agent).",
+        "# Agent profile name for the primary session (str; unset = no profile).",
         '# agent = ""',
         "",
         "# -- Output streaming -------------------------------------------------------",
@@ -803,21 +773,6 @@ def config_show_sync(payload: ConfigShowInput) -> ConfigShowOutput:
     warning: str | None = None
     if not repo_root.exists():
         warning = f"Resolved repo root '{repo_root.as_posix()}' does not exist on disk."
-    warning = _merge_warnings(
-        warning,
-        configured_default_agent_warning(
-            repo_root=repo_root,
-            configured_agent=resolved_config.primary_agent,
-            builtin_default="meridian-default-orchestrator",
-            config_key="defaults.primary_agent",
-        ),
-        configured_default_agent_warning(
-            repo_root=repo_root,
-            configured_agent=resolved_config.default_agent,
-            builtin_default="meridian-subagent",
-            config_key="defaults.agent",
-        ),
-    )
 
     return ConfigShowOutput(path=path.as_posix(), values=tuple(values), warning=warning)
 

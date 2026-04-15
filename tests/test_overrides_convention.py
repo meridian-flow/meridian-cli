@@ -99,10 +99,9 @@ def test_spawn_config_layer_does_not_set_harness() -> None:
         MeridianConfig(
             default_model="gpt-5.4",
             default_harness="codex",
-            default_agent="meridian-subagent",
         )
     )
 
     assert overrides.model == "gpt-5.4"
-    assert overrides.agent == "meridian-subagent"
+    assert overrides.agent is None
     assert overrides.harness is None

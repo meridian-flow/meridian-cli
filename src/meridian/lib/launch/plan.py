@@ -170,7 +170,6 @@ def resolve_primary_launch_plan(
         config_overrides=config_overrides,
         config=resolved_config,
         harness_registry=harness_registry,
-        builtin_default_agent=resolved_config.primary_agent,
         configured_default_harness=resolved_config.primary.harness or "claude",
         skills_readonly=True,
     )

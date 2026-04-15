@@ -179,7 +179,7 @@ class RuntimeOverrides(BaseModel):
         """Build overrides from spawn-level config defaults.
 
         Unlike from_config() which reads config.primary.*, this reads
-        config.default_* fields used for spawned subagents.
+        spawn defaults from config.default_model.
 
         Harness is intentionally excluded here so model->harness derivation
         can run when only a model is configured.
@@ -189,7 +189,6 @@ class RuntimeOverrides(BaseModel):
             return cls()
         return cls(
             model=_normalize_optional_string(config.default_model) or None,
-            agent=_normalize_optional_string(config.default_agent) or None,
         )
 
     @classmethod
