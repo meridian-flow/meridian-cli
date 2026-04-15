@@ -33,6 +33,7 @@ if TYPE_CHECKING:
         ConnectionConfig,
         HarnessConnection,
     )
+    from meridian.lib.launch.streaming_runner import TerminalEventOutcome
     from meridian.lib.observability.debug_tracer import DebugTracer
 
 logger = logging.getLogger(__name__)
@@ -259,10 +260,14 @@ class SpawnManager:
         identity are preserved even when the payload itself omits that metadata.
         """
 
+        # Import at runtime to avoid circular import during module initialization.
+        from meridian.lib.launch.streaming_runner import terminal_event_outcome
+
         consecutive_write_failures = 0
         max_consecutive_failures = 10
         drain_cancelled = False
         drain_error: Exception | None = None
+        recorded_terminal_outcome: TerminalEventOutcome | None = None
         try:
             async for event in receiver.events():
                 if tracer is not None:
@@ -316,7 +321,12 @@ class SpawnManager:
                         )
                         self._fan_out_event(spawn_id, event)
                         break
+                terminal_outcome = terminal_event_outcome(event)
+                if terminal_outcome is not None:
+                    recorded_terminal_outcome = terminal_outcome
                 self._fan_out_event(spawn_id, event)
+                if recorded_terminal_outcome is not None:
+                    break
         except asyncio.CancelledError:
             drain_cancelled = True
             raise
@@ -347,10 +357,18 @@ class SpawnManager:
                         error="cancelled",
                         duration_secs=max(0.0, time.monotonic() - session.started_monotonic),
                     )
+                elif recorded_terminal_outcome is not None:
+                    outcome = DrainOutcome(
+                        status=recorded_terminal_outcome.status,
+                        exit_code=recorded_terminal_outcome.exit_code,
+                        error=recorded_terminal_outcome.error,
+                        duration_secs=max(0.0, time.monotonic() - session.started_monotonic),
+                    )
                 else:
                     outcome = DrainOutcome(
-                        status="succeeded",
-                        exit_code=0,
+                        status="failed",
+                        exit_code=1,
+                        error="connection_closed_without_terminal_event",
                         duration_secs=max(0.0, time.monotonic() - session.started_monotonic),
                     )
                 self._resolve_completion_future(session, outcome)
@@ -568,8 +586,11 @@ class SpawnManager:
             await session.connection.stop()
 
         session.drain_task.cancel()
-        with suppress(asyncio.CancelledError):
+        with suppress(asyncio.CancelledError, Exception):
             await session.drain_task
+        if session.drain_task.done() and not session.drain_task.cancelled():
+            with suppress(Exception):
+                session.drain_task.result()
 
         with suppress(Exception):
             await session.control_server.stop()
@@ -693,6 +714,12 @@ class SpawnManager:
             return
         if session.debug_tracer is not None:
             session.debug_tracer.close()
+        if not session.drain_task.done():
+            with suppress(asyncio.CancelledError, Exception):
+                await session.drain_task
+        if session.drain_task.done() and not session.drain_task.cancelled():
+            with suppress(Exception):
+                session.drain_task.result()
         with suppress(Exception):
             await session.connection.stop()
         with suppress(Exception):

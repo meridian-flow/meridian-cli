@@ -16,7 +16,7 @@ def resolve_child_execution_cwd(
 
     When running Claude Code inside Claude Code (CLAUDECODE env set), the child
     process runs from the spawn log directory to avoid task output file collisions.
-    See runner.py execute_with_finalization() for the authoritative site.
+    See streaming_runner.py execute_with_streaming() for the authoritative site.
 
     This helper mirrors the runner.py condition so execute.py can pre-compute the
     value before session_scope entry. Both sites MUST stay in sync.

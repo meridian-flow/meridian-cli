@@ -6,7 +6,7 @@ import json
 import re
 import signal
 from pathlib import Path
-from types import MappingProxyType, SimpleNamespace
+from types import MappingProxyType
 from typing import Any
 
 import pytest
@@ -18,8 +18,6 @@ from meridian.lib.harness.adapter import SpawnParams
 from meridian.lib.harness.codex import CodexAdapter
 from meridian.lib.harness.registry import get_default_harness_registry
 from meridian.lib.launch import process
-from meridian.lib.launch import runner as launch_runner
-from meridian.lib.launch import streaming_runner as launch_streaming_runner
 from meridian.lib.launch.constants import DEFAULT_INFRA_EXIT_CODE
 from meridian.lib.launch.context import (
     LaunchContext,
@@ -29,7 +27,6 @@ from meridian.lib.launch.plan import ResolvedPrimaryLaunchPlan
 from meridian.lib.launch.types import LaunchRequest, PrimarySessionMetadata, SessionMode
 from meridian.lib.ops.spawn.plan import ExecutionPolicy, PreparedSpawnPlan, SessionContinuation
 from meridian.lib.safety.permissions import PermissionConfig, TieredPermissionResolver
-from meridian.lib.state.artifact_store import InMemoryStore
 
 
 def test_sync_pty_winsize_copies_source_size(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -380,107 +377,6 @@ def test_prepare_launch_context_runtime_work_id_override_sets_work_env(
     assert ctx.env_overrides["MERIDIAN_WORK_DIR"] == (
         state_root / "work" / "fix-work-dir-export"
     ).as_posix()
-
-
-@pytest.mark.asyncio
-async def test_runner_entrypoints_capture_same_deterministic_launch_context(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    monkeypatch.setenv("MERIDIAN_DEPTH", "1")
-    monkeypatch.setenv("MERIDIAN_CHAT_ID", "c-parent")
-    monkeypatch.setenv("MERIDIAN_FS_DIR", str(tmp_path / ".meridian" / "fs"))
-
-    plan = _build_context_plan()
-    run = _build_context_run(plan, spawn_id="p-entry")
-    registry = get_default_harness_registry()
-    artifacts = InMemoryStore()
-    captured: dict[str, LaunchContext] = {}
-
-    class _StopAfterLaunchContext(RuntimeError):
-        pass
-
-    original_runner_prepare = launch_runner.prepare_launch_context
-    original_streaming_prepare = launch_streaming_runner.prepare_launch_context
-
-    def _capture_runner_prepare(**kwargs: object) -> LaunchContext:
-        ctx = original_runner_prepare(**kwargs)
-        captured["runner"] = ctx
-        return ctx
-
-    def _capture_streaming_prepare(**kwargs: object) -> LaunchContext:
-        ctx = original_streaming_prepare(**kwargs)
-        captured["streaming"] = ctx
-        return ctx
-
-    def _fake_get_spawn(*args: object, **kwargs: object) -> SimpleNamespace:
-        _ = args, kwargs
-        return SimpleNamespace(launch_mode="foreground", kind="child")
-
-    def _stop_update_spawn(*args: object, **kwargs: object) -> None:
-        _ = args, kwargs
-        raise _StopAfterLaunchContext
-
-    monkeypatch.setattr(launch_runner, "prepare_launch_context", _capture_runner_prepare)
-    monkeypatch.setattr(
-        launch_streaming_runner,
-        "prepare_launch_context",
-        _capture_streaming_prepare,
-    )
-    monkeypatch.setattr(launch_runner.spawn_store, "get_spawn", _fake_get_spawn)
-    monkeypatch.setattr(launch_runner.spawn_store, "update_spawn", _stop_update_spawn)
-    monkeypatch.setattr(launch_streaming_runner.spawn_store, "get_spawn", _fake_get_spawn)
-    monkeypatch.setattr(
-        launch_streaming_runner.spawn_store,
-        "update_spawn",
-        _stop_update_spawn,
-    )
-
-    with pytest.raises(_StopAfterLaunchContext):
-        await launch_runner.execute_with_finalization(
-            run,
-            plan=plan,
-            repo_root=tmp_path,
-            state_root=tmp_path / ".meridian",
-            artifacts=artifacts,
-            registry=registry,
-            cwd=tmp_path,
-            env_overrides={"CUSTOM_TOOL_HOME": "/tmp/tool"},
-            runtime_work_id="captured-work",
-        )
-    with pytest.raises(_StopAfterLaunchContext):
-        await launch_streaming_runner.execute_with_streaming(
-            run,
-            plan=plan,
-            repo_root=tmp_path,
-            state_root=tmp_path / ".meridian",
-            artifacts=artifacts,
-            registry=registry,
-            cwd=tmp_path,
-            env_overrides={"CUSTOM_TOOL_HOME": "/tmp/tool"},
-            runtime_work_id="captured-work",
-        )
-
-    assert _deterministic_launch_tuple(captured["runner"]) == _deterministic_launch_tuple(
-        captured["streaming"]
-    )
-    assert captured["runner"].env_overrides["MERIDIAN_WORK_ID"] == "captured-work"
-    assert captured["runner"].env_overrides["MERIDIAN_WORK_DIR"] == (
-        tmp_path / ".meridian" / "work" / "captured-work"
-    ).as_posix()
-
-
-def test_runner_and_streaming_runner_use_shared_prepare_launch_context() -> None:
-    repo_root = Path(__file__).resolve().parents[1]
-    runner_source = (repo_root / "src/meridian/lib/launch/runner.py").read_text(
-        encoding="utf-8"
-    )
-    streaming_source = (
-        repo_root / "src/meridian/lib/launch/streaming_runner.py"
-    ).read_text(encoding="utf-8")
-
-    assert "prepare_launch_context(" in runner_source
-    assert "prepare_launch_context(" in streaming_source
 
 
 def test_shared_runner_constants_defined_once() -> None:

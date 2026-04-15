@@ -107,7 +107,7 @@ class _AttemptRuntime:
 
 
 @dataclass(frozen=True)
-class _TerminalEventOutcome:
+class TerminalEventOutcome:
     status: SpawnStatus
     exit_code: int
     error: str | None = None
@@ -242,12 +242,12 @@ def _stringify_terminal_error(error: object) -> str | None:
     return normalized or None
 
 
-def _terminal_event_outcome(event: HarnessEvent) -> _TerminalEventOutcome | None:
+def terminal_event_outcome(event: HarnessEvent) -> TerminalEventOutcome | None:
     if event.harness_id == HarnessId.CODEX.value and event.event_type == "turn/completed":
-        return _TerminalEventOutcome(status="succeeded", exit_code=0)
+        return TerminalEventOutcome(status="succeeded", exit_code=0)
 
     if event.event_type == "error/connectionClosed":
-        return _TerminalEventOutcome(
+        return TerminalEventOutcome(
             status="failed",
             exit_code=1,
             error="connection_closed",
@@ -260,14 +260,14 @@ def _terminal_event_outcome(event: HarnessEvent) -> _TerminalEventOutcome | None
                 or _stringify_terminal_error(event.payload.get("error"))
                 or "claude_result_error"
             )
-            return _TerminalEventOutcome(status="failed", exit_code=1, error=error)
+            return TerminalEventOutcome(status="failed", exit_code=1, error=error)
 
         subtype = str(event.payload.get("subtype", "")).strip().lower()
         terminal_reason = str(event.payload.get("terminal_reason", "")).strip().lower()
         if subtype in {"", "success"} and terminal_reason in {"", "completed"}:
-            return _TerminalEventOutcome(status="succeeded", exit_code=0)
+            return TerminalEventOutcome(status="succeeded", exit_code=0)
         if terminal_reason == "completed":
-            return _TerminalEventOutcome(status="succeeded", exit_code=0)
+            return TerminalEventOutcome(status="succeeded", exit_code=0)
 
         error = _stringify_terminal_error(event.payload.get("result"))
         if subtype not in {"", "success"}:
@@ -276,11 +276,11 @@ def _terminal_event_outcome(event: HarnessEvent) -> _TerminalEventOutcome | None
             error = error or f"claude_terminal_{terminal_reason}"
         else:
             error = error or "claude_result_unknown"
-        return _TerminalEventOutcome(status="failed", exit_code=1, error=error)
+        return TerminalEventOutcome(status="failed", exit_code=1, error=error)
 
     if event.harness_id == HarnessId.OPENCODE.value:
         if event.event_type == "session.idle":
-            return _TerminalEventOutcome(status="succeeded", exit_code=0)
+            return TerminalEventOutcome(status="succeeded", exit_code=0)
 
         if event.event_type == "session.error":
             properties = event.payload.get("properties")
@@ -289,7 +289,7 @@ def _terminal_event_outcome(event: HarnessEvent) -> _TerminalEventOutcome | None
                 if isinstance(properties, dict)
                 else _stringify_terminal_error(event.payload.get("error"))
             )
-            return _TerminalEventOutcome(
+            return TerminalEventOutcome(
                 status="failed",
                 exit_code=1,
                 error=error or "opencode_session_error",
@@ -301,9 +301,9 @@ def _terminal_event_outcome(event: HarnessEvent) -> _TerminalEventOutcome | None
 async def _await_terminal_outcome_after_completion(
     *,
     completion_task: asyncio.Task[DrainOutcome | None],
-    terminal_event_future: asyncio.Future[_TerminalEventOutcome],
+    terminal_event_future: asyncio.Future[TerminalEventOutcome],
     grace_seconds: float = _TERMINAL_EVENT_GRACE_SECONDS,
-) -> _TerminalEventOutcome | None:
+) -> TerminalEventOutcome | None:
     if terminal_event_future.done():
         return terminal_event_future.result()
     if not completion_task.done():
@@ -325,7 +325,7 @@ async def _consume_subscriber_events(
     budget_breach_holder: list[BudgetBreach | None],
     event_observer: Callable[[StreamEvent], None] | None,
     stream_stdout_to_terminal: bool,
-    terminal_event_future: asyncio.Future[_TerminalEventOutcome] | None = None,
+    terminal_event_future: asyncio.Future[TerminalEventOutcome] | None = None,
 ) -> None:
     while True:
         event = await subscriber.get()
@@ -342,7 +342,7 @@ async def _consume_subscriber_events(
                 budget_signal.set()
 
         if terminal_event_future is not None and not terminal_event_future.done():
-            terminal_outcome = _terminal_event_outcome(event)
+            terminal_outcome = terminal_event_outcome(event)
             if terminal_outcome is not None:
                 terminal_event_future.set_result(terminal_outcome)
 
@@ -413,8 +413,8 @@ async def run_streaming_spawn(
     completion_task: asyncio.Task[DrainOutcome | None] | None = None
     signal_task: asyncio.Task[bool] | None = None
     consume_task: asyncio.Task[None] | None = None
-    terminal_event_future: asyncio.Future[_TerminalEventOutcome] | None = None
-    terminal_outcome: _TerminalEventOutcome | None = None
+    terminal_event_future: asyncio.Future[TerminalEventOutcome] | None = None
+    terminal_outcome: TerminalEventOutcome | None = None
     subscriber: asyncio.Queue[HarnessEvent | None] | None = None
     adapter = get_default_harness_registry().get_subprocess_harness(config.harness_id)
     run_spec = adapter.resolve_launch_spec(params, perms)
@@ -556,7 +556,7 @@ async def _run_streaming_attempt(
     completion_event = asyncio.Event()
     budget_signal = asyncio.Event()
     budget_breach_holder: list[BudgetBreach | None] = [None]
-    terminal_event_future: asyncio.Future[_TerminalEventOutcome] = (
+    terminal_event_future: asyncio.Future[TerminalEventOutcome] = (
         asyncio.get_running_loop().create_future()
     )
     subscriber: asyncio.Queue[HarnessEvent | None] | None = None
@@ -565,7 +565,7 @@ async def _run_streaming_attempt(
     drain_error: str | None = None
     timed_out = False
     terminated_by_report_watchdog = False
-    terminal_outcome: _TerminalEventOutcome | None = None
+    terminal_outcome: TerminalEventOutcome | None = None
 
     try:
         connection = await manager.start_spawn(config, run_spec)
@@ -1251,6 +1251,8 @@ async def execute_with_streaming(
 
 __all__ = [
     "DEFAULT_GUARDRAIL_TIMEOUT_SECONDS",
+    "TerminalEventOutcome",
     "execute_with_streaming",
     "run_streaming_spawn",
+    "terminal_event_outcome",
 ]

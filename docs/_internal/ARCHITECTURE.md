@@ -139,7 +139,7 @@ src/meridian/
       types.py                 # Primary launch request/result models
       prompt.py                # Prompt assembly pipeline
       reference.py             # Reference file handling
-      runner.py                # execute_with_finalization (spawn subprocess orchestration)
+      streaming_runner.py      # execute_with_streaming (bidirectional spawn orchestration)
       extract.py               # Post-run token/session/report extraction
       report.py                # Report extraction logic
       written_files.py         # Explicit written-file metadata extraction
@@ -193,7 +193,7 @@ sequenceDiagram
         Note over Store,Child: Execution
         Ops->>Store: start_spawn event (spawns.jsonl)
         Ops->>Harness: build_command (SpawnParams -> CLI args)
-        Ops->>Launch: execute_with_finalization
+        Ops->>Launch: execute_with_streaming
         Launch->>Child: asyncio subprocess
         Child-->>Launch: stdout/stderr stream
         Launch->>Launch: parse_stream_event
@@ -389,7 +389,7 @@ resolve -> build prompt -> build command -> fork process -> stream output -> ext
 graph TD
     Start["resolve.py<br/>model + harness + agent"] --> Prompt["prompt.py<br/>compose prompt + skills"]
     Prompt --> Command["command.py<br/>build CLI args"]
-    Command --> Runner["runner.py<br/>execute_with_finalization"]
+    Command --> Runner["streaming_runner.py<br/>execute_with_streaming"]
     Runner --> Subprocess["asyncio subprocess"]
     Subprocess --> Stream["parse_stream_event"]
     Subprocess --> Signals["signals.py<br/>SIGINT/SIGTERM forwarding"]

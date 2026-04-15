@@ -247,7 +247,6 @@ class ClaudeAdapter(BaseHarnessAdapter[ClaudeLaunchSpec]):
             supports_native_agents=True,
             supports_programmatic_tools=False,
             supports_primary_launch=True,
-            supports_bidirectional=True,
         )
 
     def run_prompt_policy(self) -> RunPromptPolicy:

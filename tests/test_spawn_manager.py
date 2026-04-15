@@ -532,7 +532,7 @@ async def test_spawn_manager_interrupt_returns_noop_when_codex_has_no_turn(
 
 
 @pytest.mark.asyncio
-async def test_spawn_manager_natural_completion_writes_envelope_and_completion_outcome(
+async def test_spawn_manager_missing_terminal_event_defaults_to_failed_completion_outcome(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -638,9 +638,9 @@ async def test_spawn_manager_natural_completion_writes_envelope_and_completion_o
         and manager.get_connection(spawn_id) is None
         and stop_called.is_set()
     )
-    assert completion.status == "succeeded"
-    assert completion.exit_code == 0
-    assert completion.error is None
+    assert completion.status == "failed"
+    assert completion.exit_code == 1
+    assert completion.error == "connection_closed_without_terminal_event"
     assert completion.duration_secs >= 0.0
 
     output = _read_output_lines(state_root, spawn_id)
@@ -662,7 +662,7 @@ async def test_spawn_manager_natural_completion_writes_envelope_and_completion_o
 
 
 @pytest.mark.asyncio
-async def test_spawn_manager_wait_for_completion_after_natural_cleanup(
+async def test_spawn_manager_wait_for_completion_after_missing_terminal_event_cleanup(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -763,8 +763,9 @@ async def test_spawn_manager_wait_for_completion_after_natural_cleanup(
     assert manager.get_connection(spawn_id) is None
     completion = await manager.wait_for_completion(spawn_id)
     assert completion is not None
-    assert completion.status == "succeeded"
-    assert completion.exit_code == 0
+    assert completion.status == "failed"
+    assert completion.exit_code == 1
+    assert completion.error == "connection_closed_without_terminal_event"
 
 
 @pytest.mark.asyncio
@@ -990,7 +991,7 @@ async def test_spawn_manager_stop_spawn_cancel_emits_single_terminal_cancelled_e
     ("ordering", "expected_terminal"),
     [
         ("cancel_first", "cancelled"),
-        ("completion_first", "succeeded"),
+        ("completion_first", "failed"),
     ],
 )
 async def test_spawn_manager_cancel_vs_completion_race_emits_both_events_and_first_terminal_wins(
@@ -1115,7 +1116,8 @@ async def test_spawn_manager_cancel_vs_completion_race_emits_both_events_and_fir
             await cleanup_started.wait()
             completion = await completion_task
             assert completion is not None
-            assert completion.status == "succeeded"
+            assert completion.status == "failed"
+            assert completion.error == "connection_closed_without_terminal_event"
             outcome = await manager.stop_spawn(spawn_id, status="cancelled", exit_code=1)
             assert outcome == completion
         else:
@@ -1138,7 +1140,7 @@ async def test_spawn_manager_cancel_vs_completion_race_emits_both_events_and_fir
 
 
 @pytest.mark.asyncio
-async def test_spawn_manager_stop_spawn_race_uses_natural_completion_outcome_once(
+async def test_spawn_manager_stop_spawn_race_uses_missing_terminal_outcome_once(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1239,8 +1241,9 @@ async def test_spawn_manager_stop_spawn_race_uses_natural_completion_outcome_onc
     release_cleanup.set()
     await asyncio.sleep(0)
     assert completion is not None
-    assert completion.status == "succeeded"
-    assert completion.exit_code == 0
+    assert completion.status == "failed"
+    assert completion.exit_code == 1
+    assert completion.error == "connection_closed_without_terminal_event"
     assert outcome == completion
 
     spawn_events = _read_spawn_events(state_root)

@@ -323,7 +323,6 @@ class CodexAdapter(BaseHarnessAdapter[CodexLaunchSpec]):
             supports_native_skills=True,
             supports_programmatic_tools=False,
             supports_primary_launch=True,
-            supports_bidirectional=True,
             reference_input_mode="paths",
         )
 
