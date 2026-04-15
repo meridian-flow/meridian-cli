@@ -18,6 +18,8 @@ tmp/
 err
 out
 .mars/
+*.log
+.claude/scheduled_tasks.lock
 
 # mars-generated output (regenerate with `meridian mars sync`)
 .agents/
