@@ -685,7 +685,7 @@ class MeridianConfig(BaseSettings):
     retry_backoff_seconds: float = 0.25
     kill_grace_minutes: float = 2.0 / 60.0
     guardrail_timeout_minutes: float = 0.5
-    wait_timeout_minutes: float = 30.0
+    wait_timeout_minutes: float = 120.0
     primary_agent: str = "meridian-default-orchestrator"
     default_agent: str = "meridian-subagent"
     default_model: str = ""
