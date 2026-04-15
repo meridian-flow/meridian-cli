@@ -4,17 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import json
-import socket
 from contextlib import suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from meridian.lib.core.types import SpawnId
-from meridian.lib.ops.spawn.authorization import (
-    PeercredFailure,
-    authorize,
-    caller_from_socket_peer,
-)
 from meridian.lib.streaming.types import InjectResult
 
 if TYPE_CHECKING:
@@ -104,21 +98,6 @@ class ControlSocketServer:
             )
             return response or self._result_to_response(result)
         elif message_type == "interrupt":
-            peer_socket = writer.get_extra_info("socket")
-            if not isinstance(peer_socket, socket.socket):
-                return {"ok": False, "error": "caller identity unavailable"}
-            try:
-                caller, depth = caller_from_socket_peer(peer_socket)
-            except PeercredFailure:
-                return {"ok": False, "error": "caller identity unavailable"}
-            decision = authorize(
-                state_root=self._manager.state_root,
-                target=self._spawn_id,
-                caller=caller,
-                depth=depth,
-            )
-            if not decision.allowed:
-                return {"ok": False, "error": "interrupt requires caller authorization"}
             response: dict[str, object] | None = None
 
             def _on_result(inject_result: InjectResult) -> None:
@@ -131,14 +110,6 @@ class ControlSocketServer:
                 on_result=_on_result,
             )
             return response or self._result_to_response(result)
-        elif message_type == "cancel":
-            return {
-                "ok": False,
-                "error": (
-                    "cancel is not supported on the control socket; "
-                    "use meridian spawn cancel <id>"
-                ),
-            }
         else:
             return {"ok": False, "error": f"unsupported request type: {message_type}"}
 

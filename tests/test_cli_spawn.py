@@ -496,61 +496,10 @@ def test_spawn_list_active_view_includes_finalizing(monkeypatch: pytest.MonkeyPa
     assert "finalizing" in captured["payload"].statuses
 
 
-def test_spawn_cancel_denies_unauthorized_caller(
+def test_spawn_cancel_passes_resolved_spawn_id(
     monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
 ) -> None:
-    state_root = tmp_path / ".meridian"
-    state_root.mkdir(parents=True, exist_ok=True)
-    spawn_cli.spawn_store.start_spawn(
-        state_root,
-        chat_id="c1",
-        model="gpt-5.4",
-        agent="coder",
-        harness="codex",
-        prompt="hello",
-        spawn_id="p1",
-    )
-
-    monkeypatch.setenv("MERIDIAN_DEPTH", "1")
-    monkeypatch.setenv("MERIDIAN_SPAWN_ID", "p999")
-    monkeypatch.setattr(spawn_cli, "resolve_runtime_root_and_config", lambda _: (tmp_path, None))
-    monkeypatch.setattr(spawn_cli, "resolve_state_root", lambda _repo_root: state_root)
-    monkeypatch.setattr(spawn_cli, "resolve_spawn_reference", lambda _repo_root, _ref: "p1")
-
-    def _unexpected_cancel(*_args: object, **_kwargs: object) -> SpawnActionOutput:
-        raise AssertionError("spawn_cancel_sync should not be called when unauthorized")
-
-    monkeypatch.setattr(spawn_cli, "spawn_cancel_sync", _unexpected_cancel)
-
-    with pytest.raises(SystemExit) as exc_info:
-        spawn_cli._spawn_cancel(lambda _payload: None, "p1")
-
-    assert exc_info.value.code == 2
-    assert "not authorized to cancel p1" in capsys.readouterr().err
-
-
-def test_spawn_cancel_operator_override_allows_depth_drop(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    state_root = tmp_path / ".meridian"
-    state_root.mkdir(parents=True, exist_ok=True)
-    spawn_cli.spawn_store.start_spawn(
-        state_root,
-        chat_id="c1",
-        model="gpt-5.4",
-        agent="coder",
-        harness="codex",
-        prompt="hello",
-        spawn_id="p1",
-    )
-
-    monkeypatch.setenv("MERIDIAN_DEPTH", "1")
-    monkeypatch.delenv("MERIDIAN_SPAWN_ID", raising=False)
-    monkeypatch.setattr(spawn_cli, "resolve_runtime_root_and_config", lambda _: (tmp_path, None))
-    monkeypatch.setattr(spawn_cli, "resolve_state_root", lambda _repo_root: state_root)
+    monkeypatch.setattr(spawn_cli, "resolve_runtime_root_and_config", lambda _: (Path("."), None))
     monkeypatch.setattr(spawn_cli, "resolve_spawn_reference", lambda _repo_root, _ref: "p1")
     monkeypatch.setattr(spawn_cli, "current_output_sink", lambda: None)
 
@@ -567,13 +516,12 @@ def test_spawn_cancel_operator_override_allows_depth_drop(
 
     monkeypatch.setattr(spawn_cli, "spawn_cancel_sync", _fake_cancel)
 
-    spawn_cli._spawn_cancel(lambda _payload: None, "p1", operator_override=True)
+    spawn_cli._spawn_cancel(lambda _payload: None, "p1")
 
     assert captured["payload"].spawn_id == "p1"
-    assert captured["payload"].operator_override is True
 
 
-def test_spawn_inject_passes_operator_override(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_spawn_inject_passes_interrupt(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
     async def _fake_inject(
@@ -581,20 +529,17 @@ def test_spawn_inject_passes_operator_override(monkeypatch: pytest.MonkeyPatch) 
         message: str | None,
         *,
         interrupt: bool = False,
-        operator_override: bool = False,
     ) -> None:
         captured["spawn_id"] = spawn_id
         captured["message"] = message
         captured["interrupt"] = interrupt
-        captured["operator_override"] = operator_override
 
     monkeypatch.setattr(spawn_cli, "inject_message", _fake_inject)
 
-    spawn_cli._spawn_inject("p1", "", interrupt=True, operator_override=True)
+    spawn_cli._spawn_inject("p1", "", interrupt=True)
 
     assert captured == {
         "spawn_id": "p1",
         "message": None,
         "interrupt": True,
-        "operator_override": True,
     }

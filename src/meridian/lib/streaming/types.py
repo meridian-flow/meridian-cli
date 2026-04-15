@@ -19,13 +19,7 @@ class InterruptControl(TypedDict):
     type: Literal["interrupt"]
 
 
-class CancelControl(TypedDict):
-    """Request cancellation of the active harness run."""
-
-    type: Literal["cancel"]
-
-
-ControlMessage = UserMessageControl | InterruptControl | CancelControl
+ControlMessage = UserMessageControl | InterruptControl
 
 
 @dataclass(frozen=True)
@@ -39,7 +33,6 @@ class InjectResult:
 
 
 __all__ = [
-    "CancelControl",
     "ControlMessage",
     "InjectResult",
     "InterruptControl",

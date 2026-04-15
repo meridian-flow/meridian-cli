@@ -6,7 +6,6 @@ import asyncio
 import json
 import logging
 import re
-import socket
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import suppress
 from typing import TYPE_CHECKING, NotRequired, Protocol, TypedDict, cast
@@ -19,12 +18,6 @@ from meridian.lib.app.agui_mapping.base import AGUIMapper
 from meridian.lib.app.agui_mapping.extensions import make_capabilities_event
 from meridian.lib.core.types import SpawnId
 from meridian.lib.harness.connections.base import HarnessEvent
-from meridian.lib.ops.spawn.authorization import (
-    PeercredFailure,
-    authorize,
-    caller_from_env,
-    caller_from_socket_peer,
-)
 from meridian.lib.streaming.signal_canceller import SignalCanceller
 from meridian.lib.streaming.spawn_manager import SpawnManager
 
@@ -50,10 +43,6 @@ class WebSocketClient(Protocol):
     async def send_text(self, data: str) -> None: ...
 
     async def receive(self) -> WebSocketMessage: ...
-
-
-class _TransportLike(Protocol):
-    def get_extra_info(self, name: str, default: object | None = None) -> object | None: ...
 
 
 WebSocketRouteHandler = Callable[[WebSocket, str], Awaitable[None]]
@@ -214,11 +203,6 @@ async def _inbound_loop(
                 data={"message_type": message_type},
             )
 
-        if message_type in {"interrupt", "cancel"} and not await _authorize_control_message(
-            websocket, spawn_id, manager
-        ):
-            continue
-
         if message_type == "user_message":
             text = payload.get("text")
             if not isinstance(text, str):
@@ -247,50 +231,6 @@ async def _inbound_loop(
 
         if not result.success:
             await _send_error(websocket, result.error or "control message failed")
-
-
-def _caller_from_websocket_peercred(websocket: WebSocketClient) -> tuple[SpawnId | None, int]:
-    scope_obj = getattr(websocket, "scope", None)
-    if not isinstance(scope_obj, dict):
-        raise PeercredFailure("no transport in websocket scope")
-    scope = cast("dict[str, object]", scope_obj)
-    transport = scope.get("transport")
-    if transport is None:
-        raise PeercredFailure("no transport in websocket scope")
-    socket_obj = cast("_TransportLike", transport).get_extra_info("socket")
-    if not isinstance(socket_obj, socket.socket):
-        raise PeercredFailure("missing peer socket")
-    return caller_from_socket_peer(socket_obj)
-
-
-def _resolve_caller(websocket: WebSocketClient) -> tuple[SpawnId | None, int]:
-    try:
-        return _caller_from_websocket_peercred(websocket)
-    except PeercredFailure as exc:
-        logger.warning("ws_auth_peercred_failure", extra={"error": str(exc)})
-        # TODO: remove env fallback once all WS transports expose peer credentials.
-        return caller_from_env()
-
-
-async def _authorize_control_message(
-    websocket: WebSocketClient,
-    spawn_id: SpawnId,
-    manager: SpawnManager,
-) -> bool:
-    caller, depth = _resolve_caller(websocket)
-    decision = authorize(
-        state_root=manager.state_root,
-        target=spawn_id,
-        caller=caller,
-        depth=depth,
-    )
-    if decision.allowed:
-        return True
-    if decision.reason == "missing_target":
-        await _send_error(websocket, "spawn not found")
-        return False
-    await _send_error(websocket, "caller is not authorized")
-    return False
 
 
 def _decode_json_object(raw_text: str) -> dict[str, object] | None:

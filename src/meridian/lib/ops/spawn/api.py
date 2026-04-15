@@ -19,7 +19,6 @@ from meridian.lib.state import spawn_store
 from meridian.lib.streaming.signal_canceller import CancelOutcome, SignalCanceller
 from meridian.lib.utils.time import minutes_to_seconds
 
-from .authorization import authorize, caller_from_env
 from .execute import (
     depth_exceeded_output,
     depth_limits,
@@ -414,30 +413,6 @@ async def spawn_files(
     return await asyncio.to_thread(spawn_files_sync, payload, ctx=ctx, sink=sink)
 
 
-def _enforce_cancel_authorization(
-    *,
-    state_root: Path,
-    spawn_id: str,
-    operator_override: bool = False,
-) -> None:
-    caller, depth = caller_from_env()
-    if operator_override:
-        depth = 0
-    decision = authorize(
-        state_root=state_root,
-        target=SpawnId(spawn_id),
-        caller=caller,
-        depth=depth,
-    )
-    if decision.allowed:
-        return
-    caller_label = str(decision.caller_id) if decision.caller_id is not None else "<none>"
-    raise PermissionError(
-        f"caller {caller_label} is not authorized to cancel {spawn_id} "
-        f"(reason: {decision.reason})"
-    )
-
-
 def _spawn_cancel_output_from_outcome(
     *,
     spawn_id: str,
@@ -480,12 +455,6 @@ async def _spawn_cancel_impl(
     row = spawn_store.get_spawn(state_root, spawn_id)
     if row is None:
         raise ValueError(f"Spawn '{spawn_id}' not found")
-
-    _enforce_cancel_authorization(
-        state_root=state_root,
-        spawn_id=spawn_id,
-        operator_override=payload.operator_override,
-    )
 
     canceller = SignalCanceller(state_root=state_root)
     try:

@@ -15,7 +15,6 @@ from meridian.cli.spawn_inject import inject_message
 from meridian.cli.utils import missing_fork_session_error, parse_csv_list
 from meridian.lib.core.domain import SpawnStatus
 from meridian.lib.core.spawn_lifecycle import ACTIVE_SPAWN_STATUSES
-from meridian.lib.core.types import SpawnId
 from meridian.lib.ops.reference import resolve_session_reference
 from meridian.lib.ops.runtime import resolve_runtime_root_and_config, resolve_state_root
 from meridian.lib.ops.spawn.api import (
@@ -39,7 +38,6 @@ from meridian.lib.ops.spawn.api import (
     spawn_stats_sync,
     spawn_wait_sync,
 )
-from meridian.lib.ops.spawn.authorization import authorize, caller_from_env
 from meridian.lib.ops.spawn.log import SpawnLogInput, spawn_log_sync
 from meridian.lib.ops.spawn.plan import SessionContinuation
 from meridian.lib.ops.spawn.query import resolve_spawn_reference
@@ -64,35 +62,6 @@ def _spawn_create_exit_code(result: SpawnActionOutput) -> int:
     if result.status in {"succeeded", "running", "finalizing", "dry-run"}:
         return 0
     return 1
-
-
-def _enforce_lifecycle_authorization(
-    *,
-    state_root: Path,
-    target_spawn_id: str,
-    action: str,
-    operator_override: bool = False,
-) -> None:
-    caller, depth = caller_from_env()
-    if operator_override:
-        depth = 0
-    decision = authorize(
-        state_root=state_root,
-        target=SpawnId(target_spawn_id),
-        caller=caller,
-        depth=depth,
-    )
-    if decision.allowed:
-        return
-    caller_label = str(decision.caller_id) if decision.caller_id is not None else "<none>"
-    print(
-        (
-            f"Error: caller {caller_label} is not authorized to {action} "
-            f"{target_spawn_id} (reason: {decision.reason})"
-        ),
-        file=sys.stderr,
-    )
-    raise SystemExit(2)
 
 
 def _read_prompt_from_stdin(*, explicit_prompt_file_stdin: bool, allow_empty: bool = False) -> str:
@@ -637,28 +606,12 @@ def _spawn_stats(
 def _spawn_cancel(
     emit: Any,
     spawn_id: str,
-    operator_override: Annotated[
-        bool,
-        Parameter(
-            name="--operator-override",
-            help="Treat caller as depth 0 operator for authorization debugging.",
-            show=False,
-        ),
-    ] = False,
 ) -> None:
     repo_root, _ = resolve_runtime_root_and_config(None)
     resolved_spawn_id = resolve_spawn_reference(repo_root, spawn_id)
-    state_root = resolve_state_root(repo_root)
-    _enforce_lifecycle_authorization(
-        state_root=state_root,
-        target_spawn_id=resolved_spawn_id,
-        action="cancel",
-        operator_override=operator_override,
-    )
     result = spawn_cancel_sync(
         SpawnCancelInput(
             spawn_id=resolved_spawn_id,
-            operator_override=operator_override,
         ),
         sink=current_output_sink(),
     )
@@ -767,21 +720,12 @@ def _spawn_inject(
         bool,
         Parameter(name="--interrupt", help="Send interrupt signal."),
     ] = False,
-    operator_override: Annotated[
-        bool,
-        Parameter(
-            name="--operator-override",
-            help="Treat caller as depth 0 operator for authorization debugging.",
-            show=False,
-        ),
-    ] = False,
 ) -> None:
     asyncio.run(
         inject_message(
             spawn_id,
             message if message.strip() else None,
             interrupt=interrupt,
-            operator_override=operator_override,
         )
     )
 

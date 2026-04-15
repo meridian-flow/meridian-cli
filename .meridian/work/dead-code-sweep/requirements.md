@@ -150,7 +150,7 @@ Recommended phases:
 ## Success criteria
 
 - `AuthorizationGuard` and all caller-identity plumbing deleted.
-- Lifecycle ops not exposed via MCP tool surface.
+- LLM agent-tool surface does not expose cancel or interrupt.
 - All safe-delete items in Part B removed.
 - `uv run pytest-llm`, `uv run ruff check .`, `uv run pyright` all
   clean after deletions.

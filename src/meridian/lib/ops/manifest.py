@@ -384,7 +384,8 @@ _OPERATIONS: tuple[OperationSpec[Any, Any], ...] = (
         output_type=SpawnActionOutput,
         cli_group="spawn",
         cli_name="cancel",
-        mcp_name="spawn_cancel",
+        mcp_name=None,
+        surfaces=frozenset({"cli"}),
     ),
     _spec(
         name="spawn.files",

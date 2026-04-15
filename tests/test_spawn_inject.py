@@ -51,7 +51,7 @@ def _create_running_spawn_layout(state_root: Path, spawn_id: str) -> None:
     (spawn_dir / "control.sock").write_text("", encoding="utf-8")
 
 
-def test_interrupt_inject_denies_unauthorized_caller(
+def test_inject_requires_message_or_interrupt(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -60,21 +60,14 @@ def test_interrupt_inject_denies_unauthorized_caller(
     state_root.mkdir(parents=True, exist_ok=True)
     _create_running_spawn_layout(state_root, "p1")
 
-    monkeypatch.setenv("MERIDIAN_DEPTH", "1")
-    monkeypatch.delenv("MERIDIAN_SPAWN_ID", raising=False)
     monkeypatch.setattr(spawn_inject, "resolve_runtime_root_and_config", lambda _: (tmp_path, None))
     monkeypatch.setattr(spawn_inject, "resolve_state_root", lambda _repo_root: state_root)
 
-    async def _unexpected_open(*_args: object, **_kwargs: object) -> tuple[object, object]:
-        raise AssertionError("open_unix_connection should not run when unauthorized")
-
-    monkeypatch.setattr(asyncio, "open_unix_connection", _unexpected_open)
-
     with pytest.raises(SystemExit) as exc_info:
-        asyncio.run(spawn_inject.inject_message("p1", None, interrupt=True))
+        asyncio.run(spawn_inject.inject_message("p1", None, interrupt=False))
 
     assert exc_info.value.code == 1
-    assert "not authorized to interrupt p1" in capsys.readouterr().err
+    assert "provide a message or --interrupt" in capsys.readouterr().err
 
 
 def test_interrupt_inject_allows_self_caller_and_sends_request(
@@ -86,8 +79,6 @@ def test_interrupt_inject_allows_self_caller_and_sends_request(
     state_root.mkdir(parents=True, exist_ok=True)
     _create_running_spawn_layout(state_root, "p1")
 
-    monkeypatch.setenv("MERIDIAN_DEPTH", "1")
-    monkeypatch.setenv("MERIDIAN_SPAWN_ID", "p1")
     monkeypatch.setattr(spawn_inject, "resolve_runtime_root_and_config", lambda _: (tmp_path, None))
     monkeypatch.setattr(spawn_inject, "resolve_state_root", lambda _repo_root: state_root)
 

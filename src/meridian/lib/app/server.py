@@ -6,7 +6,6 @@ import asyncio
 import logging
 import os
 import re
-import socket
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import asdict
@@ -23,11 +22,6 @@ from meridian.lib.harness.adapter import SpawnParams
 from meridian.lib.harness.connections.base import ConnectionConfig
 from meridian.lib.harness.registry import get_default_harness_registry
 from meridian.lib.launch.launch_types import ResolvedLaunchSpec
-from meridian.lib.ops.spawn.authorization import (
-    PeercredFailure,
-    authorize,
-    caller_from_socket_peer,
-)
 from meridian.lib.safety.permissions import (
     TieredPermissionResolver,
     UnsafeNoOpPermissionResolver,
@@ -41,8 +35,6 @@ _SPAWN_ID_RE = re.compile(r"^p\d+$")
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from starlette.requests import Request
-
     from meridian.lib.state.spawn_store import SpawnRecord
 
 class _AppState(Protocol):
@@ -68,10 +60,6 @@ class _FastAPIApp(Protocol):
     def mount(self, path: str, app: object, name: str | None = None) -> None: ...
 
 
-class _TransportLike(Protocol):
-    def get_extra_info(self, name: str, default: object | None = None) -> object | None: ...
-
-
 class _FastAPIFactory(Protocol):
     """Callable FastAPI constructor surface used by create_app()."""
 
@@ -81,7 +69,6 @@ class _FastAPIFactory(Protocol):
 class _FastAPIModule(Protocol):
     FastAPI: _FastAPIFactory
     HTTPException: type[Exception]
-    Depends: Callable[[Callable[..., object]], object]
 
 
 class _FastAPICorsModule(Protocol):
@@ -145,7 +132,6 @@ def create_app(
     try:
         fastapi_module = import_module("fastapi")
         cors_module = import_module("fastapi.middleware.cors")
-        requests_module = import_module("starlette.requests")
         validation_module = import_module("fastapi.exceptions")
         exception_handlers_module = import_module("fastapi.exception_handlers")
         responses_module = import_module("fastapi.responses")
@@ -160,7 +146,6 @@ def create_app(
     cors = cast("_FastAPICorsModule", cors_module)
     app_obj = fastapi.FastAPI(title="Meridian App", lifespan=lifespan)
     app = cast("_FastAPIApp", app_obj)
-    depends = fastapi.Depends
     http_exception_cls = cast("Callable[..., Exception]", fastapi.HTTPException)
     request_validation_error_cls = cast(
         "type[Exception]",
@@ -171,7 +156,6 @@ def create_app(
         exception_handlers_module.request_validation_exception_handler,
     )
     json_response_cls = cast("Callable[..., object]", responses_module.JSONResponse)
-    globals()["Request"] = requests_module.Request
 
     app.add_middleware(
         cors.CORSMiddleware,
@@ -278,40 +262,6 @@ def create_app(
                 detail="spawn is finalizing",
                 headers={"Retry-After": "2"},
             )
-
-    def _caller_from_request_peercred(request: Request) -> tuple[SpawnId | None, int]:
-        scope_obj = request.scope
-        if not isinstance(scope_obj, dict):
-            raise PeercredFailure("no transport in request scope")
-        scope = cast("dict[str, object]", scope_obj)
-        transport = scope.get("transport")
-        if transport is None:
-            raise PeercredFailure("no transport in request scope")
-        socket_obj = cast("_TransportLike", transport).get_extra_info("socket")
-        if not isinstance(socket_obj, socket.socket):
-            raise PeercredFailure("missing peer socket")
-        return caller_from_socket_peer(socket_obj)
-
-    async def require_authorization(spawn_id: str, request: Request) -> None:
-        typed_spawn_id = _validate_spawn_id(spawn_id)
-        try:
-            caller, depth = _caller_from_request_peercred(request)
-        except PeercredFailure as exc:
-            logger.warning(
-                "spawn_auth_peercred_failure",
-                extra={"spawn_id": typed_spawn_id, "error": str(exc)},
-            )
-            raise http_exception_cls(status_code=403, detail="caller identity unavailable") from exc
-        decision = authorize(
-            state_root=state_root,
-            target=typed_spawn_id,
-            caller=caller,
-            depth=depth,
-        )
-        if not decision.allowed:
-            if decision.reason == "missing_target":
-                raise http_exception_cls(status_code=404, detail="spawn not found")
-            raise http_exception_cls(status_code=403, detail="caller is not authorized")
 
     async def create_spawn(body: SpawnCreateRequest) -> dict[str, object]:
         prompt = body.prompt.strip()
@@ -433,7 +383,6 @@ def create_app(
     async def inject_message(
         spawn_id: str,
         body: InjectRequest,
-        request: Request,
     ) -> dict[str, object]:
         typed_spawn_id = _validate_spawn_id(spawn_id)
         record = _require_spawn(typed_spawn_id)
@@ -442,7 +391,6 @@ def create_app(
         _require_active_manager(typed_spawn_id)
 
         if body.interrupt:
-            await require_authorization(spawn_id, request)
             result = await spawn_manager.interrupt(typed_spawn_id, source="rest")
             if not result.success:
                 raise http_exception_cls(
@@ -498,22 +446,11 @@ def create_app(
             "origin": outcome.origin,
         }
 
-    async def legacy_delete_spawn(spawn_id: str) -> None:
-        _ = _validate_spawn_id(spawn_id)
-        raise http_exception_cls(
-            status_code=405,
-            detail="use POST /api/spawns/{id}/cancel for lifecycle cancel",
-        )
-
     app.post("/api/spawns")(create_spawn)
     app.get("/api/spawns")(list_spawns)
     app.get("/api/spawns/{spawn_id}")(get_spawn)
     app.post("/api/spawns/{spawn_id}/inject")(inject_message)
-    app.post(
-        "/api/spawns/{spawn_id}/cancel",
-        dependencies=[depends(require_authorization)],
-    )(cancel_spawn)
-    app.delete("/api/spawns/{spawn_id}")(legacy_delete_spawn)
+    app.post("/api/spawns/{spawn_id}/cancel")(cancel_spawn)
 
     from meridian.lib.app.ws_endpoint import register_ws_routes
 

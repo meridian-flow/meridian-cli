@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import socket
 import sys
 import types
 from collections.abc import Callable
@@ -17,7 +16,6 @@ from meridian.lib.core.types import HarnessId, SpawnId
 from meridian.lib.harness.adapter import SpawnParams
 from meridian.lib.harness.connections.base import ConnectionCapabilities, ConnectionConfig
 from meridian.lib.harness.launch_spec import ResolvedLaunchSpec
-from meridian.lib.ops.spawn.authorization import AuthorizationDecision
 from meridian.lib.state import spawn_store
 from meridian.lib.state.paths import resolve_state_paths
 from meridian.lib.state.spawn_store import get_spawn
@@ -551,7 +549,7 @@ async def test_app_server_start_spawn_failure_tags_launch_failure_origin(
 
 
 @pytest.mark.asyncio
-async def test_inject_text_does_not_invoke_authorization(
+async def test_inject_text_routes_to_manager(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -570,15 +568,9 @@ async def test_inject_text_does_not_invoke_authorization(
     manager.set_connection(spawn_id, FakeConnection())
     inject_handler = cast("Any", app.post_routes["/api/spawns/{spawn_id}/inject"])
 
-    def _unexpected_peercred(_sock: socket.socket | None) -> tuple[SpawnId | None, int]:
-        raise AssertionError("authorization should not run for text inject")
-
-    monkeypatch.setattr(server_module, "caller_from_socket_peer", _unexpected_peercred)
-
     response = await inject_handler(
         "p1",
         server_module.InjectRequest(text="hello"),
-        FakeRequestsModule.Request(),
     )
 
     assert response == {"ok": True, "inbound_seq": 2}
@@ -587,65 +579,7 @@ async def test_inject_text_does_not_invoke_authorization(
 
 
 @pytest.mark.asyncio
-async def test_inject_interrupt_requires_authorization(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    completion_ready = asyncio.Event()
-    wait_calls: list[SpawnId] = []
-    heartbeat_calls: list[SpawnId] = []
-    app, manager = _create_test_app(
-        tmp_path=tmp_path,
-        monkeypatch=monkeypatch,
-        completion_ready=completion_ready,
-        wait_calls=wait_calls,
-        heartbeat_calls=heartbeat_calls,
-    )
-
-    _start_running_app_spawn(manager.state_root, spawn_id="p1")
-    manager.set_connection(SpawnId("p1"), FakeConnection())
-    inject_handler = cast("Any", app.post_routes["/api/spawns/{spawn_id}/inject"])
-
-    left, right = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
-    request = FakeRequestsModule.Request()
-    request.scope["transport"] = types.SimpleNamespace(
-        get_extra_info=lambda name, default=None: left if name == "socket" else default
-    )
-
-    monkeypatch.setattr(
-        server_module,
-        "caller_from_socket_peer",
-        lambda _sock: (SpawnId("p999"), 1),
-    )
-    monkeypatch.setattr(
-        server_module,
-        "authorize",
-        lambda **kwargs: AuthorizationDecision(
-            allowed=False,
-            reason="not_in_ancestry",
-            caller_id=SpawnId("p999"),
-            target_id=SpawnId("p1"),
-        ),
-    )
-
-    try:
-        with pytest.raises(FakeHTTPException) as exc_info:
-            await inject_handler(
-                "p1",
-                server_module.InjectRequest(interrupt=True),
-                request,
-            )
-    finally:
-        left.close()
-        right.close()
-
-    assert exc_info.value.status_code == 403
-    assert exc_info.value.detail == "caller is not authorized"
-    assert manager.interrupt_calls == []
-
-
-@pytest.mark.asyncio
-async def test_inject_interrupt_dispatches_when_authorized(
+async def test_inject_interrupt_dispatches(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -670,37 +604,10 @@ async def test_inject_interrupt_dispatches_when_authorized(
     )
     inject_handler = cast("Any", app.post_routes["/api/spawns/{spawn_id}/inject"])
 
-    left, right = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
-    request = FakeRequestsModule.Request()
-    request.scope["transport"] = types.SimpleNamespace(
-        get_extra_info=lambda name, default=None: left if name == "socket" else default
+    response = await inject_handler(
+        "p1",
+        server_module.InjectRequest(interrupt=True),
     )
-
-    monkeypatch.setattr(
-        server_module,
-        "caller_from_socket_peer",
-        lambda _sock: (SpawnId("p1"), 0),
-    )
-    monkeypatch.setattr(
-        server_module,
-        "authorize",
-        lambda **kwargs: AuthorizationDecision(
-            allowed=True,
-            reason="self",
-            caller_id=SpawnId("p1"),
-            target_id=SpawnId("p1"),
-        ),
-    )
-
-    try:
-        response = await inject_handler(
-            "p1",
-            server_module.InjectRequest(interrupt=True),
-            request,
-        )
-    finally:
-        left.close()
-        right.close()
 
     assert response == {"ok": True, "inbound_seq": 9, "noop": True}
     assert manager.interrupt_calls == [(SpawnId("p1"), "rest")]
@@ -739,7 +646,6 @@ async def test_inject_rejects_terminal_and_finalizing(
         await inject_handler(
             "p1",
             server_module.InjectRequest(text="hello"),
-            FakeRequestsModule.Request(),
         )
     assert terminal_exc.value.status_code == 410
     assert terminal_exc.value.detail == "spawn already terminal"
@@ -752,14 +658,13 @@ async def test_inject_rejects_terminal_and_finalizing(
         await inject_handler(
             "p2",
             server_module.InjectRequest(text="hello"),
-            FakeRequestsModule.Request(),
         )
     assert finalizing_exc.value.status_code == 503
     assert finalizing_exc.value.detail == "spawn is finalizing"
 
 
 @pytest.mark.asyncio
-async def test_cancel_endpoint_returns_origin_and_uses_auth_dependency(
+async def test_cancel_endpoint_returns_origin(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -790,55 +695,9 @@ async def test_cancel_endpoint_returns_origin_and_uses_auth_dependency(
     response = await cancel_handler("p1")
     assert response == {"ok": True, "status": "cancelled", "origin": "runner"}
 
-    cancel_options = app.post_route_options["/api/spawns/{spawn_id}/cancel"]
-    dependencies = cast("list[object]", cancel_options["dependencies"])
-    assert len(dependencies) == 1
-
 
 @pytest.mark.asyncio
-async def test_cancel_auth_dependency_maps_missing_target_to_404(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    completion_ready = asyncio.Event()
-    wait_calls: list[SpawnId] = []
-    heartbeat_calls: list[SpawnId] = []
-    app, _manager = _create_test_app(
-        tmp_path=tmp_path,
-        monkeypatch=monkeypatch,
-        completion_ready=completion_ready,
-        wait_calls=wait_calls,
-        heartbeat_calls=heartbeat_calls,
-    )
-
-    cancel_options = app.post_route_options["/api/spawns/{spawn_id}/cancel"]
-    dependencies = cast("list[object]", cancel_options["dependencies"])
-    dependency = cast("Callable[[str, FakeRequestsModule.Request], Any]", dependencies[0])
-
-    left, right = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
-    request = FakeRequestsModule.Request()
-    request.scope["transport"] = types.SimpleNamespace(
-        get_extra_info=lambda name, default=None: left if name == "socket" else default
-    )
-    monkeypatch.setattr(
-        server_module,
-        "caller_from_socket_peer",
-        lambda _sock: (SpawnId("p1"), 1),
-    )
-
-    try:
-        with pytest.raises(FakeHTTPException) as exc_info:
-            await dependency("p999", request)
-    finally:
-        left.close()
-        right.close()
-
-    assert exc_info.value.status_code == 404
-    assert exc_info.value.detail == "spawn not found"
-
-
-@pytest.mark.asyncio
-async def test_cancel_endpoint_rejects_terminal_and_legacy_delete_is_405(
+async def test_cancel_endpoint_rejects_terminal(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -868,12 +727,6 @@ async def test_cancel_endpoint_rejects_terminal_and_legacy_delete_is_405(
         await cancel_handler("p1")
     assert cancel_exc.value.status_code == 409
     assert cancel_exc.value.detail == "spawn already terminal: cancelled"
-
-    delete_handler = cast("Any", app.delete_routes["/api/spawns/{spawn_id}"])
-    with pytest.raises(FakeHTTPException) as delete_exc:
-        await delete_handler("p1")
-    assert delete_exc.value.status_code == 405
-    assert delete_exc.value.detail == "use POST /api/spawns/{id}/cancel for lifecycle cancel"
 
 
 @pytest.mark.asyncio
