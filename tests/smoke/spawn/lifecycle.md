@@ -62,7 +62,11 @@ grep -q "Spawn: $SPAWN_ID" /tmp/meridian-lifecycle-show.txt && \
 echo "PASS: spawn show returned lifecycle data" || echo "FAIL: spawn show output was incomplete"
 ```
 
-### LIFE-4. Report create and show work for a finished spawn [IMPORTANT]
+### LIFE-4. Auto-extracted report is retrievable via `report show` [IMPORTANT]
+
+Reports are written by the spawned agent as its final assistant message; the
+finalize pipeline extracts and persists the message to `spawns/<id>/report.md`.
+Verify the extraction landed and `report show` surfaces it.
 
 ```bash
 SPAWN_ID="$(uv run python - <<'PY'
@@ -71,12 +75,10 @@ doc = json.load(open("/tmp/meridian-lifecycle-create.json"))
 print(doc.get("spawn_id") or doc.get("id"))
 PY
 )" && \
-printf '# Smoke Report\n\nLifecycle smoke test.\n' | \
-uv run meridian spawn report create --spawn "$SPAWN_ID" --stdin >/tmp/meridian-lifecycle-report.txt && \
-uv run meridian spawn report show --spawn "$SPAWN_ID" >/tmp/meridian-lifecycle-report-show.txt && \
-grep -q 'report.create' /tmp/meridian-lifecycle-report.txt && \
-grep -q 'Smoke Report' /tmp/meridian-lifecycle-report-show.txt && \
-echo "PASS: report create and show succeeded" || echo "FAIL: report create/show output was incomplete"
+uv run meridian spawn report show "$SPAWN_ID" > /tmp/meridian-lifecycle-report-show.txt && \
+test -s "$MERIDIAN_STATE_ROOT/spawns/$SPAWN_ID/report.md" && \
+test -s /tmp/meridian-lifecycle-report-show.txt && \
+echo "PASS: auto-extracted report was persisted and report show returned content" || echo "FAIL: report.md missing or report show empty"
 ```
 
 ### LIFE-5. Stats reflect recorded runs [IMPORTANT]
