@@ -14,6 +14,7 @@ import pytest
 from meridian.lib.app import server as server_module
 from meridian.lib.core.types import HarnessId, SpawnId
 from meridian.lib.harness.adapter import SpawnParams
+from meridian.lib.harness.codex import CodexAdapter
 from meridian.lib.harness.connections.base import ConnectionCapabilities, ConnectionConfig
 from meridian.lib.harness.launch_spec import ResolvedLaunchSpec
 from meridian.lib.state import spawn_store
@@ -456,13 +457,16 @@ async def test_app_server_threads_permission_resolver_into_streaming_spec(
     wait_calls: list[SpawnId] = []
     heartbeat_calls: list[SpawnId] = []
 
-    class _CaptureAdapter:
+    class _CaptureAdapter(CodexAdapter):
+        """CodexAdapter subclass that captures the permission resolver."""
+
         def __init__(self) -> None:
+            super().__init__()
             self.seen_resolver: object | None = None
 
         def resolve_launch_spec(self, run: SpawnParams, perms: object) -> ResolvedLaunchSpec:
             self.seen_resolver = perms
-            return ResolvedLaunchSpec(prompt=run.prompt, permission_resolver=cast("Any", perms))
+            return super().resolve_launch_spec(run, cast("Any", perms))
 
     class _CaptureRegistry:
         def __init__(self, adapter: _CaptureAdapter) -> None:

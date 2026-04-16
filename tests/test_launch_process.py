@@ -163,10 +163,6 @@ def test_run_harness_process_fork_uses_new_chat_and_materialized_session(
         started(111)
         return (0, 111)
 
-    def fake_extract_latest_session_id(**kwargs: object) -> str:
-        _ = kwargs
-        return "forked-session"
-
     def fake_start_session(
         state_root: Path,
         harness: str,
@@ -183,13 +179,13 @@ def test_run_harness_process_fork_uses_new_chat_and_materialized_session(
 
     monkeypatch.setattr(codex_adapter, "build_command", fake_build_command)
     monkeypatch.setattr(codex_adapter, "fork_session", fake_fork_session)
+    monkeypatch.setattr(codex_adapter, "observe_session_id", lambda **kwargs: "forked-session")
     monkeypatch.setattr(process, "build_launch_env", fake_build_launch_env)
     monkeypatch.setattr(
         process,
         "_run_primary_process_with_capture",
         fake_run_primary_process_with_capture,
     )
-    monkeypatch.setattr(process, "extract_latest_session_id", fake_extract_latest_session_id)
     monkeypatch.setattr(process, "stop_session", lambda *args, **kwargs: None)
     monkeypatch.setattr(process, "update_session_harness_id", lambda *args, **kwargs: None)
     monkeypatch.setattr(process, "start_session", fake_start_session)
@@ -200,7 +196,8 @@ def test_run_harness_process_fork_uses_new_chat_and_materialized_session(
     assert captured["build_continue_session"] == "forked-session"
     assert captured["command_session"] == "forked-session"
     assert captured["chat_id_arg"] is None
-    assert captured["start_harness_session_id"] == "forked-session"
+    # I-10: session is created with the SOURCE session ID; fork happens after the row exists.
+    assert captured["start_harness_session_id"] == "source-session"
     assert captured["forked_from_chat_id"] == "c7"
     assert outcome.chat_id == "c999"
     events = [

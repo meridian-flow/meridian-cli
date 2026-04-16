@@ -1,9 +1,7 @@
 """Spawn create-input validation and payload preparation helpers."""
 
-from collections.abc import Callable
 from difflib import get_close_matches
 from pathlib import Path
-from typing import cast
 
 import structlog
 from pydantic import BaseModel, ConfigDict
@@ -12,7 +10,7 @@ from meridian.lib.catalog.models import load_discovered_models, load_merged_alia
 from meridian.lib.config.settings import MeridianConfig
 from meridian.lib.core.context import RuntimeContext
 from meridian.lib.core.overrides import RuntimeOverrides
-from meridian.lib.core.types import HarnessId, ModelId
+from meridian.lib.core.types import ModelId
 from meridian.lib.harness.registry import HarnessRegistry, get_default_harness_registry
 from meridian.lib.launch.prompt import (
     compose_run_prompt_text,
@@ -299,22 +297,9 @@ def build_create_payload(
                     continuation_warning = (
                         f"Harness '{harness.id}' does not support session fork; resuming in-place."
                     )
-    if (
-        resolved_continue_fork
-        and not payload.dry_run
-        and harness.id == HarnessId.CODEX
-        and resolved_continue_harness_session_id is not None
-    ):
-        fork_session = cast("Callable[[str], str] | None", getattr(harness, "fork_session", None))
-        if fork_session is None:
-            raise RuntimeError("Harness adapter does not implement fork_session().")
-        forked_session_id = str(fork_session(resolved_continue_harness_session_id)).strip()
-        if not forked_session_id:
-            raise RuntimeError("Harness adapter returned empty fork session ID.")
-        resolved_continue_harness_session_id = forked_session_id
-        # Canonical fork materialization for child spawns happens during
-        # prepare so runner.py executes an already-materialized plan.
-        resolved_continue_fork = False
+    # I-10: Fork materialization is deferred to execute.py, after the spawn row
+    # exists.  prepare.py preserves resolved_continue_fork=True so the executor
+    # can call materialize_fork() via the sole owner in launch/fork.py.
 
     missing_skills_warning = (
         format_missing_skills_warning(resolved_skills.missing_skills)

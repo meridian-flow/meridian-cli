@@ -20,6 +20,7 @@ from meridian.lib.core.domain import Spawn, SpawnStatus
 from meridian.lib.core.sink import OutputSink
 from meridian.lib.core.types import HarnessId, ModelId, SpawnId
 from meridian.lib.launch.cwd import resolve_child_execution_cwd
+from meridian.lib.launch.fork import materialize_fork
 from meridian.lib.launch.request import (
     ExecutionBudget,
     LaunchRuntime,
@@ -228,7 +229,11 @@ def _init_spawn(
         prompt=prepared.prompt,
         desc=resolved_desc,
         work_id=resolved_work_id,
-        harness_session_id=prepared.session.harness_session_id,
+        # I-10: do NOT pre-populate harness_session_id on fork starts.
+        # materialize_fork() writes it via update_spawn after the row exists.
+        harness_session_id=(
+            None if prepared.session.continue_fork else prepared.session.harness_session_id
+        ),
         execution_cwd=execution_cwd,
         launch_mode=launch_mode,
         runner_pid=runner_pid,
@@ -349,22 +354,10 @@ def _resolve_session_continuation(
                 else:
                     resolved_continue_fork = False
 
-    if (
-        resolved_continue_fork
-        and harness_id == HarnessId.CODEX
-        and resolved_continue_harness_session_id is not None
-    ):
-        fork_session = cast(
-            "Callable[[str], str] | None",
-            getattr(harness_adapter, "fork_session", None),
-        )
-        if fork_session is None:
-            raise RuntimeError("Harness adapter does not implement fork_session().")
-        forked_session_id = str(fork_session(resolved_continue_harness_session_id)).strip()
-        if not forked_session_id:
-            raise RuntimeError("Harness adapter returned empty fork session ID.")
-        resolved_continue_harness_session_id = forked_session_id
-        resolved_continue_fork = False
+    # I-10: fork materialization is deferred to the calling executor, which
+    # calls materialize_fork() via the sole owner in launch/fork.py, after both
+    # the spawn row and chat row exist.  resolved_continue_fork=True is preserved
+    # here so the executor knows a fork is needed.
 
     return SessionContinuation(
         harness_session_id=resolved_continue_harness_session_id,
@@ -546,6 +539,26 @@ async def _execute_existing_spawn(
         execution_cwd=resolved_execution_cwd,
     ) as session_context:
         resolved_plan = plan.model_copy(update={"agent_name": session_context.resolved_agent_name})
+        # I-10/I-11: spawn row AND chat row now both exist.  Materialize any
+        # pending fork via the sole owner so the spawn row receives the forked
+        # session ID via update_spawn (not pre-populated on the start row).
+        if resolved_session.continue_fork and resolved_session.harness_session_id:
+            forked_session_id = materialize_fork(
+                adapter=harness_adapter,
+                source_session_id=resolved_session.harness_session_id,
+                state_root=state_root,
+                spawn_id=spawn.spawn_id,
+            )
+            resolved_plan = resolved_plan.model_copy(
+                update={
+                    "session": resolved_plan.session.model_copy(
+                        update={
+                            "harness_session_id": forked_session_id,
+                            "continue_fork": False,
+                        }
+                    )
+                }
+            )
         run_env_overrides = _spawn_child_env(
             str(spawn.spawn_id),
             work_id=session_context.work_id or spawn_record.work_id,
@@ -924,6 +937,29 @@ def execute_spawn_blocking(
         resolved_plan = prepared.model_copy(
             update={"agent_name": session_context.resolved_agent_name}
         )
+        # I-10/I-11: spawn row AND chat row now both exist.  Materialize any
+        # pending fork via the sole owner so the spawn row receives the forked
+        # session ID via update_spawn (not pre-populated on the start row).
+        if prepared.session.continue_fork and prepared.session.harness_session_id:
+            harness_adapter = runtime.harness_registry.get_subprocess_harness(
+                HarnessId(prepared.harness_id)
+            )
+            forked_session_id = materialize_fork(
+                adapter=harness_adapter,
+                source_session_id=prepared.session.harness_session_id,
+                state_root=context.state_root,
+                spawn_id=spawn.spawn_id,
+            )
+            resolved_plan = resolved_plan.model_copy(
+                update={
+                    "session": resolved_plan.session.model_copy(
+                        update={
+                            "harness_session_id": forked_session_id,
+                            "continue_fork": False,
+                        }
+                    )
+                }
+            )
         run_env_overrides = _spawn_child_env(
             str(spawn.spawn_id),
             work_id=session_context.work_id or context.work_id,

@@ -45,9 +45,9 @@ from meridian.lib.state.session_store import (
 from meridian.lib.state.spawn_store import FOREGROUND_LAUNCH_MODE
 
 from .command import build_launch_argv, build_launch_env
+from .fork import materialize_fork
 from .plan import ResolvedPrimaryLaunchPlan
 from .run_inputs import ResolvedRunInputs
-from .session_ids import extract_latest_session_id
 from .session_scope import session_scope
 from .types import SessionMode
 
@@ -73,45 +73,14 @@ class ProcessOutcome(BaseModel):
 def _resolve_command_and_session(
     plan: ResolvedPrimaryLaunchPlan,
 ) -> tuple[tuple[str, ...], str, ResolvedRunInputs | SpawnParams]:
-    """Resolve command and effective harness session for this launch run."""
+    """Return the pre-built command, seed session ID, and run params.
 
-    command = plan.command
-    resolved_harness_session_id = plan.seed_harness_session_id
-    run_params = plan.run_params
-    should_materialize_fork = (
-        plan.request.session_mode == SessionMode.FORK
-        and not plan.request.dry_run
-        and plan.adapter.id == HarnessId.CODEX
-        and bool((run_params.continue_harness_session_id or "").strip())
-    )
-    if not should_materialize_fork:
-        return command, resolved_harness_session_id, run_params
+    Fork materialization is NOT done here.  I-10 (fork-after-row ordering)
+    requires the spawn row to exist before fork_session is invoked, so the
+    fork step is deferred to run_harness_process() after start_spawn().
+    """
 
-    if plan.permission_resolver is None:
-        raise RuntimeError("Missing permission resolver for fork launch command construction.")
-
-    source_session_id = run_params.continue_harness_session_id or ""
-    fork_session = cast("Callable[[str], str] | None", getattr(plan.adapter, "fork_session", None))
-    if fork_session is None:
-        raise RuntimeError("Harness adapter does not implement fork_session().")
-    forked_session_id = fork_session(source_session_id).strip()
-    if not forked_session_id:
-        raise RuntimeError("Harness adapter returned empty fork session ID.")
-    run_params = run_params.model_copy(
-        update={
-            "continue_harness_session_id": forked_session_id,
-            # Primary launches bypass ops/spawn/prepare.py, so this is the
-            # canonical fork materialization site for launch CLI execution.
-            "continue_fork": False,
-        }
-    )
-    resolved_harness_session_id = forked_session_id
-    command = build_launch_argv(
-        adapter=plan.adapter,
-        run_inputs=run_params,
-        perms=plan.permission_resolver,
-    )
-    return command, resolved_harness_session_id, run_params
+    return plan.command, plan.seed_harness_session_id, plan.run_params
 
 
 def _copy_primary_pty_output(
@@ -333,6 +302,15 @@ def run_harness_process(
                 if attached_work_id is not None:
                     update_session_work_id(plan.state_root, chat_id, attached_work_id)
             try:
+                # I-10: do NOT pre-populate harness_session_id on fork starts.
+                # The forked session ID is unknown until materialize_fork() runs
+                # after the row exists.
+                should_fork = (
+                    plan.request.session_mode == SessionMode.FORK
+                    and not plan.request.dry_run
+                    and plan.adapter.id == HarnessId.CODEX
+                    and bool((run_params.continue_harness_session_id or "").strip())
+                )
                 primary_spawn_id = spawn_store.start_spawn(
                     plan.state_root,
                     chat_id=chat_id,
@@ -344,13 +322,38 @@ def run_harness_process(
                     harness=plan.session_metadata.harness,
                     kind="primary",
                     prompt=plan.prompt,
-                    harness_session_id=resolved_harness_session_id,
+                    harness_session_id=None if should_fork else resolved_harness_session_id,
                     execution_cwd=str(execution_cwd),
                     launch_mode=FOREGROUND_LAUNCH_MODE,
                     work_id=attached_work_id,
                     runner_pid=os.getpid(),
                     status="queued",
                 )
+                # I-10: fork row exists now — safe to call fork_session via sole owner.
+                if should_fork:
+                    source_session_id = (run_params.continue_harness_session_id or "").strip()
+                    if plan.permission_resolver is None:
+                        raise RuntimeError(
+                            "Missing permission resolver for fork launch command construction."
+                        )
+                    forked_session_id = materialize_fork(
+                        adapter=plan.adapter,
+                        source_session_id=source_session_id,
+                        state_root=plan.state_root,
+                        spawn_id=primary_spawn_id,
+                    )
+                    run_params = run_params.model_copy(
+                        update={
+                            "continue_harness_session_id": forked_session_id,
+                            "continue_fork": False,
+                        }
+                    )
+                    resolved_harness_session_id = forked_session_id
+                    command = build_launch_argv(
+                        adapter=plan.adapter,
+                        run_inputs=run_params,
+                        perms=plan.permission_resolver,
+                    )
                 log_dir = resolve_spawn_log_dir(repo_root, primary_spawn_id)
                 primary_started = time.monotonic()
                 primary_started_epoch = time.time()
@@ -445,11 +448,11 @@ def run_harness_process(
                 try:
                     observed_harness_session_id = None
                     if primary_started_epoch > 0.0:
-                        observed_harness_session_id = extract_latest_session_id(
-                            extractor=plan.adapter,
-                            current_session_id=resolved_harness_session_id,
+                        # I-4: observe_session_id() is the sole observation callsite.
+                        observed_harness_session_id = plan.adapter.observe_session_id(
                             artifacts=artifacts,
                             spawn_id=primary_spawn_id,
+                            current_session_id=resolved_harness_session_id,
                             repo_root=repo_root,
                             started_at_epoch=primary_started_epoch,
                             started_at_local_iso=primary_started_local_iso,

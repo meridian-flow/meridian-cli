@@ -17,16 +17,11 @@ from uuid import uuid4
 from pydantic import BaseModel, model_validator
 
 from meridian.lib.core.spawn_lifecycle import TERMINAL_SPAWN_STATUSES
-from meridian.lib.core.types import HarnessId, ModelId, SpawnId
-from meridian.lib.harness.adapter import SpawnParams
+from meridian.lib.core.types import HarnessId, SpawnId
 from meridian.lib.harness.connections.base import ConnectionConfig
 from meridian.lib.harness.registry import get_default_harness_registry
-from meridian.lib.launch.launch_types import ResolvedLaunchSpec
-from meridian.lib.safety.permissions import (
-    TieredPermissionResolver,
-    UnsafeNoOpPermissionResolver,
-    build_permission_config,
-)
+from meridian.lib.launch.context import build_launch_context
+from meridian.lib.launch.request import LaunchRuntime, SpawnRequest
 from meridian.lib.state import spawn_store
 from meridian.lib.state.paths import resolve_project_paths
 from meridian.lib.streaming.signal_canceller import SignalCanceller
@@ -283,6 +278,9 @@ def create_app(
             ) from exc
 
         permissions = body.permissions
+        spawn_sandbox: str | None = None
+        spawn_approval: str | None = None
+        unsafe_no_permissions = False
         if permissions is None:
             if not allow_unsafe_no_permissions:
                 raise http_exception_cls(
@@ -296,25 +294,20 @@ def create_app(
                 "Handling /api/spawns request without permission metadata because "
                 "--allow-unsafe-no-permissions is enabled."
             )
-            permission_resolver = UnsafeNoOpPermissionResolver()
+            unsafe_no_permissions = True
         else:
-            sandbox = permissions.sandbox.strip()
-            approval = permissions.approval.strip()
-            if not sandbox:
+            spawn_sandbox = permissions.sandbox.strip()
+            spawn_approval = permissions.approval.strip()
+            if not spawn_sandbox:
                 raise http_exception_cls(
                     status_code=400,
                     detail="permissions.sandbox is required",
                 )
-            if not approval:
+            if not spawn_approval:
                 raise http_exception_cls(
                     status_code=400,
                     detail="permissions.approval is required",
                 )
-            try:
-                permission_config = build_permission_config(sandbox, approval=approval)
-            except ValueError as exc:
-                raise http_exception_cls(status_code=400, detail=str(exc)) from exc
-            permission_resolver = TieredPermissionResolver(config=permission_config)
 
         spawn_id = await reserve_spawn_id(
             chat_id=str(uuid4()),
@@ -330,16 +323,34 @@ def create_app(
             repo_root=project_paths.execution_cwd,
             env_overrides={},
         )
-        adapter = get_default_harness_registry().get_subprocess_harness(harness_id)
-        params = SpawnParams(
+        # I-2: route spec resolution through the factory rather than calling
+        # adapter.resolve_launch_spec() directly.
+        spawn_req = SpawnRequest(
             prompt=prompt,
-            model=ModelId(body.model.strip()) if body.model and body.model.strip() else None,
+            model=body.model.strip() if body.model and body.model.strip() else None,
+            harness=harness_id.value,
             agent=body.agent.strip() if body.agent else None,
+            sandbox=spawn_sandbox,
+            approval=spawn_approval,
         )
-        spec: ResolvedLaunchSpec = adapter.resolve_launch_spec(params, permission_resolver)
+        launch_runtime = LaunchRuntime(
+            # "foreground" lets build_launch_context tolerate argv-build failures
+            # for streaming harnesses that don't use subprocess argv.
+            launch_mode="foreground",
+            unsafe_no_permissions=unsafe_no_permissions,
+            state_root=state_root.as_posix(),
+            project_paths_repo_root=project_paths.repo_root.as_posix(),
+            project_paths_execution_cwd=project_paths.execution_cwd.as_posix(),
+        )
+        launch_ctx = build_launch_context(
+            spawn_id=str(spawn_id),
+            request=spawn_req,
+            runtime=launch_runtime,
+            harness_registry=get_default_harness_registry(),
+        )
 
         try:
-            connection = await spawn_manager.start_spawn(config, spec)
+            connection = await spawn_manager.start_spawn(config, launch_ctx.spec)
             await spawn_manager._start_heartbeat(spawn_id)  # pyright: ignore[reportPrivateUsage]
         except Exception as exc:
             spawn_store.finalize_spawn(

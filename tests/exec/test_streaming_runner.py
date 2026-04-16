@@ -546,8 +546,10 @@ async def test_run_streaming_spawn_finishes_after_turn_completed_when_stream_dra
                 repo_root=tmp_path,
                 env_overrides={},
             ),
-            params=SpawnParams(prompt="hello"),
-            perms=TieredPermissionResolver(config=PermissionConfig()),
+            spec=CodexLaunchSpec(
+                prompt="hello",
+                permission_resolver=TieredPermissionResolver(config=PermissionConfig()),
+            ),
             state_root=state_root,
             repo_root=tmp_path,
             spawn_id=SpawnId("p1"),
@@ -584,8 +586,11 @@ async def test_run_streaming_spawn_threads_caller_permission_resolver_without_sw
                 repo_root=tmp_path,
                 env_overrides={},
             ),
-            params=SpawnParams(prompt="hello", model=ModelId("gpt-5.3-codex")),
-            perms=resolver,
+            spec=CodexLaunchSpec(
+                prompt="hello",
+                model="gpt-5.3-codex",
+                permission_resolver=resolver,
+            ),
             state_root=state_root,
             repo_root=tmp_path,
             spawn_id=SpawnId("p-resolver"),
@@ -620,8 +625,10 @@ async def test_run_streaming_spawn_raises_structured_missing_binary_error(
                 repo_root=tmp_path,
                 env_overrides={},
             ),
-            params=SpawnParams(prompt="hello"),
-            perms=TieredPermissionResolver(config=PermissionConfig()),
+            spec=CodexLaunchSpec(
+                prompt="hello",
+                permission_resolver=TieredPermissionResolver(config=PermissionConfig()),
+            ),
             state_root=state_root,
             repo_root=tmp_path,
             spawn_id=SpawnId("p-missing"),
@@ -652,6 +659,18 @@ async def test_execute_with_streaming_succeeds_when_turn_completes_and_stream_dr
         spawn_id=SpawnId("r1"),
         prompt="hello",
         model=ModelId("gpt-5.3-codex"),
+        status="queued",
+    )
+    spawn_store.start_spawn(
+        state_root,
+        chat_id="test-chat-r1",
+        model=str(run.model),
+        agent="",
+        harness="codex",
+        kind="streaming",
+        prompt=run.prompt,
+        spawn_id=run.spawn_id,
+        launch_mode="foreground",
         status="queued",
     )
 
@@ -721,6 +740,18 @@ async def test_execute_with_streaming_succeeds_after_report_watchdog_cleanup(
         spawn_id=SpawnId("r2"),
         prompt="hello",
         model=ModelId("gpt-5.3-codex"),
+        status="queued",
+    )
+    spawn_store.start_spawn(
+        state_root,
+        chat_id="test-chat-r2",
+        model=str(run.model),
+        agent="",
+        harness="codex",
+        kind="streaming",
+        prompt=run.prompt,
+        spawn_id=run.spawn_id,
+        launch_mode="foreground",
         status="queued",
     )
 
@@ -800,6 +831,18 @@ async def test_execute_with_streaming_waits_for_delayed_terminal_failure_after_d
         spawn_id=SpawnId("r-f1"),
         prompt="hello",
         model=ModelId("claude-opus-4-1"),
+        status="queued",
+    )
+    spawn_store.start_spawn(
+        state_root,
+        chat_id="test-chat-rf1",
+        model=str(run.model),
+        agent="",
+        harness="claude",
+        kind="streaming",
+        prompt=run.prompt,
+        spawn_id=run.spawn_id,
+        launch_mode="foreground",
         status="queued",
     )
 
@@ -900,6 +943,18 @@ async def test_execute_with_streaming_prefers_terminal_over_same_wakeup_signal(
         spawn_id=SpawnId("r-f2"),
         prompt="hello",
         model=ModelId("gpt-5.3-codex"),
+        status="queued",
+    )
+    spawn_store.start_spawn(
+        state_root,
+        chat_id="test-chat-rf2",
+        model=str(run.model),
+        agent="",
+        harness="codex",
+        kind="streaming",
+        prompt=run.prompt,
+        spawn_id=run.spawn_id,
+        launch_mode="foreground",
         status="queued",
     )
 
@@ -1020,6 +1075,18 @@ async def test_execute_with_streaming_signal_wins_without_spawn_terminal_event(
         model=ModelId("gpt-5.3-codex"),
         status="queued",
     )
+    spawn_store.start_spawn(
+        state_root,
+        chat_id="test-chat-rf2b",
+        model=str(run.model),
+        agent="",
+        harness="codex",
+        kind="streaming",
+        prompt=run.prompt,
+        spawn_id=run.spawn_id,
+        launch_mode="foreground",
+        status="queued",
+    )
 
     exit_code = await asyncio.wait_for(
         execute_with_streaming(
@@ -1072,6 +1139,18 @@ async def test_execute_with_streaming_persists_missing_binary_diagnostics(
         model=ModelId("claude-opus-4-1"),
         status="queued",
     )
+    spawn_store.start_spawn(
+        state_root,
+        chat_id="test-chat-rf3",
+        model=str(run.model),
+        agent="",
+        harness="claude",
+        kind="streaming",
+        prompt=run.prompt,
+        spawn_id=run.spawn_id,
+        launch_mode="foreground",
+        status="queued",
+    )
 
     exit_code = await asyncio.wait_for(
         execute_with_streaming(
@@ -1115,6 +1194,18 @@ async def test_execute_with_streaming_codex_uses_adapter_resolved_launch_spec(
         spawn_id=SpawnId("r2b"),
         prompt="hello",
         model=ModelId("gpt-5.3-codex"),
+        status="queued",
+    )
+    spawn_store.start_spawn(
+        state_root,
+        chat_id="test-chat-r2b",
+        model=str(run.model),
+        agent="",
+        harness="codex",
+        kind="streaming",
+        prompt=run.prompt,
+        spawn_id=run.spawn_id,
+        launch_mode="foreground",
         status="queued",
     )
 
@@ -1173,8 +1264,10 @@ async def test_run_streaming_spawn_finishes_on_claude_result_without_connection_
                 repo_root=tmp_path,
                 env_overrides={},
             ),
-            params=SpawnParams(prompt="hello"),
-            perms=TieredPermissionResolver(config=PermissionConfig()),
+            spec=ClaudeLaunchSpec(
+                prompt="hello",
+                permission_resolver=TieredPermissionResolver(config=PermissionConfig()),
+            ),
             state_root=state_root,
             repo_root=tmp_path,
             spawn_id=SpawnId("p2"),
@@ -1260,8 +1353,10 @@ async def test_run_streaming_spawn_finishes_on_opencode_idle_without_connection_
                 repo_root=tmp_path,
                 env_overrides={},
             ),
-            params=SpawnParams(prompt="hello"),
-            perms=TieredPermissionResolver(config=PermissionConfig()),
+            spec=OpenCodeLaunchSpec(
+                prompt="hello",
+                permission_resolver=TieredPermissionResolver(config=PermissionConfig()),
+            ),
             state_root=state_root,
             repo_root=tmp_path,
             spawn_id=SpawnId("p3"),
@@ -1295,8 +1390,11 @@ async def test_run_streaming_spawn_preserves_none_model_in_launch_spec(
                 repo_root=tmp_path,
                 env_overrides={},
             ),
-            params=SpawnParams(prompt="hello", model=None),
-            perms=TieredPermissionResolver(config=PermissionConfig()),
+            spec=OpenCodeLaunchSpec(
+                prompt="hello",
+                model=None,
+                permission_resolver=TieredPermissionResolver(config=PermissionConfig()),
+            ),
             state_root=state_root,
             repo_root=tmp_path,
             spawn_id=SpawnId("p4"),
@@ -1330,6 +1428,18 @@ async def test_execute_with_streaming_succeeds_when_opencode_idle_completes_but_
         spawn_id=SpawnId("r4"),
         prompt="hello",
         model=ModelId("openrouter/qwen/qwen3-coder:free"),
+        status="queued",
+    )
+    spawn_store.start_spawn(
+        state_root,
+        chat_id="test-chat-r4",
+        model=str(run.model),
+        agent="",
+        harness="opencode",
+        kind="streaming",
+        prompt=run.prompt,
+        spawn_id=run.spawn_id,
+        launch_mode="foreground",
         status="queued",
     )
 
@@ -1375,6 +1485,18 @@ async def test_execute_with_streaming_opencode_uses_adapter_normalized_launch_sp
         spawn_id=SpawnId("r5"),
         prompt="hello",
         model=ModelId("opencode-gpt-5.3-codex"),
+        status="queued",
+    )
+    spawn_store.start_spawn(
+        state_root,
+        chat_id="test-chat-r5",
+        model=str(run.model),
+        agent="",
+        harness="opencode",
+        kind="streaming",
+        prompt=run.prompt,
+        spawn_id=run.spawn_id,
+        launch_mode="foreground",
         status="queued",
     )
     plan = _build_plan(HarnessId.OPENCODE, "opencode-gpt-5.3-codex").model_copy(
@@ -1470,6 +1592,18 @@ async def test_execute_with_streaming_starts_and_ticks_runner_heartbeat(
         model=ModelId("gpt-5.3-codex"),
         status="queued",
     )
+    spawn_store.start_spawn(
+        state_root,
+        chat_id="test-chat-rh1",
+        model=str(run.model),
+        agent="",
+        harness="codex",
+        kind="streaming",
+        prompt=run.prompt,
+        spawn_id=run.spawn_id,
+        launch_mode="foreground",
+        status="queued",
+    )
     exit_code = await asyncio.wait_for(
         execute_with_streaming(
             run,
@@ -1535,6 +1669,18 @@ async def test_execute_with_streaming_marks_finalizing_before_terminal_finalize(
         model=ModelId("gpt-5.3-codex"),
         status="queued",
     )
+    spawn_store.start_spawn(
+        state_root,
+        chat_id="test-chat-rfo1",
+        model=str(run.model),
+        agent="",
+        harness="codex",
+        kind="streaming",
+        prompt=run.prompt,
+        spawn_id=run.spawn_id,
+        launch_mode="foreground",
+        status="queued",
+    )
     exit_code = await asyncio.wait_for(
         execute_with_streaming(
             run,
@@ -1589,6 +1735,18 @@ async def test_execute_with_streaming_tolerates_mark_finalizing_cas_miss(
         spawn_id=SpawnId("r-finalizing-cas-miss-1"),
         prompt="hello",
         model=ModelId("gpt-5.3-codex"),
+        status="queued",
+    )
+    spawn_store.start_spawn(
+        state_root,
+        chat_id="test-chat-rfcm1",
+        model=str(run.model),
+        agent="",
+        harness="codex",
+        kind="streaming",
+        prompt=run.prompt,
+        spawn_id=run.spawn_id,
+        launch_mode="foreground",
         status="queued",
     )
     exit_code = await asyncio.wait_for(
@@ -1650,6 +1808,18 @@ async def test_execute_with_streaming_cancels_heartbeat_when_finalize_raises(
         model=ModelId("gpt-5.3-codex"),
         status="queued",
     )
+    spawn_store.start_spawn(
+        state_root,
+        chat_id="test-chat-rh2",
+        model=str(run.model),
+        agent="",
+        harness="codex",
+        kind="streaming",
+        prompt=run.prompt,
+        spawn_id=run.spawn_id,
+        launch_mode="foreground",
+        status="queued",
+    )
 
     with pytest.raises(RuntimeError, match="streaming finalize boom"):
         await asyncio.wait_for(
@@ -1707,6 +1877,18 @@ async def test_execute_with_streaming_cancels_heartbeat_when_finalize_raises_val
         spawn_id=SpawnId("r-heartbeat-3"),
         prompt="hello",
         model=ModelId("gpt-5.3-codex"),
+        status="queued",
+    )
+    spawn_store.start_spawn(
+        state_root,
+        chat_id="test-chat-rh3",
+        model=str(run.model),
+        agent="",
+        harness="codex",
+        kind="streaming",
+        prompt=run.prompt,
+        spawn_id=run.spawn_id,
+        launch_mode="foreground",
         status="queued",
     )
 
@@ -1770,6 +1952,18 @@ async def test_execute_with_streaming_continues_when_terminal_heartbeat_touch_fa
         spawn_id=SpawnId("r-heartbeat-touch-fail-1"),
         prompt="hello",
         model=ModelId("gpt-5.3-codex"),
+        status="queued",
+    )
+    spawn_store.start_spawn(
+        state_root,
+        chat_id="test-chat-rhtf1",
+        model=str(run.model),
+        agent="",
+        harness="codex",
+        kind="streaming",
+        prompt=run.prompt,
+        spawn_id=run.spawn_id,
+        launch_mode="foreground",
         status="queued",
     )
     exit_code = await asyncio.wait_for(

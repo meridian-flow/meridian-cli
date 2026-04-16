@@ -23,13 +23,13 @@ from meridian.lib.core.spawn_lifecycle import (
     resolve_execution_terminal_state,
 )
 from meridian.lib.core.types import HarnessId, SpawnId
-from meridian.lib.harness.adapter import SpawnParams, StreamEvent
+from meridian.lib.harness.adapter import StreamEvent
 from meridian.lib.harness.bundle import get_harness_bundle
 from meridian.lib.harness.claude_preflight import ensure_claude_session_accessible
 from meridian.lib.harness.common import parse_json_stream_event, unwrap_event_payload
 from meridian.lib.harness.connections.base import ConnectionConfig, HarnessConnection
 from meridian.lib.harness.extractor import StreamingExtractor
-from meridian.lib.harness.registry import HarnessRegistry, get_default_harness_registry
+from meridian.lib.harness.registry import HarnessRegistry
 from meridian.lib.launch.constants import (
     DEFAULT_INFRA_EXIT_CODE,
     OUTPUT_FILENAME,
@@ -46,7 +46,7 @@ from meridian.lib.launch.extract import (
     enrich_finalize,
     reset_finalize_attempt_artifacts,
 )
-from meridian.lib.launch.launch_types import PermissionResolver, ResolvedLaunchSpec
+from meridian.lib.launch.launch_types import ResolvedLaunchSpec
 from meridian.lib.launch.request import LaunchRuntime, SessionRequest, SpawnRequest
 from meridian.lib.launch.runner_helpers import (
     append_budget_exceeded_event as _append_budget_exceeded_event,
@@ -66,7 +66,6 @@ from meridian.lib.launch.runner_helpers import (
 from meridian.lib.launch.runner_helpers import (
     write_structured_failure_artifact as _write_structured_failure_artifact,
 )
-from meridian.lib.launch.session_ids import extract_latest_session_id
 from meridian.lib.launch.signals import signal_coordinator, signal_to_exit_code
 from meridian.lib.ops.spawn.plan import PreparedSpawnPlan
 from meridian.lib.safety.budget import Budget, BudgetBreach, LiveBudgetTracker
@@ -390,14 +389,18 @@ async def _report_watchdog(
 async def run_streaming_spawn(
     *,
     config: ConnectionConfig,
-    params: SpawnParams,
-    perms: PermissionResolver,
+    spec: ResolvedLaunchSpec,
     state_root: Path,
     repo_root: Path,
     spawn_id: SpawnId,
     stream_to_terminal: bool = False,
 ) -> DrainOutcome:
-    """Run one streaming spawn to completion without spawn-store finalization."""
+    """Run one streaming spawn to completion without spawn-store finalization.
+
+    Callers are responsible for resolving *spec* via ``build_launch_context()``
+    before calling this function.  I-8 (executors stay mechanism-only): this
+    executor accepts a fully-composed spec and MUST NOT perform composition.
+    """
 
     manager = SpawnManager(
         state_root=state_root,
@@ -417,10 +420,7 @@ async def run_streaming_spawn(
     terminal_event_future: asyncio.Future[TerminalEventOutcome] | None = None
     terminal_outcome: TerminalEventOutcome | None = None
     subscriber: asyncio.Queue[HarnessEvent | None] | None = None
-    adapter = get_default_harness_registry().get_subprocess_harness(config.harness_id)
-    from meridian.lib.launch.command import resolve_launch_spec_stage
-
-    run_spec = resolve_launch_spec_stage(adapter=adapter, run_inputs=params, perms=perms)
+    run_spec = spec
     spawn_store.update_spawn(
         state_root,
         spawn_id,
@@ -885,26 +885,15 @@ async def execute_with_streaming(
         debug_tracer=tracer,
     )
 
+    # I-10: spawn row MUST exist before execute_with_streaming is called.
+    # Mid-flight row creation is forbidden — callers must call start_spawn first.
     spawn_row = spawn_store.get_spawn(state_root, run.spawn_id)
     if spawn_row is None:
-        spawn_store.start_spawn(
-            state_root,
-            spawn_id=run.spawn_id,
-            chat_id=os.getenv("MERIDIAN_CHAT_ID", "").strip() or "c0",
-            model=str(run.model),
-            agent=plan.agent_name or "",
-            agent_path=plan.agent_path or None,
-            skills=plan.skills,
-            skill_paths=plan.skill_paths,
-            harness=str(harness.id),
-            kind="child",
-            prompt=run.prompt,
-            harness_session_id=plan.session.harness_session_id,
-            launch_mode=FOREGROUND_LAUNCH_MODE,
-            runner_pid=os.getpid(),
-            status="queued",
+        raise RuntimeError(
+            f"execute_with_streaming precondition violated: "
+            f"no spawn row exists for {run.spawn_id!r}. "
+            "Call start_spawn() before execute_with_streaming()."
         )
-        spawn_row = spawn_store.get_spawn(state_root, run.spawn_id)
     spawn_store.update_spawn(
         state_root,
         run.spawn_id,
@@ -912,7 +901,7 @@ async def execute_with_streaming(
     )
     raw_launch_mode = (
         (spawn_row.launch_mode or "").strip().lower()
-        if spawn_row is not None and spawn_row.launch_mode is not None
+        if spawn_row.launch_mode is not None
         else FOREGROUND_LAUNCH_MODE
     )
     resolved_launch_mode: spawn_store.LaunchMode = (
@@ -1052,12 +1041,17 @@ async def execute_with_streaming(
                     secrets=secrets,
                 )
 
+                # I-4: observe_session_id() is the sole observation callsite.
                 extracted_harness_session_id = (
-                    extract_latest_session_id(
-                        extractor=streaming_extractor,
-                        current_session_id=observed_harness_session_id,
+                    harness.observe_session_id(
                         artifacts=artifacts,
                         spawn_id=run.spawn_id,
+                        current_session_id=observed_harness_session_id,
+                        connection_session_id=(
+                            attempt.connection.session_id
+                            if attempt.connection is not None
+                            else None
+                        ),
                         repo_root=repo_root,
                         started_at_epoch=started_at_epoch,
                     )

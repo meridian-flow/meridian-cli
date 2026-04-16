@@ -6,12 +6,13 @@ import time
 from uuid import uuid4
 
 from meridian.lib.core.domain import SpawnStatus
-from meridian.lib.core.types import HarnessId, ModelId
-from meridian.lib.harness.adapter import SpawnParams
+from meridian.lib.core.types import HarnessId
 from meridian.lib.harness.connections.base import ConnectionConfig
+from meridian.lib.harness.registry import get_default_harness_registry
+from meridian.lib.launch.context import build_launch_context
+from meridian.lib.launch.request import LaunchRuntime, SpawnRequest
 from meridian.lib.launch.streaming_runner import run_streaming_spawn, signal_coordinator
 from meridian.lib.ops.runtime import resolve_runtime_root_and_config
-from meridian.lib.safety.permissions import PermissionConfig, TieredPermissionResolver
 from meridian.lib.state import spawn_store
 from meridian.lib.state.paths import resolve_state_paths
 
@@ -77,12 +78,29 @@ async def streaming_serve(
         env_overrides={},
         debug_tracer=tracer,
     )
-    params = SpawnParams(
-        prompt=prompt,
-        model=ModelId(normalized_model) if normalized_model else None,
+
+    # I-2: route spec resolution through the factory rather than constructing
+    # permission resolvers or calling adapter.resolve_launch_spec() directly.
+    spawn_req = SpawnRequest(
+        prompt=normalized_prompt,
+        model=normalized_model,
+        harness=harness_id.value,
         agent=normalized_agent,
     )
-    perms = TieredPermissionResolver(config=PermissionConfig())
+    launch_runtime = LaunchRuntime(
+        # "foreground" lets build_launch_context tolerate argv-build failures
+        # for streaming harnesses that don't use subprocess argv.
+        launch_mode="foreground",
+        state_root=state_root.as_posix(),
+        project_paths_repo_root=repo_root.as_posix(),
+        project_paths_execution_cwd=repo_root.as_posix(),
+    )
+    launch_ctx = build_launch_context(
+        spawn_id=str(spawn_id),
+        request=spawn_req,
+        runtime=launch_runtime,
+        harness_registry=get_default_harness_registry(),
+    )
 
     output_path = state_root / "spawns" / str(spawn_id) / "output.jsonl"
     socket_path = state_root / "spawns" / str(spawn_id) / "control.sock"
@@ -97,8 +115,7 @@ async def streaming_serve(
     try:
         outcome = await run_streaming_spawn(
             config=config,
-            params=params,
-            perms=perms,
+            spec=launch_ctx.spec,
             state_root=state_root,
             repo_root=repo_root,
             spawn_id=spawn_id,

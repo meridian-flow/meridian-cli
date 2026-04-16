@@ -215,6 +215,37 @@ class SubprocessHarness(HarnessAdapter[ResolvedLaunchSpec], Protocol):
         started_at_local_iso: str | None,
     ) -> str | None: ...
 
+    def observe_session_id(
+        self,
+        *,
+        artifacts: ArtifactStore,
+        spawn_id: SpawnId | None = None,
+        current_session_id: str | None = None,
+        connection_session_id: str | None = None,
+        repo_root: Path | None = None,
+        started_at_epoch: float | None = None,
+        started_at_local_iso: str | None = None,
+    ) -> str | None:
+        """Return the best available session ID observed after one execution.
+
+        Priority order (each step falls through only if the result is empty):
+        1. *connection_session_id* — live session id from the transport
+           layer (e.g. HTTP/WS adapters that know the session id at
+           connection time).
+        2. Artifact extraction via ``extract_session_id()``.
+        3. Primary-session detection via ``detect_primary_session_id()``
+           (only when *repo_root* and *started_at_epoch* are supplied).
+        4. *current_session_id* — previously known id, returned as
+           fallback so callers can treat the result as authoritative.
+
+        I-4 contract: called exactly once per launch, by the driving adapter
+        after the executor returns.  MUST NOT read or write adapter-instance
+        singleton state shared across launches.
+        """
+        ...
+
+    def fork_session(self, source_session_id: str) -> str: ...
+
     def owns_untracked_session(self, *, repo_root: Path, session_ref: str) -> bool:
         """Return True if this harness owns the given untracked session reference."""
         ...
@@ -333,8 +364,64 @@ class BaseHarnessAdapter(Generic[SpecT], ABC):
         _ = repo_root, started_at_epoch, started_at_local_iso
         return None
 
+    def observe_session_id(
+        self,
+        *,
+        artifacts: ArtifactStore,
+        spawn_id: SpawnId | None = None,
+        current_session_id: str | None = None,
+        connection_session_id: str | None = None,
+        repo_root: Path | None = None,
+        started_at_epoch: float | None = None,
+        started_at_local_iso: str | None = None,
+    ) -> str | None:
+        """Return the best observed session ID after one execution.
+
+        Default priority: connection_session_id > extract_session_id >
+        detect_primary_session_id > current_session_id.
+
+        Concrete adapters may override for harness-specific extraction.
+        """
+
+        def _norm(v: str | None) -> str | None:
+            if not v:
+                return None
+            stripped = v.strip()
+            return stripped or None
+
+        live = _norm(connection_session_id)
+        if live:
+            return live
+
+        if spawn_id is not None:
+            extracted = _norm(self.extract_session_id(artifacts, spawn_id))
+            if extracted:
+                return extracted
+
+        if repo_root is not None and started_at_epoch is not None:
+            detected = _norm(
+                self.detect_primary_session_id(
+                    repo_root=repo_root,
+                    started_at_epoch=started_at_epoch,
+                    started_at_local_iso=started_at_local_iso,
+                )
+            )
+            if detected:
+                return detected
+
+        return _norm(current_session_id)
+
     def mcp_config(self, run: SpawnParams) -> McpConfig | None:
         _ = run
+        return None
+
+    def extract_session_id(self, artifacts: ArtifactStore, spawn_id: SpawnId) -> str | None:
+        """Return the harness session ID from spawn artifacts, if available.
+
+        Default returns None; concrete adapters that support session extraction override this.
+        """
+
+        _ = artifacts, spawn_id
         return None
 
     def extract_report(self, artifacts: ArtifactStore, spawn_id: SpawnId) -> str | None:

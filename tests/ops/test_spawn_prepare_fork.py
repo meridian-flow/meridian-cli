@@ -38,7 +38,14 @@ def _prepare_codex_runtime(repo_root: Path):
     )
 
 
-def test_fork_materializes_only_for_non_dry_run(monkeypatch, tmp_path: Path) -> None:
+def test_fork_prepare_preserves_continue_fork_and_defers_materialization(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """I-10: build_create_payload must NOT call fork_session.
+
+    Fork materialization is deferred to execute.py (after the spawn row exists).
+    prepare.py's job is to preserve continue_fork=True so the executor can act on it.
+    """
     codex_adapter, runtime = _prepare_codex_runtime(tmp_path)
     calls: list[str] = []
     monkeypatch.setattr(
@@ -74,8 +81,11 @@ def test_fork_materializes_only_for_non_dry_run(monkeypatch, tmp_path: Path) -> 
         runtime=runtime,
     )
 
-    assert calls == ["source-session"]
-    assert prepared.session.harness_session_id == "forked-session"
-    assert prepared.session.continue_fork is False
+    # I-10: fork_session must NOT be called in prepare — fork happens after the row exists.
+    assert calls == []
+    # The source session ID and continue_fork=True are preserved for the executor.
+    assert prepared.session.harness_session_id == "source-session"
+    assert prepared.session.continue_fork is True
+    # dry_run also preserves the deferred state.
     assert dry_run_prepared.session.harness_session_id == "source-session"
     assert dry_run_prepared.session.continue_fork is True

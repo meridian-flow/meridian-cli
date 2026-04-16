@@ -7,12 +7,12 @@ from typing import cast
 import pytest
 
 from meridian.lib.core.types import HarnessId, SpawnId
-from meridian.lib.harness.adapter import SpawnParams
 from meridian.lib.harness.connections.base import (
     ConnectionCapabilities,
     ConnectionConfig,
     HarnessEvent,
 )
+from meridian.lib.harness.launch_spec import CodexLaunchSpec
 from meridian.lib.launch.signals import (
     SignalCoordinator,
     SignalForwarder,
@@ -136,8 +136,10 @@ async def test_streaming_runner_signal_cancel_invokes_send_cancel_once(
                 repo_root=tmp_path,
                 env_overrides={},
             ),
-            params=SpawnParams(prompt="hello"),
-            perms=TieredPermissionResolver(config=PermissionConfig()),
+            spec=CodexLaunchSpec(
+                prompt="hello",
+                permission_resolver=TieredPermissionResolver(config=PermissionConfig()),
+            ),
             state_root=state_root,
             repo_root=tmp_path,
             spawn_id=SpawnId("p-signal"),
