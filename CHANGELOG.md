@@ -9,6 +9,10 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `spawn show` renders `orphan_finalization` distinct from `orphan_run` — tells apart drain-window hangs from runner-dead-during-run.
 
 ### Changed
+- `meridian-dev-workflow` bumped 0.0.25 → 0.0.26 via `meridian mars sync`.
+- `@impl-orchestrator` now runs a mandatory Explore phase before planning — verifies design against code reality, produces `plan/pre-planning-notes.md` as a gate artifact, terminates to a Redesign Brief when design is falsified.
+- `agent-staffing` skill: new "Fan-Out vs Parallel Lanes" terminology section (same-prompt-different-models vs different-prompts-different-focus-areas); new `@reviewer as Architectural Drift Gate` section (CI-spawned reviewer enforces structural invariants semantically against a declared-invariant prompt).
+- `AGENTS.md` model-routing block removed — model choice delegated to profile defaults and `meridian models list`.
 - Reaper no longer false-positives over live spawns. Heartbeat window 120s, 15s startup grace, PID-reuse margin 30s, depth-gated so nested sweeps can't stamp their parents. Authority rule: runner/launcher/cancel writes always win over reconciler writes, so a late report corrects a premature stamp. Fixes recurrence of #14.
 - Runner owns the heartbeat task now (30s tick, cancelled in outer `finally`), not the reaper.
 - `finalize_spawn(..., origin=...)` is mandatory at every call site.
