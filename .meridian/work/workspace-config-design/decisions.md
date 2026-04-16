@@ -84,8 +84,8 @@ is `active:permission_allowlist`; future unimplemented harnesses use
 `unsupported:*`. No silent skip anywhere.
 **Encoded in:** `design/spec/context-root-injection.md` `CTX-1.w1` (codex
 read-only), `CTX-1.w2` (unsupported harnesses surface);
-`design/spec/surfacing.md` `SURF-1.e5` (applicability downgrades are explicit),
-`SURF-1.u1` (`config show` exposes `harness_support` map);
+`design/spec/surfacing.md` `SURF-1.e4` (applicability downgrades are explicit),
+`SURF-1.u1` (`config show` exposes the minimal workspace summary);
 `design/architecture/harness-integration.md` A04 "Applicability reporting";
 `design/architecture/surfacing-layer.md` A05 "Doctor Contract".
 
@@ -101,7 +101,7 @@ require simultaneous update of read/write/bootstrap/CLI-copy/tests.
 ### F8 — Root-file policy doesn't belong in `state/paths.py`
 **Status:** Addressed.
 **Response:** New `ProjectPaths` abstraction owns `meridian.toml`,
-`workspace.local.toml`, `MERIDIAN_WORKSPACE` resolution, repo-root ignore policy.
+`workspace.local.toml`, and repo-root ignore policy.
 `StatePaths` stays `.meridian`-scoped.
 **Encoded in:** `design/architecture/paths-layer.md` (A01 "Ownership boundary"
 table); `design/refactors.md` R01 (prep refactor, exit criteria explicit);
@@ -142,8 +142,8 @@ in `config show`, `doctor`, and debug-level launch diagnostics instead.
 Applicability downgrades (actual launch-behavior changes) DO surface at default
 level because those are not noise — they indicate the launch will behave
 differently than the user expects.
-**Encoded in:** `design/spec/surfacing.md` `SURF-1.e4` (spawn-time missing-root
-noise stays out of the default lane), `SURF-1.e5` (applicability downgrades
+**Encoded in:** `design/spec/surfacing.md` `SURF-1.e3` (spawn-time missing-root
+noise stays out of the default lane), `SURF-1.e4` (applicability downgrades
 are explicit); `design/architecture/surfacing-layer.md` A05 "Warning Channels"
 split between default and debug lanes.
 
@@ -151,7 +151,7 @@ split between default and debug lanes.
 **Status:** Addressed.
 **Response:** Unknown keys are preserved for forward compatibility AND surfaced
 as warnings in `doctor` and `config show`. Not debug-only.
-**Encoded in:** `design/spec/workspace-file.md` `WS-1.e3`;
+**Encoded in:** `design/spec/workspace-file.md` `WS-1.e2`;
 `design/spec/surfacing.md` `SURF-1.e2`;
 `design/architecture/workspace-model.md` A03 (unknown-key handling in the model);
 `design/architecture/surfacing-layer.md` A05 (`workspace_unknown_key` doctor code).
@@ -159,16 +159,16 @@ as warnings in `doctor` and `config show`. Not debug-only.
 ### F13 — `workspace init --from mars.toml` risks broken-by-default state
 **Status:** Addressed.
 **Response:** Default `workspace init` creates a file with commented examples
-only. `workspace init --from mars.toml` emits each entry with `enabled = false`
-and uses canonical `org/repo` identifiers (never personal filesystem paths).
+only. The `--from mars.toml` variant was later deferred out of v1 rather than
+kept as a live commitment.
 **Encoded in:** `design/spec/workspace-file.md` `WS-1.e1` (default init commented
-examples), `WS-1.e2` (`--from mars.toml` emits disabled entries with `org/repo`
-identity); `design/architecture/workspace-model.md` design notes.
+examples); `design/spec/bootstrap.md` non-requirement note deferring
+`workspace init --from mars.toml`; `D14` (deferred).
 
 ### F14 — `config show` needs a crisp minimal answer set
 **Status:** Addressed.
 **Response:** Explicit JSON shape pinned:
-`{status, path, roots: {count, enabled, missing}, harness_support: {claude, codex, opencode}}`.
+`{status, path?, roots: {count, enabled, missing}}`.
 Text output stays flat and grep-friendly. Rich per-root detail lives in
 warnings and doctor findings, not in the steady-state payload.
 **Encoded in:** `design/spec/surfacing.md` `SURF-1.u1`;
@@ -326,78 +326,45 @@ unmerged; no committed timeline exists.
 **Rejected alternative:** symlink extra dirs into the project root. Operationally
 fragile and hostile to filesystem tooling.
 
-### D12 — Workspace anchor model
+### D12 — Workspace anchor model (v1 scope)
 
-**Directive (2026-04-14):** Meridian has a single effective working directory, defined as the parent of the active `.meridian/` directory. All meridian operations (spawn cwd, config discovery, default workspace-file location) anchor to this one directory. Users never see a named "repo root" concept.
+**Directive (2026-04-14, updated 2026-04-16):** Meridian has a single effective working directory, defined as the parent of the active `.meridian/` directory. All meridian operations (spawn cwd, config discovery, default workspace-file location) anchor to this one directory. Users never see a named "repo root" concept. `MERIDIAN_WORKSPACE` is deferred out of v1.
 
 **Committed shape:**
 
 1. **Default workspace file location:** `<parent-of-.meridian/>/workspace.local.toml`. Described in docs by relationship to `.meridian/`, not by inventing a "repo root" term.
 
-2. **Explicit override:** `MERIDIAN_WORKSPACE=<path>` points at any file, anywhere on disk. Supports the "workspace outside parent meridian" use case (shared team config, cross-project topologies, test configs) without constraints.
+2. **No explicit env override in v1:** workspace discovery uses only the canonical sibling file. `MERIDIAN_WORKSPACE` and any alternate discovery path are deferred until the feature is reintroduced through requirements/spec.
 
-3. **`MERIDIAN_WORKSPACE` path semantics (v1):** absolute paths only. Relative-path resolution is deferred until a concrete user need surfaces. Rationale: the primary use case (workspace outside the meridian tree) wants absolute paths; the relative-path case has no clean universal anchor (shell cwd vs meridian effective cwd both have surprising behaviors).
+3. **Paths inside `workspace.local.toml`:** relative to the file itself. Matches VS Code `.code-workspace` convention and every workspace-file tool in the industry. Portable — move the file, paths follow.
 
-4. **Paths inside `workspace.local.toml`:** relative to the file itself. Matches VS Code `.code-workspace` convention and every workspace-file tool in the industry. Portable — move the file, paths follow.
-
-5. **Spawn cwd:** parent of `.meridian/` (unchanged behavior). Named as meridian's effective cwd.
+4. **Spawn cwd:** parent of `.meridian/` (unchanged behavior). Named as meridian's effective cwd.
 
 **Rejected alternatives:**
 
 - **Named "repo root" user-facing concept.** Implies git coupling that meridian doesn't actually have; overlaps with "parent of `.meridian/`" without adding precision.
-- **`MERIDIAN_WORKSPACE` relative paths in v1.** Defers the shell-cwd-vs-meridian-cwd anchor question until a real user asks for relative paths. Absolute paths cover all current use cases.
 - **Committed `workspace.toml` layer.** `mars.toml` already plays the "committed team topology" role; adding a second committed file duplicates it.
 
-**Deferred to separate decision:** Walk-up discovery of `.meridian/` (keep walk-up as ergonomic convention, switch to cwd-only, or add visibility instrumentation). This decision is orthogonal to the workspace anchor model — workspace config semantics are the same either way.
+**Deferred to separate decision:** walk-up discovery of `.meridian/` (keep walk-up as ergonomic convention, switch to cwd-only, or add visibility instrumentation). This decision is orthogonal to the workspace anchor model — workspace config semantics are the same either way.
+
+**Deferred with the feature:** `MERIDIAN_WORKSPACE` override semantics, including absolute-vs-relative path handling and missing-target behavior, are out of v1 scope until env override support is promoted back into requirements/spec.
 
 **Spec/architecture touchpoints requiring sweep (follow-up pass):**
 
 - `design/spec/workspace-file.md` — replace "repo root" references with relationship to `.meridian/`
-- `design/architecture/paths-layer.md` — `ProjectPaths` description; rename `resolve_repo_root` → `resolve_project_root` internally
-- `design/feasibility.md` OQ-4 — resolved per (3) above
+- `design/architecture/paths-layer.md` — `ProjectPaths` description without a v1 env-override owner
 
-### D13 — Missing env-target file behavior (OQ-5)
+### D13 — `MERIDIAN_WORKSPACE` missing-target behavior (deferred)
 
-**Directive (2026-04-14):** When `MERIDIAN_WORKSPACE` points at a nonexistent
-file, meridian treats this as `workspace.status = absent`, does not fall
-through to default workspace-file discovery, and emits a per-invocation
-advisory. The launch proceeds without workspace roots.
+**Status (2026-04-16):** Deferred with the feature. Because `MERIDIAN_WORKSPACE` is out of v1 scope, missing-target semantics are not a v1 commitment.
 
-**Rationale:** a missing override target is a misconfiguration, not a parse error. Treating it as `invalid` would block legitimate launches when users fat-finger a path. The advisory surfaces the problem without blocking. Matches progressive disclosure.
+If env override support is reintroduced later, this question should return through requirements/spec first, then architecture/decisions can choose between advisory-and-continue vs invalid-and-block behavior.
 
-**Three-way distinction:**
+### D14 — `workspace init --from mars.toml` path emission (deferred)
 
-- No env var set → silent `absent` (no workspace file declared)
-- Env var set, target missing → `absent` + per-invocation advisory (explicit pointer is broken)
-- Env var set, target exists but fails parse → `invalid` (actual contract violation)
+**Status (2026-04-16):** Deferred out of v1. The feature was cut from requirements/spec, so its emitted file shape is not a live commitment for this package.
 
-**Rejected alternative:** treat missing target as `invalid` and block. Rejected because legitimate launches shouldn't fail because of a workspace-file typo; surfaced diagnostics are the right mechanism.
-
-### D14 — `workspace init --from mars.toml` path emission (OQ-6)
-
-**Directive (2026-04-14):** `workspace init --from mars.toml` emits disabled entries with an **empty path** and the `org/repo` identity as a comment. No path heuristic is applied.
-
-**Rationale:** there is no universal heuristic for "where sibling repos live on disk." This repo's own documented layout (`~/gitrepos/meridian-cli`, `~/gitrepos/prompts/meridian-base`) breaks the obvious `<parent>/../<repo-name>` pattern that the prior round considered. Any heuristic will be wrong for some real layouts.
-
-**Emission shape:**
-
-```toml
-# meridian-flow/meridian-base
-# [[context-roots]]
-# path = ""
-# enabled = false
-
-# meridian-flow/meridian-dev-workflow
-# [[context-roots]]
-# path = ""
-# enabled = false
-```
-
-The user uncomments and fills in local paths explicitly. Zero chance of wrong paths being parsed as active. Matches the F13 resolution (commented examples only) for the default `workspace init` case — this version just adds package identities from mars.toml as comments.
-
-**Rejected alternative:** `<parent-of-.meridian/>/../<repo-name>` pattern as a default path guess. Rejected because it's factually wrong for this repo's layout and for any non-strict-sibling checkout topology.
-
-**Rejected alternative:** active `enabled = false` entries with guessed paths. Rejected because users may enable them without fixing the path, shipping wrong configs.
+The prior design direction remains useful future context: if the variant returns, prefer commented identities plus empty paths over guessed filesystem heuristics. But that is a future v2 decision, not a v1 contract.
 
 ### D15 — OpenCode `OPENCODE_CONFIG_CONTENT` collision policy (OQ-1)
 
@@ -626,27 +593,14 @@ session-accessibility symlinking (`p1878` Q5). Fork materialization is
 absorbed into the domain core by R06; symlinking is a separate duplicated
 feature beyond composition.
 
-### D18 — Relative `MERIDIAN_WORKSPACE` values are explicit broken overrides
+### D18 — Relative `MERIDIAN_WORKSPACE` values (deferred)
 
-**Directive (2026-04-15):** When `MERIDIAN_WORKSPACE` is set to a non-absolute
-path, Meridian treats workspace topology as absent for that invocation, emits a
-per-invocation advisory that v1 only supports absolute override paths, and does
-not fall through to default workspace-file discovery.
+**Status (2026-04-16):** Deferred with the feature. Because `MERIDIAN_WORKSPACE`
+is out of v1 scope, relative-path handling is not a v1 contract either.
 
-**Rationale:** D12 already chose absolute-only semantics for v1, but the
-non-absolute case still needed an explicit contract. Silent fallthrough would
-make workspace topology depend on an unusable explicit override plus an
-unrelated default file, which is exactly the ambiguity this redesign is trying
-to remove. Hard failure would over-penalize a typo when Meridian can still run
-without workspace roots.
-
-**Rejected alternative:** hard error on relative override. Rejected because the
-workspace feature is additive; a bad override should be visible, not fatal to
-unrelated commands.
-
-**Rejected alternative:** ignore the relative override and fall through to
-default discovery. Rejected because it silently changes which workspace file is
-active for the invocation.
+If env override support returns in a future version, the design should resolve
+this question alongside the broader override feature instead of treating the
+relative-path case as an isolated commitment.
 
 ### D19 — R06 redesign: typed pipeline with raw `SpawnRequest` input + reviewer-as-drift-gate verification
 
@@ -1139,3 +1093,22 @@ implementation-level surprises.
   naming, but composition centralization is what makes R06 honest.
 - Future rounds: when a new prior-round feedback file gets produced, append a
   new section here rather than rewriting these rows.
+
+### D22 — Manual planning fallback after repeated planner stalls
+
+**Directive (2026-04-16):** The implementation plan package for
+workspace-config-design is authored directly by impl-orchestrator `p2037`
+after two planner spawns (`p2039`, `p2040`) stalled without materializing
+plan artifacts.
+
+**Rationale:** At the time of planning fallback, the package still contained a
+live contradiction around `MERIDIAN_WORKSPACE` scope. The contradiction was
+understood well enough to keep planning moving, so direct plan authorship was
+lower risk than stalling on more planner retries. Planning fallback kept the
+work item moving while preserving spawn-based implementation, verification, and
+review for all source changes.
+
+**Historical note:** This was a temporary planning escape hatch, not a standing
+precedence rule. After the 2026-04-16 design-package alignment pass, the v1
+scope for `MERIDIAN_WORKSPACE` is again defined consistently by requirements,
+spec, architecture, and decisions.

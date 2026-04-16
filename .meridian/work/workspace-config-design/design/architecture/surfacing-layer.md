@@ -23,7 +23,7 @@ Both commands must call `config_surface.py` rather than re-deriving workspace or
 ```json
 {
   "workspace": {
-    "status": "none | <path> | invalid",
+    "status": "none | present | invalid",
     "path": "/abs/path/to/workspace.local.toml",
     "roots": {
       "count": 3,
@@ -46,8 +46,11 @@ workspace.roots.missing = 1
 
 Status values:
 - `none` — no workspace file found (quiet state for single-repo users)
-- path string — workspace file found and valid
+- `present` — workspace file found and valid
 - `invalid` — workspace file found but failed parsing/validation
+
+`path` is present when Meridian found `workspace.local.toml` and omitted when
+status is `none`.
 
 ## Warning Channels
 

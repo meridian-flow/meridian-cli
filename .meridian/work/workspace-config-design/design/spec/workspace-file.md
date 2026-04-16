@@ -28,7 +28,7 @@ Workspace configuration is a local topology declaration, not shared project poli
 
 `While no workspace file is present, Meridian shall behave as a single-repository installation and shall not emit workspace warnings or prompts.`
 
-Note: The single-repository behavior is realized through the absence of workspace-derived launch directives (see `../architecture/workspace-model.md`, `status=absent` handling). The "no prompts" requirement is realized through the surfacing layer (see `../architecture/surfacing-layer.md`, quiet-state handling for `workspace.status=absent`).
+Note: The single-repository behavior is realized through the absence of workspace-derived launch directives (see `../architecture/workspace-model.md`, `status=absent` handling). The "no prompts" requirement is realized through the surfacing layer (see `../architecture/surfacing-layer.md`, quiet-state handling for `workspace.status=none`).
 
 ### WS-1.e1 — Default init creates a minimal file with commented examples
 

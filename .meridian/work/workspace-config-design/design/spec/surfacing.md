@@ -10,7 +10,7 @@ The previous design failed by hiding important behavior changes behind silent no
 
 ### SURF-1.u1 — `config show` exposes a minimal structured workspace summary
 
-`config show --json shall expose workspace as {status, path, roots: {count, enabled, missing}}, and text output shall expose the same facts as flat grep-friendly key-value lines. Status shall be one of: none, <path>, or invalid.`
+`config show --json shall expose workspace as {status, path?, roots: {count, enabled, missing}}, and text output shall expose the same facts as flat grep-friendly key-value lines. Status shall be one of: none, present, or invalid. Path shall be present when Meridian found workspace.local.toml and omitted when status = none.`
 
 ### SURF-1.e1 — Inspection commands continue across invalid workspace files
 

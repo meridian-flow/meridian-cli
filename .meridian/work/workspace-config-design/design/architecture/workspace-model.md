@@ -65,7 +65,7 @@ round-tripping without expanding the v1 user schema.
 ### `WorkspaceSnapshot` — evaluated state
 
 ```text
-WorkspaceStatus = absent | present | invalid
+WorkspaceStatus = none | present | invalid
 
 WorkspaceSnapshot
   status: WorkspaceStatus
@@ -88,7 +88,7 @@ Contract:
 - Built by evaluating a `WorkspaceConfig` against the filesystem.
 - `status=invalid` keeps the file path and findings so inspection commands can
   continue.
-- `status=absent` is the quiet state for single-repo users (no workspace file).
+- `status=none` is the quiet state for single-repo users (no workspace file).
 - `status=present` indicates a valid workspace file was found and parsed.
 - `roots` includes disabled and missing entries so diagnostics can report counts
   without reparsing.
@@ -139,7 +139,7 @@ Contract:
 
 | Condition | Status | Launch impact | Inspection impact |
 |---|---|---|---|
-| No file next to `.meridian/` | `absent` | no workspace behavior | no warnings |
+| No file next to `.meridian/` | `none` | no workspace behavior | no warnings |
 | Parse/schema error | `invalid` | fatal for workspace-dependent commands | surfaced, non-fatal |
 | Unknown key | `present` | non-fatal | warning |
 | Enabled root missing on disk | `present` | root omitted before projection | warning |

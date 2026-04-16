@@ -2,7 +2,7 @@
 
 ## Summary
 
-The current codebase has `StatePaths` for `.meridian/` files and no equivalent abstraction for project-root policy files. The target shape adds a separate project-root file layer and keeps `StatePaths` focused on local/runtime state only.
+The current codebase has `StatePaths` for `.meridian/` files plus an early `ProjectPaths` abstraction for project-root Meridian files. The target shape tightens that boundary: `ProjectPaths` owns project-root file policy only, while `StatePaths` stays focused on local/runtime state.
 
 Terminology: **project root** names the parent directory of the active `.meridian/`. It is an internal concept and does not appear in user-facing spec leaves; user-facing docs describe files by relationship to `.meridian/`. See `decisions.md` D12.
 
@@ -14,9 +14,10 @@ Terminology: **project root** names the parent directory of the active `.meridia
 
 ## Current State
 
-- `StatePaths` is `.meridian`-scoped today: it exposes `root_dir`, `spawns_dir`, `cache_dir`, and `config_path = root_dir / "config.toml"` (`probe-evidence/probes.md:64-71`, `probe-evidence/probes.md:139-145`).
-- There is no first-class project-root file abstraction. `resolve_repo_root()` at `lib/config/settings.py:789-823` locates the directory but project-root-level config/workspace files are not modeled as a cohesive layer (`probe-evidence/probes.md:139-145`). Target state renames this to `resolve_project_root` so the internal name matches the concept.
-- `.meridian/.gitignore` currently has a committed exception for `config.toml`, which is a symptom of the wrong boundary rather than a durable contract (`probe-evidence/probes.md:70-71`).
+- `StatePaths` is `.meridian`-scoped today: it exposes `root_dir`, `spawns_dir`, and `cache_dir`, while runtime bootstrap still owns `.meridian/.gitignore` policy (`probe-evidence/probes.md:64-71`, plus current `src/meridian/lib/state/paths.py`).
+- `ProjectPaths` now exists at `src/meridian/lib/config/project_paths.py` and already exposes `meridian.toml`, `workspace.local.toml`, and project-root ignore targets. This leaf tightens its ownership boundary and downstream consumer contract rather than inventing the abstraction from scratch.
+- `resolve_project_root()` already exists in `lib/config/settings.py`; the remaining work is keeping file-policy ownership and call-site expectations aligned with that boundary.
+- `.meridian/.gitignore` currently still carries legacy compatibility cleanup for the old `.meridian/config.toml` world, which remains a symptom of the wrong boundary rather than a durable contract (`probe-evidence/probes.md:70-71` plus current `src/meridian/lib/state/paths.py`).
 
 ## Target State
 
@@ -58,12 +59,12 @@ StatePaths
 | Concern | Owner |
 |---|---|
 | `.meridian/` directories, pid files, JSONL state, `.meridian/.gitignore` | `StatePaths` |
-| `meridian.toml`, `workspace.local.toml`, workspace override env, file location resolution | `ProjectPaths` |
+| `meridian.toml`, `workspace.local.toml`, project-root ignore targets, file location resolution | `ProjectPaths` |
 | `workspace.local.toml` loading, parsing, schema validation, snapshot construction | `config/workspace.py` + `workspace_snapshot.py` |
 
 ## Module Layout
 
-New modules introduced by this design:
+Modules in scope for this design:
 
 | Module | Ownership |
 |---|---|
@@ -79,7 +80,7 @@ New modules introduced by this design:
 
 - The workspace file should be locally ignored without requiring a committed project-file diff. The project-root abstraction should own that policy because it is a property of a project-root local file, not of `.meridian/`.
 - `ProjectPaths` should expose file locations only. Mutation policies live in the loader and command layers.
-- `resolve_repo_root` is renamed to `resolve_project_root` during R01 to align the internal name with the concept. No user-facing "repo root" term exists.
+- `ProjectPaths` does not own a workspace override environment variable in v1. Discovery stays at the canonical sibling file beside the active `.meridian/`.
 
 ## Open Questions
 

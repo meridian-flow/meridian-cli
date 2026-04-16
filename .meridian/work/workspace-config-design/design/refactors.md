@@ -13,25 +13,29 @@ Includes former R04 scope.
 - **Type:** prep refactor
 - **Why:** `StatePaths` is `.meridian`-scoped today. Adding `meridian.toml` or `workspace.local.toml` logic there would mix project-root policy with local runtime state (`probe-evidence/probes.md:139-145`).
 - **Scope:**
-  - `src/meridian/lib/config/project_paths.py` — **new module**, owns `ProjectPaths` definition. This is the primary output of R01: a cohesive abstraction for project-root file policy separate from `StatePaths`.
-  - `src/meridian/lib/state/paths.py:21,33,127` — current `.meridian/config.toml` and `.meridian/.gitignore` policy live here (`probe-evidence/probes.md:68-72`).
-  - `src/meridian/lib/config/settings.py:206-210` — project-config resolver currently depends on `StatePaths.config_path` (`probe-evidence/probes.md:72-74`).
-  - `src/meridian/lib/config/settings.py:789-823` — project-root detection exists today as `resolve_repo_root`; R01 renames this to `resolve_project_root` and models root-level files as a cohesive layer (`probe-evidence/probes.md:143-145`).
-  - Rename caller set from live probe (`rg -n "resolve_repo_root" src/ tests/`):
-    `src/meridian/lib/catalog/models.py:30,40,299`,
-    `src/meridian/lib/catalog/skill.py:8,97,143`,
-    `src/meridian/lib/catalog/agent.py:10,168,209`,
-    `src/meridian/lib/launch/plan.py:10,159`,
-    `src/meridian/cli/main.py:1317,1320`,
-    `src/meridian/lib/ops/runtime.py:12,63`,
-    `src/meridian/lib/ops/catalog.py:21,189`,
-    `src/meridian/lib/ops/config.py:16,346,348,776,826,845,871`,
-    and `src/meridian/lib/config/settings.py:802`.
+  - `src/meridian/lib/config/project_paths.py` — existing `ProjectPaths` abstraction. R01 tightens its ownership to project-root file policy and keeps downstream consumers aligned with that boundary instead of treating it as a brand-new module.
+  - `src/meridian/lib/state/paths.py` — `.meridian/.gitignore` policy and legacy compatibility cleanup remain here; R01 removes the stale `.meridian/config.toml` exception without pushing project-root policy back into state paths.
+  - `src/meridian/lib/config/settings.py:206-210,789-823` — settings-loader consumption of project-config state plus canonical project-root detection (`resolve_project_root`).
+  - Live `ProjectPaths` consumer set from current code:
+    `src/meridian/lib/launch/context.py`,
+    `src/meridian/lib/ops/spawn/execute.py`,
+    `src/meridian/lib/app/server.py`,
+    `src/meridian/lib/launch/request.py` (serialized `LaunchRuntime.project_paths_*` fields),
+    and `tests/test_state/test_project_paths.py`.
+  - Project-root resolver callers that still need the same boundary after R01:
+    `src/meridian/lib/catalog/models.py`,
+    `src/meridian/lib/catalog/skill.py`,
+    `src/meridian/lib/catalog/agent.py`,
+    `src/meridian/lib/launch/plan.py`,
+    `src/meridian/cli/main.py`,
+    `src/meridian/lib/ops/runtime.py`,
+    `src/meridian/lib/ops/catalog.py`,
+    and `src/meridian/lib/ops/config.py`.
 - **Exit criteria:**
-  - A new project-root file abstraction (`ProjectPaths`) owns `meridian.toml` and `workspace.local.toml`.
+  - The existing `ProjectPaths` abstraction owns `meridian.toml`, `workspace.local.toml`, and project-root ignore targets without leaking `.meridian/` runtime concerns back into it.
   - `StatePaths` no longer owns the canonical project-config path.
   - Project-root file policy can evolve without expanding the `.meridian` path object.
-  - `resolve_repo_root` is renamed to `resolve_project_root` so the internal name matches the concept. No user-facing "repo root" term remains in spec leaves or CLI copy.
+  - All live `ProjectPaths` consumers, including the serialized `LaunchRuntime.project_paths_*` contract, are updated together so the boundary change does not strand stale callers or persisted fields.
   - The `.meridian/.gitignore` `!config.toml` exception is removed as part of this refactor (see R04 below — folded here).
 
 ## R02 — Rewire the config command family end-to-end
@@ -42,6 +46,8 @@ Includes former R04 scope.
   - `src/meridian/lib/config/settings.py:206-227` — loader project/user config resolution (`probe-evidence/probes.md:72-74`).
   - `src/meridian/lib/ops/config.py:342-343,602-606,737-763,758,777,827,846,872` — config-path helper, bootstrap, and every config subcommand (`probe-evidence/probes.md:75-79`, `probe-evidence/probes.md:151-158`).
   - `src/meridian/lib/ops/runtime.py:66` — startup path that triggers bootstrap (`probe-evidence/probes.md:151-158`).
+  - `src/meridian/lib/ops/config_surface.py` — **new module** shared by `config show` and workspace-aware diagnostics so the command family and doctor surfacing use the same observed config/workspace state.
+  - `src/meridian/lib/ops/diag.py` — `doctor` integration point for the shared surfacing builder.
   - `src/meridian/lib/ops/manifest.py:242,266` and `src/meridian/cli/main.py:806-815` — user-facing command descriptions (`probe-evidence/probes.md:80-87`).
   - Live test/smoke hits from `rg -l "config\\.toml|_config_path" tests/`:
     `tests/smoke/config/init-show-set.md`,
@@ -49,7 +55,8 @@ Includes former R04 scope.
 - **Exit criteria:**
   - One `ProjectConfigState` (with states `absent | present`) is shared by the settings loader, config commands, bootstrap, and diagnostics.
   - All project-config reads and writes target `meridian.toml` through the shared `ProjectConfigState`; no command resolves project config from a different location.
-  - Generic bootstrap (`ensure_state_bootstrap_sync`) no longer auto-creates project-root config; it creates only `.meridian/` runtime directories and `.meridian/.gitignore`.
+  - `config set` and `config reset` do not silently create `meridian.toml` when project config is absent; they fail with a clear "no project config; run meridian config init" message. `config init` remains the only creator of `meridian.toml`.
+  - Generic bootstrap (`ensure_state_bootstrap_sync`) no longer auto-creates project-root files. It creates only `.meridian/` runtime directories and `.meridian/.gitignore`; `_ensure_mars_init()` must be decoupled from ordinary startup or explicitly carved behind mars-specific entrypoints.
   - CLI help, manifests, and tests all describe `meridian.toml` as the canonical project config.
   - `config migrate` does not exist; no legacy fallback code paths are introduced.
 

@@ -49,7 +49,10 @@ and `user passthrough (spec.extra_args) → workspace-emitted` on the Codex path
 
 ### FV-5 `StatePaths` is `.meridian`-scoped and is the wrong home for project-root file policy
 
-**Verdict**: new module required. Root-file discovery, `MERIDIAN_WORKSPACE` env handling, and root `.gitignore` policy live outside `state/paths.py`.
+**Verdict**: new module required. Root-file discovery and root `.gitignore`
+policy live outside `state/paths.py`. If `MERIDIAN_WORKSPACE` returns in a
+future version, its override handling belongs there too rather than in the
+state-paths layer.
 
 **Evidence**: `lib/state/paths.py:93-128`, `lib/config/settings.py:789-823` (only `resolve_repo_root` exists at project-root level today; no file enumeration (this will be renamed to `resolve_project_root` per R01)). See `probes.md §7`.
 
@@ -213,27 +216,19 @@ typical PRs do not pay the cost.
    `workspace.*` as committed team topology; a gitignored `workspace.toml` lies
    to the reader).
 
-4. **`MERIDIAN_WORKSPACE` path resolution semantics.** Resolved per D12.
-   V1 supports absolute paths only. Per D18, non-absolute override values are
-   treated as broken explicit overrides: workspace topology becomes absent for
-   that invocation, an advisory is surfaced, and Meridian does not fall through
-   to default discovery. Paths *inside* `workspace.local.toml` are resolved
-   relative to the file itself, matching VS Code `.code-workspace` convention.
+4. **`MERIDIAN_WORKSPACE` path resolution semantics.** Deferred with the
+   feature per updated D12/D13/D18. V1 uses only canonical sibling discovery:
+   `workspace.local.toml` next to the active `.meridian/` directory. Paths
+   *inside* `workspace.local.toml` still resolve relative to the file itself,
+   matching VS Code `.code-workspace` convention.
 
-5. **Missing env-target file behavior.** Resolved per D13. `workspace.status
-   = absent` + per-invocation advisory when `MERIDIAN_WORKSPACE` points at a
-   nonexistent file. Distinguishes from silent `absent` (no env var set),
-   `override_non_absolute` (broken non-absolute override), and `invalid`
-   (parse/schema error on an existing file). Launch proceeds without workspace
-   roots; advisory surfaces the misconfiguration without blocking.
+5. **Missing env-target file behavior.** Deferred with the feature per updated
+   D13. V1 has no env override path, so there is no env-target error surface in
+   this version.
 
-6. **`workspace init --from mars.toml` path heuristic.** Resolved per D14.
-   No path heuristic is applied. Emission shape is disabled entries with an
-   empty `path` and the `org/repo` identity as a comment. User fills in local
-   paths explicitly. Rejected `<parent-of-.meridian/>/../<repo-name>` pattern
-   because it is wrong for this repo's own documented layout
-   (`~/gitrepos/meridian-cli` + `~/gitrepos/prompts/meridian-base`) and any
-   non-strict-sibling checkout topology.
+6. **`workspace init --from mars.toml` path heuristic.** Deferred out of v1 per
+   updated D14. The open question remains archived as future context only; no
+   v1 implementation or test plan should assume this variant exists.
 
 7. **OpenCode subprocess/streaming parity.** Resolved per D16 via code
    investigation. Both paths ultimately call `asyncio.create_subprocess_exec`
