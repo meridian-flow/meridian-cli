@@ -37,7 +37,9 @@ No real users, no real user data. No backwards compatibility needed — complete
 
 Two orchestrators split the dev lifecycle: **dev-orchestrator** handles interactive design and planning with the user (spawns architects, reviewers, planners), then hands off approved plans to **dev-runner** for autonomous execution (code → test → review → fix loops, no human intervention needed).
 
-Use `meridian spawn` (not `uv run meridian spawn`) to hand off tasks to subagents. `uv run meridian` runs from local source, so other agents editing meridian's own code in the same repo can leave it in a half-written state — use it only for smoke-testing local dev changes. The installed `meridian` binary is stable and isolated from in-progress source edits. Prefer gpt-5.3-codex as the main code implementer and opus as the primary documenter. For reviews, fan out across the strongest models — gpt-5.4, gpt-5.2, and opus — with different focus areas on each. Don't send all reviewers to the same model.
+Use `meridian spawn` (not `uv run meridian spawn`) to hand off tasks to subagents. `uv run meridian` runs from local source, so other agents editing meridian's own code in the same repo can leave it in a half-written state — use it only for smoke-testing local dev changes. The installed `meridian` binary is stable and isolated from in-progress source edits.
+
+For model choice, trust agent profile defaults and check `meridian models list` for the live catalog — don't hardcode model names here.
 
 NEVER REVERT CHANGES — always assume it's someone else's work.
 
