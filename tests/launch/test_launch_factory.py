@@ -15,6 +15,7 @@ from pathlib import Path
 
 # Source root for all meridian lib code.
 _SOURCE_ROOT = Path(__file__).resolve().parents[2] / "src"
+_TESTS_ROOT = Path(__file__).resolve().parents[2] / "tests"
 _LAUNCH_DIR = _SOURCE_ROOT / "meridian/lib/launch"
 _OPS_SPAWN_DIR = _SOURCE_ROOT / "meridian/lib/ops/spawn"
 
@@ -77,14 +78,26 @@ def test_i5_session_continuation_gone_from_source() -> None:
     )
 
 
-def test_i5_resolved_primary_launch_plan_not_in_public_api() -> None:
-    """I-5: ResolvedPrimaryLaunchPlan must not be in launch/__init__.__all__."""
-    init_path = _LAUNCH_DIR / "__init__.py"
-    # Check it's not in __all__ or lazy loader mapping
-    hits = _search(init_path, r"ResolvedPrimaryLaunchPlan")
+def test_i5_resolved_primary_launch_plan_gone_from_source() -> None:
+    """I-5: ResolvedPrimaryLaunchPlan must not exist in source."""
+    hits = _search_dir(_SOURCE_ROOT, r"\bResolvedPrimaryLaunchPlan\b")
     assert not hits, (
-        "ResolvedPrimaryLaunchPlan found in launch/__init__.py (I-5 violation):\n"
-        + "\n".join(f"  line {ln}: {line.strip()}" for ln, line in hits)
+        "ResolvedPrimaryLaunchPlan found in source (I-5 violation):\n"
+        + "\n".join(f"  {p}:{ln}: {line.strip()}" for p, lns in hits.items() for ln, line in lns)
+    )
+
+
+def test_i5_resolved_primary_launch_plan_not_used_in_tests() -> None:
+    """I-5: banned DTO must not re-enter the load-bearing test suite."""
+    this_file = Path(__file__).resolve()
+    hits = {
+        path: matches
+        for path, matches in _search_dir(_TESTS_ROOT, r"\bResolvedPrimaryLaunchPlan\b").items()
+        if path.resolve() != this_file
+    }
+    assert not hits, (
+        "ResolvedPrimaryLaunchPlan found in tests (I-5 violation):\n"
+        + "\n".join(f"  {p}:{ln}: {line.strip()}" for p, lns in hits.items() for ln, line in lns)
     )
 
 

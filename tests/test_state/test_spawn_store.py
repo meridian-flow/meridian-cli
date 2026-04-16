@@ -10,6 +10,7 @@ from meridian.lib.core.domain import SpawnStatus
 from meridian.lib.state.event_store import append_event
 from meridian.lib.state.paths import StateRootPaths
 from meridian.lib.state.spawn_store import (
+    APP_LAUNCH_MODE,
     AUTHORITATIVE_ORIGINS,
     LaunchMode,
     SpawnOrigin,
@@ -152,6 +153,35 @@ def test_start_spawn_accepts_app_launch_mode_and_projects_it(tmp_path: Path) -> 
 
     assert row is not None
     assert row.launch_mode == "app"
+
+
+def test_get_spawn_coerces_legacy_launch_mode_strings(tmp_path: Path) -> None:
+    state_root = _state_root(tmp_path)
+    spawns_jsonl = StateRootPaths.from_root_dir(state_root).spawns_jsonl
+    spawns_jsonl.write_text(
+        json.dumps(
+            {
+                "v": 1,
+                "event": "start",
+                "id": "p1",
+                "chat_id": "c1",
+                "model": "gpt-5.4",
+                "agent": "coder",
+                "harness": "codex",
+                "status": "running",
+                "started_at": "2026-03-01T00:00:00Z",
+                "prompt": "hello",
+                "launch_mode": " APP ",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    row = get_spawn(state_root, "p1")
+
+    assert row is not None
+    assert row.launch_mode == APP_LAUNCH_MODE
 
 
 def test_finalize_spawn_requires_keyword_origin(tmp_path: Path) -> None:

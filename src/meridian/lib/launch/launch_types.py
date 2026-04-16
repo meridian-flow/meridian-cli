@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Protocol, TypeVar, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar, cast, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
@@ -12,14 +12,27 @@ if TYPE_CHECKING:
     from meridian.lib.safety.permissions import PermissionConfig
 
 
-@dataclass(frozen=True)
-class CompositionWarning:
-    """Surface a lossy adapter transformation via LaunchContext.warnings (I-13)."""
+class CompositionWarning(BaseModel):
+    """User-visible warning emitted by launch composition stages."""
 
-    field: str
-    original: object
-    coerced: object
-    reason: str
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
+
+    code: str
+    message: str
+    detail: dict[str, str] | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _freeze_detail(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        raw_value = cast("dict[Any, Any]", value)
+        payload: dict[str, Any] = {str(key): item for key, item in raw_value.items()}
+        detail = payload.get("detail")
+        if isinstance(detail, dict):
+            raw_detail = cast("dict[Any, Any]", detail)
+            payload["detail"] = {str(key): str(item) for key, item in raw_detail.items()}
+        return payload
 
 
 @runtime_checkable
@@ -69,6 +82,15 @@ class ResolvedLaunchSpec(BaseModel):
 
 
 SpecT = TypeVar("SpecT", bound=ResolvedLaunchSpec)
+
+
+def summarize_composition_warnings(
+    warnings: tuple[CompositionWarning, ...],
+) -> str | None:
+    parts = [warning.message.strip() for warning in warnings if warning.message.strip()]
+    if not parts:
+        return None
+    return "; ".join(parts)
 
 
 @dataclass(frozen=True)

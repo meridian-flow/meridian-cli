@@ -27,46 +27,7 @@ class ResolvedRunInputs(BaseModel):
     continue_fork: bool = False
     appended_system_prompt: str | None = None
     report_output_path: str | None = None
-    context_from_payload: str | None = None
-
-
-def build_resolved_run_inputs(
-    *,
-    prompt: str,
-    model: ModelId | None,
-    effort: str | None,
-    skills: tuple[str, ...],
-    agent: str | None,
-    adhoc_agent_payload: str,
-    extra_args: tuple[str, ...],
-    repo_root: str | None,
-    mcp_tools: tuple[str, ...],
-    continue_harness_session_id: str | None,
-    continue_fork: bool = False,
-    appended_system_prompt: str | None = None,
-    report_output_path: str | None = None,
-    interactive: bool = False,
-    context_from_payload: str | None = None,
-) -> ResolvedRunInputs:
-    """Build the stage-owned run-input DTO from composed launch inputs."""
-
-    return ResolvedRunInputs(
-        prompt=prompt,
-        model=model,
-        effort=effort,
-        skills=skills,
-        agent=agent,
-        adhoc_agent_payload=adhoc_agent_payload,
-        extra_args=extra_args,
-        repo_root=repo_root,
-        mcp_tools=mcp_tools,
-        interactive=interactive,
-        continue_harness_session_id=continue_harness_session_id,
-        continue_fork=continue_fork,
-        appended_system_prompt=appended_system_prompt,
-        report_output_path=report_output_path,
-        context_from_payload=context_from_payload,
-    )
+    context_from_payload: tuple[str, ...] = ()
 
 
 def coerce_resolved_run_inputs(run_inputs: ResolvedRunInputs | SpawnParams) -> ResolvedRunInputs:
@@ -88,7 +49,6 @@ def to_spawn_params(run_inputs: ResolvedRunInputs | SpawnParams) -> SpawnParams:
 
 __all__ = [
     "ResolvedRunInputs",
-    "build_resolved_run_inputs",
     "coerce_resolved_run_inputs",
     "to_spawn_params",
 ]

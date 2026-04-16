@@ -173,7 +173,7 @@ def merge_env_overrides(
     if forbidden:
         rendered = ", ".join(f"{key} via {source}" for key, source in sorted(forbidden))
         raise RuntimeError(
-            "MERIDIAN_* keys may only be set by RuntimeContext.child_context(); "
+            "MERIDIAN_* keys may only be set by ChildEnvContext.child_context(); "
             f"found leaks: {rendered}"
         )
 

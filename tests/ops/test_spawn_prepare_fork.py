@@ -89,3 +89,7 @@ def test_fork_prepare_preserves_continue_fork_and_defers_materialization(
     # dry_run also preserves the deferred state.
     assert dry_run_prepared.session.requested_harness_session_id == "source-session"
     assert dry_run_prepared.session.continue_fork is True
+
+    dry_run_command = " ".join(dry_run_prepared.cli_command)
+    assert "/spawns/preview/report.md" not in dry_run_command
+    assert "<spawn-report-path>" in dry_run_command

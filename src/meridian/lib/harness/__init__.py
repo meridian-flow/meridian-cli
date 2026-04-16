@@ -8,6 +8,46 @@ from __future__ import annotations
 _bootstrapped = False
 _bootstrap_imports: tuple[object, ...] = ()
 
+# Adding one bundle-backed streaming harness requires touching the
+# harness-specific seams below. Generic dispatch helpers such as
+# `harness/connections/__init__.py` are intentionally omitted.
+HARNESS_EXTENSION_TOUCHPOINTS: tuple[str, ...] = (
+    "src/meridian/lib/harness/ids.py (HarnessId registration)",
+    (
+        "src/meridian/lib/harness/<new_harness>.py "
+        "(adapter + bundle registration + transport map side effect)"
+    ),
+    "src/meridian/lib/harness/__init__.py::_run_bootstrap() (bootstrap import wiring)",
+    (
+        "src/meridian/lib/harness/projections/project_<new_harness>_subprocess.py "
+        "+ project_<new_harness>_streaming.py (spec/workspace projection seams)"
+    ),
+    (
+        "src/meridian/lib/harness/extractors/<new_harness>.py "
+        "(report/session/usage extraction seams)"
+    ),
+    (
+        "src/meridian/lib/harness/registry.py::HarnessRegistry.with_defaults() "
+        "(default adapter registry)"
+    ),
+    (
+        "src/meridian/lib/harness/launch_spec.py::"
+        "_enforce_spawn_params_accounting() (handled_fields drift guard)"
+    ),
+    (
+        "src/meridian/lib/harness/connections/<new_harness>_<transport>.py "
+        "(concrete streaming transport implementation)"
+    ),
+    (
+        "src/meridian/lib/harness/projections/permission_flags.py "
+        "(approval/sandbox CLI flag projection)"
+    ),
+    (
+        "src/meridian/lib/launch/streaming_runner.py::terminal_event_outcome() "
+        "(streaming terminal-event classification)"
+    ),
+)
+
 
 def _run_bootstrap() -> None:
     """Execute the load-bearing harness bootstrap sequence exactly once."""
@@ -100,4 +140,4 @@ except ImportError as exc:
             raise
 
 
-__all__ = ["ensure_bootstrap"]
+__all__ = ["HARNESS_EXTENSION_TOUCHPOINTS", "ensure_bootstrap"]

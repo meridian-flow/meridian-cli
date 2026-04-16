@@ -39,7 +39,8 @@ from meridian.lib.harness.launch_spec import (
 )
 from meridian.lib.harness.opencode import OpenCodeAdapter
 from meridian.lib.harness.registry import HarnessRegistry
-from meridian.lib.launch.request import SpawnRequest
+from meridian.lib.launch.context import build_launch_context
+from meridian.lib.launch.request import LaunchArgvIntent, LaunchRuntime, SpawnRequest
 from meridian.lib.safety.permissions import PermissionConfig, TieredPermissionResolver
 from meridian.lib.state import spawn_store
 from meridian.lib.state.artifact_store import LocalStore
@@ -506,6 +507,39 @@ def _build_plan(
     )
 
 
+async def _execute_with_context(
+    run: Spawn,
+    *,
+    request: SpawnRequest,
+    repo_root: Path,
+    state_root: Path,
+    artifacts: LocalStore,
+    registry: HarnessRegistry,
+    cwd: Path | None = None,
+    **kwargs: object,
+) -> int:
+    launch_context = build_launch_context(
+        spawn_id=str(run.spawn_id),
+        request=request,
+        runtime=LaunchRuntime(
+            argv_intent=LaunchArgvIntent.SPEC_ONLY,
+            state_root=state_root.as_posix(),
+            project_paths_repo_root=repo_root.as_posix(),
+            project_paths_execution_cwd=(cwd or repo_root).resolve().as_posix(),
+        ),
+        harness_registry=registry,
+    )
+    return await execute_with_streaming(
+        run,
+        request=request,
+        launch_context=launch_context,
+        repo_root=repo_root,
+        state_root=state_root,
+        artifacts=artifacts,
+        **kwargs,
+    )
+
+
 @pytest.mark.asyncio
 async def test_run_streaming_spawn_finishes_after_turn_completed_when_stream_drains(
     tmp_path: Path,
@@ -656,7 +690,7 @@ async def test_execute_with_streaming_succeeds_when_turn_completes_and_stream_dr
     )
 
     exit_code = await asyncio.wait_for(
-        execute_with_streaming(
+        _execute_with_context(
             run,
             request=_build_plan(),
             repo_root=tmp_path,
@@ -737,7 +771,7 @@ async def test_execute_with_streaming_succeeds_after_report_watchdog_cleanup(
     )
 
     exit_code = await asyncio.wait_for(
-        execute_with_streaming(
+        _execute_with_context(
             run,
             request=_build_plan(),
             repo_root=tmp_path,
@@ -828,7 +862,7 @@ async def test_execute_with_streaming_waits_for_delayed_terminal_failure_after_d
     )
 
     exit_code = await asyncio.wait_for(
-        execute_with_streaming(
+        _execute_with_context(
             run,
             request=_build_plan(HarnessId.CLAUDE, "claude-opus-4-1"),
             repo_root=tmp_path,
@@ -940,7 +974,7 @@ async def test_execute_with_streaming_prefers_terminal_over_same_wakeup_signal(
     )
 
     exit_code = await asyncio.wait_for(
-        execute_with_streaming(
+        _execute_with_context(
             run,
             request=_build_plan(),
             repo_root=tmp_path,
@@ -1070,7 +1104,7 @@ async def test_execute_with_streaming_signal_wins_without_spawn_terminal_event(
     )
 
     exit_code = await asyncio.wait_for(
-        execute_with_streaming(
+        _execute_with_context(
             run,
             request=_build_plan(),
             repo_root=tmp_path,
@@ -1134,7 +1168,7 @@ async def test_execute_with_streaming_persists_missing_binary_diagnostics(
     )
 
     exit_code = await asyncio.wait_for(
-        execute_with_streaming(
+        _execute_with_context(
             run,
             request=_build_plan(HarnessId.CLAUDE, "claude-opus-4-1"),
             repo_root=tmp_path,
@@ -1199,7 +1233,7 @@ async def test_execute_with_streaming_codex_uses_adapter_resolved_launch_spec(
     )
 
     exit_code = await asyncio.wait_for(
-        execute_with_streaming(
+        _execute_with_context(
             run,
             request=request,
             repo_root=tmp_path,
@@ -1421,7 +1455,7 @@ async def test_execute_with_streaming_succeeds_when_opencode_idle_completes_but_
     )
 
     exit_code = await asyncio.wait_for(
-        execute_with_streaming(
+        _execute_with_context(
             run,
             request=_build_plan(HarnessId.OPENCODE, "openrouter/qwen/qwen3-coder:free"),
             repo_root=tmp_path,
@@ -1484,7 +1518,7 @@ async def test_execute_with_streaming_opencode_uses_adapter_normalized_launch_sp
     )
 
     exit_code = await asyncio.wait_for(
-        execute_with_streaming(
+        _execute_with_context(
             run,
             request=request,
             repo_root=tmp_path,
@@ -1582,7 +1616,7 @@ async def test_execute_with_streaming_starts_and_ticks_runner_heartbeat(
         status="queued",
     )
     exit_code = await asyncio.wait_for(
-        execute_with_streaming(
+        _execute_with_context(
             run,
             request=_build_plan(),
             repo_root=tmp_path,
@@ -1659,7 +1693,7 @@ async def test_execute_with_streaming_marks_finalizing_before_terminal_finalize(
         status="queued",
     )
     exit_code = await asyncio.wait_for(
-        execute_with_streaming(
+        _execute_with_context(
             run,
             request=_build_plan(),
             repo_root=tmp_path,
@@ -1727,7 +1761,7 @@ async def test_execute_with_streaming_tolerates_mark_finalizing_cas_miss(
         status="queued",
     )
     exit_code = await asyncio.wait_for(
-        execute_with_streaming(
+        _execute_with_context(
             run,
             request=_build_plan(),
             repo_root=tmp_path,
@@ -1800,7 +1834,7 @@ async def test_execute_with_streaming_cancels_heartbeat_when_finalize_raises(
 
     with pytest.raises(RuntimeError, match="streaming finalize boom"):
         await asyncio.wait_for(
-            execute_with_streaming(
+            _execute_with_context(
                 run,
                 request=_build_plan(),
                 repo_root=tmp_path,
@@ -1871,7 +1905,7 @@ async def test_execute_with_streaming_cancels_heartbeat_when_finalize_raises_val
 
     with pytest.raises(ValueError, match="streaming finalize value error"):
         await asyncio.wait_for(
-            execute_with_streaming(
+            _execute_with_context(
                 run,
                 request=_build_plan(),
                 repo_root=tmp_path,
@@ -1944,7 +1978,7 @@ async def test_execute_with_streaming_continues_when_terminal_heartbeat_touch_fa
         status="queued",
     )
     exit_code = await asyncio.wait_for(
-        execute_with_streaming(
+        _execute_with_context(
             run,
             request=_build_plan(),
             repo_root=tmp_path,

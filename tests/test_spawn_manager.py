@@ -67,6 +67,13 @@ def _build_config(spawn_id: str, repo_root: Path) -> ConnectionConfig:
     )
 
 
+def _build_spec(prompt: str = "hello") -> CodexLaunchSpec:
+    return CodexLaunchSpec(
+        prompt=prompt,
+        permission_resolver=UnsafeNoOpPermissionResolver(_suppress_warning=True),
+    )
+
+
 async def _wait_until(predicate: Callable[[], bool], *, attempts: int = 200) -> None:
     for _ in range(attempts):
         if predicate():
@@ -177,10 +184,7 @@ async def _start_recording_manager(
     manager = SpawnManager(state_root=state_root, repo_root=repo_root)
     await manager.start_spawn(
         _build_config(spawn_id, repo_root),
-        CodexLaunchSpec(
-            prompt="hello",
-            permission_resolver=UnsafeNoOpPermissionResolver(_suppress_warning=True),
-        ),
+        _build_spec(),
     )
     connection = RecordingConnection.latest
     assert connection is not None
@@ -757,7 +761,7 @@ async def test_spawn_manager_wait_for_completion_after_missing_terminal_event_cl
         cleanup_finished.set()
 
     monkeypatch.setattr(manager, "_cleanup_completed_session", tracked_cleanup)
-    await manager.start_spawn(_build_config(spawn_id, repo_root))
+    await manager.start_spawn(_build_config(spawn_id, repo_root), _build_spec())
 
     await cleanup_finished.wait()
     assert manager.get_connection(spawn_id) is None
@@ -859,7 +863,7 @@ async def test_spawn_manager_stop_spawn_returns_cancelled_outcome_without_finali
         status="running",
     )
     manager = SpawnManager(state_root=state_root, repo_root=repo_root)
-    await manager.start_spawn(_build_config(spawn_id, repo_root))
+    await manager.start_spawn(_build_config(spawn_id, repo_root), _build_spec())
     completion_task = asyncio.create_task(manager.wait_for_completion(spawn_id))
 
     outcome = await manager.stop_spawn(spawn_id, status="cancelled", exit_code=1)
@@ -974,7 +978,7 @@ async def test_spawn_manager_stop_spawn_cancel_emits_single_terminal_cancelled_e
         status="running",
     )
     manager = SpawnManager(state_root=state_root, repo_root=repo_root)
-    await manager.start_spawn(_build_config(spawn_id, repo_root))
+    await manager.start_spawn(_build_config(spawn_id, repo_root), _build_spec())
 
     await manager.stop_spawn(spawn_id, status="cancelled", exit_code=143, error="cancelled")
     await manager.stop_spawn(spawn_id, status="cancelled", exit_code=143, error="cancelled")
@@ -1096,7 +1100,7 @@ async def test_spawn_manager_cancel_vs_completion_race_emits_both_events_and_fir
 
     monkeypatch.setattr(manager, "_cleanup_completed_session", gated_cleanup)
 
-    await manager.start_spawn(_build_config(spawn_id, repo_root))
+    await manager.start_spawn(_build_config(spawn_id, repo_root), _build_spec())
     completion_task = asyncio.create_task(manager.wait_for_completion(spawn_id))
     output_path = state_root / "spawns" / spawn_id / "output.jsonl"
 
@@ -1233,7 +1237,7 @@ async def test_spawn_manager_stop_spawn_race_uses_missing_terminal_outcome_once(
 
     monkeypatch.setattr(manager, "_cleanup_completed_session", gated_cleanup)
 
-    await manager.start_spawn(_build_config(spawn_id, repo_root))
+    await manager.start_spawn(_build_config(spawn_id, repo_root), _build_spec())
     await cleanup_started.wait()
 
     completion = await manager.wait_for_completion(spawn_id)

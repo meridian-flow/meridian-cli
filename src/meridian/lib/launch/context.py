@@ -10,6 +10,8 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
+from meridian.lib.config.settings import MeridianConfig, load_config
+from meridian.lib.core.overrides import RuntimeOverrides
 from meridian.lib.core.types import HarnessId, ModelId
 from meridian.lib.harness.adapter import SubprocessHarness
 from meridian.lib.launch.launch_types import (
@@ -17,6 +19,7 @@ from meridian.lib.launch.launch_types import (
     PermissionResolver,
     PreflightResult,
     ResolvedLaunchSpec,
+    summarize_composition_warnings,
 )
 from meridian.lib.state.paths import (
     ProjectPaths,
@@ -27,14 +30,34 @@ from meridian.lib.state.paths import (
 from .command import (
     apply_workspace_projection,
     build_launch_argv,
+    normalize_system_prompt_passthrough_args,
     resolve_launch_spec_stage,
 )
 from .cwd import resolve_child_execution_cwd
 from .env import build_env_plan, inherit_child_env
 from .env import merge_env_overrides as _merge_env_overrides
 from .permissions import resolve_permission_pipeline
-from .request import LaunchRuntime, SpawnRequest
-from .run_inputs import ResolvedRunInputs, build_resolved_run_inputs
+from .policies import resolve_policies
+from .prompt import (
+    build_primary_inventory_prompt,
+    compose_run_prompt_text,
+    compose_skill_injections,
+    dedupe_skill_names,
+)
+from .reference import load_reference_files
+from .request import (
+    LaunchArgvIntent,
+    LaunchCompositionSurface,
+    LaunchRuntime,
+    SpawnRequest,
+)
+from .resolve import (
+    format_missing_skills_warning,
+    resolve_profile_path,
+    resolve_skill_paths,
+    resolve_skills_from_profile,
+)
+from .run_inputs import ResolvedRunInputs
 
 if TYPE_CHECKING:
     from meridian.lib.harness.registry import HarnessRegistry
@@ -53,7 +76,7 @@ _ALLOWED_MERIDIAN_KEYS: frozenset[str] = frozenset(
 
 
 @dataclass(frozen=True)
-class RuntimeContext:
+class ChildEnvContext:
     """Sole producer for child `MERIDIAN_*` environment overrides."""
 
     repo_root: Path
@@ -70,7 +93,7 @@ class RuntimeContext:
         *,
         project_paths: ProjectPaths,
         state_root: Path,
-    ) -> RuntimeContext:
+    ) -> ChildEnvContext:
         parent_chat_id = os.getenv("MERIDIAN_CHAT_ID", "").strip() or None
         parent_depth_raw = os.getenv("MERIDIAN_DEPTH", "0").strip()
         parent_depth = 0
@@ -95,11 +118,11 @@ class RuntimeContext:
             work_dir=Path(work_dir_raw) if work_dir_raw else None,
         )
 
-    def with_work_id(self, work_id: str | None) -> RuntimeContext:
+    def with_work_id(self, work_id: str | None) -> ChildEnvContext:
         normalized = (work_id or "").strip()
         if not normalized:
             return self
-        return RuntimeContext(
+        return ChildEnvContext(
             repo_root=self.repo_root,
             state_root=self.state_root,
             parent_chat_id=self.parent_chat_id,
@@ -131,12 +154,18 @@ class RuntimeContext:
 
         if not set(overrides).issubset(_ALLOWED_MERIDIAN_KEYS):
             missing = sorted(set(overrides) - _ALLOWED_MERIDIAN_KEYS)
-            raise RuntimeError(f"RuntimeContext.child_context drifted keys: {missing}")
+            raise RuntimeError(f"ChildEnvContext.child_context drifted keys: {missing}")
         return overrides
 
 
 @dataclass(frozen=True)
 class LaunchContext:
+    request: SpawnRequest
+    runtime: LaunchRuntime
+    repo_root: Path
+    execution_cwd: Path
+    state_root: Path
+    work_id: str | None
     argv: tuple[str, ...]
     run_params: ResolvedRunInputs
     perms: PermissionResolver
@@ -146,6 +175,8 @@ class LaunchContext:
     env_overrides: Mapping[str, str]
     report_output_path: Path
     harness: SubprocessHarness
+    resolved_request: SpawnRequest
+    seed_harness_session_id: str | None = None
     is_bypass: bool = False
     # I-13: adapter input transformations surface here instead of silently mutating.
     warnings: tuple[CompositionWarning, ...] = ()
@@ -163,6 +194,56 @@ def merge_env_overrides(
         plan_overrides=plan_overrides,
         runtime_overrides=runtime_overrides,
         preflight_overrides=preflight_overrides,
+    )
+
+
+def _build_composition_warnings(
+    *,
+    request_warning: str | None,
+    policy_warning: str | None,
+    route_warning: str | None,
+    missing_skills_warning: str | None,
+    continuation_warning: str | None,
+) -> tuple[CompositionWarning, ...]:
+    warnings: list[CompositionWarning] = []
+    for code, message in (
+        ("request_warning", request_warning),
+        ("policy_warning", policy_warning),
+        ("route_warning", route_warning),
+        ("missing_skills", missing_skills_warning),
+        ("continuation_warning", continuation_warning),
+    ):
+        normalized = (message or "").strip()
+        if not normalized:
+            continue
+        warnings.append(CompositionWarning(code=code, message=normalized))
+    return tuple(warnings)
+
+
+def _missing_continue_session_error(source_ref: str | None) -> str:
+    normalized_source = (source_ref or "").strip()
+    if normalized_source:
+        if normalized_source.startswith("p") and normalized_source[1:].isdigit():
+            return (
+                f"Spawn '{normalized_source}' has no recorded session - "
+                "cannot continue/fork."
+            )
+        return (
+            f"Session '{normalized_source}' has no recorded harness session - "
+            "cannot continue/fork."
+        )
+    return "Source reference has no recorded harness session - cannot continue/fork."
+
+
+def _spawn_request_overrides(request: SpawnRequest) -> RuntimeOverrides:
+    return RuntimeOverrides(
+        model=(request.model or "").strip() or None,
+        harness=(request.harness or "").strip() or None,
+        agent=(request.agent or "").strip() or None,
+        effort=(request.effort or "").strip() or None,
+        sandbox=(request.sandbox or "").strip() or None,
+        approval=(request.approval or "").strip() or None,
+        autocompact=request.autocompact,
     )
 
 
@@ -213,9 +294,7 @@ def _build_bypass_context(
     preflight: PreflightResult,
     env_overrides: Mapping[str, str],
 ) -> tuple[tuple[str, ...], dict[str, str]]:
-    command = tuple(
-        [*shlex.split(override), *preflight.expanded_passthrough_args]
-    )
+    command = tuple([*shlex.split(override), *preflight.expanded_passthrough_args])
     if not command:
         raise ValueError("MERIDIAN_HARNESS_COMMAND resolved to an empty command.")
     env = inherit_child_env(
@@ -223,6 +302,248 @@ def _build_bypass_context(
         env_overrides=env_overrides,
     )
     return command, env
+
+
+def _resolve_surface_request(
+    *,
+    request: SpawnRequest,
+    runtime: LaunchRuntime,
+    project_paths: ProjectPaths,
+    harness_registry: HarnessRegistry,
+    dry_run: bool,
+) -> tuple[SpawnRequest, SubprocessHarness, str | None, tuple[CompositionWarning, ...]]:
+    config = (
+        MeridianConfig.model_validate(runtime.config_snapshot)
+        if runtime.config_snapshot
+        else load_config(project_paths.repo_root)
+    )
+    cli_overrides = _spawn_request_overrides(request)
+    env_overrides = RuntimeOverrides.from_env()
+    if runtime.composition_surface == LaunchCompositionSurface.PRIMARY:
+        config_overrides = RuntimeOverrides.from_config(config)
+        configured_default_harness = config.primary.harness or "claude"
+    else:
+        config_overrides = RuntimeOverrides.from_spawn_config(config)
+        configured_default_harness = config.default_harness
+
+    policies = resolve_policies(
+        repo_root=project_paths.repo_root,
+        layers=(cli_overrides, env_overrides),
+        config_overrides=config_overrides,
+        config=config,
+        harness_registry=harness_registry,
+        configured_default_harness=configured_default_harness,
+        skills_readonly=dry_run,
+    )
+    profile = policies.profile
+    resolved = policies.resolved_overrides
+    harness = policies.adapter
+    resolved_skills = policies.resolved_skills
+    if request.skills:
+        merged_skill_names = dedupe_skill_names((*resolved_skills.skill_names, *request.skills))
+        resolved_skills = resolve_skills_from_profile(
+            profile_skills=merged_skill_names,
+            repo_root=project_paths.repo_root,
+            readonly=dry_run,
+        )
+
+    route_warning = None
+    reference_mode = harness.capabilities.reference_input_mode
+    prompt_policy = harness.run_prompt_policy()
+    resolved_context_from = request.context_from
+    prompt = request.prompt
+    if (
+        runtime.composition_surface == LaunchCompositionSurface.SPAWN_PREPARE
+        and not request.prompt_is_composed
+    ):
+        loaded_references = load_reference_files(
+            request.reference_files,
+            base_dir=project_paths.repo_root,
+            include_content=reference_mode != "paths",
+        )
+        prior_output: str | None = None
+        if request.context_from:
+            from meridian.lib.ops.spawn.context_ref import (
+                render_context_refs,
+                resolve_context_ref,
+            )
+
+            resolved_context_refs = tuple(
+                resolve_context_ref(project_paths.repo_root, ref) for ref in request.context_from
+            )
+            resolved_context_from = tuple(ref.spawn_id for ref in resolved_context_refs)
+            prior_output = render_context_refs(resolved_context_refs)
+        prompt = compose_run_prompt_text(
+            skills=resolved_skills.loaded_skills if prompt_policy.include_skills else (),
+            references=loaded_references,
+            user_prompt=request.prompt,
+            agent_body=(profile.body.strip() if profile is not None else "")
+            if prompt_policy.include_agent_body
+            else "",
+            template_variables=request.template_vars,
+            prior_output=prior_output,
+            reference_mode=reference_mode,
+        )
+
+    requested_harness_session_id = (
+        (request.session.requested_harness_session_id or "").strip() or None
+    )
+    requested_continue_fork = request.session.continue_fork
+    requested_harness = (request.session.continue_harness or "").strip()
+    if request.session.continue_source_tracked and requested_harness_session_id is None:
+        raise ValueError(_missing_continue_session_error(request.session.continue_source_ref))
+
+    resolved_continue_harness_session_id: str | None = None
+    resolved_continue_fork = False
+    continuation_warning: str | None = None
+    if requested_harness_session_id:
+        if requested_harness and requested_harness != str(harness.id):
+            continuation_warning = (
+                "Continuation session ignored because target harness differs from source run."
+            )
+        elif not harness.capabilities.supports_session_resume:
+            continuation_warning = (
+                f"Harness '{harness.id}' does not support session resume; starting fresh."
+            )
+        else:
+            resolved_continue_harness_session_id = requested_harness_session_id
+            if requested_continue_fork:
+                if harness.capabilities.supports_session_fork:
+                    resolved_continue_fork = True
+                else:
+                    continuation_warning = (
+                        f"Harness '{harness.id}' does not support session fork; "
+                        "resuming in-place."
+                    )
+
+    final_prompt = prompt
+    final_passthrough_args = request.extra_args
+    appended_system_prompt: str | None = None
+    seed_harness_session_id = resolved_continue_harness_session_id
+    if runtime.composition_surface == LaunchCompositionSurface.PRIMARY:
+        session_mode = (
+            (request.session.primary_session_mode or "fresh").strip().lower()
+        ) or "fresh"
+        if session_mode != "resume":
+            inventory_prompt = build_primary_inventory_prompt(repo_root=project_paths.repo_root)
+            if inventory_prompt:
+                final_prompt = "\n\n".join((final_prompt, inventory_prompt))
+
+        seed = harness.seed_session(
+            is_resume=session_mode == "resume",
+            harness_session_id=resolved_continue_harness_session_id or "",
+            passthrough_args=request.extra_args,
+        )
+        seed_harness_session_id = seed.session_id
+        seeded_passthrough_args = (*request.extra_args, *seed.session_args)
+        override = (runtime.harness_command_override or "").strip()
+        if override and resolved_continue_fork:
+            raise ValueError(
+                "Cannot use --fork with MERIDIAN_HARNESS_COMMAND override. "
+                "Fork requires native harness adapter support."
+            )
+
+        final_passthrough_args = seeded_passthrough_args
+        if not override:
+            passthrough_args, passthrough_prompt_fragments = (
+                normalize_system_prompt_passthrough_args(seeded_passthrough_args)
+            )
+            final_passthrough_args = passthrough_args
+            skill_injection = compose_skill_injections(resolved_skills.loaded_skills) or ""
+            if harness.id == HarnessId.CODEX and profile is not None and profile.body.strip():
+                skill_injection = "\n\n".join(
+                    part
+                    for part in (
+                        f"# Agent Profile\n\n{profile.body.strip()}",
+                        skill_injection.strip(),
+                    )
+                    if part
+                )
+            policy = harness.filter_launch_content(
+                prompt=final_prompt,
+                skill_injection=skill_injection,
+                is_resume=session_mode == "resume",
+                harness_session_id=resolved_continue_harness_session_id or "",
+            )
+            if policy.skill_injection is not None:
+                appended_parts = [policy.prompt.strip()]
+                appended_parts.extend(
+                    fragment.strip()
+                    for fragment in passthrough_prompt_fragments
+                    if fragment.strip()
+                )
+                if policy.skill_injection:
+                    appended_parts.append(policy.skill_injection)
+                final_prompt = "\n\n".join(part for part in appended_parts if part)
+                appended_system_prompt = final_prompt if final_prompt else None
+            else:
+                final_prompt = policy.prompt
+    elif prompt_policy.skill_injection_mode == "append-system-prompt":
+        appended_system_prompt = compose_skill_injections(resolved_skills.loaded_skills) or None
+
+    missing_skills_warning = (
+        format_missing_skills_warning(resolved_skills.missing_skills)
+        if resolved_skills.missing_skills
+        else None
+    )
+    composition_warnings = _build_composition_warnings(
+        request_warning=request.warning,
+        policy_warning=policies.warning,
+        route_warning=route_warning,
+        missing_skills_warning=missing_skills_warning,
+        continuation_warning=continuation_warning,
+    )
+    warning = summarize_composition_warnings(composition_warnings)
+
+    agent_metadata = dict(request.agent_metadata)
+    resolved_agent_name = profile.name if profile is not None else request.agent
+    session_agent_path = resolve_profile_path(profile)
+    if resolved_agent_name is not None:
+        agent_metadata["session_agent"] = resolved_agent_name
+    if session_agent_path:
+        agent_metadata["session_agent_path"] = session_agent_path
+    if profile is not None and harness.capabilities.supports_native_agents:
+        agent_metadata["adhoc_agent_payload"] = harness.build_adhoc_agent_payload(
+            name=profile.name,
+            description=profile.description,
+            prompt=profile.body,
+        )
+    if appended_system_prompt:
+        agent_metadata["appended_system_prompt"] = appended_system_prompt
+
+    resolved_request = request.model_copy(
+        update={
+            "prompt": final_prompt,
+            "prompt_is_composed": True,
+            "model": policies.model,
+            "harness": str(policies.harness),
+            "agent": resolved_agent_name,
+            "skills": resolved_skills.skill_names,
+            "extra_args": final_passthrough_args,
+            "mcp_tools": profile.mcp_tools if profile is not None else request.mcp_tools,
+            "sandbox": resolved.sandbox,
+            "approval": resolved.approval,
+            "allowed_tools": profile.tools if profile is not None else request.allowed_tools,
+            "disallowed_tools": (
+                profile.disallowed_tools
+                if profile is not None
+                else request.disallowed_tools
+            ),
+            "autocompact": resolved.autocompact,
+            "effort": resolved.effort,
+            "session": request.session.model_copy(
+                update={
+                    "requested_harness_session_id": resolved_continue_harness_session_id,
+                    "continue_fork": resolved_continue_fork,
+                }
+            ),
+            "context_from": resolved_context_from,
+            "warning": warning,
+            "agent_metadata": agent_metadata,
+            "skill_paths": resolve_skill_paths(resolved_skills.loaded_skills),
+        }
+    )
+    return resolved_request, harness, seed_harness_session_id, composition_warnings
 
 
 def build_launch_context(
@@ -237,14 +558,39 @@ def build_launch_context(
 ) -> LaunchContext:
     """Build deterministic launch context from raw request/runtime inputs."""
 
-    _ = dry_run
     project_paths = ProjectPaths(
         repo_root=Path(runtime.project_paths_repo_root).expanduser().resolve(),
         execution_cwd=Path(runtime.project_paths_execution_cwd).expanduser().resolve(),
     )
     state_root = Path(runtime.state_root).expanduser().resolve()
-    harness_id = _resolve_harness_id(request=request, runtime=runtime)
-    harness = harness_registry.get_subprocess_harness(harness_id)
+    resolved_request = request
+    composition_warnings: tuple[CompositionWarning, ...] = ()
+    seed_harness_session_id = (
+        (request.session.requested_harness_session_id or "").strip() or None
+    )
+    if runtime.composition_surface != LaunchCompositionSurface.DIRECT:
+        (
+            resolved_request,
+            harness,
+            seed_harness_session_id,
+            composition_warnings,
+        ) = _resolve_surface_request(
+            request=request,
+            runtime=runtime,
+            project_paths=project_paths,
+            harness_registry=harness_registry,
+            dry_run=dry_run,
+        )
+    else:
+        harness_id = _resolve_harness_id(request=request, runtime=runtime)
+        harness = harness_registry.get_subprocess_harness(harness_id)
+        composition_warnings = _build_composition_warnings(
+            request_warning=resolved_request.warning,
+            policy_warning=None,
+            route_warning=None,
+            missing_skills_warning=None,
+            continuation_warning=None,
+        )
 
     report_output_path = _resolve_report_output_path(
         runtime=runtime,
@@ -257,50 +603,51 @@ def build_launch_context(
         spawn_id=spawn_id,
         harness_id=harness.id.value,
     )
-    if child_cwd != execution_cwd:
+    # Preview/dry-run callers need composed data without filesystem side-effects.
+    if child_cwd != execution_cwd and not dry_run:
         child_cwd.mkdir(parents=True, exist_ok=True)
 
     try:
         preflight = harness.preflight(
             execution_cwd=execution_cwd,
             child_cwd=child_cwd,
-            passthrough_args=tuple(request.extra_args),
+            passthrough_args=tuple(resolved_request.extra_args),
         )
     except AttributeError:
         preflight = PreflightResult.build(
-            expanded_passthrough_args=tuple(request.extra_args)
+            expanded_passthrough_args=tuple(resolved_request.extra_args)
         )
 
-    resolved_agent_metadata = request.agent_metadata
-    model = (request.model or "").strip()
+    resolved_agent_metadata = resolved_request.agent_metadata
+    model = (resolved_request.model or "").strip()
     requested_harness_session_id = (
-        (request.session.requested_harness_session_id or "").strip() or None
+        (resolved_request.session.requested_harness_session_id or "").strip() or None
     )
     appended_system_prompt = (
         (resolved_agent_metadata.get("appended_system_prompt") or "").strip() or None
     )
-    run_params = build_resolved_run_inputs(
-        prompt=request.prompt,
+    run_params = ResolvedRunInputs(
+        prompt=resolved_request.prompt,
         model=ModelId(model) if model else None,
-        effort=request.effort,
-        skills=request.skills,
-        agent=request.agent,
+        effort=resolved_request.effort,
+        skills=resolved_request.skills,
+        agent=resolved_request.agent,
         adhoc_agent_payload=(resolved_agent_metadata.get("adhoc_agent_payload") or "").strip(),
         extra_args=preflight.expanded_passthrough_args,
         repo_root=child_cwd.as_posix(),
-        mcp_tools=request.mcp_tools,
+        mcp_tools=resolved_request.mcp_tools,
         continue_harness_session_id=requested_harness_session_id,
-        continue_fork=request.session.continue_fork,
+        continue_fork=resolved_request.session.continue_fork,
         report_output_path=report_output_path.as_posix(),
         appended_system_prompt=appended_system_prompt,
-        context_from_payload=request.context_from,
+        context_from_payload=resolved_request.context_from,
     )
 
     permission_config, perms = resolve_permission_pipeline(
-        sandbox=request.sandbox,
-        allowed_tools=request.allowed_tools,
-        disallowed_tools=request.disallowed_tools,
-        approval=request.approval or "default",
+        sandbox=resolved_request.sandbox,
+        allowed_tools=resolved_request.allowed_tools,
+        disallowed_tools=resolved_request.disallowed_tools,
+        approval=resolved_request.approval or "default",
         unsafe_no_permissions=runtime.unsafe_no_permissions,
     )
     spec = resolve_launch_spec_stage(adapter=harness, run_inputs=run_params, perms=perms)
@@ -316,15 +663,15 @@ def build_launch_context(
                 projected_spec=spec,
             )
         except Exception:
-            launch_mode = runtime.launch_mode.strip().lower()
-            # Streaming executors launch from typed specs, not subprocess argv.
-            if launch_mode not in {"foreground", "background"}:
+            # Streaming/app callers launch from typed specs, not subprocess argv.
+            if runtime.argv_intent != LaunchArgvIntent.SPEC_ONLY:
                 raise
 
-    runtime_ctx = RuntimeContext.from_environment(
+    runtime_ctx = ChildEnvContext.from_environment(
         project_paths=project_paths,
         state_root=state_root,
-    ).with_work_id(runtime_work_id or request.work_id_hint)
+    ).with_work_id(runtime_work_id or resolved_request.work_id_hint)
+    effective_work_id = runtime_ctx.work_id
     merged_overrides = merge_env_overrides(
         plan_overrides=plan_overrides or {},
         runtime_overrides=runtime_ctx.child_context(),
@@ -347,6 +694,12 @@ def build_launch_context(
         )
 
     return LaunchContext(
+        request=request,
+        runtime=runtime,
+        repo_root=project_paths.repo_root,
+        execution_cwd=execution_cwd,
+        state_root=state_root,
+        work_id=effective_work_id,
         argv=argv,
         run_params=run_params,
         perms=perms,
@@ -356,13 +709,16 @@ def build_launch_context(
         env_overrides=MappingProxyType(merged_overrides),
         report_output_path=report_output_path,
         harness=harness,
+        resolved_request=resolved_request,
+        seed_harness_session_id=seed_harness_session_id,
         is_bypass=is_bypass,
+        warnings=composition_warnings,
     )
 
 
 __all__ = [
+    "ChildEnvContext",
     "LaunchContext",
-    "RuntimeContext",
     "build_launch_context",
     "merge_env_overrides",
 ]

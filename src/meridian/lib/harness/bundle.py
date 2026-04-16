@@ -30,6 +30,8 @@ _REGISTRY: dict[HarnessId, HarnessBundle[Any]] = {}
 
 def register_harness_bundle(bundle: HarnessBundle[Any]) -> None:
     """Register one harness bundle and enforce bootstrap invariants."""
+    # Adapter modules call this at import time. Keep this explicit side effect
+    # listed in HARNESS_EXTENSION_TOUCHPOINTS for new harness onboarding.
 
     raw_extractor: object = bundle.extractor
     if raw_extractor is None:  # pyright: ignore[reportUnnecessaryComparison]

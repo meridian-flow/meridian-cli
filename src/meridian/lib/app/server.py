@@ -21,7 +21,7 @@ from meridian.lib.core.types import HarnessId, SpawnId
 from meridian.lib.harness.connections.base import ConnectionConfig
 from meridian.lib.harness.registry import get_default_harness_registry
 from meridian.lib.launch.context import build_launch_context
-from meridian.lib.launch.request import LaunchRuntime, SpawnRequest
+from meridian.lib.launch.request import LaunchArgvIntent, LaunchRuntime, SpawnRequest
 from meridian.lib.state import spawn_store
 from meridian.lib.state.paths import resolve_project_paths
 from meridian.lib.streaming.signal_canceller import SignalCanceller
@@ -334,9 +334,7 @@ def create_app(
             approval=spawn_approval,
         )
         launch_runtime = LaunchRuntime(
-            # "foreground" lets build_launch_context tolerate argv-build failures
-            # for streaming harnesses that don't use subprocess argv.
-            launch_mode="foreground",
+            argv_intent=LaunchArgvIntent.SPEC_ONLY,
             unsafe_no_permissions=unsafe_no_permissions,
             state_root=state_root.as_posix(),
             project_paths_repo_root=project_paths.repo_root.as_posix(),

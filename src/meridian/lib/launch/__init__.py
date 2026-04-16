@@ -5,14 +5,14 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from meridian.lib.launch.launch_types import summarize_composition_warnings
+
 if TYPE_CHECKING:
     from meridian.lib.harness.registry import HarnessRegistry
     from meridian.lib.launch.command import (
-        build_launch_env,
         normalize_system_prompt_passthrough_args,
     )
     from meridian.lib.launch.context import build_launch_context
-    from meridian.lib.launch.plan import resolve_primary_launch_plan
     from meridian.lib.launch.policies import ResolvedPolicies
     from meridian.lib.launch.process import ProcessOutcome, run_harness_process
     from meridian.lib.launch.resolve import (
@@ -51,37 +51,45 @@ def launch_primary(
 ) -> LaunchResult:
     """Launch the primary agent process and wait for exit."""
 
-    from .plan import resolve_primary_launch_plan
+    from .context import build_launch_context
+    from .plan import build_primary_launch_runtime, build_primary_spawn_request
     from .process import run_harness_process
     from .types import LaunchResult
 
-    plan = resolve_primary_launch_plan(
-        repo_root=repo_root,
-        request=request,
+    runtime = build_primary_launch_runtime(repo_root=repo_root)
+    resolved_work_id = None
+    if not request.dry_run:
+        resolved_work_id = _resolve_work_id_for_launch(
+            Path(runtime.state_root).expanduser().resolve(),
+            request,
+        )
+
+    preview_context = build_launch_context(
+        spawn_id="dry-run-primary",
+        request=build_primary_spawn_request(request=request),
+        runtime=runtime,
         harness_registry=harness_registry,
+        dry_run=True,
+        runtime_work_id=resolved_work_id,
     )
+    warning = summarize_composition_warnings(preview_context.warnings)
 
     if request.dry_run:
         return LaunchResult(
-            command=plan.command,
+            command=preview_context.argv,
             exit_code=0,
             continue_ref=None,
-            warning=plan.warning,
+            warning=warning,
         )
 
-    # Resolve work-item attachment at the policy layer (this entry-point
-    # function), not inside process.py (the subprocess mechanism layer).
-    resolved_work_id = _resolve_work_id_for_launch(plan.state_root, request)
-    resolved_plan = plan.model_copy(update={"resolved_work_id": resolved_work_id})
-
-    outcome = run_harness_process(resolved_plan, harness_registry)
+    outcome = run_harness_process(preview_context, harness_registry)
     continue_ref = outcome.resolved_harness_session_id.strip() or None
 
     return LaunchResult(
         command=outcome.command,
         exit_code=outcome.exit_code,
         continue_ref=continue_ref,
-        warning=plan.warning,
+        warning=warning,
     )
 
 
@@ -97,7 +105,6 @@ def __getattr__(name: str) -> Any:
         "ResolvedSkills": (".resolve", "ResolvedSkills"),
         "SessionIntent": (".types", "SessionIntent"),
         "SessionMode": (".types", "SessionMode"),
-        "build_launch_env": (".command", "build_launch_env"),
         "build_launch_context": (".context", "build_launch_context"),
         "build_primary_prompt": (".types", "build_primary_prompt"),
         "load_agent_profile_with_fallback": (".resolve", "load_agent_profile_with_fallback"),
@@ -107,7 +114,6 @@ def __getattr__(name: str) -> Any:
         ),
         "resolve_harness": (".resolve", "resolve_harness"),
         "resolve_policies": (".resolve", "resolve_policies"),
-        "resolve_primary_launch_plan": (".plan", "resolve_primary_launch_plan"),
         "resolve_skills_from_profile": (".resolve", "resolve_skills_from_profile"),
         "run_harness_process": (".process", "run_harness_process"),
     }
@@ -134,14 +140,12 @@ __all__ = [
     "SessionIntent",
     "SessionMode",
     "build_launch_context",
-    "build_launch_env",
     "build_primary_prompt",
     "launch_primary",
     "load_agent_profile_with_fallback",
     "normalize_system_prompt_passthrough_args",
     "resolve_harness",
     "resolve_policies",
-    "resolve_primary_launch_plan",
     "resolve_skills_from_profile",
     "run_harness_process",
 ]

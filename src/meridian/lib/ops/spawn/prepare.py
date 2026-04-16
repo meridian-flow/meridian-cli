@@ -9,63 +9,27 @@ from pydantic import BaseModel, ConfigDict
 from meridian.lib.catalog.models import load_discovered_models, load_merged_aliases, resolve_model
 from meridian.lib.config.settings import MeridianConfig
 from meridian.lib.core.context import RuntimeContext
-from meridian.lib.core.overrides import RuntimeOverrides
-from meridian.lib.core.types import ModelId
 from meridian.lib.harness.registry import HarnessRegistry, get_default_harness_registry
-from meridian.lib.launch.prompt import (
-    compose_run_prompt_text,
-    compose_skill_injections,
-    dedupe_skill_names,
-)
+from meridian.lib.launch.context import build_launch_context
 from meridian.lib.launch.reference import load_reference_files, parse_template_assignments
 from meridian.lib.launch.request import (
     ExecutionBudget,
+    LaunchArgvIntent,
+    LaunchCompositionSurface,
+    LaunchRuntime,
     RetryPolicy,
     SessionRequest,
     SpawnRequest,
 )
-from meridian.lib.launch.resolve import (
-    format_missing_skills_warning,
-    resolve_policies,
-    resolve_profile_path,
-    resolve_skill_paths,
-    resolve_skills_from_profile,
-)
-from meridian.lib.safety.permissions import (
-    resolve_permission_pipeline,
-)
+from meridian.lib.state.paths import resolve_state_paths
 from meridian.lib.utils.time import minutes_to_seconds
 
 from ..runtime import OperationRuntime, build_runtime, resolve_runtime_root_and_config
-from .context_ref import render_context_refs, resolve_context_ref
 from .models import SpawnCreateInput
 
 logger = structlog.get_logger(__name__)
 _DISCOVERED_MODEL_CONTEXT_LIMIT = 12
-
-
-def merge_warnings(*warnings: str | None) -> str | None:
-    """Join non-empty warning strings with consistent separators."""
-
-    parts = [item.strip() for item in warnings if item and item.strip()]
-    if not parts:
-        return None
-    return "; ".join(parts)
-
-
-def _missing_continue_session_error(source_ref: str | None) -> str:
-    normalized_source = (source_ref or "").strip()
-    if normalized_source:
-        if normalized_source.startswith("p") and normalized_source[1:].isdigit():
-            return (
-                f"Spawn '{normalized_source}' has no recorded session — "
-                "cannot continue/fork."
-            )
-        return (
-            f"Session '{normalized_source}' has no recorded harness session — "
-            "cannot continue/fork."
-        )
-    return "Source reference has no recorded harness session — cannot continue/fork."
+_DRY_RUN_REPORT_PATH = "<spawn-report-path>"
 
 
 class _CreateRuntimeView(BaseModel):
@@ -198,183 +162,27 @@ def build_create_payload(
             config=runtime_bundle.config,
             harness_registry=runtime_bundle.harness_registry,
         )
-    cli_overrides = RuntimeOverrides.from_spawn_input(payload)
-    env_overrides = RuntimeOverrides.from_env()
-    config_overrides = RuntimeOverrides.from_spawn_config(runtime_view.config)
-
-    policies = resolve_policies(
-        repo_root=runtime_view.repo_root,
-        layers=(cli_overrides, env_overrides),
-        config_overrides=config_overrides,
-        config=runtime_view.config,
-        harness_registry=runtime_view.harness_registry,
-        configured_default_harness=runtime_view.config.default_harness,
-        skills_readonly=payload.dry_run,
-    )
-    profile = policies.profile
-    resolved = policies.resolved_overrides
-
-    # Merge profile skills with ad-hoc CLI --skills entries, deduplicating.
-    merged_skill_names = dedupe_skill_names(
-        (*policies.resolved_skills.skill_names, *payload.skills)
-    )
-    if payload.skills:
-        resolved_skills = resolve_skills_from_profile(
-            profile_skills=merged_skill_names,
-            repo_root=runtime_view.repo_root,
-            readonly=payload.dry_run,
-        )
-    else:
-        resolved_skills = policies.resolved_skills
-    harness = policies.adapter
-    route_warning = None
-    reference_mode = harness.capabilities.reference_input_mode
-    prompt_policy = harness.run_prompt_policy()
-    use_reference_paths = reference_mode == "paths"
     loaded_references = load_reference_files(
         payload.files,
         base_dir=runtime_view.repo_root,
-        include_content=not use_reference_paths,
+        include_content=False,
     )
     parsed_template_vars = parse_template_assignments(payload.template_vars)
-    adhoc_agent_payload = (
-        harness.build_adhoc_agent_payload(
-            name=profile.name,
-            description=profile.description,
-            prompt=profile.body,
-        )
-        if profile is not None and harness.capabilities.supports_native_agents
-        else ""
-    )
-    agent_for_params = profile.name if profile is not None else None
-
-    context_from_resolved: tuple[str, ...] = ()
-    prior_output: str | None = None
-    if payload.context_from:
-        resolved_context_refs = tuple(
-            resolve_context_ref(runtime_view.repo_root, ref) for ref in payload.context_from
-        )
-        context_from_resolved = tuple(ref.spawn_id for ref in resolved_context_refs)
-        prior_output = render_context_refs(resolved_context_refs)
-
-    composed_prompt = compose_run_prompt_text(
-        skills=resolved_skills.loaded_skills if prompt_policy.include_skills else (),
-        references=loaded_references,
-        user_prompt=payload.prompt,
-        agent_body=(profile.body.strip() if profile is not None else "")
-        if prompt_policy.include_agent_body
-        else "",
-        template_variables=parsed_template_vars,
-        prior_output=prior_output,
-        reference_mode=reference_mode,
-    )
-    _raw_req_hsid = payload.session.requested_harness_session_id or ""
-    requested_harness_session_id = _raw_req_hsid.strip() or None
-    requested_continue_fork = payload.session.continue_fork
-    resolved_forked_from = payload.session.forked_from_chat_id
-    resolved_source_execution_cwd = payload.session.source_execution_cwd
-    requested_harness = (payload.session.continue_harness or "").strip()
-    if payload.session.continue_source_tracked and requested_harness_session_id is None:
-        raise ValueError(_missing_continue_session_error(payload.session.continue_source_ref))
-    resolved_continue_harness_session_id: str | None = None
-    resolved_continue_fork = False
-    continuation_warning: str | None = None
-    if requested_harness_session_id:
-        if requested_harness and requested_harness != str(harness.id):
-            continuation_warning = (
-                "Continuation session ignored because target harness differs from source run."
-            )
-        elif not harness.capabilities.supports_session_resume:
-            continuation_warning = (
-                f"Harness '{harness.id}' does not support session resume; starting fresh."
-            )
-        else:
-            resolved_continue_harness_session_id = requested_harness_session_id
-            if requested_continue_fork:
-                if harness.capabilities.supports_session_fork:
-                    resolved_continue_fork = True
-                else:
-                    continuation_warning = (
-                        f"Harness '{harness.id}' does not support session fork; resuming in-place."
-                    )
-    # I-10: Fork materialization is deferred to execute.py, after the spawn row
-    # exists.  prepare.py preserves resolved_continue_fork=True so the executor
-    # can call materialize_fork() via the sole owner in launch/fork.py.
-
-    missing_skills_warning = (
-        format_missing_skills_warning(resolved_skills.missing_skills)
-        if resolved_skills.missing_skills
-        else None
-    )
-    warning = merge_warnings(policies.warning, route_warning, missing_skills_warning)
-    warning = merge_warnings(warning, continuation_warning)
-    warning = merge_warnings(preflight_warning, warning)
-    from meridian.lib.harness.adapter import SpawnParams
-
-    # Build preview_command resolver; permission_config not stored (executor rebuilds it).
-    _preview_permission_config, resolver = resolve_permission_pipeline(
-        sandbox=resolved.sandbox,
-        allowed_tools=profile.tools if profile is not None else (),
-        disallowed_tools=profile.disallowed_tools if profile is not None else (),
-        approval=resolved.approval or "default",
-    )
-
-    appended_system_prompt = None
-    if prompt_policy.skill_injection_mode == "append-system-prompt":
-        appended_system_prompt = compose_skill_injections(resolved_skills.loaded_skills) or None
-
-    preview_command = tuple(
-        harness.build_command(
-            SpawnParams(
-                prompt=composed_prompt,
-                model=ModelId(policies.model) if policies.model else None,
-                effort=resolved.effort,
-                skills=resolved_skills.skill_names,
-                agent=agent_for_params,
-                adhoc_agent_payload=adhoc_agent_payload,
-                repo_root=runtime_view.repo_root.as_posix(),
-                mcp_tools=profile.mcp_tools if profile is not None else (),
-                continue_harness_session_id=resolved_continue_harness_session_id,
-                continue_fork=resolved_continue_fork,
-                appended_system_prompt=appended_system_prompt,
-                extra_args=payload.passthrough_args,
-            ),
-            resolver,
-        )
-    )
-    session_agent_path = resolve_profile_path(profile)
-    session_skill_paths = resolve_skill_paths(resolved_skills.loaded_skills)
-    timeout_secs = minutes_to_seconds(resolved.timeout)
+    timeout_secs = minutes_to_seconds(payload.timeout)
     kill_grace_secs = minutes_to_seconds(runtime_view.config.kill_grace_minutes) or 0.0
 
-    agent_metadata: dict[str, str] = {}
-    if agent_for_params is not None:
-        agent_metadata["session_agent"] = agent_for_params
-    if session_agent_path:
-        agent_metadata["session_agent_path"] = session_agent_path
-    if adhoc_agent_payload:
-        agent_metadata["adhoc_agent_payload"] = adhoc_agent_payload
-    if appended_system_prompt:
-        agent_metadata["appended_system_prompt"] = appended_system_prompt
-    if warning:
-        agent_metadata["warning"] = warning
-    if resolved.autocompact is not None:
-        agent_metadata["autocompact_pct"] = str(resolved.autocompact)
-
-    return SpawnRequest(
-        prompt=composed_prompt,
-        model=policies.model,
-        harness=str(harness.id),
-        agent=agent_for_params,
-        skills=resolved_skills.skill_names,
+    raw_request = SpawnRequest(
+        prompt=payload.prompt,
+        prompt_is_composed=False,
+        model=payload.model or None,
+        harness=payload.harness,
+        agent=payload.agent,
+        skills=payload.skills,
         extra_args=payload.passthrough_args,
-        mcp_tools=profile.mcp_tools if profile is not None else (),
-        sandbox=resolved.sandbox,
-        approval=resolved.approval,
-        allowed_tools=profile.tools if profile is not None else (),
-        disallowed_tools=profile.disallowed_tools if profile is not None else (),
-        autocompact=resolved.autocompact is not None,
-        effort=resolved.effort,
+        sandbox=payload.sandbox,
+        approval=payload.approval,
+        autocompact=payload.autocompact,
+        effort=payload.effort,
         retry=RetryPolicy(
             max_attempts=max(1, runtime_view.config.max_retries + 1),
             backoff_secs=runtime_view.config.retry_backoff_seconds,
@@ -385,22 +193,40 @@ def build_create_payload(
         ),
         session=SessionRequest(
             continue_chat_id=payload.session.continue_chat_id,
-            requested_harness_session_id=resolved_continue_harness_session_id,
-            continue_fork=resolved_continue_fork,
-            source_execution_cwd=resolved_source_execution_cwd,
-            forked_from_chat_id=resolved_forked_from,
+            requested_harness_session_id=(
+                (payload.session.requested_harness_session_id or "").strip() or None
+            ),
+            continue_fork=payload.session.continue_fork,
+            source_execution_cwd=payload.session.source_execution_cwd,
+            forked_from_chat_id=payload.session.forked_from_chat_id,
             continue_harness=payload.session.continue_harness,
             continue_source_tracked=payload.session.continue_source_tracked,
             continue_source_ref=payload.session.continue_source_ref,
         ),
-        context_from=context_from_resolved[0] if len(context_from_resolved) == 1 else None,
+        context_from=payload.context_from,
         reference_files=tuple(str(reference.path) for reference in loaded_references),
         template_vars=parsed_template_vars,
         work_id_hint=payload.work.strip() or None,
-        agent_metadata=agent_metadata,
-        # Resolved metadata for dry-run display and spawn-row initialization.
-        skill_paths=session_skill_paths,
-        cli_command=preview_command,
+        warning=preflight_warning,
+    )
+
+    preview_context = build_launch_context(
+        spawn_id="dry-run",
+        request=raw_request,
+        runtime=LaunchRuntime(
+            argv_intent=LaunchArgvIntent.REQUIRED,
+            composition_surface=LaunchCompositionSurface.SPAWN_PREPARE,
+            config_snapshot=runtime_view.config.model_dump(mode="json", exclude_none=True),
+            report_output_path=_DRY_RUN_REPORT_PATH,
+            state_root=resolve_state_paths(runtime_view.repo_root).root_dir.as_posix(),
+            project_paths_repo_root=runtime_view.repo_root.as_posix(),
+            project_paths_execution_cwd=runtime_view.repo_root.as_posix(),
+        ),
+        harness_registry=runtime_view.harness_registry,
+        dry_run=True,
+    )
+    return preview_context.resolved_request.model_copy(
+        update={"cli_command": preview_context.argv}
     )
 
 

@@ -8,6 +8,12 @@ from meridian.lib.core.domain import TokenUsage
 from meridian.lib.core.types import ArtifactKey, SpawnId
 from meridian.lib.harness.adapter import SpawnExtractor
 from meridian.lib.launch.artifact_io import read_artifact_text
+from meridian.lib.launch.constants import (
+    OUTPUT_FILENAME,
+    REPORT_FILENAME,
+    STDERR_FILENAME,
+    TOKENS_FILENAME,
+)
 from meridian.lib.launch.report import ExtractedReport, extract_or_fallback_report
 from meridian.lib.safety.redaction import SecretSpec, redact_secrets
 from meridian.lib.state.artifact_store import ArtifactStore
@@ -16,11 +22,6 @@ from meridian.lib.state.atomic import atomic_write_text
 # ---------------------------------------------------------------------------
 # Finalization pipeline
 # ---------------------------------------------------------------------------
-
-_REPORT_FILENAME = "report.md"
-_OUTPUT_FILENAME = "output.jsonl"
-_STDERR_FILENAME = "stderr.log"
-_TOKENS_FILENAME = "tokens.json"
 
 
 class FinalizeExtraction(BaseModel):
@@ -41,10 +42,10 @@ def reset_finalize_attempt_artifacts(
 ) -> None:
     """Clear attempt-scoped artifacts so retries never reuse stale extraction state."""
 
-    for name in (_OUTPUT_FILENAME, _STDERR_FILENAME, _TOKENS_FILENAME, _REPORT_FILENAME):
+    for name in (OUTPUT_FILENAME, STDERR_FILENAME, TOKENS_FILENAME, REPORT_FILENAME):
         artifacts.delete(ArtifactKey(f"{spawn_id}/{name}"))
 
-    report_path = log_dir / _REPORT_FILENAME
+    report_path = log_dir / REPORT_FILENAME
     if report_path.exists():
         report_path.unlink()
 
@@ -61,8 +62,8 @@ def _persist_report(
         return None
 
     redacted_content = redact_secrets(extracted.content, secrets)
-    target = log_dir / _REPORT_FILENAME
-    report_key = ArtifactKey(f"{spawn_id}/{_REPORT_FILENAME}")
+    target = log_dir / REPORT_FILENAME
+    report_key = ArtifactKey(f"{spawn_id}/{REPORT_FILENAME}")
     if extracted.source == "assistant_message":
         wrapped = f"# Auto-extracted Report\n\n{redacted_content.strip()}\n"
         atomic_write_text(target, wrapped)
@@ -85,7 +86,7 @@ def _is_empty_output(
 ) -> bool:
     if extracted_report.content and extracted_report.content.strip():
         return False
-    output_text = read_artifact_text(artifacts, spawn_id, _OUTPUT_FILENAME)
+    output_text = read_artifact_text(artifacts, spawn_id, OUTPUT_FILENAME)
     return not output_text.strip()
 
 

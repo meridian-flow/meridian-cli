@@ -54,7 +54,11 @@ def next_spawn_id(state_root: Path) -> SpawnId:
 LaunchMode = Literal["background", "foreground", "app"]
 BACKGROUND_LAUNCH_MODE: LaunchMode = "background"
 FOREGROUND_LAUNCH_MODE: LaunchMode = "foreground"
+APP_LAUNCH_MODE: LaunchMode = "app"
 SpawnOrigin = Literal["runner", "launcher", "launch_failure", "cancel", "reconciler"]
+_LAUNCH_MODE_VALUES: frozenset[LaunchMode] = frozenset(
+    (BACKGROUND_LAUNCH_MODE, FOREGROUND_LAUNCH_MODE, APP_LAUNCH_MODE)
+)
 
 _AUTHORITATIVE_ORIGIN_VALUES: tuple[SpawnOrigin, ...] = (
     "runner",
@@ -92,7 +96,7 @@ class SpawnRecord(BaseModel):
     work_id: str | None
     harness_session_id: str | None
     execution_cwd: str | None = None
-    launch_mode: str | None
+    launch_mode: LaunchMode | None
     worker_pid: int | None
     runner_pid: int | None
     status: SpawnStatus | Literal["unknown"]
@@ -184,17 +188,33 @@ class SpawnFinalizeEvent(BaseModel):
 type SpawnEvent = SpawnStartEvent | SpawnUpdateEvent | SpawnExitedEvent | SpawnFinalizeEvent
 
 
+def _coerce_launch_mode(value: object) -> object:
+    if not isinstance(value, str):
+        return value
+    normalized = value.strip().lower()
+    if normalized in _LAUNCH_MODE_VALUES:
+        return normalized
+    return value
+
+
 def _parse_event(payload: dict[str, Any]) -> SpawnEvent | None:
-    event_type = payload.get("event")
+    resolved_payload = payload
+    if "launch_mode" in payload:
+        coerced_launch_mode = _coerce_launch_mode(payload.get("launch_mode"))
+        if coerced_launch_mode != payload.get("launch_mode"):
+            resolved_payload = dict(payload)
+            resolved_payload["launch_mode"] = coerced_launch_mode
+
+    event_type = resolved_payload.get("event")
     try:
         if event_type == "start":
-            return SpawnStartEvent.model_validate(payload)
+            return SpawnStartEvent.model_validate(resolved_payload)
         if event_type == "update":
-            return SpawnUpdateEvent.model_validate(payload)
+            return SpawnUpdateEvent.model_validate(resolved_payload)
         if event_type == "exited":
-            return SpawnExitedEvent.model_validate(payload)
+            return SpawnExitedEvent.model_validate(resolved_payload)
         if event_type == "finalize":
-            return SpawnFinalizeEvent.model_validate(payload)
+            return SpawnFinalizeEvent.model_validate(resolved_payload)
     except ValidationError:
         return None
     return None

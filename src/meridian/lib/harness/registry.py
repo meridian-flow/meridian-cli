@@ -30,6 +30,8 @@ class HarnessRegistry(BaseModel):
     def with_defaults(cls) -> Self:
         # Load-bearing package bootstrap: registers bundles and executes import-time
         # projection/accounting guards.
+        # Harness extension touchpoints are documented in
+        # `meridian.lib.harness.HARNESS_EXTENSION_TOUCHPOINTS`.
         from meridian.lib.harness import ensure_bootstrap
 
         ensure_bootstrap()

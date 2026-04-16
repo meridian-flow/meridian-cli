@@ -10,7 +10,7 @@ from meridian.lib.core.types import HarnessId
 from meridian.lib.harness.connections.base import ConnectionConfig
 from meridian.lib.harness.registry import get_default_harness_registry
 from meridian.lib.launch.context import build_launch_context
-from meridian.lib.launch.request import LaunchRuntime, SpawnRequest
+from meridian.lib.launch.request import LaunchArgvIntent, LaunchRuntime, SpawnRequest
 from meridian.lib.launch.streaming_runner import run_streaming_spawn, signal_coordinator
 from meridian.lib.ops.runtime import resolve_runtime_root_and_config
 from meridian.lib.state import spawn_store
@@ -88,9 +88,7 @@ async def streaming_serve(
         agent=normalized_agent,
     )
     launch_runtime = LaunchRuntime(
-        # "foreground" lets build_launch_context tolerate argv-build failures
-        # for streaming harnesses that don't use subprocess argv.
-        launch_mode="foreground",
+        argv_intent=LaunchArgvIntent.SPEC_ONLY,
         state_root=state_root.as_posix(),
         project_paths_repo_root=repo_root.as_posix(),
         project_paths_execution_cwd=repo_root.as_posix(),

@@ -6,21 +6,26 @@ import json
 import re
 import signal
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import pytest
+if TYPE_CHECKING:
+    import pytest
 
 from meridian.lib.config.settings import load_config
-from meridian.lib.core.types import HarnessId, ModelId
+from meridian.lib.core.types import HarnessId
 from meridian.lib.harness.adapter import SpawnParams
 from meridian.lib.harness.registry import get_default_harness_registry
 from meridian.lib.launch import process
 from meridian.lib.launch.constants import DEFAULT_INFRA_EXIT_CODE
 from meridian.lib.launch.context import build_launch_context
-from meridian.lib.launch.plan import ResolvedPrimaryLaunchPlan
-from meridian.lib.launch.request import LaunchRuntime, SessionRequest, SpawnRequest
-from meridian.lib.launch.types import LaunchRequest, PrimarySessionMetadata, SessionMode
-from meridian.lib.safety.permissions import PermissionConfig, TieredPermissionResolver
+from meridian.lib.launch.request import (
+    LaunchArgvIntent,
+    LaunchCompositionSurface,
+    LaunchRuntime,
+    SessionRequest,
+    SpawnRequest,
+)
+from meridian.lib.launch.types import SessionMode
 
 
 def test_sync_pty_winsize_copies_source_size(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -89,47 +94,39 @@ def test_run_harness_process_fork_uses_new_chat_and_materialized_session(
     tmp_path: Path,
 ) -> None:
     repo_root = tmp_path
+    (repo_root / "mars.toml").write_text(
+        "[settings]\n"
+        'targets = [".agents"]\n',
+        encoding="utf-8",
+    )
     harness_registry = get_default_harness_registry()
     config = load_config(repo_root)
     codex_adapter = harness_registry.get_subprocess_harness(HarnessId.CODEX)
-    request = LaunchRequest(
-        model="gpt-5.4",
-        harness="codex",
-        session_mode=SessionMode.FORK,
-        session=SessionRequest(
-            requested_harness_session_id="source-session",
-            continue_chat_id="c7",
-            forked_from_chat_id="c7",
-            continue_fork=True,
-        ),
-    )
-    plan = ResolvedPrimaryLaunchPlan(
-        repo_root=repo_root,
-        state_root=tmp_path / ".meridian",
-        prompt="fork prompt",
-        request=request,
-        config=config,
-        adapter=codex_adapter,
-        session_metadata=PrimarySessionMetadata(
-            harness="codex",
-            model="gpt-5.4",
-            agent="",
-            agent_path="",
-            skills=(),
-            skill_paths=(),
-        ),
-        run_params=SpawnParams(
+    launch_context = build_launch_context(
+        spawn_id="dry-run-primary",
+        request=SpawnRequest(
             prompt="fork prompt",
-            model=ModelId("gpt-5.4"),
-            interactive=True,
-            continue_harness_session_id="source-session",
-            continue_fork=True,
+            prompt_is_composed=False,
+            model="gpt-5.4",
+            harness=HarnessId.CODEX.value,
+            session=SessionRequest(
+                requested_harness_session_id="source-session",
+                continue_chat_id="c7",
+                forked_from_chat_id="c7",
+                continue_fork=True,
+                primary_session_mode=SessionMode.FORK.value,
+            ),
         ),
-        permission_config=PermissionConfig(),
-        permission_resolver=TieredPermissionResolver(config=PermissionConfig()),
-        command=("codex", "resume", "source-session"),
-        seed_harness_session_id="source-session",
-        command_request=request,
+        runtime=LaunchRuntime(
+            argv_intent=LaunchArgvIntent.REQUIRED,
+            composition_surface=LaunchCompositionSurface.PRIMARY,
+            config_snapshot=config.model_dump(mode="json", exclude_none=True),
+            state_root=(tmp_path / ".meridian").as_posix(),
+            project_paths_repo_root=repo_root.as_posix(),
+            project_paths_execution_cwd=repo_root.as_posix(),
+        ),
+        harness_registry=harness_registry,
+        dry_run=True,
     )
 
     captured: dict[str, str | None] = {}
@@ -142,10 +139,6 @@ def test_run_harness_process_fork_uses_new_chat_and_materialized_session(
     def fake_fork_session(source_session_id: str) -> str:
         captured["fork_source_session"] = source_session_id
         return "forked-session"
-
-    def fake_build_launch_env(*args: object, **kwargs: object) -> dict[str, str]:
-        _ = args, kwargs
-        return {}
 
     def fake_run_primary_process_with_capture(**kwargs: object) -> tuple[int, int]:
         captured["command_session"] = tuple(kwargs["command"])[2]
@@ -171,7 +164,6 @@ def test_run_harness_process_fork_uses_new_chat_and_materialized_session(
     monkeypatch.setattr(codex_adapter, "build_command", fake_build_command)
     monkeypatch.setattr(codex_adapter, "fork_session", fake_fork_session)
     monkeypatch.setattr(codex_adapter, "observe_session_id", lambda **kwargs: "forked-session")
-    monkeypatch.setattr(process, "build_launch_env", fake_build_launch_env)
     monkeypatch.setattr(
         process,
         "_run_primary_process_with_capture",
@@ -181,7 +173,7 @@ def test_run_harness_process_fork_uses_new_chat_and_materialized_session(
     monkeypatch.setattr(process, "update_session_harness_id", lambda *args, **kwargs: None)
     monkeypatch.setattr(process, "start_session", fake_start_session)
 
-    outcome = process.run_harness_process(plan, harness_registry)
+    outcome = process.run_harness_process(launch_context, harness_registry)
 
     assert captured["fork_source_session"] == "source-session"
     assert captured["build_continue_session"] == "forked-session"
@@ -193,7 +185,9 @@ def test_run_harness_process_fork_uses_new_chat_and_materialized_session(
     assert outcome.chat_id == "c999"
     events = [
         json.loads(line)
-        for line in (plan.state_root / "spawns.jsonl").read_text(encoding="utf-8").splitlines()
+        for line in (launch_context.state_root / "spawns.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
         if line.strip()
     ]
     finalize_events = [event for event in events if event.get("event") == "finalize"]
@@ -217,9 +211,10 @@ def _build_launch_runtime(
     *,
     tmp_path: Path,
     override: str | None = None,
+    argv_intent: LaunchArgvIntent = LaunchArgvIntent.REQUIRED,
 ) -> LaunchRuntime:
     return LaunchRuntime(
-        launch_mode="foreground",
+        argv_intent=argv_intent,
         harness_command_override=override,
         report_output_path=(tmp_path / "report.md").as_posix(),
         state_root=(tmp_path / ".meridian").as_posix(),
@@ -285,6 +280,33 @@ def test_build_launch_context_bypass_command_owned_by_factory(
     assert dry_run_ctx.is_bypass is True
     assert runtime_ctx.argv == ("codex", "exec", "--json", "--verbose")
     assert runtime_ctx.argv == dry_run_ctx.argv
+
+
+def test_build_launch_context_spec_only_tolerates_argv_build_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    request = _build_spawn_request()
+    runtime = _build_launch_runtime(
+        tmp_path=tmp_path,
+        argv_intent=LaunchArgvIntent.SPEC_ONLY,
+    )
+    registry = get_default_harness_registry()
+
+    def fail_build_launch_argv(**_: object) -> tuple[str, ...]:
+        raise RuntimeError("argv unavailable")
+
+    monkeypatch.setattr("meridian.lib.launch.context.build_launch_argv", fail_build_launch_argv)
+
+    launch_ctx = build_launch_context(
+        spawn_id="p-spec-only",
+        request=request,
+        runtime=runtime,
+        harness_registry=registry,
+    )
+
+    assert launch_ctx.argv == ()
+    assert launch_ctx.spec is not None
 
 
 def test_shared_runner_constants_defined_once() -> None:

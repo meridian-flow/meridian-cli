@@ -14,6 +14,7 @@ import pytest
 from meridian.lib.core.types import SpawnId
 from meridian.lib.state import spawn_store
 from meridian.lib.state.paths import resolve_state_paths
+from meridian.lib.state.spawn_store import LaunchMode
 from meridian.lib.streaming.signal_canceller import SignalCanceller
 
 
@@ -21,7 +22,7 @@ def _start_spawn(
     state_root: Path,
     *,
     spawn_id: str,
-    launch_mode: str,
+    launch_mode: LaunchMode,
     runner_pid: int | None = None,
 ) -> str:
     return str(

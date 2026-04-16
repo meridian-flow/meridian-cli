@@ -36,6 +36,8 @@ def _enforce_spawn_params_accounting(
     registry: Mapping[HarnessId, HarnessBundle[Any]] | None = None,
 ) -> None:
     """Fail fast when SpawnParams fields are not claimed by adapters."""
+    # New harnesses must be visible here via handled_fields to keep
+    # cross-adapter SpawnParams coverage explicit.
 
     reg = registry if registry is not None else get_bundle_registry()
     expected = set(SpawnParams.model_fields)

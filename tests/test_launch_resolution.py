@@ -5,7 +5,12 @@ import pytest
 from meridian.lib.config.settings import MeridianConfig
 from meridian.lib.core.overrides import RuntimeOverrides
 from meridian.lib.harness.registry import get_default_harness_registry
-from meridian.lib.launch.plan import resolve_primary_launch_plan
+from meridian.lib.launch.context import build_launch_context
+from meridian.lib.launch.plan import (
+    build_primary_launch_runtime,
+    build_primary_spawn_request,
+)
+from meridian.lib.launch.request import LaunchArgvIntent, LaunchRuntime, SpawnRequest
 from meridian.lib.launch.resolve import resolve_policies
 from meridian.lib.launch.types import LaunchRequest
 from meridian.lib.ops.runtime import build_runtime_from_root_and_config
@@ -41,17 +46,49 @@ def test_resolve_policies_warns_and_uses_no_profile_when_config_agent_is_missing
     assert "missing-config-agent" in policies.warning
 
 
-def test_resolve_primary_launch_plan_has_no_profile_when_agent_is_unset(tmp_path: Path) -> None:
+def test_primary_launch_context_has_no_profile_when_agent_is_unset(tmp_path: Path) -> None:
     _write_minimal_mars_config(tmp_path)
+    registry = get_default_harness_registry()
 
-    plan = resolve_primary_launch_plan(
-        repo_root=tmp_path,
-        request=LaunchRequest(),
-        harness_registry=get_default_harness_registry(),
+    preview = build_launch_context(
+        spawn_id="dry-run-primary",
+        request=build_primary_spawn_request(request=LaunchRequest()),
+        runtime=build_primary_launch_runtime(repo_root=tmp_path),
+        harness_registry=registry,
+        dry_run=True,
     )
 
-    assert plan.session_metadata.agent == ""
-    assert plan.session_metadata.agent_path == ""
+    assert (preview.resolved_request.agent or "") == ""
+    assert (preview.resolved_request.agent_metadata.get("session_agent_path") or "") == ""
+
+
+def test_build_launch_context_surfaces_warning_channel_without_agent_metadata_sidechannel(
+    tmp_path: Path,
+) -> None:
+    _write_minimal_mars_config(tmp_path)
+    registry = get_default_harness_registry()
+
+    preview = build_launch_context(
+        spawn_id="dry-run-warning",
+        request=SpawnRequest(
+            prompt="warn",
+            model="gpt-5.4",
+            harness="codex",
+            warning="normalized model alias",
+        ),
+        runtime=LaunchRuntime(
+            argv_intent=LaunchArgvIntent.REQUIRED,
+            state_root=(tmp_path / ".meridian").as_posix(),
+            project_paths_repo_root=tmp_path.as_posix(),
+            project_paths_execution_cwd=tmp_path.as_posix(),
+        ),
+        harness_registry=registry,
+        dry_run=True,
+    )
+
+    assert preview.resolved_request.warning == "normalized model alias"
+    assert [warning.message for warning in preview.warnings] == ["normalized model alias"]
+    assert "warning" not in preview.resolved_request.agent_metadata
 
 
 def test_spawn_prepare_derives_harness_from_model_before_default_harness(tmp_path: Path) -> None:
@@ -113,14 +150,19 @@ def test_primary_launch_injects_inventory_into_claude_system_prompt(tmp_path: Pa
     write_agent(tmp_path, name="coder", model="gpt-5.4")
     write_skill(tmp_path, "meridian-spawn", description="Spawn helper")
     write_skill(tmp_path, "review", description="Review helper")
+    registry = get_default_harness_registry()
 
-    plan = resolve_primary_launch_plan(
-        repo_root=tmp_path,
-        request=LaunchRequest(model="claude-sonnet-4", agent="dev-orchestrator"),
-        harness_registry=get_default_harness_registry(),
+    preview = build_launch_context(
+        spawn_id="dry-run-primary",
+        request=build_primary_spawn_request(
+            request=LaunchRequest(model="claude-sonnet-4", agent="dev-orchestrator")
+        ),
+        runtime=build_primary_launch_runtime(repo_root=tmp_path),
+        harness_registry=registry,
+        dry_run=True,
     )
 
-    command_text = " ".join(plan.command)
+    command_text = " ".join(preview.argv)
     assert "# Meridian Agents" in command_text
     assert "AGENTS" in command_text
     assert "- dev-orchestrator" in command_text
@@ -135,14 +177,19 @@ def test_primary_launch_injects_inventory_inline_for_codex(tmp_path: Path) -> No
     write_agent(tmp_path, name="dev-orchestrator", model="gpt-5.4")
     write_agent(tmp_path, name="reviewer", model="claude-sonnet-4")
     write_skill(tmp_path, "meridian-spawn", description="Spawn helper")
+    registry = get_default_harness_registry()
 
-    plan = resolve_primary_launch_plan(
-        repo_root=tmp_path,
-        request=LaunchRequest(model="gpt-5.4", agent="dev-orchestrator"),
-        harness_registry=get_default_harness_registry(),
+    preview = build_launch_context(
+        spawn_id="dry-run-primary",
+        request=build_primary_spawn_request(
+            request=LaunchRequest(model="gpt-5.4", agent="dev-orchestrator")
+        ),
+        runtime=build_primary_launch_runtime(repo_root=tmp_path),
+        harness_registry=registry,
+        dry_run=True,
     )
 
-    prompt = plan.run_params.prompt
+    prompt = preview.run_params.prompt
     assert "# Meridian Agents" in prompt
     assert "AGENTS" in prompt
     assert "- dev-orchestrator" in prompt
@@ -156,14 +203,22 @@ def test_primary_launch_injects_inventory_inline_for_opencode(tmp_path: Path) ->
     write_agent(tmp_path, name="dev-orchestrator", model="opencode-gpt-5.3-codex")
     write_agent(tmp_path, name="smoke-tester", model="claude-sonnet-4")
     write_skill(tmp_path, "verification", description="Verification helper")
+    registry = get_default_harness_registry()
 
-    plan = resolve_primary_launch_plan(
-        repo_root=tmp_path,
-        request=LaunchRequest(model="opencode-gpt-5.3-codex", agent="dev-orchestrator"),
-        harness_registry=get_default_harness_registry(),
+    preview = build_launch_context(
+        spawn_id="dry-run-primary",
+        request=build_primary_spawn_request(
+            request=LaunchRequest(
+                model="opencode-gpt-5.3-codex",
+                agent="dev-orchestrator",
+            )
+        ),
+        runtime=build_primary_launch_runtime(repo_root=tmp_path),
+        harness_registry=registry,
+        dry_run=True,
     )
 
-    prompt = plan.run_params.prompt
+    prompt = preview.run_params.prompt
     assert "# Meridian Agents" in prompt
     assert "AGENTS" in prompt
     assert "- dev-orchestrator" in prompt

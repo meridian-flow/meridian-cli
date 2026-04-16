@@ -1,6 +1,8 @@
 """Raw launch request DTOs persisted across prepare/execute boundaries."""
 
-from pydantic import BaseModel, ConfigDict, Field
+from enum import StrEnum
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 def _empty_template_vars() -> dict[str, str]:
@@ -8,6 +10,10 @@ def _empty_template_vars() -> dict[str, str]:
 
 
 def _empty_agent_metadata() -> dict[str, str]:
+    return {}
+
+
+def _empty_config_snapshot() -> dict[str, object]:
     return {}
 
 
@@ -42,6 +48,7 @@ class SessionRequest(BaseModel):
     continue_harness: str | None = None
     continue_source_tracked: bool = False
     continue_source_ref: str | None = None
+    primary_session_mode: str | None = None
 
 
 class SpawnRequest(BaseModel):
@@ -51,6 +58,7 @@ class SpawnRequest(BaseModel):
 
     # Prompt / agent / skills
     prompt: str
+    prompt_is_composed: bool = True
     model: str | None = None
     harness: str | None = None
     agent: str | None = None
@@ -63,7 +71,7 @@ class SpawnRequest(BaseModel):
     approval: str | None = None
     allowed_tools: tuple[str, ...] = ()
     disallowed_tools: tuple[str, ...] = ()
-    autocompact: bool | None = None
+    autocompact: int | None = None
     effort: str | None = None
 
     # Execution policy (nested)
@@ -74,12 +82,13 @@ class SpawnRequest(BaseModel):
     session: SessionRequest = Field(default_factory=SessionRequest)
 
     # Context plumbing
-    context_from: str | None = None
+    context_from: tuple[str, ...] = ()
     reference_files: tuple[str, ...] = ()
     template_vars: dict[str, str] = Field(default_factory=_empty_template_vars)
 
     # Routing & metadata
     work_id_hint: str | None = None
+    warning: str | None = None
     agent_metadata: dict[str, str] = Field(default_factory=_empty_agent_metadata)
 
     # Resolved metadata (computed at prepare time; NOT used by executors for composition)
@@ -87,13 +96,37 @@ class SpawnRequest(BaseModel):
     # Preview command for dry-run display only.  Executors MUST NOT use this field.
     cli_command: tuple[str, ...] = ()
 
+    @field_validator("autocompact", mode="before")
+    @classmethod
+    def _reject_bool_autocompact(cls, value: object) -> object:
+        if isinstance(value, bool):
+            raise ValueError("autocompact must be an integer percentage, not bool")
+        return value
+
+
+class LaunchArgvIntent(StrEnum):
+    """Whether the caller needs subprocess argv or only the typed launch spec."""
+
+    REQUIRED = "required"
+    SPEC_ONLY = "spec_only"
+
+
+class LaunchCompositionSurface(StrEnum):
+    """Which launch surface is asking the factory to normalize raw inputs."""
+
+    DIRECT = "direct"
+    PRIMARY = "primary"
+    SPAWN_PREPARE = "spawn_prepare"
+
 
 class LaunchRuntime(BaseModel):
     """Runtime context known by the driving adapter, not provided by callers."""
 
     model_config = ConfigDict(frozen=True)
 
-    launch_mode: str
+    argv_intent: LaunchArgvIntent = LaunchArgvIntent.REQUIRED
+    composition_surface: LaunchCompositionSurface = LaunchCompositionSurface.DIRECT
+    config_snapshot: dict[str, object] = Field(default_factory=_empty_config_snapshot)
     unsafe_no_permissions: bool = False
     debug: bool = False
     harness_command_override: str | None = None
@@ -105,6 +138,8 @@ class LaunchRuntime(BaseModel):
 
 __all__ = [
     "ExecutionBudget",
+    "LaunchArgvIntent",
+    "LaunchCompositionSurface",
     "LaunchRuntime",
     "RetryPolicy",
     "SessionRequest",

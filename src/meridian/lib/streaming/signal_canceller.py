@@ -19,7 +19,7 @@ from meridian.lib.core.spawn_lifecycle import TERMINAL_SPAWN_STATUSES
 from meridian.lib.core.types import SpawnId
 from meridian.lib.state import spawn_store
 from meridian.lib.state.liveness import is_process_alive
-from meridian.lib.state.spawn_store import SpawnOrigin
+from meridian.lib.state.spawn_store import APP_LAUNCH_MODE, SpawnOrigin
 
 if TYPE_CHECKING:
     from meridian.lib.state.spawn_store import SpawnRecord
@@ -71,8 +71,7 @@ class SignalCanceller:
                 finalizing=True,
             )
 
-        launch_mode = (record.launch_mode or "").strip().lower()
-        if launch_mode == "app":
+        if record.launch_mode == APP_LAUNCH_MODE:
             return await self._cancel_app_spawn(spawn_id, record)
         return await self._cancel_cli_spawn(spawn_id, record)
 

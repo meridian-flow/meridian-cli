@@ -19,9 +19,11 @@ from meridian.lib.core.context import RuntimeContext
 from meridian.lib.core.domain import Spawn, SpawnStatus
 from meridian.lib.core.sink import OutputSink
 from meridian.lib.core.types import HarnessId, ModelId, SpawnId
+from meridian.lib.launch.context import build_launch_context
 from meridian.lib.launch.cwd import resolve_child_execution_cwd
 from meridian.lib.launch.fork import materialize_fork
 from meridian.lib.launch.request import (
+    LaunchArgvIntent,
     LaunchRuntime,
     SessionRequest,
     SpawnRequest,
@@ -142,7 +144,7 @@ def _spawn_child_env(
 ) -> dict[str, str]:
     _ = spawn_id, work_id, state_root, ctx
     child_env: dict[str, str] = {}
-    # K5 boundary: RuntimeContext.child_context() in launch/context.py is the sole
+    # K5 boundary: ChildEnvContext.child_context() in launch/context.py is the sole
     # producer of MERIDIAN_* child overrides. Plan overrides stay non-MERIDIAN.
     if autocompact is not None:
         child_env["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"] = str(autocompact)
@@ -308,16 +310,6 @@ def _load_bg_worker_request(log_dir: Path) -> BackgroundWorkerLaunchRequest:
     )
 
 
-def _metadata_int(metadata: dict[str, str], key: str) -> int | None:
-    raw = (metadata.get(key) or "").strip()
-    if not raw:
-        return None
-    try:
-        return int(raw)
-    except ValueError:
-        return None
-
-
 def _resolve_session_continuation(
     *,
     request: SpawnRequest,
@@ -453,7 +445,7 @@ async def _execute_existing_spawn(
         status=spawn_status,
     )
 
-    autocompact = _metadata_int(request.agent_metadata, "autocompact_pct")
+    autocompact = request.autocompact
     resolved_agent_name = request.agent if request.agent is not None else spawn_record.agent
     resolved_agent_path = spawn_record.agent_path or request.agent_metadata.get(
         "session_agent_path", ""
@@ -536,23 +528,27 @@ async def _execute_existing_spawn(
         )
         launch_runtime = runtime_request.model_copy(
             update={
-                "launch_mode": BACKGROUND_LAUNCH_MODE,
+                "argv_intent": LaunchArgvIntent.SPEC_ONLY,
                 "state_root": state_root.as_posix(),
                 "project_paths_repo_root": project_paths.repo_root.as_posix(),
                 "project_paths_execution_cwd": resolved_execution_cwd,
             }
         )
+        launch_context = build_launch_context(
+            spawn_id=str(spawn.spawn_id),
+            request=final_request,
+            runtime=launch_runtime,
+            harness_registry=runtime.harness_registry,
+            plan_overrides=run_env_overrides,
+            runtime_work_id=runtime_work_id,
+        )
         return await execute_with_streaming(
             spawn,
             request=final_request,
-            launch_runtime=launch_runtime,
+            launch_context=launch_context,
             repo_root=project_paths.repo_root,
             state_root=state_root,
             artifacts=runtime.artifacts,
-            registry=runtime.harness_registry,
-            cwd=Path(resolved_execution_cwd),
-            env_overrides=run_env_overrides,
-            runtime_work_id=runtime_work_id,
             harness_session_id_observer=session_context.harness_session_id_observer,
             debug=runtime_request.debug,
         )
@@ -585,7 +581,7 @@ def execute_spawn_background(
     project_paths = resolve_project_paths(repo_root=runtime.repo_root)
     if payload.stream:
         logger.warning("--stream requires --foreground; output goes to spawn log files.")
-    autocompact = _metadata_int(request.agent_metadata, "autocompact_pct")
+    autocompact = request.autocompact
     context = _init_spawn(
         payload=payload,
         request=request,
@@ -626,12 +622,12 @@ def execute_spawn_background(
     except Exception:
         logger.warning("Failed to write params.json", spawn_id=spawn_id_text, exc_info=True)
 
-    warning = request.agent_metadata.get("warning") or None
-    context_from_resolved = (request.context_from,) if request.context_from else ()
+    warning = request.warning
+    context_from_resolved = request.context_from
     try:
         persisted_request = request.model_copy(update={"work_id_hint": context.work_id})
         launch_runtime = LaunchRuntime(
-            launch_mode=BACKGROUND_LAUNCH_MODE,
+            argv_intent=LaunchArgvIntent.SPEC_ONLY,
             debug=payload.debug,
             state_root=context.state_root.as_posix(),
             project_paths_repo_root=project_paths.repo_root.as_posix(),
@@ -769,7 +765,7 @@ def execute_spawn_blocking(
 ) -> SpawnActionOutput:
     resolved_context = runtime_context(ctx)
     project_paths = resolve_project_paths(repo_root=runtime.repo_root)
-    autocompact = _metadata_int(request.agent_metadata, "autocompact_pct")
+    autocompact = request.autocompact
     context = _init_spawn(
         payload=payload,
         request=request,
@@ -815,8 +811,8 @@ def execute_spawn_blocking(
     event_observer = None
     # Spawn execution stays silent unless --stream is explicitly enabled.
 
-    warning = request.agent_metadata.get("warning") or None
-    context_from_resolved = (request.context_from,) if request.context_from else ()
+    warning = request.warning
+    context_from_resolved = request.context_from
 
     with _session_execution_context(
         state_root=context.state_root,
@@ -868,25 +864,29 @@ def execute_spawn_blocking(
         runtime_work_id = session_context.work_id or context.work_id
         launch_request = resolved_request.model_copy(update={"work_id_hint": runtime_work_id})
         launch_runtime = LaunchRuntime(
-            launch_mode=FOREGROUND_LAUNCH_MODE,
+            argv_intent=LaunchArgvIntent.SPEC_ONLY,
             debug=payload.debug,
             harness_command_override=os.getenv("MERIDIAN_HARNESS_COMMAND", "").strip() or None,
             state_root=context.state_root.as_posix(),
             project_paths_repo_root=project_paths.repo_root.as_posix(),
             project_paths_execution_cwd=project_paths.execution_cwd.as_posix(),
         )
+        launch_context = build_launch_context(
+            spawn_id=str(spawn.spawn_id),
+            request=launch_request,
+            runtime=launch_runtime,
+            harness_registry=runtime.harness_registry,
+            plan_overrides=run_env_overrides,
+            runtime_work_id=runtime_work_id,
+        )
         exit_code = asyncio.run(
             execute_with_streaming(
                 spawn,
                 request=launch_request,
-                launch_runtime=launch_runtime,
+                launch_context=launch_context,
                 repo_root=project_paths.repo_root,
                 state_root=context.state_root,
                 artifacts=runtime.artifacts,
-                registry=runtime.harness_registry,
-                cwd=project_paths.execution_cwd,
-                env_overrides=run_env_overrides,
-                runtime_work_id=runtime_work_id,
                 event_observer=event_observer,
                 stream_stdout_to_terminal=stream_stdout_to_terminal,
                 stream_stderr_to_terminal=payload.stream,

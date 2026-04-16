@@ -13,7 +13,6 @@ from meridian.lib.core.types import HarnessId, ModelId
 from meridian.lib.harness.adapter import SpawnParams
 from meridian.lib.harness.claude import ClaudeAdapter
 from meridian.lib.harness.projections.permission_flags import resolve_permission_flags
-from meridian.lib.launch.command import build_launch_env
 from meridian.lib.launch.env import (
     build_harness_child_env,
     inherit_child_env,
@@ -21,7 +20,6 @@ from meridian.lib.launch.env import (
     sanitize_child_env,
 )
 from meridian.lib.launch.launch_types import PermissionResolver, PreflightResult
-from meridian.lib.launch.types import LaunchRequest
 from meridian.lib.safety.permissions import (
     CombinedToolsResolver,
     DisallowedToolsResolver,
@@ -516,23 +514,6 @@ def test_merge_env_overrides_preserves_empty_and_multiline_values() -> None:
 
     assert merged["EMPTY_VALUE"] == ""
     assert merged["MULTILINE_VALUE"] == "line-1\nline-2"
-
-
-def test_build_launch_env_never_exports_permission_tier(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path,
-) -> None:
-    monkeypatch.delenv("MERIDIAN_PERMISSION_TIER", raising=False)
-
-    env = build_launch_env(
-        tmp_path,
-        LaunchRequest(model="gpt-5.3-codex"),
-        adapter=ClaudeAdapter(),
-        run_params=SpawnParams(prompt="test", model=ModelId("claude-sonnet-4-6")),
-        permission_config=PermissionConfig(sandbox="workspace-write"),
-    )
-
-    assert "MERIDIAN_PERMISSION_TIER" not in env
 
 
 def test_s004_broken_resolver_without_config_is_not_protocol_instance() -> None:

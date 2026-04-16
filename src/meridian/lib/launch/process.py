@@ -25,13 +25,11 @@ from meridian.lib.core.spawn_lifecycle import (
     resolve_execution_terminal_state,
 )
 from meridian.lib.core.types import HarnessId, SpawnId
-from meridian.lib.harness.adapter import SpawnParams
 from meridian.lib.harness.claude_preflight import ensure_claude_session_accessible
 from meridian.lib.harness.registry import HarnessRegistry
 from meridian.lib.state import spawn_store
 from meridian.lib.state.artifact_store import LocalStore, make_artifact_key
 from meridian.lib.state.paths import (
-    resolve_project_paths,
     resolve_spawn_log_dir,
     resolve_state_paths,
 )
@@ -44,12 +42,11 @@ from meridian.lib.state.session_store import (
 )
 from meridian.lib.state.spawn_store import FOREGROUND_LAUNCH_MODE
 
-from .command import build_launch_argv, build_launch_env
+from .context import LaunchContext, build_launch_context
 from .fork import materialize_fork
-from .plan import ResolvedPrimaryLaunchPlan
-from .run_inputs import ResolvedRunInputs
+from .request import LaunchCompositionSurface, SpawnRequest
 from .session_scope import session_scope
-from .types import SessionMode
+from .types import PrimarySessionMetadata, SessionMode
 
 logger = logging.getLogger(__name__)
 _PRIMARY_OUTPUT_FILENAME = "output.jsonl"
@@ -70,17 +67,25 @@ class ProcessOutcome(BaseModel):
     resolved_harness_session_id: str
 
 
-def _resolve_command_and_session(
-    plan: ResolvedPrimaryLaunchPlan,
-) -> tuple[tuple[str, ...], str, ResolvedRunInputs | SpawnParams]:
-    """Return the pre-built command, seed session ID, and run params.
+def _build_session_metadata(request: SpawnRequest) -> PrimarySessionMetadata:
+    return PrimarySessionMetadata(
+        harness=request.harness or "",
+        model=request.model or "",
+        agent=request.agent or "",
+        agent_path=request.agent_metadata.get("session_agent_path") or "",
+        skills=request.skills,
+        skill_paths=request.skill_paths,
+    )
 
-    Fork materialization is NOT done here.  I-10 (fork-after-row ordering)
-    requires the spawn row to exist before fork_session is invoked, so the
-    fork step is deferred to run_harness_process() after start_spawn().
-    """
 
-    return plan.command, plan.seed_harness_session_id, plan.run_params
+def _resolve_primary_session_mode(context: LaunchContext) -> SessionMode:
+    raw_mode = (context.resolved_request.session.primary_session_mode or "").strip()
+    if not raw_mode:
+        return SessionMode.FRESH
+    try:
+        return SessionMode(raw_mode)
+    except ValueError:
+        return SessionMode.FRESH
 
 
 def _copy_primary_pty_output(
@@ -249,79 +254,94 @@ def _install_winsize_forwarding(*, source_fd: int, target_fd: int) -> Any:
 
 
 def run_harness_process(
-    plan: ResolvedPrimaryLaunchPlan,
+    launch_context: LaunchContext,
     harness_registry: HarnessRegistry,
 ) -> ProcessOutcome:
     """Start session, spawn tracking, launch process, wait for exit."""
 
-    project_paths = resolve_project_paths(repo_root=plan.repo_root)
-    repo_root = project_paths.repo_root
-    execution_cwd = project_paths.execution_cwd
-    command, resolved_harness_session_id, run_params = _resolve_command_and_session(plan)
+    repo_root = launch_context.repo_root
+    execution_cwd = launch_context.execution_cwd
+    state_root = launch_context.state_root
+    preview_context = launch_context
+    command = preview_context.argv
+    spawn_request = preview_context.request
+    preview_request = preview_context.resolved_request
+    session_mode = _resolve_primary_session_mode(preview_context)
+    session_metadata = _build_session_metadata(preview_request)
+    resolved_harness_session_id = preview_context.seed_harness_session_id or ""
+    session_scope_harness_session_id = resolved_harness_session_id
+    if session_mode == SessionMode.FORK:
+        session_scope_harness_session_id = (
+            (preview_request.session.requested_harness_session_id or "").strip()
+            or session_scope_harness_session_id
+        )
+    harness_adapter = preview_context.harness
+    harness_id = HarnessId(session_metadata.harness)
     chat_id: str | None = None
     primary_spawn_id: SpawnId | None = None
     primary_started = 0.0
     primary_started_epoch = 0.0
     primary_started_local_iso: str | None = None
-    artifacts = LocalStore(root_dir=resolve_state_paths(project_paths.repo_root).artifacts_dir)
+    artifacts = LocalStore(root_dir=resolve_state_paths(repo_root).artifacts_dir)
 
     resume_chat_id = (
-        plan.request.session.continue_chat_id
-        if plan.request.session_mode == SessionMode.RESUME
+        preview_request.session.continue_chat_id
+        if session_mode == SessionMode.RESUME
         else None
     )
     exit_code = 2
     try:
         with session_scope(
-            state_root=plan.state_root,
-            harness=plan.session_metadata.harness,
-            harness_session_id=resolved_harness_session_id,
-            model=plan.session_metadata.model,
+            state_root=state_root,
+            harness=session_metadata.harness,
+            harness_session_id=session_scope_harness_session_id,
+            model=session_metadata.model,
             chat_id=resume_chat_id,
-            forked_from_chat_id=plan.request.session.forked_from_chat_id,
-            agent=plan.session_metadata.agent,
-            agent_path=plan.session_metadata.agent_path,
-            skills=plan.session_metadata.skills,
-            skill_paths=plan.session_metadata.skill_paths,
+            forked_from_chat_id=preview_request.session.forked_from_chat_id,
+            agent=session_metadata.agent,
+            agent_path=session_metadata.agent_path,
+            skills=session_metadata.skills,
+            skill_paths=session_metadata.skill_paths,
             execution_cwd=str(execution_cwd),
             _start_session=start_session,
             _stop_session=stop_session,
             _update_session_harness_id=update_session_harness_id,
         ) as managed:
             chat_id = managed.chat_id
-            explicit_work_id = plan.resolved_work_id
+            explicit_work_id = preview_context.work_id
             preserved_work_id = None
             if explicit_work_id is None and resume_chat_id is not None:
                 preserved_work_id = get_session_active_work_id(
-                    plan.state_root,
+                    state_root,
                     resume_chat_id,
                 )
-            attached_work_id = get_session_active_work_id(plan.state_root, chat_id)
+            attached_work_id = get_session_active_work_id(state_root, chat_id)
             if attached_work_id is None:
                 attached_work_id = explicit_work_id or preserved_work_id
                 if attached_work_id is not None:
-                    update_session_work_id(plan.state_root, chat_id, attached_work_id)
+                    update_session_work_id(state_root, chat_id, attached_work_id)
             try:
                 # I-10: do NOT pre-populate harness_session_id on fork starts.
                 # The forked session ID is unknown until materialize_fork() runs
                 # after the row exists.
                 should_fork = (
-                    plan.request.session_mode == SessionMode.FORK
-                    and not plan.request.dry_run
-                    and plan.adapter.id == HarnessId.CODEX
-                    and bool((run_params.continue_harness_session_id or "").strip())
+                    session_mode == SessionMode.FORK
+                    and harness_id == HarnessId.CODEX
+                    and bool(
+                        (preview_request.session.requested_harness_session_id or "").strip()
+                    )
                 )
                 primary_spawn_id = spawn_store.start_spawn(
-                    plan.state_root,
+                    state_root,
                     chat_id=chat_id,
-                    model=plan.session_metadata.model,
-                    agent=plan.session_metadata.agent,
-                    agent_path=plan.session_metadata.agent_path or None,
-                    skills=plan.session_metadata.skills,
-                    skill_paths=plan.session_metadata.skill_paths,
-                    harness=plan.session_metadata.harness,
+                    model=session_metadata.model,
+                    agent=session_metadata.agent,
+                    agent_path=session_metadata.agent_path or None,
+                    skills=session_metadata.skills,
+                    skill_paths=session_metadata.skill_paths,
+                    harness=session_metadata.harness,
                     kind="primary",
-                    prompt=plan.prompt,
+                    prompt=preview_request.prompt,
                     harness_session_id=None if should_fork else resolved_harness_session_id,
                     execution_cwd=str(execution_cwd),
                     launch_mode=FOREGROUND_LAUNCH_MODE,
@@ -331,61 +351,76 @@ def run_harness_process(
                 )
                 # I-10: fork row exists now — safe to call fork_session via sole owner.
                 if should_fork:
-                    source_session_id = (run_params.continue_harness_session_id or "").strip()
-                    if plan.permission_resolver is None:
-                        raise RuntimeError(
-                            "Missing permission resolver for fork launch command construction."
-                        )
+                    source_session_id = (
+                        preview_request.session.requested_harness_session_id or ""
+                    ).strip()
                     forked_session_id = materialize_fork(
-                        adapter=plan.adapter,
+                        adapter=harness_adapter,
                         source_session_id=source_session_id,
-                        state_root=plan.state_root,
+                        state_root=state_root,
                         spawn_id=primary_spawn_id,
                     )
-                    run_params = run_params.model_copy(
+                    spawn_request = spawn_request.model_copy(
                         update={
-                            "continue_harness_session_id": forked_session_id,
-                            "continue_fork": False,
+                            "session": spawn_request.session.model_copy(
+                                update={
+                                    "requested_harness_session_id": forked_session_id,
+                                    "continue_fork": False,
+                                }
+                            )
                         }
                     )
                     resolved_harness_session_id = forked_session_id
-                    command = build_launch_argv(
-                        adapter=plan.adapter,
-                        run_inputs=run_params,
-                        perms=plan.permission_resolver,
-                    )
                 log_dir = resolve_spawn_log_dir(repo_root, primary_spawn_id)
                 primary_started = time.monotonic()
                 primary_started_epoch = time.time()
                 primary_started_local_iso = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-                child_env = build_launch_env(
-                    repo_root,
-                    plan.request,
-                    chat_id=chat_id,
-                    work_id=attached_work_id,
-                    default_autocompact_pct=plan.config.primary.autocompact_pct,
-                    spawn_id=primary_spawn_id,
-                    adapter=plan.adapter,
-                    run_params=run_params,
-                    permission_config=plan.permission_config,
+                runtime_request = spawn_request.model_copy(
+                    update={"work_id_hint": attached_work_id}
                 )
+                runtime = preview_context.runtime.model_copy(
+                    update={
+                        "composition_surface": LaunchCompositionSurface.PRIMARY,
+                        "state_root": state_root.as_posix(),
+                        "project_paths_repo_root": repo_root.as_posix(),
+                        "project_paths_execution_cwd": execution_cwd.as_posix(),
+                        "report_output_path": (log_dir / "report.md").as_posix(),
+                    }
+                )
+                plan_overrides: dict[str, str] = {}
+                if runtime_request.autocompact is not None:
+                    plan_overrides["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"] = str(
+                        runtime_request.autocompact
+                    )
+                runtime_context = build_launch_context(
+                    spawn_id=str(primary_spawn_id),
+                    request=runtime_request,
+                    runtime=runtime,
+                    harness_registry=harness_registry,
+                    plan_overrides=plan_overrides,
+                    runtime_work_id=attached_work_id,
+                )
+                command = runtime_context.argv
+                resolved_harness_session_id = runtime_context.seed_harness_session_id or ""
+                child_env = dict(runtime_context.env)
+                child_cwd = runtime_context.child_cwd
                 output_log_path = log_dir / _PRIMARY_OUTPUT_FILENAME
 
                 # Symlink source session for primary fork launches.
                 if (
-                    plan.adapter.id == HarnessId.CLAUDE
-                    and plan.source_execution_cwd
+                    harness_adapter.id == HarnessId.CLAUDE
+                    and preview_request.session.source_execution_cwd
                     and resolved_harness_session_id
                 ):
                     ensure_claude_session_accessible(
                         source_session_id=resolved_harness_session_id,
-                        source_cwd=Path(plan.source_execution_cwd),
-                        child_cwd=execution_cwd,
+                        source_cwd=Path(preview_request.session.source_execution_cwd),
+                        child_cwd=child_cwd,
                     )
 
                 def _record_primary_started(child_pid: int) -> None:
                     spawn_store.mark_spawn_running(
-                        plan.state_root,
+                        state_root,
                         primary_spawn_id,
                         launch_mode=FOREGROUND_LAUNCH_MODE,
                         worker_pid=child_pid,
@@ -393,14 +428,14 @@ def run_harness_process(
 
                 exit_code, _child_pid = _run_primary_process_with_capture(
                     command=command,
-                    cwd=execution_cwd,
+                    cwd=child_cwd,
                     env=child_env,
                     output_log_path=output_log_path,
                     on_child_started=_record_primary_started,
                 )
                 with suppress(Exception):
                     spawn_store.record_spawn_exited(
-                        plan.state_root,
+                        state_root,
                         primary_spawn_id,
                         exit_code=exit_code,
                     )
@@ -438,7 +473,7 @@ def run_harness_process(
                         else None
                     )
                     spawn_store.finalize_spawn(
-                        plan.state_root,
+                        state_root,
                         primary_spawn_id,
                         status=status,
                         exit_code=exit_code,
@@ -449,7 +484,7 @@ def run_harness_process(
                     observed_harness_session_id = None
                     if primary_started_epoch > 0.0:
                         # I-4: observe_session_id() is the sole observation callsite.
-                        observed_harness_session_id = plan.adapter.observe_session_id(
+                        observed_harness_session_id = harness_adapter.observe_session_id(
                             artifacts=artifacts,
                             spawn_id=primary_spawn_id,
                             current_session_id=resolved_harness_session_id,
@@ -467,7 +502,7 @@ def run_harness_process(
                         managed.record_harness_session_id(resolved_harness_session_id)
                         if primary_spawn_id is not None:
                             spawn_store.update_spawn(
-                                plan.state_root,
+                                state_root,
                                 primary_spawn_id,
                                 harness_session_id=resolved_harness_session_id,
                             )

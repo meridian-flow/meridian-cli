@@ -35,6 +35,7 @@ def _permission_flags_for_harness(
     harness_id: HarnessId,
     config: PermissionConfig,
 ) -> tuple[str, ...]:
+    # New harness families that need approval/sandbox projection belong here.
     if config.approval == "yolo":
         if harness_id == HarnessId.CLAUDE:
             return ("--dangerously-skip-permissions",)

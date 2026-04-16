@@ -29,7 +29,6 @@ from meridian.lib.harness.claude_preflight import ensure_claude_session_accessib
 from meridian.lib.harness.common import parse_json_stream_event, unwrap_event_payload
 from meridian.lib.harness.connections.base import ConnectionConfig, HarnessConnection
 from meridian.lib.harness.extractor import StreamingExtractor
-from meridian.lib.harness.registry import HarnessRegistry
 from meridian.lib.launch.constants import (
     DEFAULT_INFRA_EXIT_CODE,
     OUTPUT_FILENAME,
@@ -39,7 +38,7 @@ from meridian.lib.launch.constants import (
     STDERR_FILENAME,
     TOKENS_FILENAME,
 )
-from meridian.lib.launch.context import build_launch_context
+from meridian.lib.launch.context import LaunchContext
 from meridian.lib.launch.errors import ErrorCategory, classify_error, should_retry
 from meridian.lib.launch.extract import (
     FinalizeExtraction,
@@ -47,7 +46,7 @@ from meridian.lib.launch.extract import (
     reset_finalize_attempt_artifacts,
 )
 from meridian.lib.launch.launch_types import ResolvedLaunchSpec
-from meridian.lib.launch.request import LaunchRuntime, SpawnRequest
+from meridian.lib.launch.request import SpawnRequest
 from meridian.lib.launch.runner_helpers import (
     append_budget_exceeded_event as _append_budget_exceeded_event,
 )
@@ -745,14 +744,10 @@ async def execute_with_streaming(
     run: Spawn,
     *,
     request: SpawnRequest,
-    launch_runtime: LaunchRuntime | None = None,
+    launch_context: LaunchContext,
     repo_root: Path,
     state_root: Path,
     artifacts: ArtifactStore,
-    registry: HarnessRegistry,
-    cwd: Path | None = None,
-    env_overrides: dict[str, str] | None = None,
-    runtime_work_id: str | None = None,
     budget: Budget | None = None,
     space_spent_usd: float = 0.0,
     guardrails: tuple[Path, ...] = (),
@@ -764,29 +759,17 @@ async def execute_with_streaming(
     stream_stderr_to_terminal: bool = False,
     debug: bool = False,
 ) -> int:
-    """Execute one streaming spawn and always finalize the spawn row."""
+    """Execute one streaming spawn and always finalize the spawn row.
+
+    I-8 ownership: composition happens in driving adapters. This executor
+    consumes pre-composed `LaunchContext` and does subprocess/transport
+    mechanics only.
+    """
 
     _ = stream_stderr_to_terminal
-    execution_cwd = (cwd or Path.cwd()).resolve()
     log_dir = resolve_spawn_log_dir(repo_root, run.spawn_id)
     output_log_path = log_dir / OUTPUT_FILENAME
-    report_path = log_dir / REPORT_FILENAME
-    if launch_runtime is None:
-        launch_runtime = LaunchRuntime(
-            launch_mode=FOREGROUND_LAUNCH_MODE,
-            debug=debug,
-            harness_command_override=os.getenv("MERIDIAN_HARNESS_COMMAND", "").strip() or None,
-            report_output_path=report_path.as_posix(),
-            state_root=state_root.as_posix(),
-            project_paths_repo_root=repo_root.as_posix(),
-            project_paths_execution_cwd=execution_cwd.as_posix(),
-        )
-
-    resolved_runtime = launch_runtime.model_copy(
-        update={"report_output_path": report_path.as_posix()}
-    )
-
-    resolved_harness_id = HarnessId(request.harness or "")
+    report_path = launch_context.report_output_path
 
     timeout_seconds = (
         float(request.budget.timeout_secs)
@@ -796,15 +779,7 @@ async def execute_with_streaming(
     max_retries = max(request.retry.max_attempts - 1, 0)
     retry_backoff_seconds = request.retry.backoff_secs
 
-    launch_context = build_launch_context(
-        spawn_id=str(run.spawn_id),
-        request=request,
-        runtime=resolved_runtime,
-        harness_registry=registry,
-        dry_run=False,
-        plan_overrides=env_overrides or {},
-        runtime_work_id=runtime_work_id,
-    )
+    resolved_harness_id = launch_context.harness.id
     child_cwd = launch_context.child_cwd
     spec = launch_context.spec
     child_env = dict(launch_context.env)
@@ -865,14 +840,9 @@ async def execute_with_streaming(
         run.spawn_id,
         runner_pid=os.getpid(),
     )
-    raw_launch_mode = (
-        (spawn_row.launch_mode or "").strip().lower()
-        if spawn_row.launch_mode is not None
-        else FOREGROUND_LAUNCH_MODE
-    )
     resolved_launch_mode: spawn_store.LaunchMode = (
         BACKGROUND_LAUNCH_MODE
-        if raw_launch_mode == BACKGROUND_LAUNCH_MODE
+        if spawn_row.launch_mode == BACKGROUND_LAUNCH_MODE
         else FOREGROUND_LAUNCH_MODE
     )
 
@@ -1113,7 +1083,7 @@ async def execute_with_streaming(
                     guardrail_result = run_guardrails(
                         guardrails,
                         spawn_id=run.spawn_id,
-                        cwd=execution_cwd,
+                        cwd=child_cwd,
                         env=child_env,
                         report_path=extracted.report_path,
                         output_log_path=output_log_path,
