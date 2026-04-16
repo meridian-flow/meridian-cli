@@ -44,8 +44,9 @@ from meridian.lib.state.session_store import (
 )
 from meridian.lib.state.spawn_store import FOREGROUND_LAUNCH_MODE
 
-from .command import build_launch_env
+from .command import build_launch_argv, build_launch_env
 from .plan import ResolvedPrimaryLaunchPlan
+from .run_inputs import ResolvedRunInputs
 from .session_ids import extract_latest_session_id
 from .session_scope import session_scope
 from .types import SessionMode
@@ -71,7 +72,7 @@ class ProcessOutcome(BaseModel):
 
 def _resolve_command_and_session(
     plan: ResolvedPrimaryLaunchPlan,
-) -> tuple[tuple[str, ...], str, SpawnParams]:
+) -> tuple[tuple[str, ...], str, ResolvedRunInputs | SpawnParams]:
     """Resolve command and effective harness session for this launch run."""
 
     command = plan.command
@@ -105,7 +106,11 @@ def _resolve_command_and_session(
         }
     )
     resolved_harness_session_id = forked_session_id
-    command = tuple(plan.adapter.build_command(run_params, plan.permission_resolver))
+    command = build_launch_argv(
+        adapter=plan.adapter,
+        run_inputs=run_params,
+        perms=plan.permission_resolver,
+    )
     return command, resolved_harness_session_id, run_params
 
 

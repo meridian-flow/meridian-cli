@@ -417,7 +417,9 @@ async def run_streaming_spawn(
     terminal_outcome: TerminalEventOutcome | None = None
     subscriber: asyncio.Queue[HarnessEvent | None] | None = None
     adapter = get_default_harness_registry().get_subprocess_harness(config.harness_id)
-    run_spec = adapter.resolve_launch_spec(params, perms)
+    from meridian.lib.launch.command import resolve_launch_spec_stage
+
+    run_spec = resolve_launch_spec_stage(adapter=adapter, run_inputs=params, perms=perms)
     spawn_store.update_spawn(
         state_root,
         spawn_id,

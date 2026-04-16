@@ -10,7 +10,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from meridian.lib.core.types import ModelId
-from meridian.lib.harness.adapter import SpawnParams, SubprocessHarness
+from meridian.lib.harness.adapter import SubprocessHarness
 from meridian.lib.launch.launch_types import (
     PermissionResolver,
     PreflightResult,
@@ -18,9 +18,11 @@ from meridian.lib.launch.launch_types import (
 )
 from meridian.lib.state.paths import ProjectPaths, resolve_work_scratch_dir
 
+from .command import apply_workspace_projection, resolve_launch_spec_stage
 from .cwd import resolve_child_execution_cwd
-from .env import build_harness_child_env
+from .env import build_env_plan
 from .env import merge_env_overrides as _merge_env_overrides
+from .run_inputs import ResolvedRunInputs, build_resolved_run_inputs
 
 if TYPE_CHECKING:
     from meridian.lib.ops.spawn.plan import PreparedSpawnPlan
@@ -123,7 +125,7 @@ class RuntimeContext:
 
 @dataclass(frozen=True)
 class LaunchContext:
-    run_params: SpawnParams
+    run_params: ResolvedRunInputs
     perms: PermissionResolver
     spec: ResolvedLaunchSpec
     child_cwd: Path
@@ -182,7 +184,7 @@ def prepare_launch_context(
             expanded_passthrough_args=tuple(plan.passthrough_args)
         )
 
-    run_params = SpawnParams(
+    run_params = build_resolved_run_inputs(
         prompt=run_prompt,
         model=ModelId(run_model) if run_model and run_model.strip() else None,
         effort=plan.effort,
@@ -196,10 +198,12 @@ def prepare_launch_context(
         continue_fork=plan.session.continue_fork,
         report_output_path=report_output_path.as_posix(),
         appended_system_prompt=plan.appended_system_prompt,
+        context_from_payload=plan.request.context_from if plan.request is not None else None,
     )
 
     perms = plan.execution.permission_resolver
-    spec = harness.resolve_launch_spec(run_params, perms)
+    spec = resolve_launch_spec_stage(adapter=harness, run_inputs=run_params, perms=perms)
+    spec = apply_workspace_projection(adapter=harness, spec=spec)
 
     runtime_ctx = RuntimeContext.from_environment(
         project_paths=project_paths,
@@ -210,10 +214,10 @@ def prepare_launch_context(
         runtime_overrides=runtime_ctx.child_context(),
         preflight_overrides=preflight.extra_env,
     )
-    env = build_harness_child_env(
+    env = build_env_plan(
         base_env=os.environ,
         adapter=harness,
-        run_params=run_params,
+        run_inputs=run_params,
         permission_config=plan.execution.permission_config,
         runtime_env_overrides=merged_overrides,
     )

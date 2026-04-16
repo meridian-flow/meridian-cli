@@ -13,20 +13,19 @@ from meridian.lib.core.types import HarnessId, ModelId
 from meridian.lib.harness.adapter import SpawnParams, SubprocessHarness
 from meridian.lib.harness.registry import HarnessRegistry
 from meridian.lib.launch.launch_types import PermissionResolver
-from meridian.lib.safety.permissions import (
-    PermissionConfig,
-    resolve_permission_pipeline,
-)
+from meridian.lib.safety.permissions import PermissionConfig
 from meridian.lib.state.paths import resolve_state_paths
 
+from .command import build_launch_argv
+from .permissions import resolve_permission_pipeline
+from .policies import ResolvedPolicies, resolve_policies
 from .prompt import build_primary_inventory_prompt, compose_skill_injections
 from .resolve import (
-    ResolvedPolicies,
     format_missing_skills_warning,
-    resolve_policies,
     resolve_profile_path,
     resolve_skill_paths,
 )
+from .run_inputs import ResolvedRunInputs, build_resolved_run_inputs
 from .types import (
     LaunchRequest,
     PrimarySessionMetadata,
@@ -48,7 +47,7 @@ class ResolvedPrimaryLaunchPlan(BaseModel):
     config: MeridianConfig
     adapter: SubprocessHarness
     session_metadata: PrimarySessionMetadata
-    run_params: SpawnParams
+    run_params: ResolvedRunInputs | SpawnParams
     permission_config: PermissionConfig
     permission_resolver: PermissionResolver | None = None
     command: tuple[str, ...]
@@ -127,8 +126,8 @@ def _build_run_params(
     continue_fork: bool = False,
     appended_system_prompt: str | None = None,
     report_output_path: str | None = None,
-) -> SpawnParams:
-    return SpawnParams(
+) -> ResolvedRunInputs:
+    return build_resolved_run_inputs(
         prompt=prompt,
         model=model,
         effort=effort,
@@ -354,7 +353,11 @@ def resolve_primary_launch_plan(
         continue_fork=continue_fork,
         appended_system_prompt=appended_system_prompt,
     )
-    command = tuple(adapter.build_command(run_params, resolver))
+    command = build_launch_argv(
+        adapter=adapter,
+        run_inputs=run_params,
+        perms=resolver,
+    )
 
     return ResolvedPrimaryLaunchPlan(
         repo_root=resolved_root,

@@ -5,12 +5,12 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterable, Sequence
 
-from meridian.lib.harness.adapter import resolve_permission_flags
 from meridian.lib.harness.ids import HarnessId
 from meridian.lib.harness.launch_spec import OpenCodeLaunchSpec
 from meridian.lib.harness.projections._guards import (
     check_projection_drift as _check_projection_drift,
 )
+from meridian.lib.harness.projections.permission_flags import resolve_permission_flags
 
 logger = logging.getLogger(__name__)
 

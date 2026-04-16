@@ -10,8 +10,9 @@ import pytest
 from pydantic import ValidationError
 
 from meridian.lib.core.types import HarnessId, ModelId
-from meridian.lib.harness.adapter import SpawnParams, resolve_permission_flags
+from meridian.lib.harness.adapter import SpawnParams
 from meridian.lib.harness.claude import ClaudeAdapter
+from meridian.lib.harness.projections.permission_flags import resolve_permission_flags
 from meridian.lib.launch.command import build_launch_env
 from meridian.lib.launch.env import (
     build_harness_child_env,

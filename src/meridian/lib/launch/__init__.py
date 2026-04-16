@@ -12,9 +12,9 @@ if TYPE_CHECKING:
         normalize_system_prompt_passthrough_args,
     )
     from meridian.lib.launch.plan import ResolvedPrimaryLaunchPlan, resolve_primary_launch_plan
+    from meridian.lib.launch.policies import ResolvedPolicies
     from meridian.lib.launch.process import ProcessOutcome, run_harness_process
     from meridian.lib.launch.resolve import (
-        ResolvedPolicies,
         ResolvedSkills,
         load_agent_profile_with_fallback,
         resolve_harness,
@@ -92,7 +92,7 @@ def __getattr__(name: str) -> Any:
         "LaunchResult": (".types", "LaunchResult"),
         "PrimarySessionMetadata": (".types", "PrimarySessionMetadata"),
         "ProcessOutcome": (".process", "ProcessOutcome"),
-        "ResolvedPolicies": (".resolve", "ResolvedPolicies"),
+        "ResolvedPolicies": (".policies", "ResolvedPolicies"),
         "ResolvedPrimaryLaunchPlan": (".plan", "ResolvedPrimaryLaunchPlan"),
         "ResolvedSkills": (".resolve", "ResolvedSkills"),
         "SessionIntent": (".types", "SessionIntent"),

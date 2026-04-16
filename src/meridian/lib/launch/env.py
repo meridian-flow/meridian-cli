@@ -4,12 +4,13 @@ from collections.abc import Callable, Collection, Mapping
 from pathlib import Path
 from typing import cast
 
-from meridian.lib.harness.adapter import SpawnParams, SubprocessHarness, resolve_mcp_config
+from meridian.lib.harness.adapter import SpawnParams, SubprocessHarness
 from meridian.lib.safety.permissions import PermissionConfig
 from meridian.lib.state.paths import resolve_work_scratch_dir
 from meridian.lib.state.session_store import get_session_active_work_id
 
 from .constants import BLOCKED_CHILD_ENV_VARS
+from .run_inputs import ResolvedRunInputs, to_spawn_params
 
 _CHILD_ENV_ALLOWLIST = frozenset(
     {
@@ -147,7 +148,7 @@ def build_harness_env_overrides(
 
     merged: dict[str, str] = dict(runtime_env_overrides or {})
     merged.update(adapter.env_overrides(permission_config))
-    mcp_config = resolve_mcp_config(adapter, run_params)
+    mcp_config = adapter.mcp_config(run_params)
     if mcp_config is not None:
         merged.update(mcp_config.env_overrides)
     return merged
@@ -208,4 +209,23 @@ def build_harness_child_env(
         base_env=base_env,
         env_overrides=merged_env,
         blocked=BLOCKED_CHILD_ENV_VARS | adapter_blocked,
+    )
+
+
+def build_env_plan(
+    *,
+    base_env: Mapping[str, str],
+    adapter: SubprocessHarness,
+    run_inputs: ResolvedRunInputs | SpawnParams,
+    permission_config: PermissionConfig,
+    runtime_env_overrides: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    """Stage-owned entrypoint for launch child-environment construction."""
+
+    return build_harness_child_env(
+        base_env=base_env,
+        adapter=adapter,
+        run_params=to_spawn_params(run_inputs),
+        permission_config=permission_config,
+        runtime_env_overrides=runtime_env_overrides,
     )

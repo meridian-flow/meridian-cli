@@ -5,13 +5,13 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterable, Sequence
 
-from meridian.lib.harness.adapter import resolve_permission_flags
 from meridian.lib.harness.claude_preflight import CLAUDE_PARENT_ALLOWED_TOOLS_FLAG
 from meridian.lib.harness.ids import HarnessId
 from meridian.lib.harness.launch_spec import ClaudeLaunchSpec
 from meridian.lib.harness.projections._guards import (
     check_projection_drift as _check_projection_drift,
 )
+from meridian.lib.harness.projections.permission_flags import resolve_permission_flags
 from meridian.lib.launch.text_utils import dedupe_nonempty, split_csv_entries
 
 logger = logging.getLogger(__name__)

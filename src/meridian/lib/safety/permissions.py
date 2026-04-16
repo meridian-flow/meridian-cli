@@ -238,18 +238,6 @@ class CombinedToolsResolver(BaseModel):
         return None
 
 
-def _resolve_opencode_override(
-    *,
-    allowed_tools: tuple[str, ...],
-    disallowed_tools: tuple[str, ...],
-) -> str | None:
-    if allowed_tools:
-        return opencode_permission_json_for_allowed_tools(allowed_tools)
-    if disallowed_tools:
-        return opencode_permission_json_for_disallowed_tools(disallowed_tools)
-    return None
-
-
 def build_permission_resolver(
     *,
     allowed_tools: tuple[str, ...],
@@ -295,6 +283,7 @@ def resolve_permission_pipeline(
     allowed_tools: tuple[str, ...] = (),
     disallowed_tools: tuple[str, ...] = (),
     approval: str = "default",
+    unsafe_no_permissions: bool = False,
 ) -> tuple[
     PermissionConfig,
     (
@@ -302,19 +291,17 @@ def resolve_permission_pipeline(
         | ExplicitToolsResolver
         | DisallowedToolsResolver
         | CombinedToolsResolver
+        | UnsafeNoOpPermissionResolver
     ),
 ]:
-    config = build_permission_config(sandbox, approval=approval)
-    opencode_override = _resolve_opencode_override(
-        allowed_tools=allowed_tools,
-        disallowed_tools=disallowed_tools,
-    )
-    if opencode_override is not None:
-        config = config.model_copy(update={"opencode_permission_override": opencode_override})
+    """Compatibility wrapper for the stage-owned launch permission resolver."""
 
-    resolver = build_permission_resolver(
+    from meridian.lib.launch.permissions import resolve_permission_pipeline as _resolve
+
+    return _resolve(
+        sandbox=sandbox,
         allowed_tools=allowed_tools,
         disallowed_tools=disallowed_tools,
-        permission_config=config,
+        approval=approval,
+        unsafe_no_permissions=unsafe_no_permissions,
     )
-    return config, resolver
