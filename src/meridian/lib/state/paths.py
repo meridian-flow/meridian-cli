@@ -135,18 +135,6 @@ def resolve_fs_dir(repo_root: Path) -> Path:
     return resolve_state_paths(repo_root).root_dir / "fs"
 
 
-def resolve_work_dir(repo_root: Path) -> Path:
-    """Return `.meridian/work/` for a repository root."""
-
-    return resolve_state_paths(repo_root).root_dir / "work"
-
-
-def resolve_work_archive_dir(repo_root: Path) -> Path:
-    """Return `.meridian/work-archive/` for a repository root."""
-
-    return resolve_state_paths(repo_root).root_dir / "work-archive"
-
-
 def resolve_work_scratch_dir(state_root: Path, work_id: str) -> Path:
     """Return the work-scoped scratch directory for a work item."""
 

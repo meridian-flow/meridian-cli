@@ -81,7 +81,7 @@ def _skill_search_dirs(repo_root: Path) -> list[Path]:
     return [repo_root / ".agents" / "skills"]
 
 
-def _files_have_equal_text(first: Path, second: Path) -> bool:
+def files_have_equal_text(first: Path, second: Path) -> bool:
     try:
         return first.read_text(encoding="utf-8") == second.read_text(encoding="utf-8")
     except OSError:
@@ -104,7 +104,7 @@ def scan_skills(
             document = parse_skill_file(path)
             existing = selected_by_name.get(document.name)
             if existing is not None:
-                if _files_have_equal_text(existing.path, document.path):
+                if files_have_equal_text(existing.path, document.path):
                     continue
                 logger.warning(
                     "Skill '%s' found in multiple paths with conflicting content: %s, %s. "
@@ -130,16 +130,10 @@ class SkillRegistry:
 
     def __init__(
         self,
-        db_path: Path | None = None,
         repo_root: Path | None = None,
         *,
-        busy_timeout_ms: int = 0,
-        search_paths: object | None = None,
         readonly: bool = False,
     ) -> None:
-        _ = db_path
-        _ = busy_timeout_ms
-        _ = search_paths
         self._repo_root = resolve_project_root(repo_root)
         self._skills_dirs = tuple(_skill_search_dirs(self._repo_root))
         self._readonly = readonly
@@ -156,10 +150,6 @@ class SkillRegistry:
     @property
     def readonly(self) -> bool:
         return self._readonly
-
-    @property
-    def db_path(self) -> Path:
-        return self._repo_root / ".meridian" / "index" / "skills.json"
 
     def _scan_documents(self, *, refresh: bool = False) -> tuple[SkillDocument, ...]:
         if self._filesystem_documents is None or refresh:

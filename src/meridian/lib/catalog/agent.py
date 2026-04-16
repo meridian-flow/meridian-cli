@@ -6,7 +6,7 @@ from typing import cast
 
 from pydantic import BaseModel, ConfigDict
 
-from meridian.lib.catalog.skill import split_markdown_frontmatter
+from meridian.lib.catalog.skill import files_have_equal_text, split_markdown_frontmatter
 from meridian.lib.config.settings import resolve_project_root
 from meridian.lib.core.overrides import (
     KNOWN_APPROVAL_VALUES,
@@ -150,13 +150,6 @@ def _agent_search_dirs(repo_root: Path) -> list[Path]:
     return [repo_root / ".agents" / "agents"]
 
 
-def _files_have_equal_text(first: Path, second: Path) -> bool:
-    try:
-        return first.read_text(encoding="utf-8") == second.read_text(encoding="utf-8")
-    except OSError:
-        return False
-
-
 def scan_agent_profiles(
     repo_root: Path | None = None,
     search_dirs: list[Path] | None = None,
@@ -178,7 +171,7 @@ def scan_agent_profiles(
             profile = parse_agent_profile(path)
             existing = selected_by_name.get(profile.name)
             if existing is not None:
-                if _files_have_equal_text(existing.path, profile.path):
+                if files_have_equal_text(existing.path, profile.path):
                     continue
                 logger.warning(
                     "Agent profile '%s' found in multiple paths with conflicting content: %s, %s. "

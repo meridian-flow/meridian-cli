@@ -30,26 +30,6 @@ class GuardrailResult(BaseModel):
 
     ok: bool
     failures: tuple[GuardrailFailure, ...] = ()
-
-
-def normalize_guardrail_paths(paths: tuple[str, ...], *, repo_root: Path) -> tuple[Path, ...]:
-    """Resolve and validate guardrail script paths."""
-
-    resolved: list[Path] = []
-    for raw in paths:
-        for candidate in raw.split(","):
-            normalized = candidate.strip()
-            if not normalized:
-                continue
-            path = Path(normalized)
-            absolute = path if path.is_absolute() else (repo_root / path)
-            absolute = absolute.expanduser().resolve()
-            if not absolute.is_file():
-                raise FileNotFoundError(f"Guardrail script not found: {normalized}")
-            resolved.append(absolute)
-    return tuple(resolved)
-
-
 def run_guardrails(
     guardrails: tuple[Path, ...],
     *,

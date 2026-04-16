@@ -15,7 +15,6 @@ from meridian.lib.core.overrides import (
     KNOWN_APPROVAL_VALUES,
     KNOWN_EFFORT_VALUES,
 )
-from meridian.lib.state.paths import resolve_state_paths
 
 logger = logging.getLogger(__name__)
 
@@ -819,30 +818,3 @@ def resolve_project_root(explicit: Path | None = None) -> Path:
         candidate = parent
 
     return cwd
-
-
-def resolve_path_list(
-    local_paths: tuple[str, ...],
-    global_paths: tuple[str, ...],
-    repo_root: Path,
-) -> list[Path]:
-    """Resolve configured local + global paths into existing absolute directories."""
-
-    resolved: list[Path] = []
-    seen: set[Path] = set()
-    for raw_path in (*local_paths, *global_paths):
-        candidate = Path(raw_path).expanduser()
-        if not candidate.is_absolute():
-            candidate = repo_root / candidate
-        absolute = candidate.resolve()
-        if not absolute.is_dir() or absolute in seen:
-            continue
-        seen.add(absolute)
-        resolved.append(absolute)
-    return resolved
-
-
-def default_index_db_path(repo_root: Path) -> Path:
-    """Return default path used for any local skill index cache file."""
-
-    return resolve_state_paths(repo_root).root_dir / "index" / "skills.json"

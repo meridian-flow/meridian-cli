@@ -76,31 +76,6 @@ class LiveBudgetTracker(BaseModel):
                     limit_usd=per_space,
                 )
         return None
-
-
-def normalize_budget(
-    *,
-    per_run_usd: float | None,
-    per_space_usd: float | None,
-) -> Budget | None:
-    """Validate numeric limits and build a Budget object."""
-
-    def _validate(name: str, value: float | None) -> float | None:
-        if value is None:
-            return None
-        if value <= 0:
-            raise ValueError(f"{name} must be > 0 when provided.")
-        return float(value)
-
-    budget = Budget(
-        per_run_usd=_validate("per-run budget", per_run_usd),
-        per_space_usd=_validate("per-space budget", per_space_usd),
-    )
-    if budget.per_run_usd is None and budget.per_space_usd is None:
-        return None
-    return budget
-
-
 def extract_cost_usd_from_json_line(raw_line: bytes) -> float | None:
     """Extract the first recognized cost field from one JSON line payload."""
 

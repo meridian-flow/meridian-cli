@@ -13,8 +13,6 @@ from meridian.lib.state.paths import (
     resolve_fs_dir,
     resolve_spawn_log_dir,
     resolve_state_paths,
-    resolve_work_archive_dir,
-    resolve_work_dir,
     resolve_work_scratch_dir,
     spawn_log_subpath,
 )
@@ -44,8 +42,6 @@ __all__ = [
     "resolve_fs_dir",
     "resolve_spawn_log_dir",
     "resolve_state_paths",
-    "resolve_work_archive_dir",
-    "resolve_work_dir",
     "resolve_work_scratch_dir",
     "spawn_log_subpath",
     "spawn_stats",
