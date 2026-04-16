@@ -2,7 +2,7 @@
 
 Validate that skills are correctly injected into spawn prompts across harness types. Skill injection follows two paths depending on the harness:
 
-- **Inline** (Codex/OpenCode): Skill content is embedded directly in `composed_prompt`.
+- **Inline** (Codex): Skill content is embedded directly in `composed_prompt`. OpenCode also uses inline injection, but is not exercised by these cases.
 - **Append** (Claude): Skill content is passed via `--append-system-prompt` in the CLI command.
 
 ## Setup

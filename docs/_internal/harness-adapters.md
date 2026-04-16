@@ -168,11 +168,9 @@ For spawn continuation (`meridian spawn --continue SPAWN_ID` with optional `--fo
 
 ## OpenCode Compaction Plugin
 
-OpenCode compaction reinjection lives at:
+**Not yet implemented.** The compaction reinjection plugin (`.opencode/plugins/meridian.ts`) is planned but does not exist in the repo. No loader path or plugin file has been added.
 
-- `.opencode/plugins/meridian.ts`
-
-On `experimental.session.compacting`, it reads `.meridian/sessions.jsonl`, finds the matching session, and re-injects agent profile and skill content.
+Intended behavior: on `experimental.session.compacting`, read `.meridian/sessions.jsonl`, find the matching session, and re-inject agent profile and skill content. See `backlog/plan-cleanup-notes.md` (Harness capability follow-up) for the open tracking item.
 
 ## Direct Adapter
 
