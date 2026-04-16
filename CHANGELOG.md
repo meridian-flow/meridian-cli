@@ -4,6 +4,8 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.0.30] - 2026-04-16
+
 ### Added
 - New `finalizing` spawn state between `running` and terminal. Covers the harness-exited-but-drain-in-flight window so the reaper stops stamping live spawns mid-drain. Shows up in `spawn show`, stats, and `--status` filter.
 - `spawn show` renders `orphan_finalization` distinct from `orphan_run` — tells apart drain-window hangs from runner-dead-during-run.
@@ -20,9 +22,16 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `meridian-base` package ref bumped to pick up refined prompt-writing guidance in `agent-creator` and `skill-creator`.
 - Bundled `mars-agents` bumped from `0.0.14` to `0.1.1`.
 
+### Fixed
+- Codex adapter silently truncated initial prompts over 50 KiB, emitted a `warning/promptTruncated` event, and continued with the mutilated input — turning over-limit planner briefs into "no task provided" runs. Claude and OpenCode had no analogous ceiling at all. All three adapters now share one 10 MiB ceiling via `validate_prompt_size()` in `lib/harness/connections/base.py`; over-limit prompts raise `PromptTooLargeError` naming actual vs allowed bytes and the harness, before any transport contact.
+- `meridian spawn --help` text now matches behavior. Was "Runs in background by default. Use --foreground to block." — both halves wrong (default is foreground, `--foreground` flag does not exist). Now describes `--background` as the opt-in flag it actually is.
+
 ### Removed
 - "awaiting finalization" heuristic in detail view. Replaced by real `finalizing` status.
 - Checked-in git submodules `meridian-base/` and `meridian-dev-workflow/`. Mars package deps now source of truth.
+
+### Reverted
+- R06 launch-refactor skeleton (8 commits, `3f8ad4c..45d18d7`) that landed post-v0.0.29 but never shipped in a tagged release. Skeleton was built while the codex prompt-truncation bug above was corrupting coder briefs; smoke evidence after Fix A revealed structural regressions (fork lineage split-brain in new `launch/fork.py`, row-before-fork ordering, OpenCode report extraction returning raw `session.idle` envelopes). Design package preserved under `.meridian/work/workspace-config-design/` as input for a clean retry on top of the restored tagged-stable baseline. No user impact since v0.0.29 is before the skeleton.
 
 ## [0.0.28] - 2026-04-13
 
