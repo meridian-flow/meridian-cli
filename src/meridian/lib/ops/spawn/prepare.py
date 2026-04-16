@@ -20,6 +20,12 @@ from meridian.lib.launch.prompt import (
     dedupe_skill_names,
 )
 from meridian.lib.launch.reference import load_reference_files, parse_template_assignments
+from meridian.lib.launch.request import (
+    ExecutionBudget,
+    RetryPolicy,
+    SessionRequest,
+    SpawnRequest,
+)
 from meridian.lib.launch.resolve import (
     format_missing_skills_warning,
     resolve_policies,
@@ -352,6 +358,61 @@ def build_create_payload(
     )
     session_agent_path = resolve_profile_path(profile)
     session_skill_paths = resolve_skill_paths(resolved_skills.loaded_skills)
+    timeout_secs = minutes_to_seconds(resolved.timeout)
+    kill_grace_secs = minutes_to_seconds(runtime_view.config.kill_grace_minutes) or 0.0
+
+    agent_metadata: dict[str, str] = {}
+    if agent_for_params is not None:
+        agent_metadata["session_agent"] = agent_for_params
+    if session_agent_path:
+        agent_metadata["session_agent_path"] = session_agent_path
+    if adhoc_agent_payload:
+        agent_metadata["adhoc_agent_payload"] = adhoc_agent_payload
+    if appended_system_prompt:
+        agent_metadata["appended_system_prompt"] = appended_system_prompt
+    if warning:
+        agent_metadata["warning"] = warning
+    if resolved.autocompact is not None:
+        agent_metadata["autocompact_pct"] = str(resolved.autocompact)
+
+    spawn_request = SpawnRequest(
+        prompt=composed_prompt,
+        model=policies.model,
+        harness=str(harness.id),
+        agent=agent_for_params,
+        skills=resolved_skills.skill_names,
+        extra_args=payload.passthrough_args,
+        mcp_tools=profile.mcp_tools if profile is not None else (),
+        sandbox=resolved.sandbox,
+        approval=resolved.approval,
+        allowed_tools=profile.tools if profile is not None else (),
+        disallowed_tools=profile.disallowed_tools if profile is not None else (),
+        autocompact=resolved.autocompact is not None,
+        effort=resolved.effort,
+        retry=RetryPolicy(
+            max_attempts=max(1, runtime_view.config.max_retries + 1),
+            backoff_secs=runtime_view.config.retry_backoff_seconds,
+        ),
+        budget=ExecutionBudget(
+            timeout_secs=int(timeout_secs) if timeout_secs is not None else None,
+            kill_grace_secs=int(kill_grace_secs),
+        ),
+        session=SessionRequest(
+            continue_chat_id=payload.session.continue_chat_id,
+            requested_harness_session_id=requested_harness_session_id,
+            continue_fork=payload.session.continue_fork,
+            source_execution_cwd=payload.session.source_execution_cwd,
+            forked_from_chat_id=payload.session.forked_from_chat_id,
+            continue_harness=payload.session.continue_harness,
+            continue_source_tracked=payload.session.continue_source_tracked,
+            continue_source_ref=payload.session.continue_source_ref,
+        ),
+        context_from=context_from_resolved[0] if len(context_from_resolved) == 1 else None,
+        reference_files=tuple(str(reference.path) for reference in loaded_references),
+        template_vars=parsed_template_vars,
+        work_id_hint=payload.work.strip() or None,
+        agent_metadata=agent_metadata,
+    )
 
     return PreparedSpawnPlan(
         model=policies.model,
@@ -385,8 +446,8 @@ def build_create_payload(
             source_execution_cwd=resolved_source_execution_cwd,
         ),
         execution=ExecutionPolicy(
-            timeout_secs=minutes_to_seconds(resolved.timeout),
-            kill_grace_secs=minutes_to_seconds(runtime_view.config.kill_grace_minutes) or 0.0,
+            timeout_secs=timeout_secs,
+            kill_grace_secs=kill_grace_secs,
             max_retries=runtime_view.config.max_retries,
             retry_backoff_secs=runtime_view.config.retry_backoff_seconds,
             permission_config=permission_config,
@@ -394,6 +455,7 @@ def build_create_payload(
             allowed_tools=profile.tools if profile is not None else (),
             disallowed_tools=profile.disallowed_tools if profile is not None else (),
         ),
+        request=spawn_request,
     )
 
 

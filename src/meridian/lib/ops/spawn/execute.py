@@ -13,19 +13,24 @@ from pathlib import Path
 from typing import Any, cast
 
 import structlog
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.core.context import RuntimeContext
 from meridian.lib.core.domain import Spawn, SpawnStatus
 from meridian.lib.core.sink import OutputSink
-from meridian.lib.core.types import ModelId, SpawnId
+from meridian.lib.core.types import HarnessId, ModelId, SpawnId
 from meridian.lib.launch.cwd import resolve_child_execution_cwd
-from meridian.lib.launch.launch_types import PermissionResolver
+from meridian.lib.launch.request import (
+    ExecutionBudget,
+    LaunchRuntime,
+    RetryPolicy,
+    SessionRequest,
+    SpawnRequest,
+)
 from meridian.lib.launch.session_scope import session_scope
 from meridian.lib.launch.streaming_runner import execute_with_streaming
 from meridian.lib.ops.work_attachment import ensure_explicit_work_item
 from meridian.lib.safety.permissions import (
-    PermissionConfig,
     resolve_permission_pipeline,
 )
 from meridian.lib.state import spawn_store
@@ -44,7 +49,6 @@ from meridian.lib.state.spawn_store import (
     LaunchMode,
     mark_spawn_running,
 )
-from meridian.lib.utils.time import minutes_to_seconds
 
 from ..runtime import OperationRuntime, build_runtime, resolve_chat_id, runtime_context
 from .models import SpawnActionOutput, SpawnCreateInput
@@ -55,11 +59,11 @@ logger = structlog.get_logger(__name__)
 _BACKGROUND_SUBMIT_MESSAGE = "Background spawn submitted."
 _BACKGROUND_STDOUT_FILENAME = "background-launcher.stdout.log"
 _BACKGROUND_STDERR_FILENAME = "background-launcher.stderr.log"
-_BG_WORKER_PARAMS_FILENAME = "bg-worker-params.json"
+_BG_WORKER_REQUEST_FILENAME = "bg-worker-request.json"
 _BACKGROUND_RUNTIME_ARTIFACTS = (
     _BACKGROUND_STDOUT_FILENAME,
     _BACKGROUND_STDERR_FILENAME,
-    _BG_WORKER_PARAMS_FILENAME,
+    _BG_WORKER_REQUEST_FILENAME,
 )
 
 
@@ -81,28 +85,13 @@ class _SessionExecutionContext(BaseModel):
     harness_session_id_observer: Callable[[str], None]
 
 
-class BackgroundWorkerParams(BaseModel):
-    """Parameters for background worker execution, persisted to disk."""
+class BackgroundWorkerLaunchRequest(BaseModel):
+    """Background worker request payload persisted to disk."""
 
     model_config = ConfigDict(frozen=True)
 
-    timeout: float | None = None
-    skills: tuple[str, ...] = ()
-    agent_name: str | None = None
-    mcp_tools: tuple[str, ...] = ()
-    sandbox: str | None = None
-    approval: str = "default"
-    allowed_tools: tuple[str, ...] = ()
-    passthrough_args: tuple[str, ...] = ()
-    session: SessionContinuation = Field(default_factory=SessionContinuation)
-    session_agent: str = ""
-    session_agent_path: str = ""
-    session_skill_paths: tuple[str, ...] = ()
-    adhoc_agent_payload: str = ""
-    appended_system_prompt: str | None = None
-    autocompact: int | None = None
-    execution_cwd: str | None = None
-    debug: bool = False
+    request: SpawnRequest
+    runtime: LaunchRuntime
 
 
 def _cleanup_background_runtime_artifacts(log_dir: Path) -> None:
@@ -302,16 +291,91 @@ def _write_params_json(
     atomic_write_text(prompt_path, prepared.prompt)
 
 
-def _persist_bg_worker_params(log_dir: Path, params: BackgroundWorkerParams) -> None:
-    """Write background worker params to the spawn log directory."""
-    params_path = log_dir / _BG_WORKER_PARAMS_FILENAME
-    atomic_write_text(params_path, params.model_dump_json(indent=2) + "\n")
+def _persist_bg_worker_request(log_dir: Path, payload: BackgroundWorkerLaunchRequest) -> None:
+    """Write background worker launch request to the spawn log directory."""
+
+    params_path = log_dir / _BG_WORKER_REQUEST_FILENAME
+    atomic_write_text(params_path, payload.model_dump_json(indent=2) + "\n")
 
 
-def _load_bg_worker_params(log_dir: Path) -> BackgroundWorkerParams:
-    """Load background worker params from the spawn log directory."""
-    params_path = log_dir / _BG_WORKER_PARAMS_FILENAME
-    return BackgroundWorkerParams.model_validate_json(params_path.read_text(encoding="utf-8"))
+def _load_bg_worker_request(log_dir: Path) -> BackgroundWorkerLaunchRequest:
+    """Load background worker launch request from the spawn log directory."""
+
+    params_path = log_dir / _BG_WORKER_REQUEST_FILENAME
+    return BackgroundWorkerLaunchRequest.model_validate_json(
+        params_path.read_text(encoding="utf-8")
+    )
+
+
+def _metadata_int(metadata: dict[str, str], key: str) -> int | None:
+    raw = (metadata.get(key) or "").strip()
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
+def _resolve_session_continuation(
+    *,
+    request: SpawnRequest,
+    harness_id: HarnessId,
+    harness_adapter: Any,
+) -> SessionContinuation:
+    requested_harness_session_id = (
+        (request.session.requested_harness_session_id or "").strip() or None
+    )
+    requested_continue_fork = request.session.continue_fork
+    requested_harness = (request.session.continue_harness or "").strip()
+    if request.session.continue_source_tracked and requested_harness_session_id is None:
+        raise ValueError(
+            "Source reference has no recorded harness session — cannot continue/fork."
+        )
+
+    resolved_continue_harness_session_id: str | None = None
+    resolved_continue_fork = False
+    if requested_harness_session_id:
+        if (
+            requested_harness
+            and requested_harness != str(harness_id)
+        ) or not harness_adapter.capabilities.supports_session_resume:
+            resolved_continue_harness_session_id = None
+        else:
+            resolved_continue_harness_session_id = requested_harness_session_id
+            if requested_continue_fork:
+                if harness_adapter.capabilities.supports_session_fork:
+                    resolved_continue_fork = True
+                else:
+                    resolved_continue_fork = False
+
+    if (
+        resolved_continue_fork
+        and harness_id == HarnessId.CODEX
+        and resolved_continue_harness_session_id is not None
+    ):
+        fork_session = cast(
+            "Callable[[str], str] | None",
+            getattr(harness_adapter, "fork_session", None),
+        )
+        if fork_session is None:
+            raise RuntimeError("Harness adapter does not implement fork_session().")
+        forked_session_id = str(fork_session(resolved_continue_harness_session_id)).strip()
+        if not forked_session_id:
+            raise RuntimeError("Harness adapter returned empty fork session ID.")
+        resolved_continue_harness_session_id = forked_session_id
+        resolved_continue_fork = False
+
+    return SessionContinuation(
+        harness_session_id=resolved_continue_harness_session_id,
+        continue_harness=request.session.continue_harness,
+        continue_source_tracked=request.session.continue_source_tracked,
+        continue_source_ref=request.session.continue_source_ref,
+        continue_chat_id=request.session.continue_chat_id,
+        continue_fork=resolved_continue_fork,
+        forked_from_chat_id=request.session.forked_from_chat_id,
+        source_execution_cwd=request.session.source_execution_cwd,
+    )
 
 
 @contextmanager
@@ -359,23 +423,7 @@ async def _execute_existing_spawn(
     *,
     spawn_id: SpawnId,
     project_paths: ProjectPaths,
-    timeout: float | None,
-    skills: tuple[str, ...],
-    agent_name: str | None,
-    mcp_tools: tuple[str, ...],
-    permission_config: PermissionConfig,
-    permission_resolver: PermissionResolver,
-    allowed_tools: tuple[str, ...] = (),
-    passthrough_args: tuple[str, ...] = (),
-    session: SessionContinuation | None = None,
-    session_agent: str = "",
-    session_agent_path: str = "",
-    session_skill_paths: tuple[str, ...] = (),
-    adhoc_agent_payload: str = "",
-    appended_system_prompt: str | None = None,
-    autocompact: int | None = None,
-    execution_cwd: str | None = None,
-    debug: bool = False,
+    launch_request: BackgroundWorkerLaunchRequest,
     sink: OutputSink | None = None,
     ctx: RuntimeContext | None = None,
 ) -> int:
@@ -383,69 +431,116 @@ async def _execute_existing_spawn(
     runtime = build_runtime(str(project_paths.repo_root), sink=sink)
     state_root = resolve_state_paths(project_paths.repo_root).root_dir
     spawn_record = spawn_store.get_spawn(state_root, spawn_id)
-    if spawn_record is None or spawn_record.model is None or spawn_record.prompt is None:
+    if spawn_record is None:
         logger.error("Spawn not found for background execution.", spawn_id=str(spawn_id))
         return 1
+    request = launch_request.request
+    runtime_request = launch_request.runtime
+    resolved_model = (request.model or spawn_record.model or "").strip()
+    resolved_harness_id = (request.harness or spawn_record.harness or "").strip()
+    resolved_prompt = (request.prompt or spawn_record.prompt or "").strip()
+    if not resolved_prompt or not resolved_model or not resolved_harness_id:
+        logger.error(
+            "Background spawn request missing required launch fields.",
+            spawn_id=str(spawn_id),
+            model=resolved_model,
+            harness=resolved_harness_id,
+        )
+        return 1
+
+    permission_config, permission_resolver = resolve_permission_pipeline(
+        sandbox=request.sandbox,
+        allowed_tools=request.allowed_tools,
+        disallowed_tools=request.disallowed_tools,
+        approval=request.approval or "default",
+    )
+    harness_id = HarnessId(resolved_harness_id)
+    harness_adapter = runtime.harness_registry.get_subprocess_harness(harness_id)
+    resolved_session = _resolve_session_continuation(
+        request=request,
+        harness_id=harness_id,
+        harness_adapter=harness_adapter,
+    )
     spawn_status: SpawnStatus = (
         spawn_record.status if spawn_record.status != "unknown" else "queued"
     )
     spawn = Spawn(
         spawn_id=SpawnId(spawn_record.id),
-        prompt=spawn_record.prompt,
-        model=ModelId(spawn_record.model),
+        prompt=resolved_prompt,
+        model=ModelId(resolved_model),
         status=spawn_status,
     )
-    resolved_session = session or SessionContinuation()
 
-    plan = PreparedSpawnPlan(
-        model=spawn_record.model,
-        harness_id=spawn_record.harness or "",
-        prompt=spawn.prompt,
-        agent_name=agent_name,
-        skills=skills,
-        skill_paths=session_skill_paths,
-        agent_path=session_agent_path,
-        reference_files=(),
-        template_vars={},
-        mcp_tools=mcp_tools,
-        session_agent=session_agent,
-        session_agent_path=session_agent_path,
-        adhoc_agent_payload=adhoc_agent_payload,
-        appended_system_prompt=appended_system_prompt,
-        autocompact=autocompact,
-        session=resolved_session,
-        execution=ExecutionPolicy(
-            timeout_secs=minutes_to_seconds(timeout),
-            kill_grace_secs=minutes_to_seconds(runtime.config.kill_grace_minutes) or 0.0,
-            max_retries=runtime.config.max_retries,
-            retry_backoff_secs=runtime.config.retry_backoff_seconds,
-            permission_config=permission_config,
-            permission_resolver=permission_resolver,
-            allowed_tools=allowed_tools,
-        ),
-        cli_command=(),
-        passthrough_args=passthrough_args,
+    autocompact = _metadata_int(request.agent_metadata, "autocompact_pct")
+    resolved_agent_name = request.agent if request.agent is not None else spawn_record.agent
+    resolved_agent_path = spawn_record.agent_path or request.agent_metadata.get(
+        "session_agent_path", ""
     )
-    resolved_execution_cwd = execution_cwd
+    resolved_skills = request.skills or spawn_record.skills
+    resolved_skill_paths = spawn_record.skill_paths
+    resolved_execution_cwd = (
+        (runtime_request.project_paths_execution_cwd or "").strip() or None
+    )
     if not resolved_execution_cwd:
         resolved_execution_cwd = str(
             resolve_child_execution_cwd(
                 repo_root=project_paths.repo_root,
                 spawn_id=str(spawn_id),
-                harness_id=spawn_record.harness or "",
+                harness_id=resolved_harness_id,
             )
         )
 
+    plan = PreparedSpawnPlan(
+        model=resolved_model,
+        harness_id=resolved_harness_id,
+        effort=request.effort,
+        prompt=spawn.prompt,
+        agent_name=resolved_agent_name,
+        skills=resolved_skills,
+        skill_paths=resolved_skill_paths,
+        agent_path=resolved_agent_path,
+        reference_files=request.reference_files,
+        template_vars=request.template_vars,
+        context_from_resolved=(request.context_from,) if request.context_from else (),
+        mcp_tools=request.mcp_tools,
+        session_agent=spawn_record.agent or request.agent_metadata.get("session_agent", ""),
+        session_agent_path=resolved_agent_path,
+        adhoc_agent_payload=request.agent_metadata.get("adhoc_agent_payload", ""),
+        appended_system_prompt=request.agent_metadata.get("appended_system_prompt") or None,
+        autocompact=autocompact,
+        warning=request.agent_metadata.get("warning") or None,
+        session=resolved_session,
+        execution=ExecutionPolicy(
+            timeout_secs=(
+                float(request.budget.timeout_secs)
+                if request.budget.timeout_secs is not None
+                else None
+            ),
+            kill_grace_secs=float(request.budget.kill_grace_secs),
+            max_retries=max(request.retry.max_attempts - 1, 0),
+            retry_backoff_secs=request.retry.backoff_secs,
+            permission_config=permission_config,
+            permission_resolver=permission_resolver,
+            allowed_tools=request.allowed_tools,
+            disallowed_tools=request.disallowed_tools,
+        ),
+        cli_command=(),
+        passthrough_args=request.extra_args,
+        request=request,
+    )
+
     with _session_execution_context(
         state_root=state_root,
-        harness_id=spawn_record.harness or "",
-        harness_session_id=spawn_record.harness_session_id or "",
-        model=spawn_record.model,
-        session_agent=session_agent,
-        session_agent_path=session_agent_path,
-        skills=skills,
-        session_skill_paths=session_skill_paths,
-        run_agent_name=agent_name,
+        harness_id=resolved_harness_id,
+        harness_session_id=(
+            resolved_session.harness_session_id or spawn_record.harness_session_id or ""
+        ),
+        model=resolved_model,
+        session_agent=spawn_record.agent or request.agent_metadata.get("session_agent", ""),
+        session_agent_path=resolved_agent_path,
+        skills=resolved_skills,
+        session_skill_paths=resolved_skill_paths,
+        run_agent_name=resolved_agent_name,
         inherited_work_id=spawn_record.work_id,
         forked_from_chat_id=resolved_session.forked_from_chat_id,
         execution_cwd=resolved_execution_cwd,
@@ -466,11 +561,11 @@ async def _execute_existing_spawn(
             state_root=state_root,
             artifacts=runtime.artifacts,
             registry=runtime.harness_registry,
-            cwd=project_paths.execution_cwd,
+            cwd=Path(resolved_execution_cwd),
             env_overrides=run_env_overrides,
             runtime_work_id=runtime_work_id,
             harness_session_id_observer=session_context.harness_session_id_observer,
-            debug=debug,
+            debug=runtime_request.debug,
         )
 
 
@@ -487,6 +582,74 @@ def _build_background_worker_command(
         spawn_id,
         "--repo-root",
         project_paths.repo_root.as_posix(),
+    )
+
+
+def _spawn_request_from_prepared(
+    *,
+    prepared: PreparedSpawnPlan,
+    work_id_hint: str | None,
+) -> SpawnRequest:
+    metadata: dict[str, str] = {}
+    if prepared.session_agent:
+        metadata["session_agent"] = prepared.session_agent
+    if prepared.session_agent_path:
+        metadata["session_agent_path"] = prepared.session_agent_path
+    if prepared.adhoc_agent_payload:
+        metadata["adhoc_agent_payload"] = prepared.adhoc_agent_payload
+    if prepared.appended_system_prompt:
+        metadata["appended_system_prompt"] = prepared.appended_system_prompt
+    if prepared.warning:
+        metadata["warning"] = prepared.warning
+    if prepared.autocompact is not None:
+        metadata["autocompact_pct"] = str(prepared.autocompact)
+
+    timeout_secs = (
+        int(prepared.execution.timeout_secs)
+        if prepared.execution.timeout_secs is not None
+        else None
+    )
+    kill_grace_secs = int(prepared.execution.kill_grace_secs)
+
+    return SpawnRequest(
+        prompt=prepared.prompt,
+        model=prepared.model,
+        harness=prepared.harness_id,
+        agent=prepared.agent_name,
+        skills=prepared.skills,
+        extra_args=prepared.passthrough_args,
+        mcp_tools=prepared.mcp_tools,
+        sandbox=prepared.execution.permission_config.sandbox,
+        approval=prepared.execution.permission_config.approval,
+        allowed_tools=prepared.execution.allowed_tools,
+        disallowed_tools=prepared.execution.disallowed_tools,
+        autocompact=prepared.autocompact is not None,
+        effort=prepared.effort,
+        retry=RetryPolicy(
+            max_attempts=max(prepared.execution.max_retries + 1, 1),
+            backoff_secs=prepared.execution.retry_backoff_secs,
+        ),
+        budget=ExecutionBudget(
+            timeout_secs=timeout_secs,
+            kill_grace_secs=kill_grace_secs,
+        ),
+        session=SessionRequest(
+            continue_chat_id=prepared.session.continue_chat_id,
+            requested_harness_session_id=prepared.session.harness_session_id,
+            continue_fork=prepared.session.continue_fork,
+            source_execution_cwd=prepared.session.source_execution_cwd,
+            forked_from_chat_id=prepared.session.forked_from_chat_id,
+            continue_harness=prepared.session.continue_harness,
+            continue_source_tracked=prepared.session.continue_source_tracked,
+            continue_source_ref=prepared.session.continue_source_ref,
+        ),
+        context_from=(
+            prepared.context_from_resolved[0] if len(prepared.context_from_resolved) == 1 else None
+        ),
+        reference_files=prepared.reference_files,
+        template_vars=prepared.template_vars,
+        work_id_hint=work_id_hint,
+        agent_metadata=metadata,
     )
 
 
@@ -542,26 +705,24 @@ def execute_spawn_background(
         logger.warning("Failed to write params.json", spawn_id=spawn_id_text, exc_info=True)
 
     try:
-        bg_params = BackgroundWorkerParams(
-            timeout=payload.timeout,
-            skills=prepared.skills,
-            agent_name=prepared.agent_name,
-            mcp_tools=prepared.mcp_tools,
-            sandbox=prepared.execution.permission_config.sandbox,
-            approval=prepared.execution.permission_config.approval,
-            allowed_tools=prepared.execution.allowed_tools,
-            passthrough_args=prepared.passthrough_args,
-            session=prepared.session,
-            session_agent=prepared.session_agent,
-            session_agent_path=prepared.session_agent_path,
-            session_skill_paths=prepared.skill_paths,
-            adhoc_agent_payload=prepared.adhoc_agent_payload,
-            appended_system_prompt=prepared.appended_system_prompt,
-            autocompact=prepared.autocompact,
-            execution_cwd=execution_cwd_str,
-            debug=payload.debug,
+        persisted_request = prepared.request or _spawn_request_from_prepared(
+            prepared=prepared,
+            work_id_hint=context.work_id,
         )
-        _persist_bg_worker_params(log_dir, bg_params)
+        launch_runtime = LaunchRuntime(
+            launch_mode=BACKGROUND_LAUNCH_MODE,
+            debug=payload.debug,
+            state_root=context.state_root.as_posix(),
+            project_paths_repo_root=project_paths.repo_root.as_posix(),
+            project_paths_execution_cwd=execution_cwd_str,
+        )
+        _persist_bg_worker_request(
+            log_dir,
+            BackgroundWorkerLaunchRequest(
+                request=persisted_request,
+                runtime=launch_runtime,
+            ),
+        )
     except Exception as exc:
         spawn_store.finalize_spawn(
             context.state_root,
@@ -845,9 +1006,9 @@ def _background_worker_main(
     log_dir = resolve_spawn_log_dir(project_paths.repo_root, spawn_id)
     try:
         try:
-            params = _load_bg_worker_params(log_dir)
+            launch_request = _load_bg_worker_request(log_dir)
         except Exception as exc:
-            error = f"Failed to load background worker params: {exc}"
+            error = f"Failed to load background worker request: {exc}"
             spawn_store.finalize_spawn(
                 state_root,
                 spawn_id,
@@ -857,39 +1018,18 @@ def _background_worker_main(
                 error=error,
             )
             logger.error(
-                "Failed to load background worker params.",
+                "Failed to load background worker request.",
                 spawn_id=str(spawn_id),
                 log_dir=log_dir.as_posix(),
                 exc_info=True,
             )
             return 1
 
-        permission_config, permission_resolver = resolve_permission_pipeline(
-            sandbox=params.sandbox,
-            allowed_tools=params.allowed_tools,
-            approval=params.approval,
-        )
         return asyncio.run(
             _execute_existing_spawn(
                 spawn_id=spawn_id,
                 project_paths=project_paths,
-                timeout=params.timeout,
-                skills=params.skills,
-                agent_name=params.agent_name,
-                mcp_tools=params.mcp_tools,
-                permission_config=permission_config,
-                permission_resolver=permission_resolver,
-                allowed_tools=params.allowed_tools,
-                passthrough_args=params.passthrough_args,
-                session=params.session,
-                session_agent=params.session_agent,
-                session_agent_path=params.session_agent_path,
-                session_skill_paths=params.session_skill_paths,
-                adhoc_agent_payload=params.adhoc_agent_payload,
-                appended_system_prompt=params.appended_system_prompt,
-                autocompact=params.autocompact,
-                execution_cwd=params.execution_cwd,
-                debug=params.debug,
+                launch_request=launch_request,
                 ctx=resolved_context,
             )
         )

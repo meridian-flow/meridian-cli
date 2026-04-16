@@ -3,6 +3,7 @@
 from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.launch.launch_types import PermissionResolver
+from meridian.lib.launch.request import SpawnRequest
 from meridian.lib.safety.permissions import PermissionConfig
 
 
@@ -63,6 +64,7 @@ class PreparedSpawnPlan(BaseModel):
     cli_command: tuple[str, ...]
     warning: str | None = None
     passthrough_args: tuple[str, ...] = ()
+    request: SpawnRequest | None = None
 
 
 __all__ = ["ExecutionPolicy", "PreparedSpawnPlan", "SessionContinuation"]
