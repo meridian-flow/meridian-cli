@@ -25,9 +25,9 @@ from meridian.lib.core.spawn_lifecycle import (
     resolve_execution_terminal_state,
 )
 from meridian.lib.core.types import HarnessId, SpawnId
-from meridian.lib.harness.adapter import SpawnParams
 from meridian.lib.harness.claude_preflight import ensure_claude_session_accessible
 from meridian.lib.harness.registry import HarnessRegistry
+from meridian.lib.ops.spawn.plan import PreparedSpawnPlan
 from meridian.lib.state import spawn_store
 from meridian.lib.state.artifact_store import LocalStore, make_artifact_key
 from meridian.lib.state.paths import resolve_spawn_log_dir, resolve_state_paths
@@ -40,7 +40,8 @@ from meridian.lib.state.session_store import (
 )
 from meridian.lib.state.spawn_store import FOREGROUND_LAUNCH_MODE
 
-from .command import build_launch_env
+from .context import BypassLaunchContext, build_launch_context
+from .fork import materialize_fork
 from .plan import ResolvedPrimaryLaunchPlan
 from .session_ids import extract_latest_session_id
 from .session_scope import session_scope
@@ -65,44 +66,34 @@ class ProcessOutcome(BaseModel):
     resolved_harness_session_id: str
 
 
-def _resolve_command_and_session(
-    plan: ResolvedPrimaryLaunchPlan,
-) -> tuple[tuple[str, ...], str, SpawnParams]:
-    """Resolve command and effective harness session for this launch run."""
-
-    command = plan.command
-    resolved_harness_session_id = plan.seed_harness_session_id
-    run_params = plan.run_params
-    should_materialize_fork = (
-        plan.request.session_mode == SessionMode.FORK
-        and not plan.request.dry_run
-        and plan.adapter.id == HarnessId.CODEX
-        and bool((run_params.continue_harness_session_id or "").strip())
+def _primary_plan_env_overrides(plan: ResolvedPrimaryLaunchPlan) -> dict[str, str]:
+    autocompact_pct = (
+        plan.request.autocompact
+        if plan.request.autocompact is not None
+        else plan.config.primary.autocompact_pct
     )
-    if not should_materialize_fork:
-        return command, resolved_harness_session_id, run_params
+    if autocompact_pct is None:
+        return {}
+    return {"CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": str(autocompact_pct)}
 
-    if plan.permission_resolver is None:
-        raise RuntimeError("Missing permission resolver for fork launch command construction.")
 
-    source_session_id = run_params.continue_harness_session_id or ""
-    fork_session = cast("Callable[[str], str] | None", getattr(plan.adapter, "fork_session", None))
-    if fork_session is None:
-        raise RuntimeError("Harness adapter does not implement fork_session().")
-    forked_session_id = fork_session(source_session_id).strip()
-    if not forked_session_id:
-        raise RuntimeError("Harness adapter returned empty fork session ID.")
-    run_params = run_params.model_copy(
+def _materialize_primary_plan(plan: ResolvedPrimaryLaunchPlan) -> tuple[str, PreparedSpawnPlan]:
+    run_params = materialize_fork(
+        adapter=plan.adapter,
+        run_params=plan.run_params,
+        dry_run=plan.request.dry_run,
+    )
+    resolved_harness_session_id = (
+        (run_params.continue_harness_session_id or "").strip() or plan.seed_harness_session_id
+    )
+    session = plan.prepared_plan.session.model_copy(
         update={
-            "continue_harness_session_id": forked_session_id,
-            # Primary launches bypass ops/spawn/prepare.py, so this is the
-            # canonical fork materialization site for launch CLI execution.
-            "continue_fork": False,
+            "harness_session_id": run_params.continue_harness_session_id,
+            "continue_fork": run_params.continue_fork,
         }
     )
-    resolved_harness_session_id = forked_session_id
-    command = tuple(plan.adapter.build_command(run_params, plan.permission_resolver))
-    return command, resolved_harness_session_id, run_params
+    prepared_plan = plan.prepared_plan.model_copy(update={"session": session})
+    return resolved_harness_session_id, prepared_plan
 
 
 def _copy_primary_pty_output(
@@ -276,8 +267,11 @@ def run_harness_process(
 ) -> ProcessOutcome:
     """Start session, spawn tracking, launch process, wait for exit."""
 
+    _ = harness_registry
     repo_root = plan.repo_root
-    command, resolved_harness_session_id, run_params = _resolve_command_and_session(plan)
+    command = plan.command
+    resolved_harness_session_id, prepared_plan = _materialize_primary_plan(plan)
+    launch_plan_overrides = _primary_plan_env_overrides(plan)
     chat_id: str | None = None
     primary_spawn_id: SpawnId | None = None
     primary_started = 0.0
@@ -344,16 +338,52 @@ def run_harness_process(
                 primary_started = time.monotonic()
                 primary_started_epoch = time.time()
                 primary_started_local_iso = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-                child_env = build_launch_env(
-                    repo_root,
-                    plan.request,
-                    chat_id=chat_id,
-                    work_id=attached_work_id,
-                    default_autocompact_pct=plan.config.primary.autocompact_pct,
-                    spawn_id=primary_spawn_id,
-                    adapter=plan.adapter,
-                    run_params=run_params,
-                    permission_config=plan.permission_config,
+                launch_context = build_launch_context(
+                    spawn_id=str(primary_spawn_id),
+                    run_prompt=prepared_plan.prompt,
+                    run_model=prepared_plan.model,
+                    plan=prepared_plan,
+                    harness=plan.adapter,
+                    execution_cwd=repo_root,
+                    state_root=plan.state_root,
+                    plan_overrides=launch_plan_overrides,
+                    report_output_path=log_dir / "report.md",
+                    runtime_work_id=attached_work_id,
+                    runtime_chat_id=chat_id,
+                    runtime_spawn_id=str(primary_spawn_id),
+                )
+                child_cwd = repo_root
+                if isinstance(launch_context, BypassLaunchContext):
+                    command = launch_context.argv
+                    child_env = dict(launch_context.env)
+                    child_cwd = launch_context.cwd
+                else:
+                    command = tuple(
+                        plan.adapter.build_command(
+                            launch_context.run_params,
+                            launch_context.perms,
+                        )
+                    )
+                    child_env = dict(launch_context.env)
+                    child_cwd = launch_context.child_cwd
+                    materialized_session_id = (
+                        launch_context.spec.continue_session_id or ""
+                    ).strip()
+                    if (
+                        materialized_session_id
+                        and materialized_session_id != resolved_harness_session_id.strip()
+                    ):
+                        resolved_harness_session_id = materialized_session_id
+                        managed.record_harness_session_id(resolved_harness_session_id)
+                        spawn_store.update_spawn(
+                            plan.state_root,
+                            primary_spawn_id,
+                            harness_session_id=resolved_harness_session_id,
+                        )
+                spawn_store.update_spawn(
+                    plan.state_root,
+                    primary_spawn_id,
+                    execution_cwd=str(child_cwd),
                 )
                 output_log_path = log_dir / _PRIMARY_OUTPUT_FILENAME
 
@@ -366,7 +396,7 @@ def run_harness_process(
                     ensure_claude_session_accessible(
                         source_session_id=resolved_harness_session_id,
                         source_cwd=Path(plan.source_execution_cwd),
-                        child_cwd=repo_root,
+                        child_cwd=child_cwd,
                     )
 
                 def _record_primary_started(child_pid: int) -> None:
@@ -379,7 +409,7 @@ def run_harness_process(
 
                 exit_code, _child_pid = _run_primary_process_with_capture(
                     command=command,
-                    cwd=repo_root,
+                    cwd=child_cwd,
                     env=child_env,
                     output_log_path=output_log_path,
                     on_child_started=_record_primary_started,

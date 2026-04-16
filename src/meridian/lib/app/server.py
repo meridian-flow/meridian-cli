@@ -17,17 +17,19 @@ from uuid import uuid4
 from pydantic import BaseModel, model_validator
 
 from meridian.lib.core.spawn_lifecycle import TERMINAL_SPAWN_STATUSES
-from meridian.lib.core.types import HarnessId, ModelId, SpawnId
-from meridian.lib.harness.adapter import SpawnParams
+from meridian.lib.core.types import HarnessId, SpawnId
 from meridian.lib.harness.connections.base import ConnectionConfig
 from meridian.lib.harness.registry import get_default_harness_registry
-from meridian.lib.launch.launch_types import ResolvedLaunchSpec
+from meridian.lib.launch.context import NormalLaunchContext, build_launch_context
+from meridian.lib.ops.spawn.plan import ExecutionPolicy, PreparedSpawnPlan, SessionContinuation
 from meridian.lib.safety.permissions import (
+    PermissionConfig,
     TieredPermissionResolver,
     UnsafeNoOpPermissionResolver,
     build_permission_config,
 )
 from meridian.lib.state import spawn_store
+from meridian.lib.state.paths import resolve_spawn_log_dir
 from meridian.lib.streaming.signal_canceller import SignalCanceller
 from meridian.lib.streaming.spawn_manager import SpawnManager
 
@@ -296,6 +298,7 @@ def create_app(
                 "--allow-unsafe-no-permissions is enabled."
             )
             permission_resolver = UnsafeNoOpPermissionResolver()
+            permission_config = PermissionConfig()
         else:
             sandbox = permissions.sandbox.strip()
             approval = permissions.approval.strip()
@@ -314,28 +317,63 @@ def create_app(
             except ValueError as exc:
                 raise http_exception_cls(status_code=400, detail=str(exc)) from exc
             permission_resolver = TieredPermissionResolver(config=permission_config)
+        model = (body.model.strip() if body.model is not None else "") or "unknown"
+        agent = (body.agent.strip() if body.agent is not None else "") or "unknown"
+        chat_id = str(uuid4())
 
         spawn_id = await reserve_spawn_id(
-            chat_id=str(uuid4()),
-            model=(body.model.strip() if body.model is not None else "") or "unknown",
-            agent=(body.agent.strip() if body.agent is not None else "") or "unknown",
+            chat_id=chat_id,
+            model=model,
+            agent=agent,
             harness=harness_id.value,
             prompt=prompt,
         )
+        adapter = get_default_harness_registry().get_subprocess_harness(harness_id)
+        plan = PreparedSpawnPlan(
+            model=model,
+            harness_id=harness_id.value,
+            prompt=prompt,
+            agent_name=(body.agent.strip() if body.agent and body.agent.strip() else None),
+            skills=(),
+            skill_paths=(),
+            reference_files=(),
+            template_vars={},
+            mcp_tools=(),
+            session_agent=agent,
+            session_agent_path="",
+            session=SessionContinuation(),
+            execution=ExecutionPolicy(
+                permission_config=permission_config,
+                permission_resolver=permission_resolver,
+            ),
+            cli_command=(),
+        )
+        launch_context = build_launch_context(
+            spawn_id=str(spawn_id),
+            run_prompt=prompt,
+            run_model=body.model.strip() if body.model and body.model.strip() else None,
+            plan=plan,
+            harness=adapter,
+            execution_cwd=repo_root,
+            state_root=state_root,
+            plan_overrides={},
+            report_output_path=resolve_spawn_log_dir(repo_root, spawn_id) / "report.md",
+            runtime_chat_id=chat_id,
+            runtime_spawn_id=str(spawn_id),
+        )
+        if not isinstance(launch_context, NormalLaunchContext):
+            raise http_exception_cls(
+                status_code=400,
+                detail="MERIDIAN_HARNESS_COMMAND override is not supported for app spawns.",
+            )
         config = ConnectionConfig(
             spawn_id=spawn_id,
             harness_id=harness_id,
             prompt=prompt,
-            repo_root=repo_root,
-            env_overrides={},
+            repo_root=launch_context.child_cwd,
+            env_overrides=dict(launch_context.env),
         )
-        adapter = get_default_harness_registry().get_subprocess_harness(harness_id)
-        params = SpawnParams(
-            prompt=prompt,
-            model=ModelId(body.model.strip()) if body.model and body.model.strip() else None,
-            agent=body.agent.strip() if body.agent else None,
-        )
-        spec: ResolvedLaunchSpec = adapter.resolve_launch_spec(params, permission_resolver)
+        spec = launch_context.spec
 
         try:
             connection = await spawn_manager.start_spawn(config, spec)

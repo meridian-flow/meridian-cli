@@ -39,7 +39,7 @@ from meridian.lib.launch.constants import (
     STDERR_FILENAME,
     TOKENS_FILENAME,
 )
-from meridian.lib.launch.context import prepare_launch_context
+from meridian.lib.launch.context import NormalLaunchContext, build_launch_context
 from meridian.lib.launch.errors import ErrorCategory, classify_error, should_retry
 from meridian.lib.launch.extract import (
     FinalizeExtraction,
@@ -776,7 +776,7 @@ async def execute_with_streaming(
     max_retries = plan.execution.max_retries
     retry_backoff_seconds = plan.execution.retry_backoff_secs
 
-    launch_context = prepare_launch_context(
+    launch_context = build_launch_context(
         spawn_id=str(run.spawn_id),
         run_prompt=run.prompt,
         run_model=str(run.model) if str(run.model).strip() else None,
@@ -788,6 +788,8 @@ async def execute_with_streaming(
         report_output_path=report_path,
         runtime_work_id=runtime_work_id,
     )
+    if not isinstance(launch_context, NormalLaunchContext):
+        raise RuntimeError("Streaming spawn execution does not support harness command bypass.")
     child_cwd = launch_context.child_cwd
     spec = launch_context.spec
     child_env = dict(launch_context.env)

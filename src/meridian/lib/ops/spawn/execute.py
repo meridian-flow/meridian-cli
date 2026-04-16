@@ -26,7 +26,7 @@ from meridian.lib.launch.streaming_runner import execute_with_streaming
 from meridian.lib.ops.work_attachment import ensure_explicit_work_item
 from meridian.lib.safety.permissions import (
     PermissionConfig,
-    resolve_permission_pipeline,
+    build_permission_resolver,
 )
 from meridian.lib.state import spawn_store
 from meridian.lib.state.atomic import atomic_write_text
@@ -88,9 +88,9 @@ class BackgroundWorkerParams(BaseModel):
     skills: tuple[str, ...] = ()
     agent_name: str | None = None
     mcp_tools: tuple[str, ...] = ()
-    sandbox: str | None = None
-    approval: str = "default"
+    permission_config: PermissionConfig = Field(default_factory=PermissionConfig)
     allowed_tools: tuple[str, ...] = ()
+    disallowed_tools: tuple[str, ...] = ()
     passthrough_args: tuple[str, ...] = ()
     session: SessionContinuation = Field(default_factory=SessionContinuation)
     session_agent: str = ""
@@ -543,9 +543,9 @@ def execute_spawn_background(
             skills=prepared.skills,
             agent_name=prepared.agent_name,
             mcp_tools=prepared.mcp_tools,
-            sandbox=prepared.execution.permission_config.sandbox,
-            approval=prepared.execution.permission_config.approval,
+            permission_config=prepared.execution.permission_config,
             allowed_tools=prepared.execution.allowed_tools,
+            disallowed_tools=prepared.execution.disallowed_tools,
             passthrough_args=prepared.passthrough_args,
             session=prepared.session,
             session_agent=prepared.session_agent,
@@ -858,10 +858,11 @@ def _background_worker_main(
             )
             return 1
 
-        permission_config, permission_resolver = resolve_permission_pipeline(
-            sandbox=params.sandbox,
+        permission_config = params.permission_config
+        permission_resolver = build_permission_resolver(
             allowed_tools=params.allowed_tools,
-            approval=params.approval,
+            disallowed_tools=params.disallowed_tools,
+            permission_config=permission_config,
         )
         return asyncio.run(
             _execute_existing_spawn(
