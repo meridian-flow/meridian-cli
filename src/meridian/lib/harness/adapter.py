@@ -4,11 +4,10 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Generic, Literal, Protocol, TypeVar, runtime_checkable
+from typing import Generic, Literal, Protocol, TypeVar, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from meridian.lib.core.conversation import Conversation
 from meridian.lib.core.domain import TokenUsage
 from meridian.lib.core.types import ArtifactKey, ModelId, SpawnId
 from meridian.lib.harness.ids import HarnessId
@@ -43,7 +42,6 @@ class HarnessCapabilities(BaseModel):
     supports_session_fork: bool = False
     supports_native_skills: bool = False
     supports_native_agents: bool = False
-    supports_programmatic_tools: bool = False
     supports_primary_launch: bool = False
     reference_input_mode: Literal["inline", "paths"] = "paths"
 
@@ -249,28 +247,6 @@ class SubprocessHarness(HarnessAdapter[ResolvedLaunchSpec], Protocol):
     def owns_untracked_session(self, *, repo_root: Path, session_ref: str) -> bool:
         """Return True if this harness owns the given untracked session reference."""
         ...
-
-
-@runtime_checkable
-class InProcessHarness(Protocol):
-    """Protocol for in-process harness execution behavior."""
-
-    @property
-    def id(self) -> HarnessId: ...
-
-    @property
-    def capabilities(self) -> HarnessCapabilities: ...
-
-    async def execute(self, *, prompt: str, model: ModelId, **kwargs: Any) -> SpawnResult: ...
-
-
-@runtime_checkable
-class ConversationExtractingHarness(Protocol):
-    """Optional protocol for harnesses that provide conversation extraction."""
-
-    def extract_conversation(
-        self, artifacts: ArtifactStore, spawn_id: SpawnId
-    ) -> Conversation | None: ...
 
 
 class BaseHarnessAdapter(Generic[SpecT], ABC):

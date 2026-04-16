@@ -1,4 +1,4 @@
-"""Explicit operation manifest shared by CLI, MCP, and DirectAdapter surfaces."""
+"""Explicit operation manifest shared by CLI and MCP surfaces."""
 
 from collections.abc import Callable, Coroutine
 from typing import Any, Generic, Literal, Self, TypeVar

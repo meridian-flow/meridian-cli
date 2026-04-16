@@ -138,6 +138,7 @@ class _StubHarnessExtractor(HarnessExtractor[ResolvedLaunchSpec]):
 @pytest.fixture
 def _restore_bundle_registry() -> None:
     snapshot = dict(_BUNDLE_REGISTRY)
+    _BUNDLE_REGISTRY.clear()
     try:
         yield
     finally:
@@ -470,7 +471,7 @@ def test_bundle_registry_round_trip_lookup_by_harness_id(
         owns_untracked_session=lambda **kwargs: False,
     )
     bundle = HarnessBundle(
-        harness_id=HarnessId.DIRECT,
+        harness_id=HarnessId.CLAUDE,
         adapter=adapter,
         spec_cls=ResolvedLaunchSpec,
         extractor=_StubHarnessExtractor(),
@@ -478,10 +479,10 @@ def test_bundle_registry_round_trip_lookup_by_harness_id(
     )
     register_harness_bundle(bundle)
 
-    registered = get_harness_bundle(HarnessId.DIRECT)
+    registered = get_harness_bundle(HarnessId.CLAUDE)
     assert registered.spec_cls is ResolvedLaunchSpec
     assert registered.adapter is adapter
-    assert get_connection_cls(HarnessId.DIRECT, TransportId.STREAMING) is CodexConnection
+    assert get_connection_cls(HarnessId.CLAUDE, TransportId.STREAMING) is CodexConnection
 
 
 def test_duplicate_bundle_registration_raises(
@@ -502,14 +503,14 @@ def test_duplicate_bundle_registration_raises(
             return False
 
     first = HarnessBundle(
-        harness_id=HarnessId.DIRECT,
+        harness_id=HarnessId.CLAUDE,
         adapter=AdapterA(),
         spec_cls=ResolvedLaunchSpec,
         extractor=_StubHarnessExtractor(),
         connections={TransportId.STREAMING: CodexConnection},
     )
     second = HarnessBundle(
-        harness_id=HarnessId.DIRECT,
+        harness_id=HarnessId.CLAUDE,
         adapter=AdapterB(),
         spec_cls=ResolvedLaunchSpec,
         extractor=_StubHarnessExtractor(),
@@ -522,7 +523,7 @@ def test_duplicate_bundle_registration_raises(
     ):
         register_harness_bundle(second)
 
-    assert get_harness_bundle(HarnessId.DIRECT).adapter is first.adapter
+    assert get_harness_bundle(HarnessId.CLAUDE).adapter is first.adapter
 
 
 def test_bundle_registration_requires_extractor(_restore_bundle_registry: None) -> None:
@@ -531,7 +532,7 @@ def test_bundle_registration_requires_extractor(_restore_bundle_registry: None) 
         owns_untracked_session=lambda **kwargs: False,
     )
     bundle = HarnessBundle(
-        harness_id=HarnessId.DIRECT,
+        harness_id=HarnessId.CLAUDE,
         adapter=adapter,
         spec_cls=ResolvedLaunchSpec,
         extractor=None,  # type: ignore[arg-type]
@@ -550,7 +551,7 @@ def test_bundle_registration_rejects_unsupported_transport_key(
         owns_untracked_session=lambda **kwargs: False,
     )
     bundle = HarnessBundle(
-        harness_id=HarnessId.DIRECT,
+        harness_id=HarnessId.CLAUDE,
         adapter=adapter,
         spec_cls=ResolvedLaunchSpec,
         extractor=_StubHarnessExtractor(),
@@ -569,7 +570,7 @@ def test_get_connection_cls_rejects_unsupported_transport(
         owns_untracked_session=lambda **kwargs: False,
     )
     bundle = HarnessBundle(
-        harness_id=HarnessId.DIRECT,
+        harness_id=HarnessId.CLAUDE,
         adapter=adapter,
         spec_cls=ResolvedLaunchSpec,
         extractor=_StubHarnessExtractor(),
@@ -579,9 +580,9 @@ def test_get_connection_cls_rejects_unsupported_transport(
 
     with pytest.raises(
         KeyError,
-        match=r"harness direct has no connection for transport subprocess",
+        match=r"harness claude has no connection for transport subprocess",
     ):
-        get_connection_cls(HarnessId.DIRECT, TransportId.SUBPROCESS)
+        get_connection_cls(HarnessId.CLAUDE, TransportId.SUBPROCESS)
 
 
 def test_bundle_registration_rejects_empty_connections(
@@ -592,7 +593,7 @@ def test_bundle_registration_rejects_empty_connections(
         owns_untracked_session=lambda **kwargs: False,
     )
     bundle = HarnessBundle(
-        harness_id=HarnessId.DIRECT,
+        harness_id=HarnessId.CLAUDE,
         adapter=adapter,
         spec_cls=ResolvedLaunchSpec,
         extractor=_StubHarnessExtractor(),

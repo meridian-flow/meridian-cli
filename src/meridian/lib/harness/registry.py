@@ -1,18 +1,14 @@
 """Harness registry for built-in and custom adapters."""
 
-from typing import Self, cast
+from typing import Self
 
 from pydantic import BaseModel, ConfigDict, PrivateAttr
 
-from meridian.lib.harness.adapter import (
-    ConversationExtractingHarness,
-    InProcessHarness,
-    SubprocessHarness,
-)
+from meridian.lib.harness.adapter import SubprocessHarness
 from meridian.lib.harness.bundle import get_connection_cls, get_harness_bundle
 from meridian.lib.harness.ids import HarnessId
 
-type HarnessEntry = SubprocessHarness | InProcessHarness
+type HarnessEntry = SubprocessHarness
 
 
 def _empty_adapters() -> dict[HarnessId, HarnessEntry]:
@@ -37,14 +33,12 @@ class HarnessRegistry(BaseModel):
         ensure_bootstrap()
         from meridian.lib.harness.claude import ClaudeAdapter
         from meridian.lib.harness.codex import CodexAdapter
-        from meridian.lib.harness.direct import DirectAdapter
         from meridian.lib.harness.opencode import OpenCodeAdapter
 
         registry = cls()
         registry.register(ClaudeAdapter())
         registry.register(CodexAdapter())
         registry.register(OpenCodeAdapter())
-        registry.register(DirectAdapter())
         return registry
 
     def register(self, adapter: HarnessEntry) -> None:
@@ -61,22 +55,7 @@ class HarnessRegistry(BaseModel):
         has_build_command = callable(getattr(adapter, "build_command", None))
         if has_execute and not has_build_command:
             raise TypeError(f"Harness '{harness_id}' is not a subprocess harness.")
-        return cast("SubprocessHarness", adapter)
-
-    def get_in_process_harness(self, harness_id: HarnessId) -> InProcessHarness:
-        adapter = self.get(harness_id)
-        if not callable(getattr(adapter, "execute", None)):
-            raise TypeError(f"Harness '{harness_id}' is not an in-process harness.")
-        return cast("InProcessHarness", adapter)
-
-    def get_conversation_harness(
-        self,
-        harness_id: HarnessId,
-    ) -> ConversationExtractingHarness | None:
-        adapter = self.get(harness_id)
-        if isinstance(adapter, ConversationExtractingHarness):
-            return adapter
-        return None
+        return adapter
 
     def ids(self) -> tuple[HarnessId, ...]:
         return tuple(sorted(self._adapters))

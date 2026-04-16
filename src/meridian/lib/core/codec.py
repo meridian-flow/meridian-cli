@@ -1,4 +1,4 @@
-"""Input/schema helpers shared by MCP and DirectAdapter surfaces."""
+"""Input/schema helpers shared by typed app surfaces."""
 
 import inspect
 import types

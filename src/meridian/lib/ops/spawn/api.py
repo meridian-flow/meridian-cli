@@ -1,4 +1,4 @@
-"""Spawn operations used by CLI, MCP, and DirectAdapter surfaces."""
+"""Spawn operations used by CLI and MCP surfaces."""
 
 import asyncio
 import time

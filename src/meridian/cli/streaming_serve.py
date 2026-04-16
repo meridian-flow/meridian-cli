@@ -40,7 +40,7 @@ async def streaming_serve(
     try:
         harness_id = HarnessId(normalized_harness)
     except ValueError as exc:
-        supported = ", ".join(item.value for item in HarnessId if item != HarnessId.DIRECT)
+        supported = ", ".join(item.value for item in HarnessId)
         raise ValueError(f"unsupported harness '{harness}'. Supported: {supported}") from exc
 
     repo_root, _ = resolve_runtime_root_and_config(None)

@@ -1,13 +1,11 @@
 """Core frozen domain models."""
 
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from meridian.lib.core.types import (
-    ArtifactKey,
     ModelId,
     SpawnId,
 )
@@ -28,32 +26,6 @@ class TokenUsage(BaseModel):
     total_cost_usd: float | None = None
 
 
-class SpawnCreateParams(BaseModel):
-    """Input fields for creating a spawn record."""
-
-    model_config = ConfigDict(frozen=True)
-
-    prompt: str
-    model: ModelId
-
-
-class SpawnFilters(BaseModel):
-    """Spawn list filter options."""
-
-    model_config = ConfigDict(frozen=True)
-
-    status: SpawnStatus | None = None
-
-
-class SpawnEnrichment(BaseModel):
-    """Post-spawn enrichment payload."""
-
-    model_config = ConfigDict(frozen=True)
-
-    usage: TokenUsage = Field(default_factory=TokenUsage)
-    report_path: Path | None = None
-
-
 class Spawn(BaseModel):
     """Spawn aggregate root."""
 
@@ -64,24 +36,6 @@ class Spawn(BaseModel):
     model: ModelId
     status: SpawnStatus
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-
-
-class SpawnSummary(BaseModel):
-    """Compact spawn view for list output."""
-
-    model_config = ConfigDict(frozen=True)
-
-    spawn_id: SpawnId
-    status: SpawnStatus
-    model: ModelId
-
-
-class PinnedFile(BaseModel):
-    """Pinned context file reference."""
-
-    model_config = ConfigDict(frozen=True)
-
-    file_path: str
 
 
 class IndexReport(BaseModel):
@@ -117,14 +71,3 @@ class SkillContent(BaseModel):
 
     def format_text(self, ctx: FormatContext | None = None) -> str:
         return f"{self.name}: {self.description}\n\n{self.content}"
-
-
-class ArtifactRecord(BaseModel):
-    """Metadata record for one spawn artifact."""
-
-    model_config = ConfigDict(frozen=True)
-
-    spawn_id: SpawnId
-    key: ArtifactKey
-    path: Path
-    size: int | None = None

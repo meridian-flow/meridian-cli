@@ -9,7 +9,6 @@ class HarnessId(StrEnum):
     CLAUDE = "claude"
     CODEX = "codex"
     OPENCODE = "opencode"
-    DIRECT = "direct"
 
 
 class TransportId(StrEnum):
@@ -17,4 +16,3 @@ class TransportId(StrEnum):
 
     SUBPROCESS = "subprocess"
     STREAMING = "streaming"
-

@@ -245,7 +245,6 @@ class ClaudeAdapter(BaseHarnessAdapter[ClaudeLaunchSpec]):
             supports_session_fork=True,
             supports_native_skills=True,
             supports_native_agents=True,
-            supports_programmatic_tools=False,
             supports_primary_launch=True,
         )
 
