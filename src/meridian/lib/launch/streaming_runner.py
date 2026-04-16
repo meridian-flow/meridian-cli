@@ -75,7 +75,7 @@ from meridian.lib.state import paths as state_paths
 from meridian.lib.state import spawn_store
 from meridian.lib.state.artifact_store import ArtifactStore, make_artifact_key
 from meridian.lib.state.atomic import atomic_write_bytes
-from meridian.lib.state.paths import resolve_spawn_log_dir
+from meridian.lib.state.paths import resolve_project_paths, resolve_spawn_log_dir
 from meridian.lib.state.spawn_store import (
     BACKGROUND_LAUNCH_MODE,
     FOREGROUND_LAUNCH_MODE,
@@ -765,6 +765,7 @@ async def execute_with_streaming(
 
     _ = stream_stderr_to_terminal
     execution_cwd = (cwd or Path.cwd()).resolve()
+    project_paths = resolve_project_paths(repo_root=repo_root, execution_cwd=execution_cwd)
     log_dir = resolve_spawn_log_dir(repo_root, run.spawn_id)
     output_log_path = log_dir / OUTPUT_FILENAME
     report_path = log_dir / REPORT_FILENAME
@@ -782,7 +783,7 @@ async def execute_with_streaming(
         run_model=str(run.model) if str(run.model).strip() else None,
         plan=plan,
         harness=harness,
-        execution_cwd=execution_cwd,
+        project_paths=project_paths,
         state_root=state_root,
         plan_overrides=env_overrides or {},
         report_output_path=report_path,

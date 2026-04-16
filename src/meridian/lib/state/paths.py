@@ -90,6 +90,15 @@ class StateRootPaths(BaseModel):
         )
 
 
+class ProjectPaths(BaseModel):
+    """Resolved project-level paths used by launch/runtime code."""
+
+    model_config = ConfigDict(frozen=True)
+
+    repo_root: Path
+    execution_cwd: Path
+
+
 class StatePaths(BaseModel):
     """Resolved on-disk Meridian state paths."""
 
@@ -113,6 +122,17 @@ def _resolve_state_root(repo_root: Path) -> Path:
     if candidate.is_absolute():
         return candidate
     return repo_root / candidate
+
+
+def resolve_project_paths(repo_root: Path, execution_cwd: Path | None = None) -> ProjectPaths:
+    """Build project paths from repository root and optional execution cwd."""
+
+    resolved_repo_root = repo_root.resolve()
+    resolved_execution_cwd = (execution_cwd or repo_root).resolve()
+    return ProjectPaths(
+        repo_root=resolved_repo_root,
+        execution_cwd=resolved_execution_cwd,
+    )
 
 
 def resolve_state_paths(repo_root: Path) -> StatePaths:

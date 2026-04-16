@@ -27,6 +27,7 @@ from meridian.lib.launch.plan import ResolvedPrimaryLaunchPlan
 from meridian.lib.launch.types import LaunchRequest, PrimarySessionMetadata, SessionMode
 from meridian.lib.ops.spawn.plan import ExecutionPolicy, PreparedSpawnPlan, SessionContinuation
 from meridian.lib.safety.permissions import PermissionConfig, TieredPermissionResolver
+from meridian.lib.state.paths import resolve_project_paths
 
 
 def test_sync_pty_winsize_copies_source_size(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -272,7 +273,7 @@ def test_prepare_launch_context_is_deterministic_and_immutable(
         run_model=plan.model,
         plan=plan,
         harness=adapter,
-        execution_cwd=tmp_path,
+        project_paths=resolve_project_paths(repo_root=tmp_path),
         state_root=tmp_path / ".meridian",
         plan_overrides=plan_overrides,
         report_output_path=report_path,
@@ -283,7 +284,7 @@ def test_prepare_launch_context_is_deterministic_and_immutable(
         run_model=plan.model,
         plan=plan,
         harness=adapter,
-        execution_cwd=tmp_path,
+        project_paths=resolve_project_paths(repo_root=tmp_path),
         state_root=tmp_path / ".meridian",
         plan_overrides=plan_overrides,
         report_output_path=report_path,
@@ -330,7 +331,7 @@ def test_prepare_launch_context_changes_deterministic_tuple_when_inputs_change(
         run_model=base_plan.model,
         plan=base_plan,
         harness=adapter,
-        execution_cwd=tmp_path,
+        project_paths=resolve_project_paths(repo_root=tmp_path),
         state_root=tmp_path / ".meridian",
         plan_overrides={},
         report_output_path=report_path,
@@ -341,7 +342,7 @@ def test_prepare_launch_context_changes_deterministic_tuple_when_inputs_change(
         run_model=fork_plan.model,
         plan=fork_plan,
         harness=adapter,
-        execution_cwd=tmp_path,
+        project_paths=resolve_project_paths(repo_root=tmp_path),
         state_root=tmp_path / ".meridian",
         plan_overrides={},
         report_output_path=report_path,
@@ -366,7 +367,7 @@ def test_prepare_launch_context_runtime_work_id_override_sets_work_env(
         run_model=plan.model,
         plan=plan,
         harness=adapter,
-        execution_cwd=tmp_path,
+        project_paths=resolve_project_paths(repo_root=tmp_path),
         state_root=state_root,
         plan_overrides={},
         report_output_path=tmp_path / "report.md",

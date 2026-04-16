@@ -28,6 +28,7 @@ from meridian.lib.safety.permissions import (
     build_permission_config,
 )
 from meridian.lib.state import spawn_store
+from meridian.lib.state.paths import resolve_project_paths
 from meridian.lib.streaming.signal_canceller import SignalCanceller
 from meridian.lib.streaming.spawn_manager import SpawnManager
 
@@ -195,7 +196,7 @@ def create_app(
     app.state.spawn_manager = spawn_manager
 
     state_root = spawn_manager.state_root
-    repo_root = spawn_manager.repo_root
+    project_paths = resolve_project_paths(repo_root=spawn_manager.repo_root)
     spawn_id_lock = asyncio.Lock()
 
     async def _background_finalize(spawn_id: SpawnId) -> None:
@@ -326,7 +327,7 @@ def create_app(
             spawn_id=spawn_id,
             harness_id=harness_id,
             prompt=prompt,
-            repo_root=repo_root,
+            repo_root=project_paths.execution_cwd,
             env_overrides={},
         )
         adapter = get_default_harness_registry().get_subprocess_harness(harness_id)

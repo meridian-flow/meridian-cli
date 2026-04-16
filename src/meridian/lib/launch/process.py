@@ -30,7 +30,11 @@ from meridian.lib.harness.claude_preflight import ensure_claude_session_accessib
 from meridian.lib.harness.registry import HarnessRegistry
 from meridian.lib.state import spawn_store
 from meridian.lib.state.artifact_store import LocalStore, make_artifact_key
-from meridian.lib.state.paths import resolve_spawn_log_dir, resolve_state_paths
+from meridian.lib.state.paths import (
+    resolve_project_paths,
+    resolve_spawn_log_dir,
+    resolve_state_paths,
+)
 from meridian.lib.state.session_store import (
     get_session_active_work_id,
     start_session,
@@ -276,14 +280,16 @@ def run_harness_process(
 ) -> ProcessOutcome:
     """Start session, spawn tracking, launch process, wait for exit."""
 
-    repo_root = plan.repo_root
+    project_paths = resolve_project_paths(repo_root=plan.repo_root)
+    repo_root = project_paths.repo_root
+    execution_cwd = project_paths.execution_cwd
     command, resolved_harness_session_id, run_params = _resolve_command_and_session(plan)
     chat_id: str | None = None
     primary_spawn_id: SpawnId | None = None
     primary_started = 0.0
     primary_started_epoch = 0.0
     primary_started_local_iso: str | None = None
-    artifacts = LocalStore(root_dir=resolve_state_paths(plan.repo_root).artifacts_dir)
+    artifacts = LocalStore(root_dir=resolve_state_paths(project_paths.repo_root).artifacts_dir)
 
     resume_chat_id = (
         plan.request.session.continue_chat_id
@@ -303,7 +309,7 @@ def run_harness_process(
             agent_path=plan.session_metadata.agent_path,
             skills=plan.session_metadata.skills,
             skill_paths=plan.session_metadata.skill_paths,
-            execution_cwd=str(repo_root),
+            execution_cwd=str(execution_cwd),
             _start_session=start_session,
             _stop_session=stop_session,
             _update_session_harness_id=update_session_harness_id,
@@ -334,7 +340,7 @@ def run_harness_process(
                     kind="primary",
                     prompt=plan.prompt,
                     harness_session_id=resolved_harness_session_id,
-                    execution_cwd=str(repo_root),
+                    execution_cwd=str(execution_cwd),
                     launch_mode=FOREGROUND_LAUNCH_MODE,
                     work_id=attached_work_id,
                     runner_pid=os.getpid(),
@@ -366,7 +372,7 @@ def run_harness_process(
                     ensure_claude_session_accessible(
                         source_session_id=resolved_harness_session_id,
                         source_cwd=Path(plan.source_execution_cwd),
-                        child_cwd=repo_root,
+                        child_cwd=execution_cwd,
                     )
 
                 def _record_primary_started(child_pid: int) -> None:
@@ -379,7 +385,7 @@ def run_harness_process(
 
                 exit_code, _child_pid = _run_primary_process_with_capture(
                     command=command,
-                    cwd=repo_root,
+                    cwd=execution_cwd,
                     env=child_env,
                     output_log_path=output_log_path,
                     on_child_started=_record_primary_started,

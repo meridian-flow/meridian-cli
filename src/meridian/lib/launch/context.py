@@ -16,7 +16,7 @@ from meridian.lib.launch.launch_types import (
     PreflightResult,
     ResolvedLaunchSpec,
 )
-from meridian.lib.state.paths import resolve_work_scratch_dir
+from meridian.lib.state.paths import ProjectPaths, resolve_work_scratch_dir
 
 from .cwd import resolve_child_execution_cwd
 from .env import build_harness_child_env
@@ -54,7 +54,7 @@ class RuntimeContext:
     def from_environment(
         cls,
         *,
-        repo_root: Path,
+        project_paths: ProjectPaths,
         state_root: Path,
     ) -> RuntimeContext:
         parent_chat_id = os.getenv("MERIDIAN_CHAT_ID", "").strip() or None
@@ -70,7 +70,9 @@ class RuntimeContext:
         work_dir_raw = os.getenv("MERIDIAN_WORK_DIR", "").strip()
 
         return cls(
-            repo_root=repo_root.resolve(),
+            # Keep launch semantics unchanged: runtime repo_root follows the
+            # execution cwd used by the child process.
+            repo_root=project_paths.execution_cwd.resolve(),
             state_root=state_root.resolve(),
             parent_chat_id=parent_chat_id,
             parent_depth=parent_depth,
@@ -152,7 +154,7 @@ def prepare_launch_context(
     run_model: str | None,
     plan: PreparedSpawnPlan,
     harness: SubprocessHarness,
-    execution_cwd: Path,
+    project_paths: ProjectPaths,
     state_root: Path,
     plan_overrides: Mapping[str, str],
     report_output_path: Path,
@@ -160,6 +162,7 @@ def prepare_launch_context(
 ) -> LaunchContext:
     """Build deterministic launch context for one runner attempt."""
 
+    execution_cwd = project_paths.execution_cwd
     child_cwd = resolve_child_execution_cwd(
         repo_root=execution_cwd,
         spawn_id=spawn_id,
@@ -199,7 +202,7 @@ def prepare_launch_context(
     spec = harness.resolve_launch_spec(run_params, perms)
 
     runtime_ctx = RuntimeContext.from_environment(
-        repo_root=execution_cwd,
+        project_paths=project_paths,
         state_root=state_root,
     ).with_work_id(runtime_work_id)
     merged_overrides = merge_env_overrides(

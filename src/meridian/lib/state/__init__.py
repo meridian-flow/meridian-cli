@@ -7,10 +7,12 @@ from meridian.lib.state.artifact_store import (
     make_artifact_key,
 )
 from meridian.lib.state.paths import (
+    ProjectPaths,
     StatePaths,
     StateRootPaths,
     ensure_gitignore,
     resolve_fs_dir,
+    resolve_project_paths,
     resolve_spawn_log_dir,
     resolve_state_paths,
     resolve_work_archive_dir,
@@ -32,6 +34,7 @@ __all__ = [
     "ArtifactStore",
     "InMemoryStore",
     "LocalStore",
+    "ProjectPaths",
     "SpawnRecord",
     "StatePaths",
     "StateRootPaths",
@@ -42,6 +45,7 @@ __all__ = [
     "make_artifact_key",
     "next_spawn_id",
     "resolve_fs_dir",
+    "resolve_project_paths",
     "resolve_spawn_log_dir",
     "resolve_state_paths",
     "resolve_work_archive_dir",
