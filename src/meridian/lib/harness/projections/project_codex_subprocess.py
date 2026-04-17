@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import logging
 from collections.abc import Iterable
 from typing import cast
 
@@ -13,7 +12,6 @@ from meridian.lib.harness.projections._guards import (
 )
 from meridian.lib.launch.launch_types import PermissionResolver
 
-logger = logging.getLogger(__name__)
 
 
 class HarnessCapabilityMismatch(ValueError):
@@ -99,45 +97,27 @@ def _coerce_permission_flags(raw: object) -> tuple[str, ...]:
 
 
 def _strip_tool_flags_for_codex(flags: tuple[str, ...]) -> tuple[str, ...]:
+    """Strip --allowedTools/--disallowedTools flags that Codex doesn't support."""
     filtered: list[str] = []
-    saw_allowed_tools = False
-    saw_disallowed_tools = False
-
     index = 0
     while index < len(flags):
         token = flags[index]
 
         if token == "--allowedTools":
-            saw_allowed_tools = True
             index += 2
             continue
         if token.startswith("--allowedTools="):
-            saw_allowed_tools = True
             index += 1
             continue
-
         if token == "--disallowedTools":
-            saw_disallowed_tools = True
             index += 2
             continue
         if token.startswith("--disallowedTools="):
-            saw_disallowed_tools = True
             index += 1
             continue
 
         filtered.append(token)
         index += 1
-
-    if saw_disallowed_tools:
-        logger.warning(
-            "Codex does not support disallowed-tools resolver flags; "
-            "dropping resolver-emitted --disallowedTools tokens"
-        )
-    if saw_allowed_tools:
-        logger.warning(
-            "Codex does not support allowed-tools resolver flags; "
-            "dropping resolver-emitted --allowedTools tokens"
-        )
 
     return tuple(filtered)
 
