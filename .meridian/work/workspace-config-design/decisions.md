@@ -1144,3 +1144,20 @@ first workspace/surfacing phase.
   report. Rejected because the substantive blockers are already confirmed by two
   independent review lanes, and waiting on non-terminal sibling state does not
   improve planning quality.
+
+## D-POST-REVIEW: Codex Workspace Projection Deferred (2026-04-17)
+
+**Decision:** Codex workspace projection is deferred to `harness-permission-abstraction` work item. V1 returns `unsupported:requires_config_generation`.
+
+**Rationale:** 
+- Codex `--add-dir` only grants write access, not read access
+- Read-only directory access requires `CODEX_HOME` config generation with permissions profiles
+- The `harness-permission-abstraction` work item already plans CODEX_HOME config generation
+- Building throwaway config generation now would be wasted work
+
+**Design artifact updates:**
+- `CTX-1.w1` (Codex read-only ignored) — deferred, not implemented in v1
+- Codex applicability in `config show`/`doctor` shows `unsupported:requires_config_generation`
+- No launch-time warning — users check `config show` or `doctor` for applicability
+
+**Supersedes:** Original design spec that assumed Codex `--add-dir` would work for workspace roots.

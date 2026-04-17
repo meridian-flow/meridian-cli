@@ -31,6 +31,7 @@ from meridian.cli.report_cmd import register_report_commands
 from meridian.cli.session_cmd import register_session_commands
 from meridian.cli.streaming_serve import streaming_serve
 from meridian.cli.utils import missing_fork_session_error
+from meridian.cli.workspace_cmd import register_workspace_commands
 from meridian.lib.core.sink import OutputSink
 from meridian.lib.core.util import FormatContext
 from meridian.lib.harness.registry import get_default_harness_registry
@@ -70,6 +71,7 @@ Commands:
   work     Work item dashboard and coordination
   models   Model catalog
   config   Repository config inspection and overrides
+  workspace  Local workspace topology setup
   doctor   Health check and orphan reconciliation
 
 Output:
@@ -822,6 +824,15 @@ config_app = App(
     ),
     help_formatter="plain",
 )
+workspace_app = App(
+    name="workspace",
+    help=(
+        "Local workspace topology commands.\n\n"
+        "Workspace topology is stored in workspace.local.toml next to the active .meridian/ "
+        "directory and is intentionally local-only."
+    ),
+    help_formatter="plain",
+)
 completion_app = App(name="completion", help="Shell completion helpers", help_formatter="plain")
 
 
@@ -832,6 +843,7 @@ app.command(work_app, name="work")
 app.command(models_app, name="models")
 app.command(streaming_app, name="streaming")
 app.command(config_app, name="config")
+app.command(workspace_app, name="workspace")
 app.command(completion_app, name="completion")
 
 
@@ -1151,6 +1163,7 @@ def _register_group_commands() -> None:
     register_work_commands(work_app, emit)
     register_models_commands(models_app, emit)
     register_config_commands(config_app, emit)
+    register_workspace_commands(workspace_app, emit)
     register_doctor_command(app, emit)
 
 

@@ -5,6 +5,7 @@ import pytest
 from meridian.lib.catalog import models as catalog_models
 from meridian.lib.config import settings as settings_mod
 from meridian.lib.config.settings import load_config
+from meridian.lib.core.util import to_jsonable
 from meridian.lib.ops import config as config_ops
 from meridian.lib.ops.config import (
     ConfigGetInput,
@@ -19,6 +20,11 @@ from meridian.lib.ops.config import (
     config_show_sync,
     ensure_runtime_state_bootstrap_sync,
 )
+
+
+@pytest.fixture(autouse=True)
+def _clear_state_root_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MERIDIAN_STATE_ROOT", raising=False)
 
 
 def _repo(tmp_path: Path) -> Path:
@@ -108,6 +114,118 @@ def test_config_show_reports_meridian_toml_path_when_absent(tmp_path: Path) -> N
     result = config_show_sync(ConfigShowInput(repo_root=repo_root.as_posix()))
 
     assert result.path == (repo_root / "meridian.toml").as_posix()
+
+
+def test_config_show_reports_workspace_summary_when_workspace_is_absent(tmp_path: Path) -> None:
+    repo_root = _repo(tmp_path)
+
+    result = config_show_sync(ConfigShowInput(repo_root=repo_root.as_posix()))
+
+    assert result.workspace.status == "none"
+    assert result.workspace.path is None
+    assert result.workspace.roots.count == 0
+    assert result.workspace.roots.enabled == 0
+    assert result.workspace.roots.missing == 0
+    assert result.workspace.applicability == {
+        "claude": "ignored:no_roots",
+        "codex": "ignored:no_roots",
+        "opencode": "ignored:no_roots",
+    }
+    assert result.workspace_findings == ()
+    text = result.format_text()
+    assert "workspace.status = none" in text
+    assert "workspace.roots.count = 0" in text
+    assert "workspace.applicability.claude = ignored:no_roots" in text
+    assert "workspace.applicability.codex = ignored:no_roots" in text
+    assert "workspace.applicability.opencode = ignored:no_roots" in text
+
+
+def test_config_show_surfaces_workspace_findings(tmp_path: Path) -> None:
+    repo_root = _repo(tmp_path)
+    (repo_root / "workspace.local.toml").write_text(
+        'future = "value"\n'
+        "[[context-roots]]\n"
+        'path = "./missing-root"\n'
+        'extra = "yes"\n',
+        encoding="utf-8",
+    )
+
+    result = config_show_sync(ConfigShowInput(repo_root=repo_root.as_posix()))
+
+    assert result.workspace.status == "present"
+    assert result.workspace.path == (repo_root / "workspace.local.toml").resolve().as_posix()
+    assert result.workspace.roots.count == 1
+    assert result.workspace.roots.enabled == 1
+    assert result.workspace.roots.missing == 1
+    finding_codes = {finding.code for finding in result.workspace_findings}
+    assert finding_codes == {"workspace_unknown_key", "workspace_missing_root"}
+    text = result.format_text()
+    assert "warning: workspace_unknown_key:" in text
+    assert "warning: workspace_missing_root:" in text
+
+
+def test_config_show_json_workspace_omits_null_path_and_findings(tmp_path: Path) -> None:
+    repo_root = _repo(tmp_path)
+
+    result = config_show_sync(ConfigShowInput(repo_root=repo_root.as_posix()))
+    payload = to_jsonable(result)
+
+    assert "workspace_findings" not in payload
+    workspace = payload["workspace"]
+    assert "path" not in workspace
+    assert workspace["status"] == "none"
+    assert workspace["roots"] == {"count": 0, "enabled": 0, "missing": 0}
+    assert workspace["applicability"] == {
+        "claude": "ignored:no_roots",
+        "codex": "ignored:no_roots",
+        "opencode": "ignored:no_roots",
+    }
+
+
+def test_config_show_json_workspace_includes_path_when_present(tmp_path: Path) -> None:
+    repo_root = _repo(tmp_path)
+    workspace_path = repo_root / "workspace.local.toml"
+    workspace_path.write_text(
+        "[[context-roots]]\n"
+        'path = "./missing-root"\n',
+        encoding="utf-8",
+    )
+
+    result = config_show_sync(ConfigShowInput(repo_root=repo_root.as_posix()))
+    payload = to_jsonable(result)
+
+    workspace = payload["workspace"]
+    assert workspace["path"] == workspace_path.resolve().as_posix()
+    assert workspace["roots"] == {"count": 1, "enabled": 1, "missing": 1}
+    assert workspace["applicability"] == {
+        "claude": "ignored:no_roots",
+        "codex": "ignored:no_roots",
+        "opencode": "ignored:no_roots",
+    }
+
+
+def test_config_show_marks_codex_workspace_projection_as_unsupported_when_roots_exist(
+    tmp_path: Path,
+) -> None:
+    repo_root = _repo(tmp_path)
+    shared = repo_root / "shared"
+    shared.mkdir()
+    (repo_root / "workspace.local.toml").write_text(
+        "[[context-roots]]\n"
+        'path = "./shared"\n',
+        encoding="utf-8",
+    )
+
+    result = config_show_sync(ConfigShowInput(repo_root=repo_root.as_posix()))
+
+    assert result.workspace.applicability == {
+        "claude": "active",
+        "codex": "unsupported:requires_config_generation",
+        "opencode": "active",
+    }
+    assert "workspace.applicability.codex = unsupported:requires_config_generation" in (
+        result.format_text()
+    )
 
 
 def test_config_show_and_loader_share_project_config_precedence(

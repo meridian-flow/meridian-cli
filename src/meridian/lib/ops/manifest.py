@@ -145,6 +145,12 @@ from meridian.lib.ops.work_lifecycle import (
     work_update,
     work_update_sync,
 )
+from meridian.lib.ops.workspace import (
+    WorkspaceInitInput,
+    WorkspaceInitOutput,
+    workspace_init,
+    workspace_init_sync,
+)
 
 InputT = TypeVar("InputT")
 OutputT = TypeVar("OutputT")
@@ -279,6 +285,18 @@ _OPERATIONS: tuple[OperationSpec[Any, Any], ...] = (
         cli_group="config",
         cli_name="show",
         mcp_name="config_show",
+        surfaces=frozenset({"cli"}),
+    ),
+    _spec(
+        name="workspace.init",
+        description="Create local workspace.local.toml with commented examples.",
+        handler=workspace_init,
+        sync_handler=workspace_init_sync,
+        input_type=WorkspaceInitInput,
+        output_type=WorkspaceInitOutput,
+        cli_group="workspace",
+        cli_name="init",
+        mcp_name="workspace_init",
         surfaces=frozenset({"cli"}),
     ),
     _spec(

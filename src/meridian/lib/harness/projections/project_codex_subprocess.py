@@ -13,7 +13,6 @@ from meridian.lib.harness.projections._guards import (
 from meridian.lib.launch.launch_types import PermissionResolver
 
 
-
 class HarnessCapabilityMismatch(ValueError):
     """Raised when requested launch semantics cannot be represented on Codex."""
 

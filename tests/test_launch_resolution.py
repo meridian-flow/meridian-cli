@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -5,6 +6,7 @@ import pytest
 from meridian.lib.config.settings import MeridianConfig
 from meridian.lib.core.overrides import RuntimeOverrides
 from meridian.lib.harness.registry import get_default_harness_registry
+from meridian.lib.harness.workspace_projection import OPENCODE_CONFIG_CONTENT_ENV
 from meridian.lib.launch.context import build_launch_context
 from meridian.lib.launch.plan import (
     build_primary_launch_runtime,
@@ -107,6 +109,20 @@ def test_spawn_prepare_derives_harness_from_model_before_default_harness(tmp_pat
 
     assert prepared.model == "claude-sonnet-4"
     assert prepared.harness == "claude"
+
+
+def test_spawn_prepare_fails_when_workspace_file_is_invalid(tmp_path: Path) -> None:
+    _write_minimal_mars_config(tmp_path)
+    (tmp_path / "workspace.local.toml").write_text("[[context-roots]]\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Invalid workspace file"):
+        build_create_payload(
+            SpawnCreateInput(
+                prompt="invalid workspace should fail before launch",
+                repo_root=tmp_path.as_posix(),
+                dry_run=True,
+            )
+        )
 
 
 def test_resolve_policies_cli_model_override_can_replace_profile_harness(tmp_path: Path) -> None:
@@ -225,3 +241,120 @@ def test_primary_launch_injects_inventory_inline_for_opencode(tmp_path: Path) ->
     assert "- smoke-tester" in prompt
     assert "SKILLS" not in prompt
     assert "verification: Verification helper" not in prompt
+
+
+def test_workspace_roots_append_after_claude_preflight_projection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_minimal_mars_config(tmp_path)
+    shared_root = tmp_path / "shared"
+    shared_root.mkdir()
+    (tmp_path / "workspace.local.toml").write_text(
+        "[[context-roots]]\n"
+        'path = "./shared"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CLAUDECODE", "1")
+    registry = get_default_harness_registry()
+
+    preview = build_launch_context(
+        spawn_id="dry-run-claude-workspace-order",
+        request=SpawnRequest(
+            prompt="workspace order",
+            model="claude-sonnet-4-5",
+            harness="claude",
+            extra_args=("--user-tail", "1"),
+        ),
+        runtime=LaunchRuntime(
+            argv_intent=LaunchArgvIntent.REQUIRED,
+            state_root=(tmp_path / ".meridian").as_posix(),
+            project_paths_repo_root=tmp_path.as_posix(),
+            project_paths_execution_cwd=tmp_path.as_posix(),
+        ),
+        harness_registry=registry,
+        dry_run=True,
+    )
+
+    assert preview.run_params.extra_args == (
+        "--user-tail",
+        "1",
+        "--add-dir",
+        tmp_path.as_posix(),
+        "--add-dir",
+        shared_root.as_posix(),
+    )
+
+
+def test_workspace_roots_project_to_opencode_config_content_env(tmp_path: Path) -> None:
+    _write_minimal_mars_config(tmp_path)
+    shared_root = tmp_path / "shared"
+    shared_root.mkdir()
+    (tmp_path / "workspace.local.toml").write_text(
+        "[[context-roots]]\n"
+        'path = "./shared"\n',
+        encoding="utf-8",
+    )
+    registry = get_default_harness_registry()
+
+    preview = build_launch_context(
+        spawn_id="dry-run-opencode-workspace",
+        request=SpawnRequest(
+            prompt="workspace projection",
+            model="opencode-gpt-5.3-codex",
+            harness="opencode",
+        ),
+        runtime=LaunchRuntime(
+            argv_intent=LaunchArgvIntent.REQUIRED,
+            state_root=(tmp_path / ".meridian").as_posix(),
+            project_paths_repo_root=tmp_path.as_posix(),
+            project_paths_execution_cwd=tmp_path.as_posix(),
+        ),
+        harness_registry=registry,
+        dry_run=True,
+    )
+
+    payload = json.loads(preview.env_overrides[OPENCODE_CONFIG_CONTENT_ENV])
+    assert payload == {
+        "permission": {"external_directory": [shared_root.as_posix()]},
+    }
+
+
+def test_opencode_workspace_projection_reports_parent_env_suppression(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_minimal_mars_config(tmp_path)
+    shared_root = tmp_path / "shared"
+    shared_root.mkdir()
+    (tmp_path / "workspace.local.toml").write_text(
+        "[[context-roots]]\n"
+        'path = "./shared"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv(
+        OPENCODE_CONFIG_CONTENT_ENV,
+        '{"permission":{"external_directory":["/existing"]}}',
+    )
+    registry = get_default_harness_registry()
+
+    preview = build_launch_context(
+        spawn_id="dry-run-opencode-workspace-suppressed",
+        request=SpawnRequest(
+            prompt="workspace projection",
+            model="opencode-gpt-5.3-codex",
+            harness="opencode",
+        ),
+        runtime=LaunchRuntime(
+            argv_intent=LaunchArgvIntent.REQUIRED,
+            state_root=(tmp_path / ".meridian").as_posix(),
+            project_paths_repo_root=tmp_path.as_posix(),
+            project_paths_execution_cwd=tmp_path.as_posix(),
+        ),
+        harness_registry=registry,
+        dry_run=True,
+    )
+
+    assert OPENCODE_CONFIG_CONTENT_ENV not in preview.env_overrides
+    warning_codes = {warning.code for warning in preview.warnings}
+    assert "workspace_opencode_parent_env_suppressed" in warning_codes

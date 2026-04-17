@@ -5,7 +5,6 @@
 !.gitignore
 
 # Track project config
-!config.toml
 !models.toml
 
 # Track fs/, work/, and invariants/
@@ -17,4 +16,7 @@
 !work-archive/**
 !invariants/
 !invariants/**
+# Added by Meridian to keep required project state tracked
+# Added by Meridian to keep required project state tracked
+# Added by Meridian to keep required project state tracked
 # Added by Meridian to keep required project state tracked

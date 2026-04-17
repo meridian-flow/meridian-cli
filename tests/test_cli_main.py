@@ -34,6 +34,11 @@ def test_config_help_mentions_meridian_toml() -> None:
     assert ".meridian/config.toml" not in cli_main.config_app.help
 
 
+def test_workspace_help_mentions_local_workspace_file() -> None:
+    assert "workspace.local.toml" in cli_main.workspace_app.help
+    assert "workspace.toml" not in cli_main.workspace_app.help
+
+
 def test_main_uses_runtime_only_bootstrap_on_startup(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

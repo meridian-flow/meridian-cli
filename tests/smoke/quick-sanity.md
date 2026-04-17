@@ -44,9 +44,11 @@ uv run meridian --help >/tmp/meridian-qs-help.txt && \
 uv run meridian config show >/tmp/meridian-qs-config-show.txt && \
 test -d "$MERIDIAN_STATE_ROOT" && \
 ! test -f "$SMOKE_REPO/meridian.toml" && \
+! test -f "$SMOKE_REPO/workspace.local.toml" && \
 ! test -d "$SMOKE_REPO/.mars" && \
 ! test -f "$SMOKE_REPO/mars.toml" && \
 grep -q '^defaults.model:' /tmp/meridian-qs-config-show.txt && \
+grep -q '^workspace.status = none' /tmp/meridian-qs-config-show.txt && \
 echo "PASS: first-run bootstrap created runtime state only and show works" || echo "FAIL: first-run bootstrap or config show output was unexpected"
 ```
 

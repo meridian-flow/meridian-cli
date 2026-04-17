@@ -314,6 +314,67 @@ def test_doctor_text_output_prefixes_warning_code(
     assert "warning: updates_check_failed: Could not check for dependency updates" in text
 
 
+def test_doctor_surfaces_workspace_invalid_warning(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo_root = _create_repo_root(tmp_path)
+    _setup_warning_shape_case(repo_root, monkeypatch)
+    (repo_root / "workspace.local.toml").write_text("[[context-roots]]\n", encoding="utf-8")
+
+    result = doctor_sync(DoctorInput(repo_root=repo_root.as_posix()))
+
+    warning = _warning_by_code(result, "workspace_invalid")
+    assert "Invalid workspace schema" in warning.message
+    assert warning.payload == {"path": (repo_root / "workspace.local.toml").resolve().as_posix()}
+
+
+def test_doctor_surfaces_workspace_unknown_and_missing_root_warnings(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo_root = _create_repo_root(tmp_path)
+    _setup_warning_shape_case(repo_root, monkeypatch)
+    (repo_root / "workspace.local.toml").write_text(
+        'future = "value"\n'
+        "[[context-roots]]\n"
+        'path = "./missing-root"\n'
+        'note = "kept"\n',
+        encoding="utf-8",
+    )
+
+    result = doctor_sync(DoctorInput(repo_root=repo_root.as_posix()))
+
+    unknown = _warning_by_code(result, "workspace_unknown_key")
+    assert unknown.payload == {"keys": ["future", "context-roots[1].note"]}
+    missing = _warning_by_code(result, "workspace_missing_root")
+    assert missing.payload == {
+        "roots": [(repo_root / "missing-root").resolve().as_posix()],
+    }
+
+
+def test_doctor_surfaces_workspace_unsupported_harness_for_codex(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo_root = _create_repo_root(tmp_path)
+    _setup_warning_shape_case(repo_root, monkeypatch)
+    (repo_root / "shared").mkdir()
+    (repo_root / "workspace.local.toml").write_text(
+        "[[context-roots]]\n"
+        'path = "./shared"\n',
+        encoding="utf-8",
+    )
+
+    result = doctor_sync(DoctorInput(repo_root=repo_root.as_posix()))
+
+    warning = _warning_by_code(result, "workspace_unsupported_harness")
+    assert warning.payload == {
+        "harness": "codex",
+        "applicability": "unsupported:requires_config_generation",
+    }
+
+
 def test_doctor_skips_mars_model_resolution_for_config_surface(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

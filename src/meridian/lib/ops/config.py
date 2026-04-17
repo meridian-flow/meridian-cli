@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, cast
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 from meridian.lib.config.project_config_state import (
     ProjectConfigState,
@@ -18,8 +18,13 @@ from meridian.lib.config.settings import (
     PrimaryConfig,
     resolve_project_root,
 )
+from meridian.lib.config.workspace import WorkspaceFinding
 from meridian.lib.core.util import FormatContext, to_jsonable
-from meridian.lib.ops.config_surface import ConfigSurface, build_config_surface
+from meridian.lib.ops.config_surface import (
+    ConfigSurface,
+    ConfigSurfaceWorkspace,
+    build_config_surface,
+)
 from meridian.lib.ops.runtime import async_from_sync
 from meridian.lib.state.atomic import atomic_write_text
 from meridian.lib.state.paths import ensure_gitignore, resolve_state_paths
@@ -238,14 +243,33 @@ class ConfigShowOutput(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     path: str
+    workspace: ConfigSurfaceWorkspace
     values: tuple[ConfigResolvedValue, ...]
+    workspace_findings: tuple[WorkspaceFinding, ...] = Field(default=(), exclude=True)
     warning: str | None = None
+
+    @field_serializer("workspace")
+    def _serialize_workspace(self, value: ConfigSurfaceWorkspace) -> dict[str, object]:
+        return value.model_dump(exclude_none=True)
 
     def format_text(self, ctx: FormatContext | None = None) -> str:
         _ = ctx
         lines = [f"path: {self.path}"]
+        lines.append(f"workspace.status = {self.workspace.status}")
+        if self.workspace.path is not None:
+            lines.append(f"workspace.path = {self.workspace.path}")
+        lines.append(f"workspace.roots.count = {self.workspace.roots.count}")
+        lines.append(f"workspace.roots.enabled = {self.workspace.roots.enabled}")
+        lines.append(f"workspace.roots.missing = {self.workspace.roots.missing}")
+        for harness in ("claude", "codex", "opencode"):
+            applicability = self.workspace.applicability.get(harness)
+            if applicability is None:
+                continue
+            lines.append(f"workspace.applicability.{harness} = {applicability}")
         if self.warning is not None:
             lines.append(f"warning: {self.warning}")
+        for finding in self.workspace_findings:
+            lines.append(f"warning: {finding.code}: {finding.message}")
         for item in self.values:
             source_note = item.source
             if item.env_var is not None:
@@ -761,7 +785,9 @@ def config_show_sync(payload: ConfigShowInput) -> ConfigShowOutput:
 
     return ConfigShowOutput(
         path=inspection.surface.project_config.write_path.as_posix(),
+        workspace=inspection.surface.workspace,
         values=tuple(values),
+        workspace_findings=inspection.surface.workspace_findings,
         warning=inspection.surface.warning,
     )
 

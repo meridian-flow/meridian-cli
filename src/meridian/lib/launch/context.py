@@ -12,9 +12,14 @@ from typing import TYPE_CHECKING
 
 from meridian.lib.config.project_paths import ProjectPaths
 from meridian.lib.config.settings import MeridianConfig, load_config
+from meridian.lib.config.workspace import get_projectable_roots
 from meridian.lib.core.overrides import RuntimeOverrides
 from meridian.lib.core.types import HarnessId, ModelId
 from meridian.lib.harness.adapter import SubprocessHarness
+from meridian.lib.harness.workspace_projection import (
+    OPENCODE_CONFIG_CONTENT_ENV,
+    project_workspace_roots,
+)
 from meridian.lib.launch.launch_types import (
     CompositionWarning,
     PermissionResolver,
@@ -54,6 +59,7 @@ from .resolve import (
     resolve_skills_from_profile,
 )
 from .run_inputs import ResolvedRunInputs
+from .workspace import resolve_workspace_snapshot_for_launch
 
 if TYPE_CHECKING:
     from meridian.lib.harness.registry import HarnessRegistry
@@ -558,6 +564,8 @@ def build_launch_context(
         repo_root=Path(runtime.project_paths_repo_root).expanduser().resolve(),
         execution_cwd=Path(runtime.project_paths_execution_cwd).expanduser().resolve(),
     )
+    workspace_snapshot = resolve_workspace_snapshot_for_launch(project_paths.repo_root)
+    workspace_roots = get_projectable_roots(workspace_snapshot)
     state_root = Path(runtime.state_root).expanduser().resolve()
     resolved_request = request
     composition_warnings: tuple[CompositionWarning, ...] = ()
@@ -614,6 +622,27 @@ def build_launch_context(
             expanded_passthrough_args=tuple(resolved_request.extra_args)
         )
 
+    workspace_projection = project_workspace_roots(
+        harness_id=harness.id,
+        roots=workspace_roots,
+        parent_opencode_config_content=os.getenv(OPENCODE_CONFIG_CONTENT_ENV),
+    )
+    projected_extra_args = (
+        *preflight.expanded_passthrough_args,
+        *workspace_projection.args,
+    )
+    if workspace_projection.diagnostics:
+        composition_warnings = (
+            *composition_warnings,
+            *(
+                CompositionWarning(code=diag.code, message=diag.message)
+                for diag in workspace_projection.diagnostics
+            ),
+        )
+        resolved_request = resolved_request.model_copy(
+            update={"warning": summarize_composition_warnings(composition_warnings)}
+        )
+
     resolved_agent_metadata = resolved_request.agent_metadata
     model = (resolved_request.model or "").strip()
     requested_harness_session_id = (
@@ -629,7 +658,7 @@ def build_launch_context(
         skills=resolved_request.skills,
         agent=resolved_request.agent,
         adhoc_agent_payload=(resolved_agent_metadata.get("adhoc_agent_payload") or "").strip(),
-        extra_args=preflight.expanded_passthrough_args,
+        extra_args=projected_extra_args,
         repo_root=child_cwd.as_posix(),
         mcp_tools=resolved_request.mcp_tools,
         continue_harness_session_id=requested_harness_session_id,
@@ -672,6 +701,7 @@ def build_launch_context(
         runtime_overrides=runtime_ctx.child_context(),
         preflight_overrides=preflight.extra_env,
     )
+    merged_overrides.update(workspace_projection.env_overrides)
     is_bypass = bool(override)
     if is_bypass:
         argv, env = _build_bypass_context(
