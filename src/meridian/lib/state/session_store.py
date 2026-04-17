@@ -20,6 +20,7 @@ class SessionRecord(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     chat_id: str
+    kind: Literal["primary", "spawn"]
     harness: str
     harness_session_id: str
     execution_cwd: str | None = None
@@ -43,6 +44,7 @@ class SessionStartEvent(BaseModel):
     v: int = 1
     event: Literal["start"] = "start"
     chat_id: str
+    kind: Literal["primary", "spawn"] = "spawn"
     harness: str
     harness_session_id: str
     execution_cwd: str | None = None
@@ -104,6 +106,7 @@ def _parse_event(payload: dict[str, Any]) -> SessionEvent | None:
 def _record_from_start_event(event: SessionStartEvent) -> SessionRecord:
     return SessionRecord(
         chat_id=event.chat_id,
+        kind=event.kind,
         harness=event.harness,
         harness_session_id=event.harness_session_id,
         execution_cwd=event.execution_cwd,
@@ -321,6 +324,7 @@ def start_session(
     skill_paths: tuple[str, ...] = (),
     forked_from_chat_id: str | None = None,
     execution_cwd: str | None = None,
+    kind: Literal["primary", "spawn"] = "spawn",
 ) -> str:
     """Append a session start event and acquire a lifetime session lock."""
 
@@ -336,6 +340,7 @@ def start_session(
     try:
         event = SessionStartEvent(
             chat_id=resolved_chat_id,
+            kind=kind,
             harness=harness,
             harness_session_id=harness_session_id,
             execution_cwd=execution_cwd,
@@ -615,6 +620,8 @@ def cleanup_stale_sessions(state_root: Path) -> StaleSessionCleanup:
         for chat_id, lock_path, _ in stale:
             existing = records.get(chat_id)
             lease_exists, lease_session_instance_id = _read_session_lease(paths, chat_id)
+            if existing is not None and existing.kind == "primary":
+                continue
             stop_session_instance_id = lease_session_instance_id
             if not lease_exists and existing is not None:
                 stop_session_instance_id = existing.session_instance_id

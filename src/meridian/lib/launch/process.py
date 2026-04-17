@@ -315,6 +315,7 @@ def run_harness_process(
             skills=session_metadata.skills,
             skill_paths=session_metadata.skill_paths,
             execution_cwd=str(execution_cwd),
+            kind="primary",
             _start_session=start_session,
             _stop_session=stop_session,
             _update_session_harness_id=update_session_harness_id,

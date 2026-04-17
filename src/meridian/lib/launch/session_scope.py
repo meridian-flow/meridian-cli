@@ -6,6 +6,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from meridian.lib.state.session_store import (
     start_session,
@@ -35,6 +36,7 @@ def session_scope(
     skill_paths: tuple[str, ...] = (),
     forked_from_chat_id: str | None = None,
     execution_cwd: str | None = None,
+    kind: Literal["primary", "spawn"] = "spawn",
     _start_session: Callable[..., str] = start_session,
     _stop_session: Callable[[Path, str], None] = stop_session,
     _update_session_harness_id: Callable[[Path, str, str], None] = update_session_harness_id,
@@ -52,6 +54,7 @@ def session_scope(
         skill_paths=skill_paths,
         forked_from_chat_id=forked_from_chat_id,
         execution_cwd=execution_cwd,
+        kind=kind,
     )
 
     def _record_harness_session_id(session_id: str) -> None:

@@ -45,8 +45,6 @@ from meridian.lib.ops.mars import (
 )
 from meridian.lib.ops.reference import resolve_session_reference
 from meridian.lib.ops.spawn.api import SpawnActionOutput
-from meridian.lib.state.paths import resolve_state_paths
-from meridian.lib.state.session_store import cleanup_stale_sessions
 from meridian.server.main import run_server
 
 logger = logging.getLogger(__name__)
@@ -1328,7 +1326,6 @@ def main(argv: Sequence[str] | None = None) -> None:
 
             repo_root = resolve_project_root()
             ensure_runtime_state_bootstrap_sync(repo_root)
-            cleanup_stale_sessions(resolve_state_paths(repo_root).root_dir)
         except Exception:
             logger.debug("startup bootstrap failed", exc_info=True)
 

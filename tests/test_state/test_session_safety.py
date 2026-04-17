@@ -75,6 +75,7 @@ def _write_session_start(
     chat_id: str,
     session_instance_id: str,
     harness: str = "codex",
+    kind: str = "spawn",
 ) -> None:
     with (state_root / "sessions.jsonl").open("a", encoding="utf-8") as handle:
         handle.write(
@@ -83,6 +84,7 @@ def _write_session_start(
                     "v": 1,
                     "event": "start",
                     "chat_id": chat_id,
+                    "kind": kind,
                     "harness": harness,
                     "harness_session_id": f"{chat_id}-thread",
                     "model": "gpt-5.4",
@@ -354,6 +356,50 @@ def test_cleanup_stale_sessions_stops_and_cleans_when_generation_matches(tmp_pat
     ]
     assert len(stop_rows) == 1
     assert stop_rows[0]["session_instance_id"] == session_instance_id
+
+
+def test_cleanup_stale_sessions_skips_primary_sessions(tmp_path: Path) -> None:
+    state_root = _state_root(tmp_path)
+    chat_id = "c9"
+    session_instance_id = "primary-generation"
+    _write_session_start(
+        state_root=state_root,
+        chat_id=chat_id,
+        session_instance_id=session_instance_id,
+        harness="claude",
+        kind="primary",
+    )
+
+    lock_path = state_root / "sessions" / f"{chat_id}.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path.touch()
+    lease_path = state_root / "sessions" / f"{chat_id}.lease.json"
+    lease_path.write_text(
+        json.dumps(
+            {
+                "chat_id": chat_id,
+                "owner_pid": 789,
+                "session_instance_id": session_instance_id,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    cleanup = session_store.cleanup_stale_sessions(state_root)
+
+    assert cleanup.cleaned_ids == ()
+    assert cleanup.materialized_scopes == ()
+    assert lock_path.exists()
+    assert lease_path.exists()
+    rows = [
+        json.loads(line)
+        for line in (state_root / "sessions.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    stop_rows = [
+        row for row in rows if row.get("event") == "stop" and row.get("chat_id") == chat_id
+    ]
+    assert stop_rows == []
 
 
 def test_records_by_session_ignores_mismatched_generation_stop_and_update(tmp_path: Path) -> None:

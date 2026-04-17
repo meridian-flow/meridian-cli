@@ -62,9 +62,6 @@ def test_main_uses_runtime_only_bootstrap_on_startup(
         _ = root
         calls["config_bootstrap"] += 1
 
-    def _cleanup(_state_root: Path) -> None:
-        return None
-
     def _create_sink(*_args: object, **_kwargs: object) -> SimpleNamespace:
         return SimpleNamespace()
 
@@ -77,7 +74,6 @@ def test_main_uses_runtime_only_bootstrap_on_startup(
     monkeypatch.setattr(settings_mod, "resolve_project_root", _resolve_project_root)
     monkeypatch.setattr(config_mod, "ensure_runtime_state_bootstrap_sync", _runtime_bootstrap)
     monkeypatch.setattr(config_mod, "ensure_state_bootstrap_sync", _config_bootstrap)
-    monkeypatch.setattr(cli_main, "cleanup_stale_sessions", _cleanup)
     monkeypatch.setattr(cli_main, "create_sink", _create_sink)
     monkeypatch.setattr(cli_main, "flush_sink", _flush_sink)
     monkeypatch.setattr(cli_main, "app", _app)
