@@ -7,8 +7,10 @@ from types import SimpleNamespace
 
 import pytest
 
+from meridian.lib.catalog import models as catalog_models
 from meridian.lib.ops import diag
 from meridian.lib.ops import mars as mars_ops
+from meridian.lib.ops.config import ConfigShowInput, config_show_sync
 from meridian.lib.ops.diag import DoctorInput, doctor_sync
 
 
@@ -249,6 +251,52 @@ def test_doctor_surfaces_beyond_constraint_warning_from_outdated_payload(
     )
 
 
+def test_doctor_uses_shared_config_surface_builder(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo_root = _create_repo_root(tmp_path)
+    _setup_warning_shape_case(repo_root, monkeypatch)
+    calls: list[Path] = []
+    original_builder = diag.build_config_surface
+
+    def _tracked_builder(root: Path) -> object:
+        calls.append(root)
+        return original_builder(root)
+
+    monkeypatch.setattr(diag, "build_config_surface", _tracked_builder)
+
+    doctor_sync(DoctorInput(repo_root=repo_root.as_posix()))
+
+    assert calls == [repo_root]
+
+
+def test_doctor_warning_surface_matches_config_show_for_missing_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo_root = tmp_path / "missing-repo"
+    shown = config_show_sync(ConfigShowInput(repo_root=repo_root.as_posix()))
+    assert shown.warning is not None
+
+    monkeypatch.setattr(diag, "_repair_stale_session_locks", lambda *_args, **_kwargs: 0)
+    monkeypatch.setattr(diag, "_repair_orphan_runs", lambda *_args, **_kwargs: 0)
+    monkeypatch.setattr(
+        diag,
+        "check_upgrade_availability",
+        lambda *_args, **_kwargs: mars_ops.UpgradeAvailability(),
+    )
+    monkeypatch.setattr(
+        diag.spawn_store,
+        "list_spawns",
+        lambda *_args, **_kwargs: [],
+    )
+
+    result = doctor_sync(DoctorInput(repo_root=repo_root.as_posix()))
+
+    assert shown.warning in {warning.message for warning in result.warnings}
+
+
 def test_doctor_text_output_prefixes_warning_code(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -264,3 +312,32 @@ def test_doctor_text_output_prefixes_warning_code(
 
     text = result.format_text()
     assert "warning: updates_check_failed: Could not check for dependency updates" in text
+
+
+def test_doctor_skips_mars_model_resolution_for_config_surface(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo_root = _create_repo_root(tmp_path)
+    monkeypatch.setenv("MERIDIAN_DEFAULT_MODEL", "gpt-5.4")
+    monkeypatch.setattr(diag, "_repair_stale_session_locks", lambda *_args, **_kwargs: 0)
+    monkeypatch.setattr(diag, "_repair_orphan_runs", lambda *_args, **_kwargs: 0)
+    monkeypatch.setattr(
+        diag,
+        "check_upgrade_availability",
+        lambda *_args, **_kwargs: mars_ops.UpgradeAvailability(),
+    )
+    monkeypatch.setattr(
+        diag.spawn_store,
+        "list_spawns",
+        lambda *_args, **_kwargs: [],
+    )
+
+    def _unexpected_resolve_model(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("doctor config surface should not call model resolution")
+
+    monkeypatch.setattr(catalog_models, "resolve_model", _unexpected_resolve_model)
+
+    result = doctor_sync(DoctorInput(repo_root=repo_root.as_posix()))
+
+    assert result.repo_root == repo_root.as_posix()

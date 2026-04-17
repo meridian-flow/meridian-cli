@@ -1112,3 +1112,35 @@ review for all source changes.
 precedence rule. After the 2026-04-16 design-package alignment pass, the v1
 scope for `MERIDIAN_WORKSPACE` is again defined consistently by requirements,
 spec, architecture, and decisions.
+
+### D23 — Remaining-work planning must reopen residual R02 instead of assuming a clean handoff
+
+**Directive (2026-04-16):** The remaining-work implementation plan must treat
+R02 as still open. The handoff statement "R01/R02 are complete" is not used as
+planning truth.
+
+**Why:** Fresh review evidence from `.meridian/spawns/p2068/report.md` and
+`.meridian/spawns/p2069/report.md` shows three unresolved issues in the live
+repo:
+
+- `meridian config init` still routes through `_ensure_mars_init()` and can
+  create Mars-owned artifacts as a side effect.
+- `config show` / `config get` do not share the loader's full user-config
+  source resolution semantics, so default user config can be reported as
+  `builtin`.
+- `doctor` still has no shared config/workspace surface, which overlaps
+  directly with upcoming `SURF-1`.
+
+**Decision:** Regenerate the remaining-phase plan from the live repo state.
+Residual R02 cleanup is explicit planning input and may share ownership with the
+first workspace/surfacing phase.
+
+**Alternatives rejected:**
+
+- Assume R02 is closed and begin `WS-1` / `CTX-1` / `SURF-1` directly.
+  Rejected because it would build new phases on a false config/surfacing
+  baseline.
+- Hold planning until every stale phase-2 lane writes a perfect terminal
+  report. Rejected because the substantive blockers are already confirmed by two
+  independent review lanes, and waiting on non-terminal sibling state does not
+  improve planning quality.

@@ -6,10 +6,13 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
+from meridian.lib.config.settings import resolve_project_root
 from meridian.lib.core.spawn_lifecycle import is_active_spawn_status
 from meridian.lib.core.util import FormatContext
+from meridian.lib.ops.config import ensure_runtime_state_bootstrap_sync
+from meridian.lib.ops.config_surface import build_config_surface
 from meridian.lib.ops.mars import check_upgrade_availability, format_upgrade_availability
-from meridian.lib.ops.runtime import build_runtime, resolve_state_root
+from meridian.lib.ops.runtime import resolve_state_root
 from meridian.lib.state import spawn_store
 from meridian.lib.state.session_store import cleanup_stale_sessions
 
@@ -79,24 +82,34 @@ def _repair_orphan_runs(repo_root: Path) -> int:
 
 
 def doctor_sync(payload: DoctorInput) -> DoctorOutput:
-    runtime = build_runtime(payload.repo_root)
+    explicit_root = Path(payload.repo_root).expanduser().resolve() if payload.repo_root else None
+    surface = build_config_surface(resolve_project_root(explicit_root))
+    repo_root = surface.repo_root
+    ensure_runtime_state_bootstrap_sync(repo_root)
 
     repaired: list[str] = []
-    stale_locks = _repair_stale_session_locks(runtime.repo_root)
+    stale_locks = _repair_stale_session_locks(repo_root)
     if stale_locks > 0:
         repaired.append("stale_session_locks")
 
     if int(os.getenv("MERIDIAN_DEPTH", "0")) <= 0:
-        orphan_runs = _repair_orphan_runs(runtime.repo_root)
+        orphan_runs = _repair_orphan_runs(repo_root)
         if orphan_runs > 0:
             repaired.append("orphan_runs")
 
-    agents_dir = runtime.repo_root / ".agents" / "agents"
-    skills_dir = runtime.repo_root / ".agents" / "skills"
+    agents_dir = repo_root / ".agents" / "agents"
+    skills_dir = repo_root / ".agents" / "skills"
     agents_dirs = [agents_dir] if agents_dir.is_dir() else []
     skills_dirs = [skills_dir] if skills_dir.is_dir() else []
 
     warnings: list[DoctorWarning] = []
+    if surface.warning is not None:
+        warnings.append(
+            DoctorWarning(
+                code="missing_project_root",
+                message=surface.warning,
+            )
+        )
     if not skills_dirs:
         warnings.append(
             DoctorWarning(
@@ -112,7 +125,7 @@ def doctor_sync(payload: DoctorInput) -> DoctorOutput:
             )
         )
 
-    availability = check_upgrade_availability(runtime.repo_root)
+    availability = check_upgrade_availability(repo_root)
     if availability is None:
         warnings.append(
             DoctorWarning(
@@ -135,7 +148,7 @@ def doctor_sync(payload: DoctorInput) -> DoctorOutput:
 
     running = [
         row.id
-        for row in spawn_store.list_spawns(resolve_state_root(runtime.repo_root))
+        for row in spawn_store.list_spawns(resolve_state_root(repo_root))
         if is_active_spawn_status(row.status)
     ]
     if running:
@@ -149,8 +162,8 @@ def doctor_sync(payload: DoctorInput) -> DoctorOutput:
 
     return DoctorOutput(
         ok=not warnings,
-        repo_root=runtime.repo_root.as_posix(),
-        runs_checked=_count_runs(runtime.repo_root),
+        repo_root=repo_root.as_posix(),
+        runs_checked=_count_runs(repo_root),
         agents_dir=agents_dir.as_posix(),
         skills_dir=skills_dir.as_posix(),
         warnings=tuple(warnings),

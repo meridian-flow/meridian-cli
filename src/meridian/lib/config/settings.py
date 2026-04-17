@@ -30,6 +30,7 @@ class _SettingsLoadContext(BaseModel):
 
     repo_root: Path
     user_config: Path | None
+    resolve_models: bool = True
 
 
 _SETTINGS_CONTEXT: ContextVar[_SettingsLoadContext | None] = ContextVar(
@@ -64,6 +65,9 @@ def _normalize_optional_string(raw: str | None, *, source: str) -> str | None:
 def _normalize_model_identifier(model: str, *, repo_root: Path | None) -> str:
     normalized = model.strip()
     if not normalized:
+        return normalized
+    context = _SETTINGS_CONTEXT.get()
+    if context is not None and context.resolve_models is False:
         return normalized
     if repo_root is None:
         return normalized
@@ -761,7 +765,12 @@ class MeridianConfig(BaseSettings):
         )
 
 
-def load_config(repo_root: Path, *, user_config: Path | None = None) -> MeridianConfig:
+def load_config(
+    repo_root: Path,
+    *,
+    user_config: Path | None = None,
+    resolve_models: bool = True,
+) -> MeridianConfig:
     """Load config with precedence: defaults < user < project < environment.
 
     RuntimeOverrides fields (model, harness, effort, etc.) are NOT loaded
@@ -775,6 +784,7 @@ def load_config(repo_root: Path, *, user_config: Path | None = None) -> Meridian
         _SettingsLoadContext(
             repo_root=resolved_repo_root,
             user_config=resolved_user_config,
+            resolve_models=resolve_models,
         )
     )
     try:

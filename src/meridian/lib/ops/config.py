@@ -3,6 +3,7 @@
 import json
 import os
 import tomllib
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, cast
 
@@ -15,11 +16,10 @@ from meridian.lib.config.project_config_state import (
 from meridian.lib.config.settings import (
     MeridianConfig,
     PrimaryConfig,
-    load_config,
-    resolve_user_config_path,
     resolve_project_root,
 )
 from meridian.lib.core.util import FormatContext, to_jsonable
+from meridian.lib.ops.config_surface import ConfigSurface, build_config_surface
 from meridian.lib.ops.runtime import async_from_sync
 from meridian.lib.state.atomic import atomic_write_text
 from meridian.lib.state.paths import ensure_gitignore, resolve_state_paths
@@ -317,8 +317,12 @@ class ConfigResetOutput(BaseModel):
         return f"reset {self.key} ({status}) in {self.path}"
 
 
-def _config_path(repo_root: Path) -> Path:
-    return _resolve_project_config_state(repo_root).write_path
+@dataclass(frozen=True)
+class _ConfigInspectionState:
+    surface: ConfigSurface
+    project_overrides: dict[str, object]
+    user_overrides: dict[str, object]
+    resolved_values: dict[str, object]
 
 
 def _resolve_project_config_state(repo_root: Path) -> ProjectConfigState:
@@ -587,6 +591,25 @@ def _source_for_key(
     return "builtin", None
 
 
+def _build_config_inspection_state(repo_root: Path) -> _ConfigInspectionState:
+    surface = build_config_surface(repo_root)
+    project_overrides = _extract_file_overrides(
+        _read_file_payload(surface.project_config.write_path)
+    )
+    user_overrides = (
+        _extract_file_overrides(_read_file_payload(surface.user_config_path))
+        if surface.user_config_path is not None
+        else {}
+    )
+    resolved_values = _resolved_values(surface.resolved_config)
+    return _ConfigInspectionState(
+        surface=surface,
+        project_overrides=project_overrides,
+        user_overrides=user_overrides,
+        resolved_values=resolved_values,
+    )
+
+
 def _format_value_for_text(value: object) -> str:
     payload = to_jsonable(value)
     if isinstance(payload, str):
@@ -718,38 +741,29 @@ def config_init_sync(payload: ConfigInitInput) -> ConfigInitOutput:
 
 def config_show_sync(payload: ConfigShowInput) -> ConfigShowOutput:
     repo_root = _resolve_project_root(payload.repo_root)
-    state = _resolve_project_config_state(repo_root)
-    path = state.write_path
-    project_overrides = _extract_file_overrides(_read_file_payload(path))
-    user_path = resolve_user_config_path(None)
-    user_overrides = (
-        _extract_file_overrides(_read_file_payload(user_path)) if user_path is not None else {}
-    )
-
-    resolved_config = load_config(repo_root)
-    resolved_values = _resolved_values(resolved_config)
+    inspection = _build_config_inspection_state(repo_root)
 
     values: list[ConfigResolvedValue] = []
     for spec in _CONFIG_KEY_SPECS:
         source, env_var = _source_for_key(
             spec,
-            project_overrides=project_overrides,
-            user_overrides=user_overrides,
+            project_overrides=inspection.project_overrides,
+            user_overrides=inspection.user_overrides,
         )
         values.append(
             ConfigResolvedValue(
                 key=spec.canonical_key,
-                value=resolved_values[spec.canonical_key],
+                value=inspection.resolved_values[spec.canonical_key],
                 source=source,
                 env_var=env_var,
             )
         )
 
-    warning: str | None = None
-    if not repo_root.exists():
-        warning = f"Resolved project root '{repo_root.as_posix()}' does not exist on disk."
-
-    return ConfigShowOutput(path=path.as_posix(), values=tuple(values), warning=warning)
+    return ConfigShowOutput(
+        path=inspection.surface.project_config.write_path.as_posix(),
+        values=tuple(values),
+        warning=inspection.surface.warning,
+    )
 
 
 def config_set_sync(payload: ConfigSetInput) -> ConfigSetOutput:
@@ -773,25 +787,17 @@ def config_set_sync(payload: ConfigSetInput) -> ConfigSetOutput:
 
 def config_get_sync(payload: ConfigGetInput) -> ConfigGetOutput:
     repo_root = _resolve_project_root(payload.repo_root)
-    path = _config_path(repo_root)
     spec = _resolve_key_spec(payload.key)
-
-    project_overrides = _extract_file_overrides(_read_file_payload(path))
-    user_path = resolve_user_config_path(None)
-    user_overrides = (
-        _extract_file_overrides(_read_file_payload(user_path)) if user_path is not None else {}
-    )
+    inspection = _build_config_inspection_state(repo_root)
     source, env_var = _source_for_key(
         spec,
-        project_overrides=project_overrides,
-        user_overrides=user_overrides,
+        project_overrides=inspection.project_overrides,
+        user_overrides=inspection.user_overrides,
     )
-
-    resolved_values = _resolved_values(load_config(repo_root))
 
     return ConfigGetOutput(
         key=spec.canonical_key,
-        value=resolved_values[spec.canonical_key],
+        value=inspection.resolved_values[spec.canonical_key],
         source=source,
         env_var=env_var,
     )

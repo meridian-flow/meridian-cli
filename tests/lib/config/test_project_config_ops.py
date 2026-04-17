@@ -2,8 +2,10 @@ from pathlib import Path
 
 import pytest
 
+from meridian.lib.catalog import models as catalog_models
 from meridian.lib.config import settings as settings_mod
 from meridian.lib.config.settings import load_config
+from meridian.lib.ops import config as config_ops
 from meridian.lib.ops.config import (
     ConfigGetInput,
     ConfigInitInput,
@@ -160,3 +162,137 @@ def test_config_show_and_get_share_default_user_config_resolution(
     assert gotten.value == "opencode"
     assert gotten.source == "user-config"
     assert load_config(repo_root).default_harness == "opencode"
+
+
+@pytest.mark.parametrize(
+    ("runner", "expected_key"),
+    [
+        (
+            lambda repo_root: config_show_sync(ConfigShowInput(repo_root=repo_root.as_posix())),
+            None,
+        ),
+        (
+            lambda repo_root: config_get_sync(
+                ConfigGetInput(repo_root=repo_root.as_posix(), key="defaults.harness")
+            ),
+            "defaults.harness",
+        ),
+    ],
+)
+def test_config_show_and_get_resolve_env_selected_user_config_like_loader(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    runner: object,
+    expected_key: str | None,
+) -> None:
+    repo_root = _repo(tmp_path)
+    env_user_config = tmp_path / "env-user-config.toml"
+    env_user_config.write_text("[defaults]\nharness = \"opencode\"\n", encoding="utf-8")
+    monkeypatch.setenv("MERIDIAN_CONFIG", env_user_config.as_posix())
+
+    result = runner(repo_root)
+
+    if expected_key is None:
+        value = next(item for item in result.values if item.key == "defaults.harness")
+        assert value.value == "opencode"
+        assert value.source == "user-config"
+    else:
+        assert result.key == expected_key
+        assert result.value == "opencode"
+        assert result.source == "user-config"
+
+    assert load_config(repo_root).default_harness == "opencode"
+
+
+def test_config_show_uses_shared_config_surface_builder(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo_root = _repo(tmp_path)
+    calls: list[Path] = []
+    original_builder = config_ops.build_config_surface
+
+    def _tracked_builder(root: Path) -> object:
+        calls.append(root)
+        return original_builder(root)
+
+    monkeypatch.setattr(config_ops, "build_config_surface", _tracked_builder)
+
+    config_show_sync(ConfigShowInput(repo_root=repo_root.as_posix()))
+
+    assert calls == [repo_root]
+
+
+def test_config_get_uses_shared_config_surface_builder(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo_root = _repo(tmp_path)
+    calls: list[Path] = []
+    original_builder = config_ops.build_config_surface
+
+    def _tracked_builder(root: Path) -> object:
+        calls.append(root)
+        return original_builder(root)
+
+    monkeypatch.setattr(config_ops, "build_config_surface", _tracked_builder)
+
+    config_get_sync(ConfigGetInput(repo_root=repo_root.as_posix(), key="defaults.harness"))
+
+    assert calls == [repo_root]
+
+
+@pytest.mark.parametrize(
+    ("source", "expected_source"),
+    [
+        ("env", "env var"),
+        ("project", "file"),
+        ("user", "user-config"),
+    ],
+)
+def test_config_inspection_skips_mars_model_resolution_for_defaults_model(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    source: str,
+    expected_source: str,
+) -> None:
+    repo_root = _repo(tmp_path)
+    model = "gpt-5.4"
+    monkeypatch.delenv("MERIDIAN_DEFAULT_MODEL", raising=False)
+    monkeypatch.delenv("MERIDIAN_CONFIG", raising=False)
+    monkeypatch.setattr(settings_mod, "_DEFAULT_USER_CONFIG", tmp_path / "missing-default.toml")
+
+    if source == "env":
+        monkeypatch.setenv("MERIDIAN_DEFAULT_MODEL", model)
+    elif source == "project":
+        (repo_root / "meridian.toml").write_text(
+            f"[defaults]\nmodel = \"{model}\"\n",
+            encoding="utf-8",
+        )
+    else:
+        user_config = tmp_path / "user-config.toml"
+        user_config.write_text(
+            f"[defaults]\nmodel = \"{model}\"\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("MERIDIAN_CONFIG", user_config.as_posix())
+
+    def _unexpected_resolve_model(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("config inspection should not call model resolution")
+
+    monkeypatch.setattr(catalog_models, "resolve_model", _unexpected_resolve_model)
+
+    shown = config_show_sync(ConfigShowInput(repo_root=repo_root.as_posix()))
+    shown_value = next(item for item in shown.values if item.key == "defaults.model")
+    gotten = config_get_sync(ConfigGetInput(repo_root=repo_root.as_posix(), key="defaults.model"))
+
+    assert shown_value.value == model
+    assert shown_value.source == expected_source
+    assert gotten.value == model
+    assert gotten.source == expected_source
+    if expected_source == "env var":
+        assert shown_value.env_var == "MERIDIAN_DEFAULT_MODEL"
+        assert gotten.env_var == "MERIDIAN_DEFAULT_MODEL"
+    else:
+        assert shown_value.env_var is None
+        assert gotten.env_var is None
