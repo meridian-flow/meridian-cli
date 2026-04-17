@@ -153,6 +153,66 @@ launch/
   default_agent_policy.py — fallback chain when no agent profile requested
 ```
 
+## Workspace Projection
+
+Workspace context injection happens inside `build_launch_context()` in two steps, immediately after surface request resolution and before `run_params` construction.
+
+### Pre-launch gate
+
+```python
+# context.py — first lines of build_launch_context()
+workspace_snapshot = resolve_workspace_snapshot_for_launch(project_paths.repo_root)
+workspace_roots = get_projectable_roots(workspace_snapshot)
+```
+
+`resolve_workspace_snapshot_for_launch()` (in `launch/workspace.py`) wraps `resolve_workspace_snapshot()` and **raises** `ValueError` when `snapshot.status == "invalid"`. This is the hard gate: no launch proceeds with a broken workspace file. `"none"` and `"present"` pass through silently; `"none"` produces an empty roots tuple.
+
+See `config/overview.md` for the snapshot model and how the file is parsed.
+
+### Projection stage
+
+After surface request resolution, `project_workspace_roots()` maps the per-harness projection contract:
+
+```python
+workspace_projection = project_workspace_roots(
+    harness_id=harness.id,
+    roots=workspace_roots,
+    parent_opencode_config_content=os.getenv(OPENCODE_CONFIG_CONTENT_ENV),
+)
+```
+
+`project_workspace_roots()` lives in `lib/harness/workspace_projection.py`. Its contract (`ProjectionResult`):
+
+```python
+ProjectionResult
+  applicability: "active" | "unsupported:requires_config_generation" | "ignored:no_roots"
+  args: tuple[str, ...]       # appended to passthrough args
+  env_overrides: dict[str, str]
+  diagnostics: tuple[WorkspaceProjectionDiagnostic, ...]
+```
+
+Per-harness behavior:
+- **Claude**: `applicability="active"`, `args=("--add-dir", "<root>", ...)` — one `--add-dir` pair per root
+- **OpenCode**: `applicability="active"`, `env_overrides={OPENCODE_CONFIG_CONTENT: '{"permission":{"external_directory":[...]}}'}`. If the parent process already exported `OPENCODE_CONFIG_CONTENT`, projection is suppressed and a `workspace_opencode_parent_env_suppressed` diagnostic is emitted instead.
+- **Codex**: `applicability="unsupported:requires_config_generation"` — no args or env; deferred.
+- **No roots**: `applicability="ignored:no_roots"` for all harnesses.
+
+### Merging into argv and env
+
+Projection results are merged into the launch context immediately after the projection call:
+
+```python
+# Args: appended after preflight passthrough args
+projected_extra_args = (*preflight.expanded_passthrough_args, *workspace_projection.args)
+
+# Env: merged into the combined overrides dict
+merged_overrides.update(workspace_projection.env_overrides)
+```
+
+`projected_extra_args` becomes `run_params.extra_args`, which flows into `build_launch_argv()` → the subprocess command. `merged_overrides` becomes `LaunchContext.env_overrides` and is applied when building the child environment.
+
+Diagnostics from projection become `CompositionWarning` entries in `LaunchContext.warnings`, surfacing to the caller via `LaunchContext.warnings` (invariant I-13).
+
 ## Design Notes
 
 **Factory-centered composition**: All policy, permission, prompt, argv, and env assembly happens inside `build_launch_context()` and its named pipeline stages. Driving adapters are prohibited from reconstructing any of this (I-1, I-2). Adding a new composition concern = one named stage in the factory.
