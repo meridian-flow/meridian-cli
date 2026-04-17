@@ -104,11 +104,15 @@ uv add <package>          # Add a dependency (never use pip install)
 
 ### Versioning
 
-The package version lives in `src/meridian/__init__.py` as `__version__`. Usually just bump patch:
+The package version lives in `src/meridian/__init__.py` as `__version__`. Use the release helper for normal cuts. Short release guide: `docs/releasing.md`.
+
+Prefer `patch` by default, especially while the project is still on `0.0.x`.
+Omit `minor` and `major` in normal release flow. Use an explicit version only when the user explicitly asks for a larger version jump.
+
+Usually just bump patch:
 
 ```bash
 scripts/release.sh patch          # 0.0.2 → 0.0.3 (default choice)
-scripts/release.sh minor          # 0.0.3 → 0.1.0
 scripts/release.sh 0.2.0 --push   # explicit version, push tag
 ```
 
