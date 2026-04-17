@@ -130,14 +130,18 @@ Each enabled, existing root is projected at launch time. Roots that don't exist 
 ### `config show` Workspace Output
 
 ```
-workspace:
-  status: present
-  path: /your/repo/workspace.local.toml
-  roots: 2 (1 enabled, 0 missing)
-  findings: []
+workspace.status = present
+workspace.path = /your/repo/workspace.local.toml
+workspace.roots.count = 2
+workspace.roots.enabled = 1
+workspace.roots.missing = 0
+workspace.applicability.claude = active
+workspace.applicability.codex = unsupported:requires_config_generation
+workspace.applicability.opencode = active
 ```
 
 Status values: `none` (no file), `present` (parsed OK), `invalid` (parse or schema error).
+Workspace findings, when present, render as separate `warning:` lines.
 
 ### Setup
 

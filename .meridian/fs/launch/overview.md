@@ -155,7 +155,7 @@ launch/
 
 ## Workspace Projection
 
-Workspace context injection happens inside `build_launch_context()` in two steps, immediately after surface request resolution and before `run_params` construction.
+Workspace context injection happens in two steps: a pre-launch gate at the very start of `build_launch_context()`, and a projection stage after surface request resolution and before `run_params` construction.
 
 ### Pre-launch gate
 

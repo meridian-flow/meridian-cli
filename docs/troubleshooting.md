@@ -103,7 +103,7 @@ A CLI `-m MODEL` override must also drive harness selection — a profile-level 
 
 ### `workspace_invalid`
 
-The workspace file exists but cannot be parsed. Causes: TOML syntax error, wrong type for `path` (must be a non-empty string), wrong type for `enabled` (must be a boolean), or the path points to a directory rather than a file.
+The workspace file is invalid. Causes: TOML syntax error, wrong type for `path` (must be a non-empty string), wrong type for `enabled` (must be a boolean), `context-roots` is not an array of tables, or the workspace file path itself points to a directory rather than a file.
 
 Fix the TOML error in `workspace.local.toml`, then rerun `meridian doctor`.
 
@@ -121,7 +121,7 @@ Check the path in `workspace.local.toml`. Paths are resolved relative to the wor
 
 ### `workspace_unsupported_harness`
 
-Workspace roots cannot be projected to the Codex harness yet — Codex projection requires config generation that is not yet implemented. The spawn proceeds but Codex won't see the declared roots.
+When workspace roots are declared, they cannot be projected to the Codex harness yet — Codex projection requires config generation that is not yet implemented. The spawn proceeds but Codex won't see the declared roots.
 
 If multi-repo context is required, use Claude Code or OpenCode harnesses instead.
 
