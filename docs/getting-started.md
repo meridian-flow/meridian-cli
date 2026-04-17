@@ -33,13 +33,23 @@ This creates `.meridian/` with default config. Add `.meridian/fs/` and `.meridia
 
 ## Tool Integration
 
-To expose installed agent packages to a harness tool directory (`.claude/`, `.cursor/`, etc.), use the `--link` flag:
+To expose installed agent packages to a harness tool directory (`.claude/`, `.cursor/`, etc.), use the top-level convenience flag:
 
 ```bash
 meridian init --link .claude
 ```
 
-Or link an existing `.agents/` after the fact:
+`meridian init --link` keeps config/bootstrap at the top level and delegates package-link wiring to mars:
+- no `mars.toml` yet: runs `meridian mars init --link .claude`
+- existing mars project: runs `meridian mars link .claude`
+
+You can also call mars directly:
+
+```bash
+meridian mars init --link .claude
+```
+
+After `mars.toml` exists, additional link targets use:
 
 ```bash
 meridian mars link .claude
