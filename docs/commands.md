@@ -53,7 +53,7 @@ Common `spawn` flags:
 
 | Command | Description |
 | ------- | ----------- |
-| `meridian init [--link DIR]` | Initialize project (creates `.meridian/`) |
+| `meridian init [--link DIR]` | Initialize project config/runtime state; optional convenience link wiring via mars |
 | `meridian workspace init` | Create local workspace topology file |
 | `meridian config show` | Show resolved configuration |
 | `meridian config set KEY VALUE` | Set a config value |
@@ -69,12 +69,17 @@ Common `spawn` flags:
 
 | Command | Description |
 | ------- | ----------- |
+| `meridian mars init [--link DIR]` | Initialize mars project (`mars.toml`) and optionally create the initial link target in the same command |
 | `meridian mars add SOURCE` | Add an agent/skill package source |
 | `meridian mars sync` | Resolve and install packages into `.agents/` |
 | `meridian mars link DIR` | Symlink `.agents/` into a tool directory |
 | `meridian mars list` | Show installed agents and skills |
 | `meridian mars upgrade` | Fetch latest versions and sync |
 | `meridian mars doctor` | Check for drift and integrity issues |
+
+`meridian init --link DIR` is the top-level convenience path:
+- without `mars.toml`, it shells through `meridian mars init --link DIR`
+- with `mars.toml`, it shells through `meridian mars link DIR`
 
 ## Spawn Statuses
 

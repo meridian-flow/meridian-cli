@@ -63,6 +63,7 @@ Quick start:
 Run 'meridian spawn -h' for full usage.
 
 Commands:
+  init     Initialize repo config; optional --link wiring for tool directories
   mars     Forward arguments to bundled mars CLI
   spawn    Create and manage subagent runs (includes report subgroup)
   session  Read and search harness session transcripts
@@ -617,6 +618,23 @@ def _inject_upgrade_hint_into_sync_json(
     return rendered
 
 
+def _decode_json_values(raw_stdout: str) -> list[object] | None:
+    decoder = json.JSONDecoder()
+    parsed_values: list[object] = []
+    index = 0
+    while index < len(raw_stdout):
+        while index < len(raw_stdout) and raw_stdout[index].isspace():
+            index += 1
+        if index >= len(raw_stdout):
+            return parsed_values
+        try:
+            parsed, index = decoder.raw_decode(raw_stdout, index)
+        except json.JSONDecodeError:
+            return None
+        parsed_values.append(parsed)
+    return parsed_values
+
+
 @dataclass(frozen=True)
 class _MarsPassthroughRequest:
     command: tuple[str, ...]
@@ -1136,19 +1154,102 @@ def _resolve_session_target(
     )
 
 
+def _resolve_init_repo_root(path: str | None) -> Path:
+    if path:
+        return Path(path).expanduser().resolve()
+    env_root = os.getenv("MERIDIAN_REPO_ROOT", "").strip()
+    return Path(env_root).expanduser().resolve() if env_root else Path.cwd().resolve()
+
+
+def _resolve_init_link_mars_command(
+    repo_root: Path, link: str
+) -> tuple[str, list[str]]:
+    root_arg = repo_root.as_posix()
+    if (repo_root / "mars.toml").is_file():
+        return "link", ["--root", root_arg, "link", link]
+    return "init", ["--root", root_arg, "init", "--link", link]
+
+
+def _run_init_link_flow_json(
+    *,
+    executable: str,
+    mars_mode: str,
+    mars_args: Sequence[str],
+    link: str,
+    config_result: BaseModel,
+) -> None:
+    request = _parse_mars_passthrough(mars_args, output_format="json", executable=executable)
+    result = _execute_mars_passthrough(request)
+    parsed_events = _decode_json_values(result.stdout_text)
+    if parsed_events is None:
+        mars_output: object = result.stdout_text
+    elif len(parsed_events) == 1:
+        mars_output = parsed_events[0]
+    else:
+        mars_output = parsed_events
+
+    mars_payload: dict[str, object] = {
+        "mode": mars_mode,
+        "target": link,
+        "exit_code": result.returncode,
+        "output": mars_output,
+    }
+    if result.stderr_text:
+        mars_payload["stderr"] = result.stderr_text
+    emit(
+        {
+            "ok": result.returncode == 0,
+            "config": config_result.model_dump(),
+            "mars": mars_payload,
+        }
+    )
+    if result.returncode != 0:
+        raise SystemExit(result.returncode)
+
+
 @app.command(name="init")
 def init_alias(
     path: Annotated[
         str | None,
         Parameter(name="path", help="Optional project path to initialize."),
     ] = None,
+    link: Annotated[
+        str | None,
+        Parameter(
+            name="--link",
+            help="Link .agents/ into tool directory after config bootstrap (for example .claude).",
+        ),
+    ] = None,
 ) -> None:
     """Initialize meridian in the current project or provided path."""
 
     from meridian.lib.ops.config import ConfigInitInput, config_init_sync
 
-    result = config_init_sync(ConfigInitInput(repo_root=path))
-    emit(result)
+    repo_root = _resolve_init_repo_root(path)
+    result = config_init_sync(ConfigInitInput(repo_root=repo_root.as_posix()))
+    if link is None:
+        emit(result)
+        return
+
+    mars_mode, mars_args = _resolve_init_link_mars_command(repo_root, link)
+    output_format = get_global_options().output.format
+    if output_format == "json":
+        executable = _resolve_mars_executable()
+        if executable is None:
+            print(
+                "error: Failed to execute 'mars'. Install meridian with dependencies and retry.",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+        _run_init_link_flow_json(
+            executable=executable,
+            mars_mode=mars_mode,
+            mars_args=mars_args,
+            link=link,
+            config_result=result,
+        )
+        return
+    _run_mars_passthrough(mars_args, output_format=output_format)
 
 
 def _register_group_commands() -> None:

@@ -56,6 +56,9 @@ meridian init --link .claude
 ```
 
 This creates `.meridian/` with baseline config and links `.agents/` into `.claude/` so Claude Code auto-discovers installed agents and skills.
+Under the hood this is a convenience wrapper:
+- if `mars.toml` is missing, it runs `meridian mars init --link .claude`
+- if `mars.toml` already exists, it runs `meridian mars link .claude`
 
 For other tools (Cursor, etc.), use `--link .cursor` instead or in addition.
 
