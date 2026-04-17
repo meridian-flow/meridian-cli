@@ -1453,6 +1453,7 @@ def test_opencode_build_command_parity_cases() -> None:
         "--perm-opencode",
         "--extra",
         "1",
+        "--prompt",
         "prompt text",
         "--session",
         "session-2",

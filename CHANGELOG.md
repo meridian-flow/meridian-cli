@@ -4,6 +4,11 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.0.33] - 2026-04-17
+
+### Fixed
+- `meridian opencode` primary launch passed the startup prompt as the root positional `project` arg instead of OpenCode's `--prompt` flag. OpenCode tried to `open()` the whole session prompt as a path and quit immediately with `ENAMETOOLONG`.
+
 ## [0.0.32] - 2026-04-17
 
 ### Fixed

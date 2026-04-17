@@ -148,7 +148,7 @@ def project_opencode_spec_to_cli_args(
 
     if spec.interactive:
         if spec.prompt:
-            command.append(spec.prompt)
+            command.extend(("--prompt", spec.prompt))
     else:
         command.append("-")
 

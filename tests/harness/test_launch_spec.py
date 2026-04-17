@@ -229,6 +229,19 @@ def test_opencode_subprocess_projection_logs_model_flag_collision_and_keeps_tail
     assert "extra" in caplog.text.lower()
 
 
+def test_opencode_primary_projection_uses_prompt_flag_instead_of_project_positional() -> None:
+    command = project_opencode_spec_to_cli_args(
+        OpenCodeLaunchSpec(
+            prompt="prompt text",
+            interactive=True,
+            permission_resolver=_resolver(),
+        ),
+        base_command=("opencode",),
+    )
+
+    assert command == ["opencode", "--prompt", "prompt text"]
+
+
 @pytest.mark.parametrize(
     "adapter",
     (
