@@ -651,6 +651,7 @@ def build_launch_context(
     appended_system_prompt = (
         (resolved_agent_metadata.get("appended_system_prompt") or "").strip() or None
     )
+    is_primary_launch = runtime.composition_surface == LaunchCompositionSurface.PRIMARY
     run_params = ResolvedRunInputs(
         prompt=resolved_request.prompt,
         model=ModelId(model) if model else None,
@@ -661,6 +662,7 @@ def build_launch_context(
         extra_args=projected_extra_args,
         repo_root=child_cwd.as_posix(),
         mcp_tools=resolved_request.mcp_tools,
+        interactive=is_primary_launch,
         continue_harness_session_id=requested_harness_session_id,
         continue_fork=resolved_request.session.continue_fork,
         report_output_path=report_output_path.as_posix(),

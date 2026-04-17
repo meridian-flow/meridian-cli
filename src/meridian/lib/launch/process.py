@@ -170,9 +170,21 @@ def _run_primary_process_with_capture(
                 return process.wait(), process.pid
             return 130, process.pid
 
-    child_pid, master_fd = pty.fork()
+    # Create PTY and set correct size BEFORE forking, so child sees correct
+    # terminal dimensions from the start.
+    master_fd, slave_fd = pty.openpty()
+    _sync_pty_winsize(source_fd=sys.stdout.fileno(), target_fd=master_fd)
+
+    child_pid = os.fork()
     if child_pid == 0:
         try:
+            os.close(master_fd)
+            os.setsid()
+            os.dup2(slave_fd, 0)
+            os.dup2(slave_fd, 1)
+            os.dup2(slave_fd, 2)
+            if slave_fd > 2:
+                os.close(slave_fd)
             os.chdir(cwd)
             os.execvpe(command[0], command, env)
         except FileNotFoundError:
@@ -180,6 +192,7 @@ def _run_primary_process_with_capture(
         except Exception:
             os._exit(1)
 
+    os.close(slave_fd)
     try:
         if on_child_started is not None:
             try:
@@ -190,7 +203,6 @@ def _run_primary_process_with_capture(
                 with suppress(ChildProcessError):
                     os.waitpid(child_pid, 0)
                 raise
-        _sync_pty_winsize(source_fd=sys.stdout.fileno(), target_fd=master_fd)
         exit_code = _copy_primary_pty_output(
             child_pid=child_pid,
             master_fd=master_fd,

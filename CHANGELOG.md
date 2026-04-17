@@ -4,6 +4,12 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.0.32] - 2026-04-17
+
+### Fixed
+- Primary launch (`meridian` with no subcommand) dropped into JSON streaming mode instead of interactive TUI. Regression from 0.0.31 launch refactoring — `interactive` flag wasn't propagated to run inputs for PRIMARY composition surface.
+- Primary launch viewport sizing: PTY now created with correct terminal dimensions before child process starts. Was using `pty.fork()` which sets size after child starts; now uses `pty.openpty()` + manual fork so child sees correct size from first query.
+
 ## [0.0.31] - 2026-04-17
 
 ### Added
