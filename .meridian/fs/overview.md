@@ -16,6 +16,7 @@ src/meridian/
     launch/       Spawn lifecycle: prepare → resolve → process → finalize
     config/       Settings model, precedence chain, TOML read/write, workspace.local.toml
     core/         Shared primitives: type aliases, JSONL codec, signal handling, output sink
+    platform/     Cross-platform primitives: file locking, process tree termination, OS detection
     app/          REST server exposing spawn management as HTTP API (SPEC_ONLY launch path)
     streaming/    Connection abstractions for harness subprocess output; streaming runner
     observability/ Structured logging context, debug tracing, spawn-scoped log binding
