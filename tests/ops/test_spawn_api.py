@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import meridian.lib.ops.spawn.api as spawn_api
 from meridian.lib.ops.spawn.models import SpawnCreateInput, SpawnListInput, SpawnStatsInput
 from meridian.lib.state import spawn_store
-from meridian.lib.state.paths import resolve_state_paths
+from meridian.lib.state.paths import resolve_runtime_state_root
 
 
 def test_spawn_create_validates_model_against_resolved_runtime_root(
@@ -16,11 +16,11 @@ def test_spawn_create_validates_model_against_resolved_runtime_root(
     call_order: list[str] = []
     seen_validation_root: str | None = None
 
-    def _fake_resolve_runtime_root_and_config(repo_root: str | None):
+    def _fake_resolve_repo_root_input(repo_root: str | None):
         nonlocal call_order
         _ = repo_root
         call_order.append("resolve")
-        return resolved_root, object()
+        return resolved_root
 
     def _fake_validate_create_input(payload: SpawnCreateInput):
         nonlocal call_order, seen_validation_root
@@ -51,13 +51,10 @@ def test_spawn_create_validates_model_against_resolved_runtime_root(
             cli_command=(),
         )
 
-    monkeypatch.setattr(
-        spawn_api,
-        "resolve_runtime_root_and_config",
-        _fake_resolve_runtime_root_and_config,
-    )
+    monkeypatch.setattr(spawn_api, "_resolve_repo_root_input", _fake_resolve_repo_root_input)
     monkeypatch.setattr(spawn_api, "validate_create_input", _fake_validate_create_input)
     monkeypatch.setattr(spawn_api, "build_create_payload", _fake_build_create_payload)
+    monkeypatch.setattr(spawn_api, "load_config", lambda _: object())
 
     result = spawn_api.spawn_create_sync(
         SpawnCreateInput(
@@ -78,7 +75,7 @@ def test_spawn_stats_includes_finalizing_bucket(tmp_path: Path, monkeypatch) -> 
     monkeypatch.setenv("MERIDIAN_DEPTH", "1")
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
-    state_root = resolve_state_paths(repo_root).root_dir
+    state_root = resolve_runtime_state_root(repo_root)
 
     running_id = spawn_store.start_spawn(
         state_root,
@@ -133,7 +130,7 @@ def test_spawn_list_does_not_infer_running_star_from_exited_at(
     monkeypatch.setenv("MERIDIAN_DEPTH", "1")
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
-    state_root = resolve_state_paths(repo_root).root_dir
+    state_root = resolve_runtime_state_root(repo_root)
 
     spawn_id = spawn_store.start_spawn(
         state_root,

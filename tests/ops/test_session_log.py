@@ -13,6 +13,7 @@ from meridian.lib.ops.session_log import (
     session_log_sync,
 )
 from meridian.lib.state import session_store, spawn_store
+from meridian.lib.state.paths import resolve_runtime_state_root
 
 
 def test_parse_session_file_splits_segments_on_compaction_boundary(tmp_path) -> None:
@@ -102,8 +103,8 @@ def test_session_log_resolves_opencode_storage_session_file(
 ) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
-    state_root = repo_root / ".meridian"
-    state_root.mkdir()
+    state_root = resolve_runtime_state_root(repo_root)
+    state_root.mkdir(parents=True, exist_ok=True)
 
     xdg_data_home = tmp_path / "xdg-data"
     session_id = "ses_fixture_session_12345"
@@ -146,8 +147,8 @@ def test_resolve_target_chat_missing_harness_session_id_reports_unavailable_tran
 ) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
-    state_root = repo_root / ".meridian"
-    state_root.mkdir()
+    state_root = resolve_runtime_state_root(repo_root)
+    state_root.mkdir(parents=True, exist_ok=True)
 
     chat_id = session_store.start_session(
         state_root,
@@ -175,8 +176,8 @@ def test_resolve_target_chat_missing_harness_session_id_reports_unavailable_tran
 def test_resolve_target_chat_not_found_preserves_missing_chat_error(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
-    state_root = repo_root / ".meridian"
-    state_root.mkdir()
+    state_root = resolve_runtime_state_root(repo_root)
+    state_root.mkdir(parents=True, exist_ok=True)
 
     with pytest.raises(ValueError) as exc:
         resolve_target(

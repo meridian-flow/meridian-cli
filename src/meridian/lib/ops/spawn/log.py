@@ -13,8 +13,8 @@ from meridian.lib.core.util import FormatContext
 from meridian.lib.harness.transcript import text_from_value
 from meridian.lib.ops.runtime import (
     async_from_sync,
-    resolve_runtime_root_and_config,
-    resolve_state_root,
+    resolve_runtime_root_and_config_for_read,
+    resolve_state_root_for_read,
 )
 from meridian.lib.state.artifact_store import LocalStore
 
@@ -254,13 +254,13 @@ def spawn_log_sync(
     if payload.offset < 0:
         raise ValueError("offset must be >= 0")
 
-    repo_root, _ = resolve_runtime_root_and_config(payload.repo_root)
+    repo_root, _ = resolve_runtime_root_and_config_for_read(payload.repo_root)
     spawn_id = resolve_spawn_reference(repo_root, payload.spawn_id)
     row = read_spawn_row(repo_root, spawn_id)
     if row is None:
         raise ValueError(f"Spawn '{spawn_id}' not found")
 
-    state_root = resolve_state_root(repo_root)
+    state_root = resolve_state_root_for_read(repo_root)
     artifacts = LocalStore(root_dir=state_root / "artifacts")
     output_key = ArtifactKey(f"{spawn_id}/output.jsonl")
     if artifacts.exists(output_key):

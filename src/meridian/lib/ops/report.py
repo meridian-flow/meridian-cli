@@ -4,12 +4,12 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
+from meridian.lib.config.settings import resolve_project_root
 from meridian.lib.core.context import RuntimeContext
 from meridian.lib.core.util import FormatContext
 from meridian.lib.ops.runtime import (
     async_from_sync,
-    resolve_runtime_root_and_config,
-    resolve_state_root,
+    resolve_state_root_for_read,
     runtime_context,
 )
 from meridian.lib.ops.spawn.query import resolve_spawn_reference
@@ -43,14 +43,14 @@ def _resolve_spawn(
         spawn_id,
         current_spawn_id=str(resolved_ctx.spawn_id or ""),
     )
-    state_root = resolve_state_root(repo_root)
+    state_root = resolve_state_root_for_read(repo_root)
     if spawn_store.get_spawn(state_root, resolved_spawn) is None:
         raise ValueError(f"Spawn '{resolved_spawn}' not found")
     return resolved_spawn
 
 
 def _report_path(repo_root: Path, *, spawn_id: str) -> Path:
-    return resolve_state_root(repo_root) / "spawns" / spawn_id / "report.md"
+    return resolve_state_root_for_read(repo_root) / "spawns" / spawn_id / "report.md"
 
 
 def _report_snippet(text: str, *, query: str) -> str:
@@ -123,7 +123,10 @@ def report_show_sync(
     payload: ReportShowInput,
     ctx: RuntimeContext | None = None,
 ) -> ReportShowOutput:
-    repo_root, _ = resolve_runtime_root_and_config(payload.repo_root)
+    explicit_repo_root = (
+        Path(payload.repo_root).expanduser().resolve() if payload.repo_root else None
+    )
+    repo_root = resolve_project_root(explicit_repo_root)
     spawn_id = _resolve_spawn(repo_root=repo_root, spawn_id=payload.spawn_id, ctx=ctx)
     report_path = _report_path(repo_root, spawn_id=spawn_id)
     if not report_path.is_file():
@@ -141,7 +144,10 @@ def report_search_sync(
     ctx: RuntimeContext | None = None,
 ) -> ReportSearchOutput:
     resolved_ctx = runtime_context(ctx)
-    repo_root, _ = resolve_runtime_root_and_config(payload.repo_root)
+    explicit_repo_root = (
+        Path(payload.repo_root).expanduser().resolve() if payload.repo_root else None
+    )
+    repo_root = resolve_project_root(explicit_repo_root)
     limit = payload.limit if payload.limit > 0 else 20
     query = payload.query.strip()
 
@@ -152,7 +158,7 @@ def report_search_sync(
     else:
         spawn_ids = tuple(
             row.id
-            for row in reversed(spawn_store.list_spawns(resolve_state_root(repo_root)))
+            for row in reversed(spawn_store.list_spawns(resolve_state_root_for_read(repo_root)))
         )
 
     matches: list[ReportSearchResult] = []

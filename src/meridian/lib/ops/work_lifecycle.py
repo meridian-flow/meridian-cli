@@ -25,8 +25,8 @@ _NESTED_WORK_WARNING = (
 )
 
 
-def _require_work_item(state_root: Path, work_id: str) -> work_store.WorkItem:
-    item = work_store.get_work_item(state_root, work_id)
+def _require_work_item(repo_state_root: Path, work_id: str) -> work_store.WorkItem:
+    item = work_store.get_work_item(repo_state_root, work_id)
     if item is None:
         raise ValueError(f"Work item '{work_id}' not found")
     return item
@@ -231,14 +231,15 @@ def work_start_sync(
     warning = _work_warning(ctx)
     roots = resolve_roots(payload.repo_root)
     repo_root = roots.repo_root
-    state_root = roots.state_root
+    repo_state_root = roots.repo_state_root
+    runtime_state_root = roots.state_root
     chat_id = resolve_chat_id(payload_chat_id=payload.chat_id, ctx=runtime_context(ctx))
     requested_description = payload.description.strip()
     normalized_work_id = work_store.slugify(payload.label)
     if not normalized_work_id:
         raise ValueError("Work item label must contain at least one letter or number.")
 
-    existing = work_store.get_work_item(state_root, normalized_work_id)
+    existing = work_store.get_work_item(repo_state_root, normalized_work_id)
     created = False
     if existing is not None:
         if existing.status == "done":
@@ -248,15 +249,15 @@ def work_start_sync(
             )
         item = existing
     else:
-        item = work_store.create_work_item(state_root, payload.label, requested_description)
+        item = work_store.create_work_item(repo_state_root, payload.label, requested_description)
         created = True
-    set_session_work_attachment(state_root, chat_id=chat_id, work_id=item.name)
+    set_session_work_attachment(runtime_state_root, chat_id=chat_id, work_id=item.name)
     return WorkStartOutput(
         name=item.name,
         status=item.status,
         description=item.description,
         created_at=item.created_at,
-        work_dir=work_dir_display(repo_root, state_root, item.name),
+        work_dir=work_dir_display(repo_root, repo_state_root, item.name),
         created=created,
         warning=warning,
     )
@@ -269,14 +270,16 @@ def work_update_sync(
     warning = _work_warning(ctx)
     if payload.status is None and payload.description is None:
         raise ValueError("Nothing to update. Pass --status and/or --description.")
-    state_root = resolve_roots(payload.repo_root).state_root
-    current = _require_work_item(state_root, payload.work_id)
+    roots = resolve_roots(payload.repo_root)
+    repo_state_root = roots.repo_state_root
+    runtime_state_root = roots.state_root
+    current = _require_work_item(repo_state_root, payload.work_id)
     if payload.status == "done":
-        attachment_warning = _active_work_attachment_warning(state_root, payload.work_id)
-        item = work_store.archive_work_item(state_root, payload.work_id)
+        attachment_warning = _active_work_attachment_warning(runtime_state_root, payload.work_id)
+        item = work_store.archive_work_item(repo_state_root, payload.work_id)
         if payload.description is not None:
             item = work_store.update_work_item(
-                state_root,
+                repo_state_root,
                 payload.work_id,
                 description=payload.description,
             )
@@ -291,7 +294,7 @@ def work_update_sync(
             f"Use `meridian work reopen {payload.work_id}` first."
         )
     item = work_store.update_work_item(
-        state_root,
+        repo_state_root,
         payload.work_id,
         status=payload.status,
         description=payload.description,
@@ -304,9 +307,11 @@ def work_done_sync(
     ctx: RuntimeContext | None = None,
 ) -> WorkUpdateOutput:
     nested_warning = _work_warning(ctx)
-    state_root = resolve_roots(payload.repo_root).state_root
-    attachment_warning = _active_work_attachment_warning(state_root, payload.work_id)
-    item = work_store.archive_work_item(state_root, payload.work_id)
+    roots = resolve_roots(payload.repo_root)
+    repo_state_root = roots.repo_state_root
+    runtime_state_root = roots.state_root
+    attachment_warning = _active_work_attachment_warning(runtime_state_root, payload.work_id)
+    item = work_store.archive_work_item(repo_state_root, payload.work_id)
     return WorkUpdateOutput(
         name=item.name,
         status=item.status,
@@ -319,10 +324,11 @@ def work_delete_sync(
     ctx: RuntimeContext | None = None,
 ) -> WorkDeleteOutput:
     nested_warning = _work_warning(ctx)
-    state_root = resolve_roots(payload.repo_root).state_root
+    roots = resolve_roots(payload.repo_root)
+    repo_state_root = roots.repo_state_root
     try:
         item, had_artifacts = work_store.delete_work_item(
-            state_root,
+            repo_state_root,
             payload.work_id,
             force=payload.force,
         )
@@ -348,8 +354,8 @@ def work_reopen_sync(
     ctx: RuntimeContext | None = None,
 ) -> WorkReopenOutput:
     warning = _work_warning(ctx)
-    state_root = resolve_roots(payload.repo_root).state_root
-    item = work_store.reopen_work_item(state_root, payload.work_id)
+    repo_state_root = resolve_roots(payload.repo_root).repo_state_root
+    item = work_store.reopen_work_item(repo_state_root, payload.work_id)
     return WorkReopenOutput(name=item.name, status=item.status, warning=warning)
 
 
@@ -358,10 +364,12 @@ def work_switch_sync(
     ctx: RuntimeContext | None = None,
 ) -> WorkSwitchOutput:
     warning = _work_warning(ctx)
-    state_root = resolve_roots(payload.repo_root).state_root
-    item = _require_work_item(state_root, payload.work_id)
+    roots = resolve_roots(payload.repo_root)
+    repo_state_root = roots.repo_state_root
+    runtime_state_root = roots.state_root
+    item = _require_work_item(repo_state_root, payload.work_id)
     chat_id = resolve_chat_id(payload_chat_id=payload.chat_id, ctx=runtime_context(ctx))
-    updated = set_session_work_attachment(state_root, chat_id=chat_id, work_id=item.name)
+    updated = set_session_work_attachment(runtime_state_root, chat_id=chat_id, work_id=item.name)
     message = (
         f"Active work item: {item.name}"
         if updated
@@ -375,19 +383,21 @@ def work_rename_sync(
     ctx: RuntimeContext | None = None,
 ) -> WorkRenameOutput:
     warning = _work_warning(ctx)
-    state_root = resolve_roots(payload.repo_root).state_root
+    roots = resolve_roots(payload.repo_root)
+    repo_state_root = roots.repo_state_root
+    runtime_state_root = roots.state_root
     old_name = payload.work_id
-    _require_work_item(state_root, old_name)
-    item = work_store.rename_work_item(state_root, old_name, payload.new_name)
+    _require_work_item(repo_state_root, old_name)
+    item = work_store.rename_work_item(repo_state_root, old_name, payload.new_name)
 
-    for spawn in spawn_store.list_spawns(state_root, filters={"work_id": old_name}):
+    for spawn in spawn_store.list_spawns(runtime_state_root, filters={"work_id": old_name}):
         if spawn.kind == "child":
-            spawn_store.update_spawn(state_root, spawn.id, work_id=item.name)
+            spawn_store.update_spawn(runtime_state_root, spawn.id, work_id=item.name)
 
     chat_id = resolve_chat_id(payload_chat_id=payload.chat_id, ctx=runtime_context(ctx))
-    current_work_id = session_store.get_session_active_work_id(state_root, chat_id)
+    current_work_id = session_store.get_session_active_work_id(runtime_state_root, chat_id)
     if current_work_id == old_name:
-        set_session_work_attachment(state_root, chat_id=chat_id, work_id=item.name)
+        set_session_work_attachment(runtime_state_root, chat_id=chat_id, work_id=item.name)
 
     return WorkRenameOutput(
         old_name=old_name,

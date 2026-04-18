@@ -205,6 +205,7 @@ def _init_spawn(
 ) -> _SpawnContext:
     resolved_context = runtime_context(ctx)
     project_paths = resolve_project_paths(repo_root=runtime.repo_root)
+    repo_state_root = resolve_repo_state_paths(project_paths.repo_root).root_dir
     state_root = resolve_state_root(project_paths.repo_root)
     resolved_work_id = _resolve_work_id(
         payload=payload,
@@ -213,7 +214,7 @@ def _init_spawn(
     )
     if (payload.work or "").strip():
         resolved_work_id = cast("str", resolved_work_id)
-        resolved_work_id = ensure_explicit_work_item(state_root, resolved_work_id)
+        resolved_work_id = ensure_explicit_work_item(repo_state_root, resolved_work_id)
     resolved_desc = (desc if desc is not None else payload.desc).strip() or None
     spawn_id = spawn_store.start_spawn(
         state_root,

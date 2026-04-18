@@ -7,7 +7,7 @@ import structlog
 from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.catalog.models import load_discovered_models, load_merged_aliases, resolve_model
-from meridian.lib.config.settings import MeridianConfig
+from meridian.lib.config.settings import MeridianConfig, load_config, resolve_project_root
 from meridian.lib.core.context import RuntimeContext
 from meridian.lib.harness.registry import HarnessRegistry, get_default_harness_registry
 from meridian.lib.launch.context import build_launch_context
@@ -26,8 +26,8 @@ from meridian.lib.utils.time import minutes_to_seconds
 from ..runtime import (
     OperationRuntime,
     build_runtime,
-    resolve_runtime_root_and_config,
     resolve_state_root,
+    resolve_state_root_for_read,
 )
 from .models import SpawnCreateInput
 
@@ -152,13 +152,19 @@ def build_create_payload(
             config=runtime.config,
             harness_registry=runtime.harness_registry,
         )
+        state_root = resolve_state_root(runtime_view.repo_root)
     elif payload.dry_run:
-        repo_root, config = resolve_runtime_root_and_config(payload.repo_root)
+        explicit_repo_root = (
+            Path(payload.repo_root).expanduser().resolve() if payload.repo_root else None
+        )
+        repo_root = resolve_project_root(explicit_repo_root)
+        config = load_config(repo_root)
         runtime_view = _CreateRuntimeView(
             repo_root=repo_root,
             config=config,
             harness_registry=get_default_harness_registry(),
         )
+        state_root = resolve_state_root_for_read(runtime_view.repo_root)
     else:
         runtime_bundle = build_runtime(payload.repo_root)
         runtime_view = _CreateRuntimeView(
@@ -166,6 +172,7 @@ def build_create_payload(
             config=runtime_bundle.config,
             harness_registry=runtime_bundle.harness_registry,
         )
+        state_root = resolve_state_root(runtime_view.repo_root)
     loaded_references = load_reference_files(
         payload.files,
         base_dir=runtime_view.repo_root,
@@ -222,7 +229,7 @@ def build_create_payload(
             composition_surface=LaunchCompositionSurface.SPAWN_PREPARE,
             config_snapshot=runtime_view.config.model_dump(mode="json", exclude_none=True),
             report_output_path=_DRY_RUN_REPORT_PATH,
-            state_root=resolve_state_root(runtime_view.repo_root).as_posix(),
+            state_root=state_root.as_posix(),
             project_paths_repo_root=runtime_view.repo_root.as_posix(),
             project_paths_execution_cwd=runtime_view.repo_root.as_posix(),
         ),

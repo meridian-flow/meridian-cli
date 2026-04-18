@@ -9,6 +9,7 @@ from typing import NamedTuple, cast
 
 from pydantic import BaseModel, ConfigDict
 
+from meridian.lib.config.settings import resolve_project_root
 from meridian.lib.core.context import RuntimeContext
 from meridian.lib.core.types import HarnessId
 from meridian.lib.core.util import FormatContext
@@ -18,8 +19,7 @@ from meridian.lib.harness.transcript import TranscriptMessage, text_from_value
 from meridian.lib.ops.reference import resolve_session_reference
 from meridian.lib.ops.runtime import (
     async_from_sync,
-    resolve_runtime_root_and_config,
-    resolve_state_root,
+    resolve_state_root_for_read,
 )
 from meridian.lib.ops.spawn.query import read_spawn_row
 from meridian.lib.state import session_store, spawn_store
@@ -427,7 +427,7 @@ def _resolve_from_chat_id(
         raise ValueError(f"Chat '{chat_id}' not found")
     if resolved.missing_harness_session_id:
         # Fallback: check if the primary spawn for this chat has a harness session id
-        state_root = resolve_state_root(repo_root)
+        state_root = resolve_state_root_for_read(repo_root)
         spawns = spawn_store.list_spawns(state_root, filters={"chat_id": chat_id})
         fallback_session_id: str | None = None
         fallback_harness: str | None = resolved.harness
@@ -584,8 +584,11 @@ def session_log_sync(
     ctx: RuntimeContext | None = None,
 ) -> SessionLogOutput:
     _ = ctx
-    repo_root, _ = resolve_runtime_root_and_config(payload.repo_root)
-    state_root = resolve_state_root(repo_root)
+    explicit_repo_root = (
+        Path(payload.repo_root).expanduser().resolve() if payload.repo_root else None
+    )
+    repo_root = resolve_project_root(explicit_repo_root)
+    state_root = resolve_state_root_for_read(repo_root)
 
     target = resolve_target(payload, repo_root=repo_root, state_root=state_root)
     segments, total_compactions = parse_session_file(target.file_path)

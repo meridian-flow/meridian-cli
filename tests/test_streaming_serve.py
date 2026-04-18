@@ -7,7 +7,7 @@ from typing import cast
 import pytest
 
 from meridian.cli import streaming_serve as streaming_serve_module
-from meridian.lib.state.paths import resolve_state_paths
+from meridian.lib.ops.runtime import resolve_state_root
 from meridian.lib.state.spawn_store import get_spawn
 from meridian.lib.streaming.spawn_manager import DrainOutcome
 
@@ -26,8 +26,7 @@ async def test_streaming_serve_shutdown_finalizes_once_as_cancelled(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    repo_root = tmp_path
-    state_root = resolve_state_paths(repo_root).root_dir
+    state_root = resolve_state_root(tmp_path)
     helper_calls: list[tuple[str, str]] = []
 
     async def _run_streaming_spawn(**kwargs: object) -> DrainOutcome:
@@ -59,8 +58,7 @@ async def test_streaming_serve_start_failure_finalizes_failed_once(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    repo_root = tmp_path
-    state_root = resolve_state_paths(repo_root).root_dir
+    state_root = resolve_state_root(tmp_path)
 
     async def _run_streaming_spawn(**kwargs: object) -> DrainOutcome:
         _ = kwargs

@@ -8,6 +8,10 @@ from cyclopts import App, Parameter
 
 from meridian.cli.registration import register_manifest_cli_group
 from meridian.lib.core.context import RuntimeContext
+from meridian.lib.ops.context import (
+    WorkCurrentInput,
+    work_current_sync,
+)
 from meridian.lib.ops.work_dashboard import (
     WorkDashboardInput,
     WorkListInput,
@@ -97,8 +101,8 @@ def _work_sessions(
         str,
         Parameter(
             help=(
-                "Work item id. Defaults to MERIDIAN_WORK_ID, "
-                "then the active work item attached to this session."
+                "Work item id. Defaults to the active work item "
+                "attached to this session (via MERIDIAN_CHAT_ID)."
             )
         ),
     ] = "",
@@ -203,10 +207,15 @@ def _work_clear(emit: Emitter) -> None:
     emit(work_clear_sync(WorkClearInput(chat_id=_runtime_chat_id())))
 
 
+def _work_current(emit: Emitter) -> None:
+    emit(work_current_sync(WorkCurrentInput()))
+
+
 def register_work_commands(app: App, emit: Emitter) -> tuple[set[str], dict[str, str]]:
     """Register work CLI commands using registry metadata as source of truth."""
 
     handlers: dict[str, Callable[[], Callable[..., None]]] = {
+        "work.current": lambda: partial(_work_current, emit),
         "work.start": lambda: partial(_work_start, emit),
         "work.list": lambda: partial(_work_list, emit),
         "work.show": lambda: partial(_work_show, emit),

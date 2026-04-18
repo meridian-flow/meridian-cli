@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 import shlex
+from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
+from meridian.lib.config.settings import resolve_project_root
 from meridian.lib.core.context import RuntimeContext
 from meridian.lib.core.util import FormatContext
 from meridian.lib.ops.runtime import (
     async_from_sync,
-    resolve_runtime_root_and_config,
-    resolve_state_root,
+    resolve_state_root_for_read,
 )
 from meridian.lib.ops.session_log import SessionLogInput, parse_session_file, resolve_target
 
@@ -129,8 +130,11 @@ def session_search_sync(
     if not query:
         raise ValueError("query must not be empty")
 
-    repo_root, _ = resolve_runtime_root_and_config(payload.repo_root)
-    state_root = resolve_state_root(repo_root)
+    explicit_repo_root = (
+        Path(payload.repo_root).expanduser().resolve() if payload.repo_root else None
+    )
+    repo_root = resolve_project_root(explicit_repo_root)
+    state_root = resolve_state_root_for_read(repo_root)
 
     target = resolve_target(
         SessionLogInput(

@@ -31,7 +31,7 @@ from meridian.lib.state.paths import (
     StateRootPaths,
     ensure_gitignore,
     resolve_repo_state_paths,
-    resolve_runtime_state_root,
+    resolve_runtime_state_root_for_write,
 )
 
 _SECTION_ORDER: tuple[str, ...] = ("defaults", "timeouts", "harness", "primary", "output")
@@ -740,7 +740,7 @@ def ensure_runtime_state_bootstrap_sync(repo_root: Path) -> None:
     for dir_path in repo_dirs:
         dir_path.mkdir(parents=True, exist_ok=True)
 
-    runtime_root = resolve_runtime_state_root(repo_root)
+    runtime_root = resolve_runtime_state_root_for_write(repo_root)
     runtime_state = StateRootPaths.from_root_dir(runtime_root)
     runtime_dirs = (
         runtime_state.root_dir,

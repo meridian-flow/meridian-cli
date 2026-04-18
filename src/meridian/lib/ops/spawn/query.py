@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import cast
 
 from meridian.lib.core.spawn_lifecycle import is_active_spawn_status
-from meridian.lib.ops.runtime import resolve_state_root
+from meridian.lib.ops.runtime import resolve_state_root_for_read
 from meridian.lib.state import spawn_store
 
 from .models import SpawnDetailOutput
@@ -28,9 +28,8 @@ def _select_latest_spawn_id(
 ) -> str | None:
     from meridian.lib.state.reaper import reconcile_spawns
 
-    spawns = reconcile_spawns(
-        resolve_state_root(repo_root), spawn_store.list_spawns(resolve_state_root(repo_root))
-    )
+    state_root = resolve_state_root_for_read(repo_root)
+    spawns = reconcile_spawns(state_root, spawn_store.list_spawns(state_root))
     if statuses is not None:
         wanted = set(statuses)
         spawns = [item for item in spawns if item.status in wanted]
@@ -64,11 +63,12 @@ def resolve_spawn_references(repo_root: Path, refs: tuple[str, ...]) -> tuple[st
 
 
 def read_spawn_row(repo_root: Path, spawn_id: str) -> spawn_store.SpawnRecord | None:
-    record = spawn_store.get_spawn(resolve_state_root(repo_root), spawn_id)
+    state_root = resolve_state_root_for_read(repo_root)
+    record = spawn_store.get_spawn(state_root, spawn_id)
     if record is not None and is_active_spawn_status(record.status):
         from meridian.lib.state.reaper import reconcile_active_spawn
 
-        record = reconcile_active_spawn(resolve_state_root(repo_root), record)
+        record = reconcile_active_spawn(state_root, record)
     return record
 
 
@@ -78,7 +78,7 @@ def read_report(
     *,
     include_body: bool,
 ) -> tuple[str | None, str | None]:
-    report_path = resolve_state_root(repo_root) / "spawns" / spawn_id / "report.md"
+    report_path = resolve_state_root_for_read(repo_root) / "spawns" / spawn_id / "report.md"
     if not report_path.is_file():
         return None, None
     if not include_body:
@@ -182,7 +182,7 @@ def extract_last_assistant_message(stderr_text: str) -> str | None:
 
 
 def _read_running_log_details(repo_root: Path, spawn_id: str) -> tuple[str, str | None]:
-    stderr_path = resolve_state_root(repo_root) / "spawns" / spawn_id / "stderr.log"
+    stderr_path = resolve_state_root_for_read(repo_root) / "spawns" / spawn_id / "stderr.log"
     if not stderr_path.is_file():
         return stderr_path.as_posix(), None
     stderr_text = stderr_path.read_text(encoding="utf-8", errors="ignore")
@@ -194,7 +194,7 @@ def read_written_files(repo_root: Path, spawn_id: str) -> tuple[str, ...]:
     from meridian.lib.launch.written_files import extract_written_files
     from meridian.lib.state.artifact_store import LocalStore
 
-    artifacts = LocalStore(root_dir=resolve_state_root(repo_root) / "artifacts")
+    artifacts = LocalStore(root_dir=resolve_state_root_for_read(repo_root) / "artifacts")
     return extract_written_files(artifacts, SpawnId(spawn_id))
 
 

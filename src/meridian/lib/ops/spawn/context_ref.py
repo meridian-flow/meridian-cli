@@ -6,7 +6,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
-from meridian.lib.ops.runtime import resolve_state_root
+from meridian.lib.ops.runtime import resolve_state_root_for_read
 from meridian.lib.state import spawn_store
 
 from .query import (
@@ -39,7 +39,7 @@ class SpawnContextRef(BaseModel):
 def _select_spawn_for_session(repo_root: Path, chat_id: str) -> spawn_store.SpawnRecord | None:
     from meridian.lib.state.reaper import reconcile_spawns
 
-    state_root = resolve_state_root(repo_root)
+    state_root = resolve_state_root_for_read(repo_root)
     spawns = reconcile_spawns(
         state_root,
         spawn_store.list_spawns(state_root, filters={"chat_id": chat_id}),
