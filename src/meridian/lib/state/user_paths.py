@@ -7,6 +7,7 @@ import uuid
 from pathlib import Path
 
 from meridian.lib.platform import IS_WINDOWS
+from meridian.lib.platform.locking import lock_file
 from meridian.lib.state.atomic import atomic_write_text
 
 
@@ -39,6 +40,22 @@ def get_user_state_root() -> Path:
     return Path.home() / ".meridian"
 
 
+def get_project_uuid(meridian_dir: Path) -> str | None:
+    """Read-only UUID lookup from `.meridian/id`.
+
+    Returns None when the id file is missing, unreadable, or empty.
+    """
+
+    id_file = meridian_dir / "id"
+    if not id_file.is_file():
+        return None
+    try:
+        project_uuid = id_file.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    return project_uuid or None
+
+
 def get_or_create_project_uuid(meridian_dir: Path) -> str:
     """Read or generate the project UUID from .meridian/id.
 
@@ -47,14 +64,21 @@ def get_or_create_project_uuid(meridian_dir: Path) -> str:
     - UUID is 36 chars, no trailing newline
     """
 
-    id_file = meridian_dir / "id"
-    if id_file.is_file():
-        return id_file.read_text(encoding="utf-8").strip()
+    project_uuid = get_project_uuid(meridian_dir)
+    if project_uuid is not None:
+        return project_uuid
 
-    project_uuid = str(uuid.uuid4())
-    meridian_dir.mkdir(parents=True, exist_ok=True)
-    atomic_write_text(id_file, project_uuid)
-    return project_uuid
+    lock_path = meridian_dir / "id.lock"
+    with lock_file(lock_path):
+        project_uuid = get_project_uuid(meridian_dir)
+        if project_uuid is not None:
+            return project_uuid
+
+        id_file = meridian_dir / "id"
+        project_uuid = str(uuid.uuid4())
+        meridian_dir.mkdir(parents=True, exist_ok=True)
+        atomic_write_text(id_file, project_uuid)
+        return project_uuid
 
 
 def get_project_state_root(project_uuid: str) -> Path:

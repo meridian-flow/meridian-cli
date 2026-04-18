@@ -37,6 +37,16 @@ from meridian.lib.ops.config import (
     config_show,
     config_show_sync,
 )
+from meridian.lib.ops.context import (
+    ContextInput,
+    ContextOutput,
+    WorkCurrentInput,
+    WorkCurrentOutput,
+    context,
+    context_sync,
+    work_current,
+    work_current_sync,
+)
 from meridian.lib.ops.diag import DoctorInput, DoctorOutput, doctor, doctor_sync
 from meridian.lib.ops.report import (
     ReportSearchInput,
@@ -639,6 +649,30 @@ _OPERATIONS: tuple[OperationSpec[Any, Any], ...] = (
         cli_group="work",
         cli_name="update",
         mcp_name="work_update",
+        surfaces=frozenset({"cli"}),
+    ),
+    _spec(
+        name="context",
+        description="Query runtime context: work_id, repo_root, state_root, depth.",
+        handler=context,
+        sync_handler=context_sync,
+        input_type=ContextInput,
+        output_type=ContextOutput,
+        cli_group="context",
+        cli_name="context",
+        mcp_name="context",
+        surfaces=frozenset({"cli"}),
+    ),
+    _spec(
+        name="work.current",
+        description="Return just the current work_id (or empty if none attached).",
+        handler=work_current,
+        sync_handler=work_current_sync,
+        input_type=WorkCurrentInput,
+        output_type=WorkCurrentOutput,
+        cli_group="work",
+        cli_name="current",
+        mcp_name="work_current",
         surfaces=frozenset({"cli"}),
     ),
 )

@@ -20,6 +20,7 @@ from meridian.lib.ops.config import (
     config_show_sync,
     ensure_runtime_state_bootstrap_sync,
 )
+from meridian.lib.state.paths import resolve_runtime_state_root
 
 
 @pytest.fixture(autouse=True)
@@ -53,13 +54,26 @@ def test_config_init_creates_meridian_toml_and_is_idempotent(
     assert not (repo_root / ".mars").exists()
 
 
-def test_runtime_bootstrap_does_not_create_meridian_toml(tmp_path: Path) -> None:
+def test_runtime_bootstrap_does_not_create_meridian_toml(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     repo_root = _repo(tmp_path)
+    user_state_root = tmp_path / "user-state"
+    monkeypatch.setenv("MERIDIAN_HOME", user_state_root.as_posix())
 
     ensure_runtime_state_bootstrap_sync(repo_root)
+    runtime_root = resolve_runtime_state_root(repo_root)
 
     assert (repo_root / ".meridian").is_dir()
     assert (repo_root / ".meridian" / ".gitignore").is_file()
+    assert not (repo_root / ".meridian" / "artifacts").exists()
+    assert not (repo_root / ".meridian" / "cache").exists()
+    assert not (repo_root / ".meridian" / "spawns").exists()
+    project_uuid = (repo_root / ".meridian" / "id").read_text(encoding="utf-8").strip()
+    assert runtime_root == user_state_root / "projects" / project_uuid
+    assert runtime_root.is_dir()
+    assert (runtime_root / "spawns").is_dir()
     assert not (repo_root / "meridian.toml").exists()
     assert not (repo_root / ".mars").exists()
     assert not (repo_root / "mars.toml").exists()

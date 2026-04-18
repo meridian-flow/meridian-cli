@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict
 from meridian.lib.core.context import RuntimeContext
 from meridian.lib.core.spawn_lifecycle import is_active_spawn_status
 from meridian.lib.core.util import FormatContext
-from meridian.lib.ops.runtime import async_from_sync, resolve_roots, runtime_context
+from meridian.lib.ops.runtime import async_from_sync, resolve_roots_for_read, runtime_context
 from meridian.lib.state import session_store, spawn_store, work_store
 
 
@@ -135,8 +135,8 @@ def _associated_with_work_item(
     return (spawn.work_id or "").strip() == work_id
 
 
-def work_dir_display(repo_root: Path, state_root: Path, work_id: str) -> str:
-    return _display_path(repo_root, work_store.work_scratch_dir(state_root, work_id))
+def work_dir_display(repo_root: Path, repo_state_root: Path, work_id: str) -> str:
+    return _display_path(repo_root, work_store.work_scratch_dir(repo_state_root, work_id))
 
 
 class WorkDashboardItem(BaseModel):
@@ -385,15 +385,19 @@ def work_dashboard_sync(
     ctx: RuntimeContext | None = None,
 ) -> WorkDashboardOutput:
     _ = ctx
-    state_root = resolve_roots(payload.repo_root).state_root
-    items_by_name = {item.name: item for item in work_store.list_work_items(state_root)}
-    active_session_work_ids = _active_session_work_ids(state_root)
+    roots = resolve_roots_for_read(payload.repo_root)
+    repo_state_root = roots.repo_state_root
+    runtime_state_root = roots.state_root
+    items_by_name = {item.name: item for item in work_store.list_work_items(repo_state_root)}
+    active_session_work_ids = _active_session_work_ids(runtime_state_root)
     grouped: dict[str, list[WorkDashboardSpawn]] = {}
     ungrouped: list[WorkDashboardSpawn] = []
 
     from meridian.lib.state.reaper import reconcile_spawns
 
-    for spawn in reconcile_spawns(state_root, spawn_store.list_spawns(state_root)):
+    for spawn in reconcile_spawns(
+        runtime_state_root, spawn_store.list_spawns(runtime_state_root)
+    ):
         if not is_active_spawn_status(spawn.status):
             continue
         row = _dashboard_spawn(spawn)
@@ -433,8 +437,8 @@ def work_list_sync(
     ctx: RuntimeContext | None = None,
 ) -> WorkListOutput:
     _ = ctx
-    state_root = resolve_roots(payload.repo_root).state_root
-    items = work_store.list_work_items(state_root)
+    repo_state_root = resolve_roots_for_read(payload.repo_root).repo_state_root
+    items = work_store.list_work_items(repo_state_root)
     if payload.done_only:
         items = [item for item in items if item.status == "done"]
     else:
@@ -457,20 +461,23 @@ def work_show_sync(
     ctx: RuntimeContext | None = None,
 ) -> WorkShowOutput:
     _ = ctx
-    roots = resolve_roots(payload.repo_root)
+    roots = resolve_roots_for_read(payload.repo_root)
     repo_root = roots.repo_root
-    state_root = roots.state_root
+    repo_state_root = roots.repo_state_root
+    runtime_state_root = roots.state_root
 
     from meridian.lib.state.reaper import reconcile_spawns
 
-    item = work_store.get_work_item(state_root, payload.work_id)
+    item = work_store.get_work_item(repo_state_root, payload.work_id)
     if item is None:
         raise ValueError(f"Work item '{payload.work_id}' not found")
 
-    active_session_work_ids = _active_session_work_ids(state_root)
+    active_session_work_ids = _active_session_work_ids(runtime_state_root)
     associated_spawns = [
         _dashboard_spawn(spawn)
-        for spawn in reconcile_spawns(state_root, spawn_store.list_spawns(state_root))
+        for spawn in reconcile_spawns(
+            runtime_state_root, spawn_store.list_spawns(runtime_state_root)
+        )
         if _associated_with_work_item(
             spawn,
             work_id=item.name,
@@ -484,9 +491,9 @@ def work_show_sync(
         status=item.status,
         description=item.description,
         created_at=item.created_at,
-        work_dir=work_dir_display(repo_root, state_root, item.name),
+        work_dir=work_dir_display(repo_root, repo_state_root, item.name),
         spawns=tuple(associated_spawns),
-        sessions=_work_sessions_for_work_id(state_root, item.name, include_all=False),
+        sessions=_work_sessions_for_work_id(runtime_state_root, item.name, include_all=False),
     )
 
 
@@ -494,20 +501,26 @@ def work_sessions_sync(
     payload: WorkSessionsInput,
     ctx: RuntimeContext | None = None,
 ) -> WorkSessionsOutput:
-    state_root = resolve_roots(payload.repo_root).state_root
+    roots = resolve_roots_for_read(payload.repo_root)
+    repo_state_root = roots.repo_state_root
+    runtime_state_root = roots.state_root
     resolved_work_id = _resolve_work_id(
         payload_work_id=payload.work_id,
-        state_root=state_root,
+        state_root=runtime_state_root,
         ctx=ctx,
     )
 
-    item = work_store.get_work_item(state_root, resolved_work_id)
+    item = work_store.get_work_item(repo_state_root, resolved_work_id)
     if item is None:
         raise ValueError(f"Work item '{resolved_work_id}' not found")
 
     return WorkSessionsOutput(
         work_id=item.name,
-        sessions=_work_sessions_for_work_id(state_root, item.name, include_all=payload.all),
+        sessions=_work_sessions_for_work_id(
+            runtime_state_root,
+            item.name,
+            include_all=payload.all,
+        ),
         all=payload.all,
     )
 

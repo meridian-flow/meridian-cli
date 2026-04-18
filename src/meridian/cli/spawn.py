@@ -13,11 +13,12 @@ from meridian.cli.main import agent_mode_enabled, current_output_sink, get_globa
 from meridian.cli.registration import register_manifest_cli_group
 from meridian.cli.spawn_inject import inject_message
 from meridian.cli.utils import missing_fork_session_error, parse_csv_list
+from meridian.lib.config.settings import resolve_project_root
 from meridian.lib.core.domain import SpawnStatus
 from meridian.lib.core.spawn_lifecycle import ACTIVE_SPAWN_STATUSES
 from meridian.lib.launch.request import SessionRequest
 from meridian.lib.ops.reference import resolve_session_reference
-from meridian.lib.ops.runtime import resolve_runtime_root_and_config, resolve_state_root
+from meridian.lib.ops.runtime import resolve_runtime_root_and_config, resolve_state_root_for_read
 from meridian.lib.ops.spawn.api import (
     SpawnActionOutput,
     SpawnCancelInput,
@@ -505,8 +506,8 @@ def _spawn_children(
     normalized_spawn_id = spawn_id.strip()
     if not normalized_spawn_id:
         raise ValueError("spawn_id is required")
-    repo_root, _ = resolve_runtime_root_and_config(None)
-    state_root = resolve_state_root(repo_root)
+    repo_root = resolve_project_root()
+    state_root = resolve_state_root_for_read(repo_root)
     from meridian.lib.state.reaper import reconcile_spawns
 
     children = list(

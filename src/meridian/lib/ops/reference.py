@@ -8,7 +8,7 @@ from pathlib import Path
 
 from meridian.lib.harness.registry import get_default_harness_registry
 from meridian.lib.harness.session_detection import infer_harness_from_untracked_session_ref
-from meridian.lib.ops.runtime import resolve_state_root
+from meridian.lib.ops.runtime import resolve_state_root_for_read
 from meridian.lib.state import session_store, spawn_store
 from meridian.lib.state.paths import resolve_spawn_log_dir
 
@@ -192,7 +192,7 @@ def resolve_session_reference(repo_root: Path, ref: str) -> ResolvedSessionRefer
     if not normalized:
         raise ValueError("Session reference is required.")
 
-    state_root = resolve_state_root(repo_root)
+    state_root = resolve_state_root_for_read(repo_root)
     if _SPAWN_REF_RE.fullmatch(normalized):
         return _resolve_spawn_reference(state_root, normalized, repo_root)
     if _CHAT_REF_RE.fullmatch(normalized):

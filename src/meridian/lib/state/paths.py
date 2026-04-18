@@ -8,7 +8,11 @@ from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.core.types import SpawnId
 from meridian.lib.state.atomic import atomic_write_text
-from meridian.lib.state.user_paths import get_or_create_project_uuid, get_project_state_root
+from meridian.lib.state.user_paths import (
+    get_or_create_project_uuid,
+    get_project_state_root,
+    get_project_uuid,
+)
 
 _MERIDIAN_DIR = ".meridian"
 _GITIGNORE_CONTENT = (
@@ -133,6 +137,14 @@ def _resolve_state_root(repo_root: Path) -> Path:
     return repo_root / candidate
 
 
+def _resolve_runtime_state_override(repo_root: Path) -> Path | None:
+    override = os.getenv("MERIDIAN_STATE_ROOT", "").strip()
+    if not override:
+        return None
+    candidate = Path(override).expanduser()
+    return candidate if candidate.is_absolute() else repo_root / candidate
+
+
 def resolve_repo_state_paths(repo_root: Path) -> StatePaths:
     """Resolve repo-owned `.meridian/` paths only (ignores runtime overrides)."""
 
@@ -147,12 +159,40 @@ def resolve_state_paths(repo_root: Path) -> StatePaths:
 
 
 def resolve_runtime_state_root(repo_root: Path) -> Path:
-    """Resolve runtime state root (spawns/sessions/cache) for a repository."""
+    """Resolve runtime state root for read paths.
 
-    override = os.getenv("MERIDIAN_STATE_ROOT", "").strip()
-    if override:
-        candidate = Path(override).expanduser()
-        return candidate if candidate.is_absolute() else repo_root / candidate
+    This helper is read-only: it never creates `.meridian/id`.
+    If no runtime UUID exists yet, it falls back to repo `.meridian/`.
+    """
+
+    runtime_root = resolve_runtime_state_root_or_none(repo_root)
+    if runtime_root is not None:
+        return runtime_root
+    return resolve_repo_state_paths(repo_root).root_dir
+
+
+def resolve_runtime_state_root_or_none(repo_root: Path) -> Path | None:
+    """Resolve runtime state root without mutation.
+
+    Returns None when no project UUID has been initialized yet.
+    """
+
+    override = _resolve_runtime_state_override(repo_root)
+    if override is not None:
+        return override
+
+    project_uuid = get_project_uuid(resolve_repo_state_paths(repo_root).root_dir)
+    if project_uuid is None:
+        return None
+    return get_project_state_root(project_uuid)
+
+
+def resolve_runtime_state_root_for_write(repo_root: Path) -> Path:
+    """Resolve runtime state root for write paths, creating project UUID if needed."""
+
+    override = _resolve_runtime_state_override(repo_root)
+    if override is not None:
+        return override
 
     project_uuid = get_or_create_project_uuid(resolve_repo_state_paths(repo_root).root_dir)
     return get_project_state_root(project_uuid)

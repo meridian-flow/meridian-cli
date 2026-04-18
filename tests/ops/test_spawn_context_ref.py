@@ -4,7 +4,7 @@ from meridian.lib.ops.spawn.api import SpawnCreateInput, spawn_create_sync
 from meridian.lib.ops.spawn.context_ref import render_context_refs, resolve_context_ref
 from meridian.lib.state import spawn_store
 from meridian.lib.state.artifact_store import LocalStore, make_artifact_key
-from meridian.lib.state.paths import resolve_state_paths
+from meridian.lib.state.paths import resolve_runtime_state_root
 
 
 def _write_agent(path: Path, *, sandbox: str) -> None:
@@ -44,8 +44,7 @@ def _seed_spawn(
     report_text: str | None = None,
     written_files: tuple[str, ...] = (),
 ) -> str:
-    state_paths = resolve_state_paths(repo_root)
-    state_root = state_paths.root_dir
+    state_root = resolve_runtime_state_root(repo_root)
     spawn_id = str(
         spawn_store.start_spawn(
             state_root,
@@ -73,7 +72,7 @@ def _seed_spawn(
         report_path.parent.mkdir(parents=True, exist_ok=True)
         report_path.write_text(report_text, encoding="utf-8")
     if written_files:
-        artifact_store = LocalStore(root_dir=state_paths.artifacts_dir)
+        artifact_store = LocalStore(root_dir=state_root / "artifacts")
         payload = (
             "{"
             + '"written_files":['

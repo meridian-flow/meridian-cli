@@ -5,11 +5,11 @@ import pytest
 from meridian.lib.ops import reference
 from meridian.lib.ops.reference import resolve_session_reference
 from meridian.lib.state import session_store, spawn_store
-from meridian.lib.state.paths import resolve_state_paths
+from meridian.lib.state.paths import resolve_runtime_state_root
 
 
 def _state_root(repo_root: Path) -> Path:
-    state_root = resolve_state_paths(repo_root).root_dir
+    state_root = resolve_runtime_state_root(repo_root)
     state_root.mkdir(parents=True, exist_ok=True)
     return state_root
 
@@ -150,7 +150,9 @@ def test_resolve_session_reference_for_legacy_claude_spawn_infers_log_dir(
 
     resolved = resolve_session_reference(repo_root, "p10")
 
-    assert resolved.source_execution_cwd == str(resolve_state_paths(repo_root).spawns_dir / "p10")
+    assert resolved.source_execution_cwd == str(
+        resolve_runtime_state_root(repo_root) / "spawns" / "p10"
+    )
 
 
 def test_resolve_session_reference_allows_spawn_without_harness_session_id(tmp_path: Path) -> None:

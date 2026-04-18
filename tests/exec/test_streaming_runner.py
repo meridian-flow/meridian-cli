@@ -44,7 +44,7 @@ from meridian.lib.launch.request import LaunchArgvIntent, LaunchRuntime, SpawnRe
 from meridian.lib.safety.permissions import PermissionConfig, TieredPermissionResolver
 from meridian.lib.state import spawn_store
 from meridian.lib.state.artifact_store import LocalStore
-from meridian.lib.state.paths import resolve_spawn_log_dir, resolve_state_paths
+from meridian.lib.state.paths import resolve_runtime_state_root, resolve_spawn_log_dir
 from meridian.lib.streaming import spawn_manager as spawn_manager_module
 
 streaming_runner_module = importlib.import_module("meridian.lib.launch.streaming_runner")
@@ -545,7 +545,7 @@ async def test_run_streaming_spawn_finishes_after_turn_completed_when_stream_dra
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    state_root = resolve_state_paths(tmp_path).root_dir
+    state_root = resolve_runtime_state_root(tmp_path)
     monkeypatch.setattr(spawn_manager_module, "ControlSocketServer", _FakeControlSocketServer)
     monkeypatch.setattr(
         "meridian.lib.harness.connections.get_connection_class",
@@ -581,7 +581,7 @@ async def test_run_streaming_spawn_threads_caller_permission_resolver_without_sw
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    state_root = resolve_state_paths(tmp_path).root_dir
+    state_root = resolve_runtime_state_root(tmp_path)
     monkeypatch.setattr(spawn_manager_module, "ControlSocketServer", _FakeControlSocketServer)
     monkeypatch.setattr(
         "meridian.lib.harness.connections.get_connection_class",
@@ -624,7 +624,7 @@ async def test_run_streaming_spawn_raises_structured_missing_binary_error(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    state_root = resolve_state_paths(tmp_path).root_dir
+    state_root = resolve_runtime_state_root(tmp_path)
     monkeypatch.setattr(spawn_manager_module, "ControlSocketServer", _FakeControlSocketServer)
     monkeypatch.setattr(
         "meridian.lib.harness.connections.get_connection_class",
@@ -660,7 +660,7 @@ async def test_execute_with_streaming_succeeds_when_turn_completes_and_stream_dr
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    state_root = resolve_state_paths(tmp_path).root_dir
+    state_root = resolve_runtime_state_root(tmp_path)
     artifacts = LocalStore(root_dir=tmp_path / ".artifacts")
     registry = HarnessRegistry()
     registry.register(_DummyCodexHarness())
@@ -716,7 +716,7 @@ async def test_execute_with_streaming_succeeds_after_report_watchdog_cleanup(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    state_root = resolve_state_paths(tmp_path).root_dir
+    state_root = resolve_runtime_state_root(tmp_path)
     artifacts = LocalStore(root_dir=tmp_path / ".artifacts")
     registry = HarnessRegistry()
     registry.register(_DummyCodexHarness())
@@ -797,7 +797,7 @@ async def test_execute_with_streaming_waits_for_delayed_terminal_failure_after_d
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    state_root = resolve_state_paths(tmp_path).root_dir
+    state_root = resolve_runtime_state_root(tmp_path)
     artifacts = LocalStore(root_dir=tmp_path / ".artifacts")
     registry = HarnessRegistry()
     registry.register(_DummyClaudeHarness())
@@ -886,7 +886,7 @@ async def test_execute_with_streaming_prefers_terminal_over_same_wakeup_signal(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    state_root = resolve_state_paths(tmp_path).root_dir
+    state_root = resolve_runtime_state_root(tmp_path)
     artifacts = LocalStore(root_dir=tmp_path / ".artifacts")
     registry = HarnessRegistry()
     registry.register(_DummyCodexHarness())
@@ -999,7 +999,7 @@ async def test_execute_with_streaming_signal_wins_without_spawn_terminal_event(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    state_root = resolve_state_paths(tmp_path).root_dir
+    state_root = resolve_runtime_state_root(tmp_path)
     artifacts = LocalStore(root_dir=tmp_path / ".artifacts")
     registry = HarnessRegistry()
     registry.register(_DummyCodexHarness())
@@ -1129,7 +1129,7 @@ async def test_execute_with_streaming_persists_missing_binary_diagnostics(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    state_root = resolve_state_paths(tmp_path).root_dir
+    state_root = resolve_runtime_state_root(tmp_path)
     artifacts = LocalStore(root_dir=tmp_path / ".artifacts")
     registry = HarnessRegistry()
     registry.register(_DummyClaudeHarness())
@@ -1194,7 +1194,7 @@ async def test_execute_with_streaming_codex_uses_adapter_resolved_launch_spec(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    state_root = resolve_state_paths(tmp_path).root_dir
+    state_root = resolve_runtime_state_root(tmp_path)
     artifacts = LocalStore(root_dir=tmp_path / ".artifacts")
     registry = HarnessRegistry()
     registry.register(CodexAdapter())
@@ -1259,7 +1259,7 @@ async def test_run_streaming_spawn_finishes_on_claude_result_without_connection_
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    state_root = resolve_state_paths(tmp_path).root_dir
+    state_root = resolve_runtime_state_root(tmp_path)
     monkeypatch.setattr(spawn_manager_module, "ControlSocketServer", _FakeControlSocketServer)
     monkeypatch.setattr(
         "meridian.lib.harness.connections.get_connection_class",
@@ -1304,7 +1304,7 @@ async def test_run_streaming_spawn_finishes_on_claude_result_without_connection_
 #     tmp_path: Path,
 #     monkeypatch: pytest.MonkeyPatch,
 # ) -> None:
-#     state_root = resolve_state_paths(tmp_path).root_dir
+#     state_root = resolve_runtime_state_root(tmp_path)
 #     artifacts = LocalStore(root_dir=tmp_path / ".artifacts")
 #     registry = HarnessRegistry()
 #     registry.register(_DummyClaudeHarness())
@@ -1348,7 +1348,7 @@ async def test_run_streaming_spawn_finishes_on_opencode_idle_without_connection_
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    state_root = resolve_state_paths(tmp_path).root_dir
+    state_root = resolve_runtime_state_root(tmp_path)
     monkeypatch.setattr(spawn_manager_module, "ControlSocketServer", _FakeControlSocketServer)
     monkeypatch.setattr(
         "meridian.lib.harness.connections.get_connection_class",
@@ -1384,7 +1384,7 @@ async def test_run_streaming_spawn_preserves_none_model_in_launch_spec(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    state_root = resolve_state_paths(tmp_path).root_dir
+    state_root = resolve_runtime_state_root(tmp_path)
     monkeypatch.setattr(spawn_manager_module, "ControlSocketServer", _FakeControlSocketServer)
     monkeypatch.setattr(
         "meridian.lib.harness.connections.get_connection_class",
@@ -1425,7 +1425,7 @@ async def test_execute_with_streaming_succeeds_when_opencode_idle_completes_but_
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    state_root = resolve_state_paths(tmp_path).root_dir
+    state_root = resolve_runtime_state_root(tmp_path)
     artifacts = LocalStore(root_dir=tmp_path / ".artifacts")
     registry = HarnessRegistry()
     registry.register(_DummyOpenCodeHarness())
@@ -1481,7 +1481,7 @@ async def test_execute_with_streaming_opencode_uses_adapter_normalized_launch_sp
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    state_root = resolve_state_paths(tmp_path).root_dir
+    state_root = resolve_runtime_state_root(tmp_path)
     artifacts = LocalStore(root_dir=tmp_path / ".artifacts")
     registry = HarnessRegistry()
     registry.register(OpenCodeAdapter())
@@ -1543,7 +1543,7 @@ async def test_execute_with_streaming_starts_and_ticks_runner_heartbeat(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    state_root = resolve_state_paths(tmp_path).root_dir
+    state_root = resolve_runtime_state_root(tmp_path)
     artifacts = LocalStore(root_dir=tmp_path / ".artifacts")
     registry = HarnessRegistry()
     registry.register(_DummyCodexHarness())
@@ -1641,7 +1641,7 @@ async def test_execute_with_streaming_marks_finalizing_before_terminal_finalize(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    state_root = resolve_state_paths(tmp_path).root_dir
+    state_root = resolve_runtime_state_root(tmp_path)
     artifacts = LocalStore(root_dir=tmp_path / ".artifacts")
     registry = HarnessRegistry()
     registry.register(_DummyCodexHarness())
@@ -1717,7 +1717,7 @@ async def test_execute_with_streaming_tolerates_mark_finalizing_cas_miss(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    state_root = resolve_state_paths(tmp_path).root_dir
+    state_root = resolve_runtime_state_root(tmp_path)
     artifacts = LocalStore(root_dir=tmp_path / ".artifacts")
     registry = HarnessRegistry()
     registry.register(_DummyCodexHarness())
@@ -1785,7 +1785,7 @@ async def test_execute_with_streaming_cancels_heartbeat_when_finalize_raises(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    state_root = resolve_state_paths(tmp_path).root_dir
+    state_root = resolve_runtime_state_root(tmp_path)
     artifacts = LocalStore(root_dir=tmp_path / ".artifacts")
     registry = HarnessRegistry()
     registry.register(_DummyCodexHarness())
@@ -1856,7 +1856,7 @@ async def test_execute_with_streaming_cancels_heartbeat_when_finalize_raises_val
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    state_root = resolve_state_paths(tmp_path).root_dir
+    state_root = resolve_runtime_state_root(tmp_path)
     artifacts = LocalStore(root_dir=tmp_path / ".artifacts")
     registry = HarnessRegistry()
     registry.register(_DummyCodexHarness())
@@ -1927,7 +1927,7 @@ async def test_execute_with_streaming_continues_when_terminal_heartbeat_touch_fa
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    state_root = resolve_state_paths(tmp_path).root_dir
+    state_root = resolve_runtime_state_root(tmp_path)
     artifacts = LocalStore(root_dir=tmp_path / ".artifacts")
     registry = HarnessRegistry()
     registry.register(_DummyCodexHarness())

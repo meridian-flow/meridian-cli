@@ -4,6 +4,7 @@ import asyncio
 import time
 from pathlib import Path
 
+from meridian.lib.config.settings import load_config
 from meridian.lib.core.context import RuntimeContext
 from meridian.lib.core.sink import NullSink, OutputSink
 from meridian.lib.core.spawn_lifecycle import ACTIVE_SPAWN_STATUSES, is_active_spawn_status
@@ -13,10 +14,14 @@ from meridian.lib.ops.reference import ResolvedSessionReference, resolve_session
 from meridian.lib.ops.runtime import (
     build_runtime_from_root_and_config,
     resolve_runtime_root_and_config,
+    resolve_runtime_root_and_config_for_read,
     resolve_state_root,
+    resolve_state_root_for_read,
     runtime_context,
 )
+from meridian.lib.ops.work_attachment import ensure_explicit_work_item
 from meridian.lib.state import spawn_store
+from meridian.lib.state.paths import resolve_repo_state_paths
 from meridian.lib.streaming.signal_canceller import CancelOutcome, SignalCanceller
 from meridian.lib.utils.time import minutes_to_seconds
 
@@ -57,6 +62,11 @@ from .query import (
 _WAIT_PROGRESS_INTERVAL_SECS = 5.0
 
 
+def _resolve_repo_root_input(repo_root: str | None) -> Path:
+    resolved_root, _ = resolve_runtime_root_and_config_for_read(repo_root)
+    return resolved_root
+
+
 def _forked_from_output(payload: SpawnCreateInput) -> str | None:
     if not payload.session.continue_fork:
         return None
@@ -77,9 +87,17 @@ def spawn_create_sync(
     sink: OutputSink | None = None,
 ) -> SpawnActionOutput:
     resolved_context = runtime_context(ctx)
-    resolved_root, config = resolve_runtime_root_and_config(payload.repo_root)
+    if payload.dry_run:
+        resolved_root = _resolve_repo_root_input(payload.repo_root)
+        config = load_config(resolved_root)
+    else:
+        resolved_root, config = resolve_runtime_root_and_config(payload.repo_root)
     payload = payload.model_copy(update={"repo_root": resolved_root.as_posix()})
     payload, preflight_warning = validate_create_input(payload)
+    if payload.dry_run and payload.work.strip():
+        repo_state_root = resolve_repo_state_paths(resolved_root).root_dir
+        resolved_work_id = ensure_explicit_work_item(repo_state_root, payload.work)
+        payload = payload.model_copy(update={"work": resolved_work_id})
 
     runtime = None
     if not payload.dry_run:
@@ -152,10 +170,10 @@ def spawn_list_sync(
     sink: OutputSink | None = None,
 ) -> SpawnListOutput:
     _ = (ctx, sink)
-    repo_root, _ = resolve_runtime_root_and_config(payload.repo_root)
+    repo_root = _resolve_repo_root_input(payload.repo_root)
     from meridian.lib.state.reaper import reconcile_spawns
 
-    state_root = resolve_state_root(repo_root)
+    state_root = resolve_state_root_for_read(repo_root)
     spawns = list(reversed(reconcile_spawns(state_root, spawn_store.list_spawns(state_root))))
 
     # When statuses is empty tuple, show all statuses but cap intelligently:
@@ -249,10 +267,10 @@ def spawn_stats_sync(
     sink: OutputSink | None = None,
 ) -> SpawnStatsOutput:
     _ = (ctx, sink)
-    repo_root, _ = resolve_runtime_root_and_config(payload.repo_root)
+    repo_root = _resolve_repo_root_input(payload.repo_root)
     from meridian.lib.state.reaper import reconcile_spawns
 
-    state_root = resolve_state_root(repo_root)
+    state_root = resolve_state_root_for_read(repo_root)
     all_spawns = reconcile_spawns(state_root, spawn_store.list_spawns(state_root))
 
     if payload.session is not None and payload.session.strip():
@@ -364,7 +382,7 @@ def spawn_show_sync(
     sink: OutputSink | None = None,
 ) -> SpawnDetailOutput:
     _ = (ctx, sink)
-    repo_root, _ = resolve_runtime_root_and_config(payload.repo_root)
+    repo_root = _resolve_repo_root_input(payload.repo_root)
     spawn_id = resolve_spawn_reference(repo_root, payload.spawn_id)
     row = read_spawn_row(repo_root, spawn_id)
     if row is None:
@@ -392,7 +410,7 @@ def spawn_files_sync(
     sink: OutputSink | None = None,
 ) -> SpawnWrittenFilesOutput:
     _ = (ctx, sink)
-    repo_root, _ = resolve_runtime_root_and_config(payload.repo_root)
+    repo_root = _resolve_repo_root_input(payload.repo_root)
     spawn_id = resolve_spawn_reference(repo_root, payload.spawn_id)
     row = read_spawn_row(repo_root, spawn_id)
     if row is None:
@@ -584,7 +602,7 @@ def spawn_wait_sync(
     sink: OutputSink | None = None,
 ) -> SpawnWaitMultiOutput:
     active_sink = sink or NullSink()
-    repo_root, config = resolve_runtime_root_and_config(payload.repo_root)
+    repo_root, config = resolve_runtime_root_and_config_for_read(payload.repo_root)
     spawn_ids = resolve_spawn_references(repo_root, _normalize_wait_spawn_ids(payload))
     timeout_minutes = (
         payload.timeout if payload.timeout is not None else config.wait_timeout_minutes

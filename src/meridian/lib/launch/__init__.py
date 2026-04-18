@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from meridian.lib.launch.launch_types import summarize_composition_warnings
+from meridian.lib.state.paths import resolve_repo_state_paths
 
 if TYPE_CHECKING:
     from meridian.lib.harness.registry import HarnessRegistry
@@ -32,14 +33,15 @@ if TYPE_CHECKING:
     )
 
 
-def _resolve_work_id_for_launch(state_root: Path, request: LaunchRequest) -> str | None:
+def _resolve_work_id_for_launch(repo_root: Path, request: LaunchRequest) -> str | None:
     """Resolve work item before entering the launch layer (policy, not mechanism)."""
 
     from meridian.lib.ops.work_attachment import ensure_explicit_work_item
 
     explicit_work_id = (request.work_id or "").strip() or None
     if explicit_work_id is not None:
-        return ensure_explicit_work_item(state_root, explicit_work_id)
+        repo_state_root = resolve_repo_state_paths(repo_root).root_dir
+        return ensure_explicit_work_item(repo_state_root, explicit_work_id)
     return None
 
 
@@ -59,10 +61,7 @@ def launch_primary(
     runtime = build_primary_launch_runtime(repo_root=repo_root)
     resolved_work_id = None
     if not request.dry_run:
-        resolved_work_id = _resolve_work_id_for_launch(
-            Path(runtime.state_root).expanduser().resolve(),
-            request,
-        )
+        resolved_work_id = _resolve_work_id_for_launch(repo_root, request)
 
     preview_context = build_launch_context(
         spawn_id="dry-run-primary",

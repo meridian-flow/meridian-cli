@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-import logging
 import os
 import shlex
 import subprocess
@@ -46,8 +45,6 @@ from meridian.lib.ops.mars import (
 from meridian.lib.ops.reference import resolve_session_reference
 from meridian.lib.ops.spawn.api import SpawnActionOutput
 from meridian.server.main import run_server
-
-logger = logging.getLogger(__name__)
 
 # Curated help for agent mode: only commands useful for subagent callers.
 # Not auto-generated — update when adding agent-facing commands.
@@ -1252,6 +1249,17 @@ def init_alias(
     _run_mars_passthrough(mars_args, output_format=output_format)
 
 
+
+
+@app.command(name="context")
+def context_cmd() -> None:
+    """Query runtime context: work_id, repo_root, state_root, depth."""
+
+    from meridian.lib.ops.context import ContextInput, context_sync
+
+    emit(context_sync(ContextInput()))
+
+
 def _register_group_commands() -> None:
     from meridian.cli.spawn import register_spawn_commands
     from meridian.cli.work_cmd import register_work_commands
@@ -1379,6 +1387,36 @@ def _is_root_help_request(argv: Sequence[str]) -> bool:
     return _first_positional_token(argv) is None
 
 
+def _first_subcommand_token(argv: Sequence[str]) -> str | None:
+    resolved = _first_positional_token_with_index(argv)
+    if resolved is None:
+        return None
+    index, _ = resolved
+    for token in argv[index + 1 :]:
+        if token == "--":
+            return None
+        if token.startswith("-"):
+            continue
+        return token
+    return None
+
+
+def _should_startup_bootstrap(argv: Sequence[str]) -> bool:
+    if any(token in {"--help", "-h", "--version"} for token in argv):
+        return False
+    top_level = _first_positional_token(argv)
+    if top_level is None:
+        return True
+    if top_level in {"context", "session", "models", "completion"}:
+        return False
+    subcommand = _first_subcommand_token(argv)
+    if top_level == "work" and subcommand in {None, "list", "show", "sessions", "current"}:
+        return False
+    if top_level == "spawn" and subcommand in {"list", "show", "stats", "wait", "files", "log"}:
+        return False
+    return True
+
+
 def _print_agent_root_help() -> None:
     print(_AGENT_ROOT_HELP, end="")
 
@@ -1420,7 +1458,7 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     _validate_top_level_command(cleaned_args, global_harness=options.harness)
 
-    if not agent_mode_enabled():
+    if not agent_mode_enabled() and _should_startup_bootstrap(cleaned_args):
         try:
             from meridian.lib.config.settings import resolve_project_root
             from meridian.lib.ops.config import ensure_runtime_state_bootstrap_sync
@@ -1428,7 +1466,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             repo_root = resolve_project_root()
             ensure_runtime_state_bootstrap_sync(repo_root)
         except Exception:
-            logger.debug("startup bootstrap failed", exc_info=True)
+            pass
 
     active_sink = create_sink(
         options.output,
