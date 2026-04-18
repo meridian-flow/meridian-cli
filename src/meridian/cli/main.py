@@ -1412,7 +1412,7 @@ def _should_startup_bootstrap(argv: Sequence[str]) -> bool:
     subcommand = _first_subcommand_token(argv)
     if top_level == "models" and subcommand in {None, "list", "show"}:
         return False
-    if top_level == "config" and subcommand == "show":
+    if top_level == "config" and subcommand in {"show", "get"}:
         return False
     if top_level == "work" and subcommand in {None, "list", "show", "sessions", "current"}:
         return False
