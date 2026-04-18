@@ -435,6 +435,11 @@ def run_harness_process(
                 command = runtime_context.argv
                 resolved_harness_session_id = runtime_context.seed_harness_session_id or ""
                 child_env = dict(runtime_context.env)
+                # Primary launches own the session created by session_scope().
+                # Ensure the harness process gets that chat id even when no
+                # parent MERIDIAN_CHAT_ID exists in the launcher environment.
+                if managed.chat_id:
+                    child_env["MERIDIAN_CHAT_ID"] = managed.chat_id
                 child_cwd = runtime_context.child_cwd
                 output_log_path = log_dir / _PRIMARY_OUTPUT_FILENAME
 
