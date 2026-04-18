@@ -20,16 +20,16 @@ uv run meridian doctor
 Use these when you want to verify the installed CLI behavior, not just `uv run`
 from the checkout.
 
-Editable install:
-
-```bash
-uv tool install --force --editable . --no-cache
-```
-
 Snapshot install from the current checkout:
 
 ```bash
-uv tool install --force . --no-cache
+uv tool install --force . --no-cache --reinstall
+```
+
+Editable install:
+
+```bash
+uv tool install --force --editable . --no-cache --reinstall
 ```
 
 Then verify the installed tool:
