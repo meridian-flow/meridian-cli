@@ -1,0 +1,11 @@
+# Migration Registry
+# 
+# Each migration is a versioned directory under migrations/.
+# Version format: vNNN (3 digits, zero-padded)
+
+[v001]
+name = "uuid_state_split"
+description = "Move runtime state (spawns, sessions) from repo .meridian/ to user-level ~/.meridian/projects/<uuid>/"
+introduced = "0.0.34"
+affects = ["repo", "user"]
+status = "pending"  # pending = not yet implemented, ready = implemented and available
