@@ -8,4 +8,4 @@ name = "uuid_state_split"
 description = "Move runtime state (spawns, sessions) from repo .meridian/ to user-level ~/.meridian/projects/<uuid>/"
 introduced = "0.0.34"
 affects = ["repo", "user"]
-status = "pending"  # pending = not yet implemented, ready = implemented and available
+status = "stub"  # pending = not yet implemented, ready = implemented and available
