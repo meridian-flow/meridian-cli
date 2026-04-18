@@ -85,6 +85,24 @@ def test_main_uses_runtime_only_bootstrap_on_startup(
     assert calls["config_bootstrap"] == 0
 
 
+@pytest.mark.parametrize(
+    ("argv", "expected"),
+    [
+        (["models"], False),
+        (["spawn", "report", "show", "spawn-id"], False),
+        (["spawn", "report", "search", "foo"], False),
+        (["models", "list"], False),
+        (["models", "show", "gpt-5.4"], False),
+        (["doctor"], False),
+        (["config", "show"], False),
+        (["models", "refresh"], True),
+        (["config", "set", "harness", "codex"], True),
+    ],
+)
+def test_should_startup_bootstrap_command_matrix(argv: list[str], expected: bool) -> None:
+    assert cli_main._should_startup_bootstrap(argv) is expected
+
+
 def test_init_alias_without_link_emits_config_init_result(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
