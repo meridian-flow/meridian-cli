@@ -1,20 +1,16 @@
 """Process management for primary agent launch."""
 
-import fcntl
 import logging
 import os
-import pty
-import select
 import signal
 import struct
 import subprocess
 import sys
-import termios
 import time
-import tty
 from collections.abc import Callable
 from contextlib import suppress
 from datetime import datetime
+from importlib import import_module
 from pathlib import Path
 from typing import Any, cast
 
@@ -29,10 +25,7 @@ from meridian.lib.harness.claude_preflight import ensure_claude_session_accessib
 from meridian.lib.harness.registry import HarnessRegistry
 from meridian.lib.state import spawn_store
 from meridian.lib.state.artifact_store import LocalStore, make_artifact_key
-from meridian.lib.state.paths import (
-    resolve_spawn_log_dir,
-    resolve_state_paths,
-)
+from meridian.lib.state.paths import resolve_spawn_log_dir
 from meridian.lib.state.session_store import (
     get_session_active_work_id,
     start_session,
@@ -50,6 +43,26 @@ from .types import PrimarySessionMetadata, SessionMode
 
 logger = logging.getLogger(__name__)
 _PRIMARY_OUTPUT_FILENAME = "output.jsonl"
+
+
+class _DeferredUnixModule:
+    """Lazy module proxy so Unix-only modules load only on demand."""
+
+    def __init__(self, module_name: str) -> None:
+        self._module_name = module_name
+        self._module: Any | None = None
+
+    def _resolve(self) -> Any:
+        if self._module is None:
+            self._module = import_module(self._module_name)
+        return self._module
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._resolve(), name)
+
+
+fcntl = _DeferredUnixModule("fcntl")
+termios = _DeferredUnixModule("termios")
 
 
 class ProcessOutcome(BaseModel):
@@ -94,6 +107,10 @@ def _copy_primary_pty_output(
     master_fd: int,
     output_log_path: Path,
 ) -> int:
+    import select
+    import termios
+    import tty
+
     stdin_fd = sys.stdin.fileno()
     stdout_fd = sys.stdout.fileno()
     stdin_open = True
@@ -172,6 +189,8 @@ def _run_primary_process_with_capture(
 
     # Create PTY and set correct size BEFORE forking, so child sees correct
     # terminal dimensions from the start.
+    import pty
+
     master_fd, slave_fd = pty.openpty()
     _sync_pty_winsize(source_fd=sys.stdout.fileno(), target_fd=master_fd)
 
@@ -294,7 +313,7 @@ def run_harness_process(
     primary_started = 0.0
     primary_started_epoch = 0.0
     primary_started_local_iso: str | None = None
-    artifacts = LocalStore(root_dir=resolve_state_paths(repo_root).artifacts_dir)
+    artifacts = LocalStore(root_dir=state_root / "artifacts")
 
     resume_chat_id = (
         preview_request.session.continue_chat_id

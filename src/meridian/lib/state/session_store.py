@@ -1,19 +1,40 @@
 """File-backed session tracking for a Meridian state root's `sessions.jsonl`."""
 
-import fcntl
 import json
 import os
 import uuid
+from importlib import import_module
 from pathlib import Path
 from typing import Any, BinaryIO, Literal, NamedTuple, cast
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
+from meridian.lib.platform import IS_WINDOWS
+from meridian.lib.platform.locking import lock_file
 from meridian.lib.state.atomic import atomic_write_text
-from meridian.lib.state.event_store import append_event, lock_file, read_events, utc_now_iso
+from meridian.lib.state.event_store import append_event, read_events, utc_now_iso
 from meridian.lib.state.paths import StateRootPaths
 
 _SESSION_LOCK_HANDLES: dict[tuple[Path, str], tuple[BinaryIO, str]] = {}
+
+
+class _DeferredUnixModule:
+    """Lazy module proxy so Unix-only modules load only on demand."""
+
+    def __init__(self, module_name: str) -> None:
+        self._module_name = module_name
+        self._module: Any | None = None
+
+    def _resolve(self) -> Any:
+        if self._module is None:
+            self._module = import_module(self._module_name)
+        return self._module
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._resolve(), name)
+
+
+fcntl = _DeferredUnixModule("fcntl")
 
 
 class SessionRecord(BaseModel):
@@ -287,19 +308,103 @@ def _session_lock_key(state_root: Path, chat_id: str) -> tuple[Path, str]:
 
 
 def _acquire_session_lock(lock_path: Path) -> BinaryIO:
+    if IS_WINDOWS:
+        return _win_acquire_session_lock(lock_path)
+    return _posix_acquire_session_lock(lock_path)
+
+
+def _lock_handle_matches_path(handle: BinaryIO, lock_path: Path) -> bool:
+    stat_handle = os.fstat(handle.fileno())
+    stat_path = lock_path.stat()
+    return stat_handle.st_ino == stat_path.st_ino and stat_handle.st_dev == stat_path.st_dev
+
+
+def _posix_acquire_session_lock(lock_path: Path) -> BinaryIO:
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     while True:
         handle = lock_path.open("a+b")
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
         try:
-            stat_handle = os.fstat(handle.fileno())
-            stat_path = lock_path.stat()
-            if stat_handle.st_ino == stat_path.st_ino and stat_handle.st_dev == stat_path.st_dev:
+            if _lock_handle_matches_path(handle, lock_path):
                 return handle
         except FileNotFoundError:
             pass
-        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        _posix_release_session_lock(handle)
         handle.close()
+
+
+def _win_acquire_session_lock(lock_path: Path) -> BinaryIO:
+    import msvcrt as _msvcrt
+
+    msvcrt = cast("Any", _msvcrt)
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    while True:
+        handle = lock_path.open("a+b")
+        _ensure_windows_lock_region(handle)
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+        try:
+            if _lock_handle_matches_path(handle, lock_path):
+                return handle
+        except FileNotFoundError:
+            pass
+        _win_release_session_lock(handle)
+        handle.close()
+
+
+def _release_session_lock_handle(handle: BinaryIO) -> None:
+    if IS_WINDOWS:
+        _win_release_session_lock(handle)
+    else:
+        _posix_release_session_lock(handle)
+
+
+def _posix_release_session_lock(handle: BinaryIO) -> None:
+    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def _win_release_session_lock(handle: BinaryIO) -> None:
+    import msvcrt as _msvcrt
+
+    msvcrt = cast("Any", _msvcrt)
+    handle.seek(0)
+    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+
+
+def _ensure_windows_lock_region(handle: BinaryIO) -> None:
+    handle.seek(0, os.SEEK_END)
+    if handle.tell() == 0:
+        handle.write(b"\0")
+        handle.flush()
+        os.fsync(handle.fileno())
+    handle.seek(0)
+
+
+def _try_lock_nonblocking(handle: BinaryIO) -> bool:
+    if IS_WINDOWS:
+        return _win_try_lock_nonblocking(handle)
+    return _posix_try_lock_nonblocking(handle)
+
+
+def _posix_try_lock_nonblocking(handle: BinaryIO) -> bool:
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return False
+    return True
+
+
+def _win_try_lock_nonblocking(handle: BinaryIO) -> bool:
+    import msvcrt as _msvcrt
+
+    msvcrt = cast("Any", _msvcrt)
+    _ensure_windows_lock_region(handle)
+    handle.seek(0)
+    try:
+        msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+    except OSError:
+        return False
+    return True
 
 
 def _release_session_lock(state_root: Path, chat_id: str) -> None:
@@ -307,7 +412,7 @@ def _release_session_lock(state_root: Path, chat_id: str) -> None:
     if lock_data is None:
         return
     handle, _ = lock_data
-    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    _release_session_lock_handle(handle)
     handle.close()
 
 
@@ -358,7 +463,7 @@ def start_session(
             append_event(paths.sessions_jsonl, paths.sessions_flock, event)
             _write_session_lease(paths, resolved_chat_id, session_instance_id)
     except Exception:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        _release_session_lock_handle(handle)
         handle.close()
         raise
 
@@ -437,12 +542,10 @@ def list_active_sessions(state_root: Path) -> list[str]:
     for lock_path in paths.sessions_dir.glob("*.lock"):
         chat_id = lock_path.stem
         with lock_path.open("a+b") as handle:
-            try:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
+            if not _try_lock_nonblocking(handle):
                 active.append(chat_id)
                 continue
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            _release_session_lock_handle(handle)
     return sorted(active, key=_session_sort_key)
 
 
@@ -571,10 +674,10 @@ def get_session_harness_ids(state_root: Path, chat_id: str) -> tuple[str, ...]:
 def collect_active_chat_ids(repo_root: Path) -> frozenset[str] | None:
     """Collect chat IDs with start events that lack a stop event."""
 
-    from meridian.lib.state.paths import resolve_state_paths
+    from meridian.lib.state.paths import resolve_runtime_state_root
 
     try:
-        state_root = resolve_state_paths(repo_root).root_dir
+        state_root = resolve_runtime_state_root(repo_root)
         sessions_file = state_root / "sessions.jsonl"
         if not sessions_file.is_file():
             return frozenset()
@@ -602,9 +705,7 @@ def cleanup_stale_sessions(state_root: Path) -> StaleSessionCleanup:
     for lock_path in paths.sessions_dir.glob("*.lock"):
         chat_id = lock_path.stem
         handle = lock_path.open("a+b")
-        try:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
+        if not _try_lock_nonblocking(handle):
             handle.close()
             continue
         stale.append((chat_id, lock_path, handle))
@@ -663,7 +764,7 @@ def cleanup_stale_sessions(state_root: Path) -> StaleSessionCleanup:
             _session_lease_path(paths, chat_id).unlink(missing_ok=True)
 
     for chat_id, _, handle in stale:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        _release_session_lock_handle(handle)
         handle.close()
         if chat_id in cleaned_ids:
             _SESSION_LOCK_HANDLES.pop(_session_lock_key(state_root, chat_id), None)

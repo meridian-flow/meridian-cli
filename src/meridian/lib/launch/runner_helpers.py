@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import signal
 import sys
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
@@ -17,7 +16,7 @@ from meridian.lib.core.domain import Spawn
 from meridian.lib.core.types import SpawnId
 from meridian.lib.harness.adapter import StreamEvent
 from meridian.lib.launch.constants import OUTPUT_FILENAME, STDERR_FILENAME
-from meridian.lib.launch.signals import signal_process_group
+from meridian.lib.platform.terminate import terminate_tree as _terminate_tree
 from meridian.lib.safety.budget import BudgetBreach
 from meridian.lib.safety.guardrails import GuardrailFailure
 from meridian.lib.safety.redaction import SecretSpec, redact_secret_bytes
@@ -262,19 +261,7 @@ async def terminate_process(
     grace_seconds: float = DEFAULT_KILL_GRACE_SECONDS,
 ) -> None:
     """Gracefully terminate a process and force-kill if it does not exit."""
-
-    if process.returncode is not None:
-        return
-
-    # Timeout expiry is an infra-enforced deadline (not a user interrupt),
-    # so we begin with SIGTERM and only escalate to SIGKILL after grace.
-    signal_process_group(process, signal.SIGTERM)
-    try:
-        await wait_for_process_returncode(process, timeout_seconds=grace_seconds)
-    except SpawnTimeoutError:
-        if process.returncode is None:
-            signal_process_group(process, signal.SIGKILL)
-            await wait_for_process_returncode(process)
+    await _terminate_tree(process, grace_secs=grace_seconds)
 
 
 async def wait_for_process_exit(

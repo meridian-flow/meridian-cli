@@ -7,6 +7,7 @@ Also includes process-group helpers for subprocess lifecycle management
 import asyncio
 import os
 import signal
+import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 from threading import Lock, RLock
@@ -24,8 +25,11 @@ def signal_process_group(
 ) -> None:
     """Send one signal to the subprocess process group.
 
+    On Windows, sends to the process directly because process groups are not
+    used for child launch isolation. On POSIX, sends to the process group.
+
     The child may exit between returncode checks and signal delivery, so
-    ProcessLookupError is treated as an expected race.
+    ProcessLookupError/OSError are treated as expected races.
     """
 
     if process.returncode is not None:
@@ -34,9 +38,12 @@ def signal_process_group(
     pid = process.pid
 
     try:
+        if sys.platform == "win32":
+            process.send_signal(signum)
+            return
         pgid = os.getpgid(pid)
         os.killpg(pgid, signum)
-    except ProcessLookupError:
+    except (ProcessLookupError, OSError):
         return
 
 

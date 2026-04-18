@@ -6,9 +6,14 @@ import os
 import tempfile
 from pathlib import Path
 
+from meridian.lib.platform import IS_WINDOWS
+
 
 def _fsync_directory(path: Path) -> None:
     """Fsync a directory entry so a completed replace survives a crash."""
+    if IS_WINDOWS:
+        # NTFS is journaling; replace durability does not require directory fsync.
+        return
 
     flags = os.O_RDONLY
     if hasattr(os, "O_DIRECTORY"):
