@@ -33,7 +33,7 @@ Prefer these over inline `sys.platform` comparisons — consistent spelling, imp
 def lock_file(lock_path: Path) -> Iterator[IO[bytes]]: ...
 ```
 
-Acquires an exclusive file lock for the duration of the `with` block. Used by state stores (`state/atomic.py`, `state/event_store.py`) to serialize concurrent writes to `.meridian/*.jsonl`.
+Acquires an exclusive file lock for the duration of the `with` block. Used by state stores to serialize concurrent writes. Confirmed callers: `state/event_store.py` (JSONL appends for spawns/sessions), `state/session_store.py` (session event writes and session-id-counter), `state/work_store.py` (work item mutations), `state/user_paths.py` (UUID creation under `id.lock`). `state/atomic.py` does NOT call `lock_file`.
 
 **Behavior:**
 - **Thread-local reentrancy:** a thread that already holds the lock can re-enter `lock_file` on the same path without deadlocking. A per-thread depth counter tracks nesting; the underlying OS lock is released only on the outermost exit.
@@ -66,9 +66,13 @@ Returns immediately if `process.returncode is not None` (already exited).
 
 ## Deferred-Import Pattern
 
-`fcntl`, `pty`, `termios`, `tty`, and `msvcrt` are POSIX-only or Windows-only stdlib modules that raise `ImportError` on the other platform if imported at module top. Across the codebase these are imported inside the functions that use them, never at module level. This pattern makes all platform modules importable on all OSes, enabling `import meridian` to succeed without branching the import path.
+`fcntl`, `pty`, `termios`, `tty`, and `msvcrt` are POSIX-only or Windows-only stdlib modules that raise `ImportError` on the other platform if imported at module top. Two patterns gate these imports:
 
-Affected files (beyond `platform/locking.py` itself): `state/atomic.py`, `state/event_store.py`, `launch/process.py`, `launch/runner_helpers.py`, `launch/signals.py`.
+**(a) Module-level lazy proxy (`_DeferredUnixModule`):** `launch/process.py` and `state/session_store.py` declare module-level proxy objects (e.g. `fcntl = _DeferredUnixModule("fcntl")`, `termios = _DeferredUnixModule("termios")`). The proxy forwards attribute access to the real module on first use, so the package imports cleanly on Windows while preserving the ergonomics of normal module-level references.
+
+**(b) Inline function-local import:** `platform/locking.py` imports `fcntl` and `msvcrt` inside the POSIX/Windows acquire and release functions (`_acquire_posix_lock`, `_release_posix_lock`, etc.). Other affected files: `launch/runner_helpers.py`, `launch/signals.py`.
+
+Both patterns make all platform modules importable on all OSes, enabling `import meridian` to succeed without branching the import path.
 
 ## Directory fsync
 

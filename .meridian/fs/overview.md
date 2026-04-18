@@ -50,10 +50,10 @@ Composition is centralized in `lib/launch/context.py:build_launch_context()`. Ev
 5. `lib/launch/extract.py` + `report.py` — `enrich_finalize()`: extract usage/session/report from harness output, persist report artifact (subagent path only; called by `streaming_runner.py`)
 
 **State flow:**
-- Every spawn is append-only JSONL events in `.meridian/spawns.jsonl`
-- Session state is JSONL events in `.meridian/sessions.jsonl`
-- Work items are mutable JSON under `.meridian/work-items/`
-- All writes are atomic (tmp+rename) with `fcntl.flock` for concurrency
+- Every spawn is append-only JSONL events in `~/.meridian/projects/<uuid>/spawns.jsonl` (runtime root, keyed by project UUID; falls back to repo `.meridian/` for uninitialized projects)
+- Session state is JSONL events in `~/.meridian/projects/<uuid>/sessions.jsonl` (same runtime root)
+- Work items are mutable JSON under `.meridian/work-items/` (repo-side, gitignored)
+- All writes are atomic (tmp+rename) with `platform.locking.lock_file()` for concurrency (cross-platform: fcntl on POSIX, msvcrt on Windows)
 - Crash recovery: the reaper (`lib/state/reaper.py`) detects orphaned spawns on read paths — heartbeat file recency (primary signal, 120s window), psutil `runner_pid` liveness (secondary, skipped for `finalizing` rows), and durable report completion. Active statuses: `queued`, `running`, `finalizing`. Terminal: `succeeded`, `failed`, `cancelled`. The `finalizing` state (entered via `mark_finalizing` CAS after harness exit) narrows the reap target to the drain/report window and enables `orphan_finalization` vs `orphan_run` distinction. Runner-origin terminal writes supersede reconciler-origin via the projection authority rule — no explicit recovery step needed.
 
 **Mars integration:**
@@ -64,7 +64,7 @@ Composition is centralized in `lib/launch/context.py:build_launch_context()`. Ev
 
 ## Key Design Decisions
 
-**Files-as-authority:** All state lives under `.meridian/`. No database, no hidden state. `cat .meridian/spawns.jsonl | jq` reveals everything. This makes the system inspectable, backup-friendly, and testable without service dependencies.
+**Files-as-authority:** All state is files — no database, no hidden state. Runtime state (spawns, sessions, artifacts) lives under `~/.meridian/projects/<uuid>/`; repo scaffolding under `.meridian/`. To inspect spawns: `cat ~/.meridian/projects/<uuid>/spawns.jsonl | jq`. This makes the system inspectable, backup-friendly, and testable without service dependencies.
 
 **Crash-only design:** No graceful shutdown path. Atomic writes (tmp+rename) mean every write either completes or leaves the prior state intact. JSONL readers skip truncated/malformed lines. The reaper runs on read paths, not a background daemon — `meridian status` is the recovery trigger.
 
@@ -88,7 +88,7 @@ State splits across two roots keyed by a per-project UUID. See `fs/state/overvie
   fs/                   agent-facing codebase mirror (this directory)
   work/                 active work scratch dirs
   work-archive/         archived work scratch dirs
-  work-items/           mutable JSON per work item
+  work-items/           mutable JSON per work item (gitignored, not committed)
 ```
 
 **User `~/.meridian/projects/<uuid>/`** — runtime state (local, never committed):
@@ -97,7 +97,6 @@ State splits across two roots keyed by a per-project UUID. See `fs/state/overvie
   spawns.jsonl          append-only spawn events
   sessions.jsonl        append-only session events
   session-id-counter    monotonic counter for c1, c2, ...
-  config.toml           project config overrides
   sessions/             per-session lock + lease files
   spawns/               per-spawn artifact dirs (<id>/prompt.md, report.md, ...)
   artifacts/            artifact blob store for spawn outputs (LocalStore)

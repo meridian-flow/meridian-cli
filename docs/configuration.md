@@ -38,11 +38,12 @@ Meridian splits state across two roots: repo-tracked files that belong in versio
     fs/                      # committed — shared filesystem mirror
     work/                    # committed — active work-item scratch dirs
     work-archive/            # committed — scratch for completed work items
+    work-items/              # gitignored — mutable JSON per work item (not committed)
     id                       # gitignored — project UUID (created on first write)
     .migrations.json         # gitignored — migration state
 ```
 
-Read-only commands (`meridian spawn list`, `meridian config show`, `meridian doctor`, etc.) do not create `.meridian/id` or any runtime state.
+Read-only commands (`meridian spawn list`, `meridian config show`, etc.) do not create `.meridian/id` or any runtime state. `meridian doctor` skips bootstrap at startup but calls `ensure_runtime_state_bootstrap_sync` internally, so it **does** create the UUID and runtime dir when run.
 
 ### User runtime (`~/.meridian/projects/<uuid>/`)
 
@@ -61,7 +62,6 @@ High-churn runtime state lives outside the repo, keyed by project UUID so the re
         <spawn-id>/
       artifacts/
       cache/
-      config.toml
       .migrations.json
 ```
 
