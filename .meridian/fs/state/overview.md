@@ -2,7 +2,7 @@
 
 ## What It Is
 
-Meridian state splits across two roots: repo-local `.meridian/` (committed scaffolding) and a user-level runtime directory keyed by project UUID (high-churn JSONL, artifacts). No database, no service, no hidden in-memory state. Both roots are files — `cat .meridian/spawns.jsonl | jq` still tells you everything on a machine that has the runtime state.
+Meridian state splits across two roots: repo-local `.meridian/` (committed scaffolding) and a user-level runtime directory keyed by project UUID (high-churn JSONL, artifacts). No database, no service, no hidden in-memory state. Runtime state (spawn/session event stores, per-spawn artifacts) lives under `~/.meridian/projects/<uuid>/`; committed scaffolding (`fs/`, `work/`, `work-archive/`) stays under repo `.meridian/`. To inspect spawns: `cat ~/.meridian/projects/<uuid>/spawns.jsonl | jq` (substitute the UUID from `.meridian/id`).
 
 Source: `src/meridian/lib/state/` (paths, user_paths, atomic, locks, reaper, spawn store, session store)
 
@@ -19,9 +19,9 @@ Source: `src/meridian/lib/state/` (paths, user_paths, atomic, locks, reaper, spa
   fs/                      # agent-facing codebase mirror (committed)
   work/                    # active work scratch dirs (committed)
   work-archive/            # archived work scratch dirs (committed)
-  work-items/              # mutable JSON per work item (committed)
+  work-items/              # mutable JSON per work item (gitignored, not committed)
     <work_id>.json
-    work-items.rename.intent.json  # crash-safe rename intent (transient)
+  work-items.rename.intent.json    # crash-safe rename intent (transient; sibling of work-items/)
 ```
 
 ### User runtime `~/.meridian/projects/<uuid>/` — local, gitignored
@@ -29,9 +29,9 @@ Source: `src/meridian/lib/state/` (paths, user_paths, atomic, locks, reaper, spa
 ```
 ~/.meridian/projects/<uuid>/
   spawns.jsonl             # all spawn events, append-only
-  spawns.jsonl.flock       # fcntl lock for spawns.jsonl writes
+  spawns.jsonl.flock       # platform lock for spawns.jsonl writes (fcntl on POSIX, msvcrt on Windows)
   sessions.jsonl           # all session events, append-only
-  sessions.jsonl.flock     # fcntl lock for sessions.jsonl writes
+  sessions.jsonl.flock     # platform lock for sessions.jsonl writes (fcntl on POSIX, msvcrt on Windows)
   session-id-counter       # monotonic counter for c1, c2, ...
   session-id-counter.flock
   sessions/                # per-session lock + lease files
@@ -49,7 +49,6 @@ Source: `src/meridian/lib/state/` (paths, user_paths, atomic, locks, reaper, spa
   artifacts/               # LocalStore blob store for spawn outputs
   cache/
     models.json            # model list cache (24h TTL)
-  config.toml              # project config overrides
   .migrations.json         # user-side migration tracking
 ```
 
@@ -102,7 +101,7 @@ Convenience resolvers:
 
 ## Storage Patterns
 
-**JSONL event stores** (spawns, sessions): append-only, crash-tolerant. Reads skip malformed lines. Writes go through `append_event()` under `fcntl.flock`. State is derived by replaying from the beginning. See `spawns.md` and `sessions.md` for store-specific detail.
+**JSONL event stores** (spawns, sessions): append-only, crash-tolerant. Reads skip malformed lines. Writes go through `append_event()` under `platform.locking.lock_file()` (cross-platform: `fcntl.flock` on POSIX, `msvcrt.locking` on Windows — see `fs/platform/overview.md`). State is derived by replaying from the beginning. See `spawns.md` and `sessions.md` for store-specific detail.
 
 **Per-file mutable JSON** (work items): one `<slug>.json` per item under `work-items/`. Atomic overwrites via `tmp + os.replace()`. Better for mutable records correlated with a directory that moves on rename.
 
@@ -118,7 +117,7 @@ Crash-only design: every write path is safely restartable.
 
 ## Locking
 
-- JSONL stores: `fcntl.flock(LOCK_EX)` on `.flock` sidecar. Reentrant within a thread (thread-local depth counter).
+- JSONL stores: `platform.locking.lock_file()` on `.flock` sidecar — exclusive, cross-platform (fcntl on POSIX, msvcrt on Windows), thread-local reentrant (depth counter). See `fs/platform/overview.md`.
 - Session locks: per-session lock file (`<chat_id>.lock`) held for active session duration. Lease file (`<chat_id>.lease.json`) carries PID + generation token for staleness detection.
 - UUID creation: `id.lock` exclusive lock; double-checked read inside lock.
 
