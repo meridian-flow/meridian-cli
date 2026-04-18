@@ -11,7 +11,15 @@ Usage:
   scripts/release.sh patch [--push] [--remote origin]
   scripts/release.sh minor [--push] [--remote origin]
   scripts/release.sh major [--push] [--remote origin]
+  scripts/release.sh rc [--push] [--remote origin]
   scripts/release.sh X.Y.Z [--push] [--remote origin]
+  scripts/release.sh X.Y.Z-rc.N [--push] [--remote origin]
+
+Bump types:
+  patch   0.0.33 → 0.0.34
+  minor   0.0.33 → 0.1.0
+  major   0.0.33 → 1.0.0
+  rc      0.0.33 → 0.0.34-rc.1, or 0.0.34-rc.1 → 0.0.34-rc.2
 
 Behavior:
   - Updates src/meridian/__init__.py
@@ -21,7 +29,10 @@ Behavior:
 
 Examples:
   scripts/release.sh patch
-  scripts/release.sh 0.1.0 --push
+  scripts/release.sh rc                    # Create release candidate
+  scripts/release.sh rc --push             # Create and push RC
+  scripts/release.sh 0.1.0 --push          # Explicit version
+  scripts/release.sh 0.1.0-rc.1            # Explicit RC version
 EOF
 }
 
@@ -54,25 +65,49 @@ read_current_version() {
 
 validate_version() {
   local version="$1"
-  [[ "$version" =~ ^[0-9]+(\.[0-9]+){2}([A-Za-z0-9._+-]*)?$ ]] || \
-    die "version must look like X.Y.Z or X.Y.Zsuffix; got: $version"
+  [[ "$version" =~ ^[0-9]+(\.[0-9]+){2}(-rc\.[0-9]+)?$ ]] || \
+    die "version must look like X.Y.Z or X.Y.Z-rc.N; got: $version"
 }
 
 next_version() {
   local bump="$1"
   local current="$2"
-  IFS='.' read -r major minor patch <<<"$current"
+  
+  # Strip any -rc.N suffix for base version parsing
+  local base_version="${current%-rc.*}"
+  IFS='.' read -r major minor patch <<<"$base_version"
   [[ "$major" =~ ^[0-9]+$ && "$minor" =~ ^[0-9]+$ && "$patch" =~ ^[0-9]+$ ]] || \
-    die "automatic bumps require a plain semantic version, got: $current"
+    die "automatic bumps require a plain semantic version base, got: $current"
 
   case "$bump" in
-    patch) patch=$((patch + 1)) ;;
-    minor) minor=$((minor + 1)); patch=0 ;;
-    major) major=$((major + 1)); minor=0; patch=0 ;;
-    *) die "unknown bump kind: $bump" ;;
+    patch) 
+      patch=$((patch + 1))
+      printf '%s\n' "$major.$minor.$patch"
+      ;;
+    minor) 
+      minor=$((minor + 1)); patch=0 
+      printf '%s\n' "$major.$minor.$patch"
+      ;;
+    major) 
+      major=$((major + 1)); minor=0; patch=0 
+      printf '%s\n' "$major.$minor.$patch"
+      ;;
+    rc)
+      # If already an RC, increment RC number
+      if [[ "$current" =~ -rc\.([0-9]+)$ ]]; then
+        local rc_num="${BASH_REMATCH[1]}"
+        rc_num=$((rc_num + 1))
+        printf '%s\n' "$base_version-rc.$rc_num"
+      else
+        # New RC: bump patch and add -rc.1
+        patch=$((patch + 1))
+        printf '%s\n' "$major.$minor.$patch-rc.1"
+      fi
+      ;;
+    *) 
+      die "unknown bump kind: $bump" 
+      ;;
   esac
-
-  printf '%s\n' "$major.$minor.$patch"
 }
 
 write_version() {
@@ -138,7 +173,7 @@ main() {
 
   local next_version_value
   case "$target" in
-    patch|minor|major)
+    patch|minor|major|rc)
       next_version_value="$(next_version "$target" "$current_version")"
       ;;
     *)
@@ -157,9 +192,16 @@ main() {
 
   write_version "$next_version_value"
 
+  local commit_msg
+  if [[ "$next_version_value" =~ -rc\. ]]; then
+    commit_msg="Release candidate $next_version_value"
+  else
+    commit_msg="Release $next_version_value"
+  fi
+
   git -C "$ROOT_DIR" add "$VERSION_FILE"
-  git -C "$ROOT_DIR" commit -m "Release $next_version_value"
-  git -C "$ROOT_DIR" tag -a "$tag" -m "Release $next_version_value"
+  git -C "$ROOT_DIR" commit -m "$commit_msg"
+  git -C "$ROOT_DIR" tag -a "$tag" -m "$commit_msg"
 
   printf 'Released %s on branch %s\n' "$next_version_value" "$branch"
   printf 'Created commit and tag %s\n' "$tag"
