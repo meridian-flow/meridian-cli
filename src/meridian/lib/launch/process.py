@@ -23,6 +23,7 @@ from meridian.lib.core.spawn_lifecycle import (
 from meridian.lib.core.types import HarnessId, SpawnId
 from meridian.lib.harness.claude_preflight import ensure_claude_session_accessible
 from meridian.lib.harness.registry import HarnessRegistry
+from meridian.lib.platform import IS_WINDOWS
 from meridian.lib.state import spawn_store
 from meridian.lib.state.artifact_store import LocalStore, make_artifact_key
 from meridian.lib.state.paths import resolve_spawn_log_dir
@@ -164,6 +165,10 @@ def _run_primary_process_with_capture(
     output_log_path: Path | None,
     on_child_started: Callable[[int], None] | None = None,
 ) -> tuple[int, int | None]:
+    # Windows does not support the PTY+fork path used for capture.
+    if IS_WINDOWS:
+        output_log_path = None
+
     if output_log_path is None or not sys.stdin.isatty() or not sys.stdout.isatty():
         process = subprocess.Popen(
             command,

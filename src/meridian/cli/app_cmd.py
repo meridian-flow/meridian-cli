@@ -5,9 +5,12 @@ from __future__ import annotations
 import importlib
 from pathlib import Path
 
+from meridian.lib.platform import IS_WINDOWS
+
 
 def run_app(
     uds: str | None = None,
+    port: int | None = None,
     proxy: str | None = None,
     debug: bool = False,
     allow_unsafe_no_permissions: bool = False,
@@ -28,6 +31,18 @@ def run_app(
         manager,
         allow_unsafe_no_permissions=allow_unsafe_no_permissions,
     )
+
+    use_tcp = IS_WINDOWS or port is not None
+    if use_tcp:
+        resolved_port = port if port is not None else 8420
+        port_file = state_root / "app.port"
+        port_file.parent.mkdir(parents=True, exist_ok=True)
+        port_file.write_text(f"{resolved_port}\n", encoding="utf-8")
+        print(f"Starting meridian app on http://127.0.0.1:{resolved_port}")
+        if proxy and proxy.strip():
+            print(f"Browser proxy URL: {proxy.strip()}")
+        uvicorn_module.run(app, host="127.0.0.1", port=resolved_port, log_level="info")
+        return
 
     socket_path = (uds or "").strip() or str(state_root / "app.sock")
     resolved_socket_path = Path(socket_path)

@@ -93,6 +93,7 @@ def test_run_harness_process_fork_uses_new_chat_and_materialized_session(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    monkeypatch.delenv("MERIDIAN_CHAT_ID", raising=False)
     repo_root = tmp_path
     (repo_root / "mars.toml").write_text(
         "[settings]\n"
@@ -142,6 +143,7 @@ def test_run_harness_process_fork_uses_new_chat_and_materialized_session(
 
     def fake_run_primary_process_with_capture(**kwargs: object) -> tuple[int, int]:
         captured["command_session"] = tuple(kwargs["command"])[2]
+        captured["env_chat_id"] = dict(kwargs["env"]).get("MERIDIAN_CHAT_ID")
         started = kwargs.get("on_child_started")
         assert callable(started)
         started(111)
@@ -182,6 +184,7 @@ def test_run_harness_process_fork_uses_new_chat_and_materialized_session(
     # I-10: session is created with the SOURCE session ID; fork happens after the row exists.
     assert captured["start_harness_session_id"] == "source-session"
     assert captured["forked_from_chat_id"] == "c7"
+    assert captured["env_chat_id"] == "c999"
     assert outcome.chat_id == "c999"
     events = [
         json.loads(line)

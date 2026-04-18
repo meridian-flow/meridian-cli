@@ -271,3 +271,140 @@
 **Decision:** The Composer component accepts a union of two prop interfaces: `onSubmit` (callback for landing page mode) and `channel` (SessionChannel ref for active session mode). Both modes share the textarea, auto-resize, Enter/Shift+Enter, and action button UI.
 
 **Reasoning:** The convergence reviewer identified that the LandingPage code sketch uses `onSubmit(prompt)` while the SessionView uses the existing `channel`-based interface, creating two incompatible calling conventions that the design didn't address. Making this a documented union type (not two separate components) keeps the Composer as a single component with consistent UX in both contexts — the only difference is how the send action is routed.
+
+## D34: `project_key` is the stable project-scoped Meridian namespace
+
+**Decision:** Introduce an explicit `project_key` layer that owns project-scoped user-level Meridian runtime state. User-level runtime files live under `~/.meridian/projects/<project_key>/...`, and other designs should depend on that layer instead of inventing their own project namespace.
+
+**Reasoning:** `repo_root` is the concrete workspace path the harness should see. That is not the same concern as where Meridian stores project-scoped user-level runtime state. Splitting those roles gives the architecture a clean boundary: `repo_root` shapes the workspace, `project_key` shapes the runtime namespace. This is especially important for future harness-native profile/config projection, which needs a stable project-scoped home that is not also a UI session key.
+
+**Supersedes:** The runtime-namespace assumptions in D18, D19, D21, and D23 that treated `repo_root` as the storage key or as the compound run-identity key.
+
+**Rejected:**
+- Use raw `repo_root` as the runtime namespace — couples user-level storage layout to raw absolute paths and path normalization.
+- Use app `session_id` as the runtime namespace — sessions are URL aliases and metadata, not project identity.
+- Use harness `chat_id` as the runtime namespace — `chat_id` is resumable-session metadata, not Meridian's storage boundary.
+
+## D35: Spawn state and runtime homes share the project-keyed namespace
+
+**Decision:** `spawns.jsonl` lives in the same `~/.meridian/projects/<project_key>/` namespace as per-spawn runtime artifacts. Within that project root, runtime homes/configs are keyed only by Meridian `spawn_id`.
+
+**Reasoning:** If `project_key` is stable across checkout moves and multiple working copies, keeping the spawn counter repo-local would allow two checkouts of the same logical project to mint the same `spawn_id` and collide on runtime directories. Putting the spawn store and the per-spawn runtime directories under the same project-keyed root keeps the namespace coherent: `project_key` scopes the project, `spawn_id` scopes the run.
+
+**Rejected:**
+- Keep `spawns.jsonl` repo-local while runtime directories are project-keyed — creates namespace collisions for multiple checkouts of the same logical project.
+- Add an extra `session_id` or `chat_id` directory layer — invents parallel runtime taxonomies without solving the actual project/run identity split.
+
+## D36: Workspace shaping is separate from native home/state isolation
+
+**Decision:** Codex workspace shaping uses `--cd` plus `--add-dir`; `CODEX_HOME` is only for native home/state isolation. OpenCode extra-path access comes from launch root plus projected config/permissions, especially `permission.external_directory`, not from a dedicated `--add-dir` flag.
+
+**Reasoning:** Meridian needs one seam for workspace visibility and another for native harness state. `project_key` gives Meridian a place to project native config/state. That should not be confused with how a harness is told which directories it may read. Codex already exposes explicit workspace flags. OpenCode already exposes permission/config controls. Reusing those native mechanisms is simpler and more accurate than inventing a fake universal directory flag.
+
+**Rejected:**
+- Use `CODEX_HOME` to smuggle extra workspace roots — wrong abstraction; it isolates native state, not readable directories.
+- Invent a Meridian-level OpenCode `--add-dir` concept — OpenCode already models this through permissions/config instead of a dedicated flag.
+
+## D37: Simplify frontend for non-technical users
+
+**Decision:** Redesign frontend to target biomedical researchers instead of developers. Replace complex controls with simple defaults and progressive disclosure.
+
+**Reasoning:** The original frontend design (D24-D33) was over-engineered for its target user. Biomedical researchers don't know what harnesses, models, or agents are — and they shouldn't need to. The original design had:
+- 4-level effort selector (Lo/Med/Hi/Max) requiring users to understand thinking budgets
+- Always-visible harness toggle requiring knowledge of AI providers
+- Model browser dialog with cards showing cost tiers, context limits, capabilities
+- Agent profile dropdown with no context for what profiles do
+- 40+ specified edge cases and loading states
+
+Researchers just want to ask questions and get good answers.
+
+**Changes:**
+- **Effort toggle**: 4 levels → 2 options (Quick/Thorough). "Thorough" is default because researchers want good answers, not fast answers.
+- **Harness/Model/Agent**: Moved to collapsed "Advanced" section. Most users never touch it.
+- **Model browser**: Full dialog with cards → simple dropdown.
+- **Edge cases**: Over-specification → handle errors gracefully.
+- **Defaults**: Smart defaults that work without configuration.
+
+**Preserved:**
+- Sidebar + main pane layout
+- Session persistence and routing
+- ThreadView and streaming protocol
+- Theme system
+
+**Supersedes:** The detailed edge case, loading state, and keyboard navigation specifications from the original frontend-ui-redesign.md. The simplified design handles these cases without exhaustive specification.
+
+## D38: Sessions and work items are parallel concepts
+
+**Decision:** Sessions can exist without work attachment. Work items can have multiple sessions. Work attachment is nullable on sessions.
+
+**Reasoning:** The original unified requirements (from architect synthesis) proposed a strict Work > Session > Spawn hierarchy where every session must have a work item. This forced unnecessary ceremony — users would have to create or pick a work item before starting any exploration.
+
+Real usage patterns:
+- Quick exploration: start chatting, no work item needed
+- Structured work: attach to a work item with design docs, plans
+- Transition: realize "this is becoming a thing" and attach later
+
+Sessions and work are orthogonal concepts that can be linked, not a strict containment hierarchy.
+
+**Rejected:**
+- Strict Work > Session hierarchy — forces work creation for every session, even quick explorations
+- Session-only model (no work) — loses organized work with artifacts
+- Implicit work creation — too magical, users should opt into organization
+
+## D39: Context query via CLI, not env var projection
+
+**Decision:** Kill `MERIDIAN_WORK_DIR`, `MERIDIAN_WORK_ID`, `MERIDIAN_FS_DIR` environment variable projection. Agents query context via `meridian context` and derive paths from convention.
+
+**Reasoning:** Env vars are snapshot values injected at spawn time. They don't reflect work attachment changes after spawn, and they confuse agents who expect them to be "live." The prompts/skills treated env vars as ground truth when they're actually stale snapshots.
+
+Query model:
+- `meridian context` — returns work_id, repo_root, state_root, depth
+- `meridian work current` — returns just work_id (convenience alias)
+- Paths: derive from convention (`.meridian/work/<work_id>/`, `.meridian/fs/`)
+
+Kept env vars: `MERIDIAN_CHAT_ID` (for work lookup), `MERIDIAN_DEPTH`, `MERIDIAN_REPO_ROOT`, `MERIDIAN_STATE_ROOT`.
+
+**Rejected:**
+- Keep all env vars — confuses agents about live vs snapshot state
+- Live-update env vars — impossible across shell boundaries
+- New env var for parent spawn — spawns don't need to query up, they just do work and finalize
+
+## D40: Spawn tree display via parent_id
+
+**Decision:** Build spawn tree from existing `parent_id` field on spawn records. Add `/api/sessions/{id}/tree` endpoint. Spawns don't need to know their parent at runtime.
+
+**Reasoning:** The spawn tree is for **display and tracking** by the observer (app, CLI, orchestrator), not for the spawn to use at runtime. A spawn just does work and finalizes with a report. The `parent_id` already exists on spawn records — no new primitives needed.
+
+Tree query: start from session's chat_id, find all spawns with that chat_id, build tree from parent_id relationships.
+
+**Rejected:**
+- `MERIDIAN_PARENT_ID` env var — spawns don't need to query their parent
+- `MERIDIAN_SPAWN_ID` env var — spawns don't need to know their own ID at runtime
+- Session-based tree (not spawn-based) — spawns are the execution units, sessions are metadata
+
+## D41: chat_id stays as inheritance key
+
+**Decision:** Keep `MERIDIAN_CHAT_ID` as the spawn inheritance key. Don't replace with session_id.
+
+**Reasoning:** The architect synthesis proposed replacing `MERIDIAN_CHAT_ID` with `MERIDIAN_SESSION_ID` to unify CLI and app on the same identifier. But this conflates two concepts:
+
+- `chat_id` — harness-owned conversation continuity, already exists, already inherited
+- `session_id` — app's URL-safe alias, a metadata layer on top
+
+The app's session_id maps to chat_id internally. No need to change the inheritance mechanism. Work attachment continues to key off chat_id via the session store.
+
+**Rejected:**
+- Replace chat_id with session_id — forces CLI to synthesize session IDs it doesn't need
+- Add both to env — redundant, session_id is derivable from chat_id
+
+## Single Daemon Simplifies Remote Access
+
+**Context**: During Windows TCP implementation, noted that single-daemon architecture (already planned) has significant remote access benefits over per-project servers.
+
+**Benefits of single port/daemon:**
+- One SSH tunnel for all projects
+- One firewall rule
+- One URL, path-based routing (`/projects/<id>/...`)
+- Simpler discovery (one `app.port` in `~/.meridian/`)
+
+This reinforces the "one server per machine" direction already captured in the design overview.

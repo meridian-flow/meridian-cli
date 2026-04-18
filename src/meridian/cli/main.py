@@ -509,6 +509,16 @@ def app_command(
             help="Unix domain socket path for the app server (default: .meridian/app.sock).",
         ),
     ] = None,
+    port: Annotated[
+        int | None,
+        Parameter(
+            name="--port",
+            help=(
+                "TCP port for the app server (default on Windows: 8420). "
+                "Enables TCP binding instead of Unix socket."
+            ),
+        ),
+    ] = None,
     proxy: Annotated[
         str | None,
         Parameter(
@@ -537,6 +547,7 @@ def app_command(
 
     run_app(
         uds=uds,
+        port=port,
         proxy=proxy,
         debug=debug,
         allow_unsafe_no_permissions=allow_unsafe_no_permissions,

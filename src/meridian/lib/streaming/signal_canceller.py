@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, cast
 from meridian.lib.core.domain import SpawnStatus
 from meridian.lib.core.spawn_lifecycle import TERMINAL_SPAWN_STATUSES
 from meridian.lib.core.types import SpawnId
+from meridian.lib.platform import IS_WINDOWS
 from meridian.lib.state import spawn_store
 from meridian.lib.state.liveness import is_process_alive
 from meridian.lib.state.spawn_store import APP_LAUNCH_MODE, SpawnOrigin
@@ -137,18 +138,33 @@ class SignalCanceller:
         )
 
     async def _cancel_app_spawn_over_http(self, spawn_id: SpawnId) -> CancelOutcome:
-        socket_path = self._state_root / "app.sock"
-        if not socket_path.exists():
-            raise RuntimeError(f"app socket not found: {socket_path}")
-
         aiohttp = import_module("aiohttp")
-        connector = cast("object", aiohttp.UnixConnector(path=str(socket_path)))
         timeout = cast("object", aiohttp.ClientTimeout(total=10.0))
-        url = f"http://localhost/api/spawns/{spawn_id}/cancel"
+
+        connector: object | None = None
+        if IS_WINDOWS:
+            port_file = self._state_root / "app.port"
+            if not port_file.exists():
+                raise RuntimeError(f"app port file not found: {port_file}")
+            try:
+                port = int(port_file.read_text(encoding="utf-8").strip())
+            except ValueError as exc:
+                raise RuntimeError(f"invalid app port value in {port_file}") from exc
+            url = f"http://127.0.0.1:{port}/api/spawns/{spawn_id}/cancel"
+        else:
+            socket_path = self._state_root / "app.sock"
+            if not socket_path.exists():
+                raise RuntimeError(f"app socket not found: {socket_path}")
+            connector = cast("object", aiohttp.UnixConnector(path=str(socket_path)))
+            url = f"http://localhost/api/spawns/{spawn_id}/cancel"
+
+        session_kwargs: dict[str, object] = {"timeout": timeout}
+        if connector is not None:
+            session_kwargs["connector"] = connector
 
         try:
             async with (
-                aiohttp.ClientSession(connector=connector, timeout=timeout) as session,
+                aiohttp.ClientSession(**session_kwargs) as session,
                 session.post(url) as response,
             ):
                 status_code = int(response.status)

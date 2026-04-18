@@ -1,4 +1,4 @@
-"""Per-spawn Unix domain socket control server."""
+"""Per-spawn control server."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from meridian.lib.core.types import SpawnId
+from meridian.lib.platform import IS_WINDOWS
 from meridian.lib.streaming.types import InjectResult
 
 if TYPE_CHECKING:
@@ -21,13 +22,37 @@ class ControlSocketServer:
     def __init__(self, spawn_id: SpawnId, socket_path: Path, manager: SpawnManager):
         self._spawn_id = spawn_id
         self._socket_path = socket_path
+        self._port_file = socket_path.with_suffix(".port")
         self._manager = manager
         self._server: asyncio.AbstractServer | None = None
+        self._port: int | None = None
 
     async def start(self) -> None:
-        """Create and bind the Unix domain control socket."""
+        """Create and bind the per-spawn control endpoint."""
 
         self._socket_path.parent.mkdir(parents=True, exist_ok=True)
+        if IS_WINDOWS:
+            self._port_file.unlink(missing_ok=True)
+            self._server = await asyncio.start_server(
+                self._handle_client,
+                host="127.0.0.1",
+                port=0,
+            )
+            sockets = self._server.sockets or ()
+            if not sockets:
+                raise RuntimeError("control socket server did not expose a bound port")
+            addr = cast("object", sockets[0].getsockname())
+            port_value: int | None = None
+            if isinstance(addr, tuple):
+                addr_tuple = cast("tuple[object, ...]", addr)
+                if len(addr_tuple) >= 2 and isinstance(addr_tuple[1], int):
+                    port_value = addr_tuple[1]
+            if not isinstance(port_value, int):
+                raise RuntimeError("control socket server returned invalid bound port")
+            self._port = port_value
+            self._port_file.write_text(f"{port_value}\n", encoding="utf-8")
+            return
+
         self._socket_path.unlink(missing_ok=True)
         self._server = await asyncio.start_unix_server(
             self._handle_client, path=str(self._socket_path)
@@ -126,12 +151,17 @@ class ControlSocketServer:
         return response
 
     async def stop(self) -> None:
-        """Close the server and remove the socket path."""
+        """Close the server and remove its discovery artifact."""
 
         if self._server is not None:
             self._server.close()
             await self._server.wait_closed()
             self._server = None
+        if IS_WINDOWS:
+            self._port = None
+            self._port_file.unlink(missing_ok=True)
+            return
+
         self._socket_path.unlink(missing_ok=True)
 
 
