@@ -10,13 +10,13 @@
 
 **Verdict**: Confirmed. The error can be replaced with bootstrap logic.
 
-### Git boundary detection
+### Walk-up implementation
 
-**Probe**: Read `default_project_root()` (lines 277-289) and `find_agents_root_from()` (lines 326-353)
+**Probe**: Read `find_agents_root_from()` (lines 326-353)
 
-**Finding**: Walk-up stops at `.git` (directory or file, handles submodules). `default_project_root()` returns cwd if no git repo found.
+**Finding**: Walk-up currently stops at `.git` boundary (line 337). This check can be removed to walk to filesystem root instead.
 
-**Verdict**: Confirmed. Git boundary is already correctly detected. For bootstrap, we can reuse this logic but distinguish "found git root" from "no git repo".
+**Verdict**: Confirmed. Removing the git boundary check is a one-line change.
 
 ### Init creates minimal config
 
@@ -42,11 +42,19 @@
 
 **Verdict**: Adding `bootstrapped: bool` is straightforward. Struct is local to CLI layer.
 
+### Command dispatch structure
+
+**Probe**: Read `dispatch_result()` (lines 182-194)
+
+**Finding**: Commands are dispatched through a central match. `Add` can be extracted to its own arm to pass `auto_bootstrap=true`.
+
+**Verdict**: Confirmed. The dispatch structure supports per-command bootstrap control.
+
 ## Open Questions (resolved in design)
 
-### Q: Should `--root` bypass git requirement?
+### Q: Should `--root` bypass project detection entirely?
 
-**Decision**: Yes. `--root` is explicit declaration — bootstrap at the specified path regardless of git presence.
+**Decision**: Yes. `--root` sets the project root unconditionally. If `mars.toml` is missing and `auto_bootstrap=true`, bootstrap at `--root`.
 
 **Rationale**: If the user says `--root /some/path`, they know what they want. Don't second-guess.
 
@@ -54,14 +62,36 @@
 
 **Decision**: Initially yes. Other context-requiring commands (`sync`, `list`, etc.) should error on missing config.
 
-**Rationale**: `mars sync` in an uninitialized project is likely a mistake. `mars add` has clear intent to establish a new dependency. Later, if demand exists, extend bootstrap to other commands.
+**Rationale**: `mars sync` in an uninitialized directory is likely a mistake. `mars add` has clear intent to establish a new dependency. Later, if demand exists, extend bootstrap to other commands.
 
-**Implementation note**: Factor bootstrap into a helper, but call it from `add.rs` (or a modified `find_agents_root` with an opt-in parameter), not globally in `find_agents_root`.
+### Q: What happens when user is in a subdirectory of intended project root?
 
-**Update after further analysis**: The cleaner approach is to have `find_agents_root` take an optional `auto_bootstrap: bool` parameter. `add` passes `true`, other commands pass `false`. This keeps all root-finding logic centralized.
+**Decision**: Bootstrap at cwd. The visible message surfaces the location. User can delete and retry from the correct directory.
+
+**Rationale**: There's no universal signal for "project root" without VCS or project-marker heuristics. cwd is simple and user-controlled.
+
+### Q: Should we scan for common project markers?
+
+**Decision**: No. Different ecosystems use different markers (`pyproject.toml`, `package.json`, `Cargo.toml`, `go.mod`, etc.). Heuristic scanning adds complexity and edge cases.
+
+**Rationale**: The user's cwd is an explicit choice. Project marker scanning would second-guess that choice.
 
 ## No Probes Needed
 
 - **Concurrent bootstrap race**: Handled by atomic_write design. No runtime test required.
 - **Permissions errors**: Standard I/O error handling. No special probe needed.
-- **Submodule isolation**: Already tested in existing unit tests (lines 553-578).
+- **Git detection**: No longer relevant — git is not consulted.
+
+## Removed from Previous Feasibility
+
+### Git boundary detection
+
+**Previous probe**: `default_project_root()` and git root detection.
+
+**Status**: Removed. Git is not a requirement. The walk-up proceeds to filesystem root without git boundary checks.
+
+### Submodule isolation
+
+**Previous finding**: Walk-up stops at `.git` (directory or file) for submodule handling.
+
+**Status**: Removed. Submodules are ordinary directories in the new design.

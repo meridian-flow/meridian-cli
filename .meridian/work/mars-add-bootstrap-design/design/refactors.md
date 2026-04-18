@@ -14,8 +14,10 @@ Currently, `init.rs` has `ensure_consumer_config` which creates `mars.toml`. The
 
 **Reason for deferral**: The duplication is minimal (3-4 lines). Can be done during implementation if the code feels cleaner, but not a blocker.
 
-### Consolidate root-finding variants
+### Remove or simplify `default_project_root`
 
-`find_agents_root` and `default_project_root` have overlapping logic. Could be unified.
+`default_project_root` exists to find the git root for `mars init` when no `--root` is specified. With git no longer being a boundary for bootstrap, this function's role is reduced.
 
-**Recommendation**: Not in scope. The current separation (one finds config, one finds git root) is clear.
+**Recommendation**: Keep for `mars init` backward compatibility. `mars init` without `--root` still defaults to git root (when available) or cwd. This is unchanged.
+
+**Note**: The new bootstrap logic in `find_agents_root` does NOT call `default_project_root`. It bootstraps at cwd directly. The two code paths are now independent.
