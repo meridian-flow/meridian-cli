@@ -9,11 +9,11 @@ from meridian.lib.core.util import FormatContext
 from meridian.lib.ops.runtime import (
     async_from_sync,
     resolve_runtime_root_and_config,
+    resolve_state_root,
     runtime_context,
 )
 from meridian.lib.ops.spawn.query import resolve_spawn_reference
 from meridian.lib.state import spawn_store
-from meridian.lib.state.paths import resolve_state_paths
 
 
 def _resolve_target_spawn_id(
@@ -43,13 +43,14 @@ def _resolve_spawn(
         spawn_id,
         current_spawn_id=str(resolved_ctx.spawn_id or ""),
     )
-    if spawn_store.get_spawn(resolve_state_paths(repo_root).root_dir, resolved_spawn) is None:
+    state_root = resolve_state_root(repo_root)
+    if spawn_store.get_spawn(state_root, resolved_spawn) is None:
         raise ValueError(f"Spawn '{resolved_spawn}' not found")
     return resolved_spawn
 
 
 def _report_path(repo_root: Path, *, spawn_id: str) -> Path:
-    return resolve_state_paths(repo_root).root_dir / "spawns" / spawn_id / "report.md"
+    return resolve_state_root(repo_root) / "spawns" / spawn_id / "report.md"
 
 
 def _report_snippet(text: str, *, query: str) -> str:
@@ -151,7 +152,7 @@ def report_search_sync(
     else:
         spawn_ids = tuple(
             row.id
-            for row in reversed(spawn_store.list_spawns(resolve_state_paths(repo_root).root_dir))
+            for row in reversed(spawn_store.list_spawns(resolve_state_root(repo_root)))
         )
 
     matches: list[ReportSearchResult] = []

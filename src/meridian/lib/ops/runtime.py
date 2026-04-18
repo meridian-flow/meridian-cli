@@ -13,7 +13,8 @@ from meridian.lib.config.settings import MeridianConfig, load_config, resolve_pr
 from meridian.lib.core.context import RuntimeContext
 from meridian.lib.core.sink import NullSink, OutputSink
 from meridian.lib.state.artifact_store import LocalStore
-from meridian.lib.state.paths import resolve_state_paths
+from meridian.lib.state.paths import resolve_repo_state_paths, resolve_runtime_state_root
+from meridian.lib.state.user_paths import get_or_create_project_uuid
 
 P = ParamSpec("P")
 T = TypeVar("T")
@@ -81,7 +82,7 @@ def build_runtime_from_root_and_config(
         repo_root=repo_root,
         config=config,
         harness_registry=get_default_harness_registry(),
-        artifacts=LocalStore(root_dir=resolve_state_paths(repo_root).artifacts_dir),
+        artifacts=LocalStore(root_dir=resolve_runtime_state_root(repo_root) / "artifacts"),
         sink=sink or NullSink(),
     )
 
@@ -100,7 +101,19 @@ def build_runtime(
 def resolve_state_root(repo_root: Path) -> Path:
     """Resolve the Meridian state root for a repository."""
 
-    return resolve_state_paths(repo_root).root_dir
+    return resolve_user_state_root(repo_root)
+
+
+def get_project_uuid(repo_root: Path) -> str:
+    """Get/create project UUID, returns UUID string."""
+
+    return get_or_create_project_uuid(resolve_repo_state_paths(repo_root).root_dir)
+
+
+def resolve_user_state_root(repo_root: Path) -> Path:
+    """Resolve user-level state root for a project."""
+
+    return resolve_runtime_state_root(repo_root)
 
 
 def resolve_roots(repo_root: str | None) -> ResolvedRoots:

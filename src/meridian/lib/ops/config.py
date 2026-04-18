@@ -27,7 +27,12 @@ from meridian.lib.ops.config_surface import (
 )
 from meridian.lib.ops.runtime import async_from_sync
 from meridian.lib.state.atomic import atomic_write_text
-from meridian.lib.state.paths import ensure_gitignore, resolve_state_paths
+from meridian.lib.state.paths import (
+    StateRootPaths,
+    ensure_gitignore,
+    resolve_repo_state_paths,
+    resolve_runtime_state_root,
+)
 
 _SECTION_ORDER: tuple[str, ...] = ("defaults", "timeouts", "harness", "primary", "output")
 _OUTPUT_VERBOSITY_PRESETS = frozenset({"quiet", "normal", "verbose", "debug"})
@@ -725,18 +730,23 @@ def _scaffold_template() -> str:
 def ensure_runtime_state_bootstrap_sync(repo_root: Path) -> None:
     """Ensure first-run runtime state exists without creating project-root files."""
 
-    state = resolve_state_paths(repo_root)
-    bootstrap_dirs = (
-        state.root_dir,
-        state.artifacts_dir,
-        state.cache_dir,
-        state.spawns_dir,
-        state.root_dir / "fs",
-        state.root_dir / "work",
-        state.root_dir / "work-archive",
-        state.root_dir / "work-items",
+    repo_state = resolve_repo_state_paths(repo_root)
+    repo_dirs = (
+        repo_state.root_dir,
+        repo_state.fs_dir,
+        repo_state.work_dir,
+        repo_state.work_archive_dir,
     )
-    for dir_path in bootstrap_dirs:
+    for dir_path in repo_dirs:
+        dir_path.mkdir(parents=True, exist_ok=True)
+
+    runtime_root = resolve_runtime_state_root(repo_root)
+    runtime_state = StateRootPaths.from_root_dir(runtime_root)
+    runtime_dirs = (
+        runtime_state.root_dir,
+        runtime_state.spawns_dir,
+    )
+    for dir_path in runtime_dirs:
         dir_path.mkdir(parents=True, exist_ok=True)
     ensure_gitignore(repo_root)
 

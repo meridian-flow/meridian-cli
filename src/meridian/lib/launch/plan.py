@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 from meridian.lib.config.settings import MeridianConfig, load_config, resolve_project_root
-from meridian.lib.state.paths import resolve_state_paths
+from meridian.lib.state.paths import resolve_runtime_state_root
 
 from .request import (
     LaunchArgvIntent,
@@ -70,7 +70,7 @@ def build_primary_launch_runtime(
 
     resolved_root = resolve_project_root(repo_root)
     resolved_config = config if config is not None else load_config(resolved_root)
-    state_root = resolve_state_paths(resolved_root).root_dir
+    state_root = resolve_runtime_state_root(resolved_root)
 
     return LaunchRuntime(
         argv_intent=LaunchArgvIntent.REQUIRED,

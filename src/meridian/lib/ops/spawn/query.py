@@ -8,7 +8,6 @@ from typing import cast
 from meridian.lib.core.spawn_lifecycle import is_active_spawn_status
 from meridian.lib.ops.runtime import resolve_state_root
 from meridian.lib.state import spawn_store
-from meridian.lib.state.paths import resolve_state_paths
 
 from .models import SpawnDetailOutput
 
@@ -195,7 +194,7 @@ def read_written_files(repo_root: Path, spawn_id: str) -> tuple[str, ...]:
     from meridian.lib.launch.written_files import extract_written_files
     from meridian.lib.state.artifact_store import LocalStore
 
-    artifacts = LocalStore(root_dir=resolve_state_paths(repo_root).artifacts_dir)
+    artifacts = LocalStore(root_dir=resolve_state_root(repo_root) / "artifacts")
     return extract_written_files(artifacts, SpawnId(spawn_id))
 
 

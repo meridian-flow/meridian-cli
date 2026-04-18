@@ -312,7 +312,7 @@ def _resolve_work_id(
 
     raise ValueError(
         "No work item resolved. Pass `meridian work sessions <work_id>`, "
-        "set `MERIDIAN_WORK_ID`, or run from a session attached to a work item."
+        "Use `--work-id` or run from a session attached to a work item."
     )
 
 

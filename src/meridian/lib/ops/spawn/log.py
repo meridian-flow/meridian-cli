@@ -11,9 +11,12 @@ from meridian.lib.core.context import RuntimeContext
 from meridian.lib.core.types import ArtifactKey
 from meridian.lib.core.util import FormatContext
 from meridian.lib.harness.transcript import text_from_value
-from meridian.lib.ops.runtime import async_from_sync, resolve_runtime_root_and_config
+from meridian.lib.ops.runtime import (
+    async_from_sync,
+    resolve_runtime_root_and_config,
+    resolve_state_root,
+)
 from meridian.lib.state.artifact_store import LocalStore
-from meridian.lib.state.paths import resolve_state_paths
 
 from .query import read_spawn_row, resolve_spawn_reference
 
@@ -257,13 +260,13 @@ def spawn_log_sync(
     if row is None:
         raise ValueError(f"Spawn '{spawn_id}' not found")
 
-    state_paths = resolve_state_paths(repo_root)
-    artifacts = LocalStore(root_dir=state_paths.artifacts_dir)
+    state_root = resolve_state_root(repo_root)
+    artifacts = LocalStore(root_dir=state_root / "artifacts")
     output_key = ArtifactKey(f"{spawn_id}/output.jsonl")
     if artifacts.exists(output_key):
         output_text = artifacts.get(output_key).decode("utf-8", errors="ignore")
     else:
-        live_output_path = state_paths.root_dir / "spawns" / spawn_id / "output.jsonl"
+        live_output_path = state_root / "spawns" / spawn_id / "output.jsonl"
         if not live_output_path.is_file():
             raise ValueError(f"Spawn '{spawn_id}' has no output.jsonl artifact")
         output_text = live_output_path.read_text(encoding="utf-8", errors="ignore")

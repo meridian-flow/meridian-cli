@@ -27,7 +27,9 @@ from meridian.lib.launch.launch_types import (
     ResolvedLaunchSpec,
     summarize_composition_warnings,
 )
-from meridian.lib.state.paths import resolve_spawn_log_dir, resolve_work_scratch_dir
+from meridian.lib.state.paths import (
+    resolve_spawn_log_dir,
+)
 
 from .command import (
     build_launch_argv,
@@ -70,9 +72,6 @@ _ALLOWED_MERIDIAN_KEYS: frozenset[str] = frozenset(
         "MERIDIAN_STATE_ROOT",
         "MERIDIAN_DEPTH",
         "MERIDIAN_CHAT_ID",
-        "MERIDIAN_FS_DIR",
-        "MERIDIAN_WORK_ID",
-        "MERIDIAN_WORK_DIR",
     }
 )
 
@@ -85,9 +84,6 @@ class ChildEnvContext:
     state_root: Path
     parent_chat_id: str | None
     parent_depth: int
-    fs_dir: Path | None
-    work_id: str | None
-    work_dir: Path | None
 
     @classmethod
     def from_environment(
@@ -104,10 +100,6 @@ class ChildEnvContext:
         except (TypeError, ValueError):
             parent_depth = 0
 
-        fs_dir_raw = os.getenv("MERIDIAN_FS_DIR", "").strip()
-        work_id_raw = os.getenv("MERIDIAN_WORK_ID", "").strip()
-        work_dir_raw = os.getenv("MERIDIAN_WORK_DIR", "").strip()
-
         return cls(
             # Keep launch semantics unchanged: runtime repo_root follows the
             # execution cwd used by the child process.
@@ -115,23 +107,6 @@ class ChildEnvContext:
             state_root=state_root.resolve(),
             parent_chat_id=parent_chat_id,
             parent_depth=parent_depth,
-            fs_dir=Path(fs_dir_raw) if fs_dir_raw else None,
-            work_id=work_id_raw or None,
-            work_dir=Path(work_dir_raw) if work_dir_raw else None,
-        )
-
-    def with_work_id(self, work_id: str | None) -> ChildEnvContext:
-        normalized = (work_id or "").strip()
-        if not normalized:
-            return self
-        return ChildEnvContext(
-            repo_root=self.repo_root,
-            state_root=self.state_root,
-            parent_chat_id=self.parent_chat_id,
-            parent_depth=self.parent_depth,
-            fs_dir=self.fs_dir,
-            work_id=normalized,
-            work_dir=resolve_work_scratch_dir(self.state_root, normalized),
         )
 
     def child_context(self) -> dict[str, str]:
@@ -142,17 +117,6 @@ class ChildEnvContext:
         }
         if self.parent_chat_id:
             overrides["MERIDIAN_CHAT_ID"] = self.parent_chat_id
-        if self.fs_dir is not None:
-            overrides["MERIDIAN_FS_DIR"] = self.fs_dir.as_posix()
-        if self.work_id:
-            overrides["MERIDIAN_WORK_ID"] = self.work_id
-        if self.work_dir is not None:
-            overrides["MERIDIAN_WORK_DIR"] = self.work_dir.as_posix()
-        elif self.work_id:
-            overrides["MERIDIAN_WORK_DIR"] = resolve_work_scratch_dir(
-                self.state_root,
-                self.work_id,
-            ).as_posix()
 
         if not set(overrides).issubset(_ALLOWED_MERIDIAN_KEYS):
             missing = sorted(set(overrides) - _ALLOWED_MERIDIAN_KEYS)
@@ -696,8 +660,8 @@ def build_launch_context(
     runtime_ctx = ChildEnvContext.from_environment(
         project_paths=project_paths,
         state_root=state_root,
-    ).with_work_id(runtime_work_id or resolved_request.work_id_hint)
-    effective_work_id = runtime_ctx.work_id
+    )
+    effective_work_id = (runtime_work_id or resolved_request.work_id_hint or "").strip() or None
     merged_overrides = merge_env_overrides(
         plan_overrides=plan_overrides or {},
         runtime_overrides=runtime_ctx.child_context(),

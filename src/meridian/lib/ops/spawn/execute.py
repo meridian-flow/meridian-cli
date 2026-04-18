@@ -35,8 +35,8 @@ from meridian.lib.ops.work_attachment import ensure_explicit_work_item
 from meridian.lib.state import spawn_store
 from meridian.lib.state.atomic import atomic_write_text
 from meridian.lib.state.paths import (
+    resolve_repo_state_paths,
     resolve_spawn_log_dir,
-    resolve_state_paths,
     resolve_work_scratch_dir,
 )
 from meridian.lib.state.session_store import get_session_active_work_id, update_session_work_id
@@ -47,7 +47,13 @@ from meridian.lib.state.spawn_store import (
     mark_spawn_running,
 )
 
-from ..runtime import OperationRuntime, build_runtime, resolve_chat_id, runtime_context
+from ..runtime import (
+    OperationRuntime,
+    build_runtime,
+    resolve_chat_id,
+    resolve_state_root,
+    runtime_context,
+)
 from .models import SpawnActionOutput, SpawnCreateInput
 from .query import read_spawn_row
 
@@ -152,8 +158,8 @@ def _spawn_child_env(
 
 def _spawn_background_worker_env(
     *,
+    repo_root: Path,
     work_id: str | None = None,
-    state_root: Path | None = None,
     autocompact: int | None = None,
 ) -> dict[str, str]:
     """Build child env overrides for the detached background worker process."""
@@ -162,11 +168,10 @@ def _spawn_background_worker_env(
     normalized_work_id = (work_id or "").strip()
     if normalized_work_id:
         child_env["MERIDIAN_WORK_ID"] = normalized_work_id
-        if state_root is not None:
-            child_env["MERIDIAN_WORK_DIR"] = resolve_work_scratch_dir(
-                state_root,
-                normalized_work_id,
-            ).as_posix()
+        child_env["MERIDIAN_WORK_DIR"] = resolve_work_scratch_dir(
+            resolve_repo_state_paths(repo_root).root_dir,
+            normalized_work_id,
+        ).as_posix()
     if autocompact is not None:
         child_env["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"] = str(autocompact)
     return child_env
@@ -200,7 +205,7 @@ def _init_spawn(
 ) -> _SpawnContext:
     resolved_context = runtime_context(ctx)
     project_paths = resolve_project_paths(repo_root=runtime.repo_root)
-    state_root = resolve_state_paths(project_paths.repo_root).root_dir
+    state_root = resolve_state_root(project_paths.repo_root)
     resolved_work_id = _resolve_work_id(
         payload=payload,
         runtime_context=resolved_context,
@@ -408,7 +413,7 @@ async def _execute_existing_spawn(
 ) -> int:
     resolved_context = runtime_context(ctx)
     runtime = build_runtime(str(project_paths.repo_root), sink=sink)
-    state_root = resolve_state_paths(project_paths.repo_root).root_dir
+    state_root = resolve_state_root(project_paths.repo_root)
     spawn_record = spawn_store.get_spawn(state_root, spawn_id)
     if spawn_record is None:
         logger.error("Spawn not found for background execution.", spawn_id=str(spawn_id))
@@ -679,8 +684,8 @@ def execute_spawn_background(
     launch_env = dict(os.environ)
     launch_env.update(
         _spawn_background_worker_env(
+            repo_root=project_paths.repo_root,
             work_id=context.work_id,
-            state_root=context.state_root,
             autocompact=autocompact,
         )
     )
@@ -959,7 +964,7 @@ def _background_worker_main(
     repo_root = Path(parsed.repo_root).expanduser().resolve()
     project_paths = resolve_project_paths(repo_root=repo_root)
     spawn_id = SpawnId(parsed.spawn_id)
-    state_root = resolve_state_paths(project_paths.repo_root).root_dir
+    state_root = resolve_state_root(project_paths.repo_root)
     log_dir = resolve_spawn_log_dir(project_paths.repo_root, spawn_id)
     try:
         try:

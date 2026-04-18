@@ -21,10 +21,14 @@ from meridian.lib.launch.request import (
     SessionRequest,
     SpawnRequest,
 )
-from meridian.lib.state.paths import resolve_state_paths
 from meridian.lib.utils.time import minutes_to_seconds
 
-from ..runtime import OperationRuntime, build_runtime, resolve_runtime_root_and_config
+from ..runtime import (
+    OperationRuntime,
+    build_runtime,
+    resolve_runtime_root_and_config,
+    resolve_state_root,
+)
 from .models import SpawnCreateInput
 
 logger = structlog.get_logger(__name__)
@@ -218,7 +222,7 @@ def build_create_payload(
             composition_surface=LaunchCompositionSurface.SPAWN_PREPARE,
             config_snapshot=runtime_view.config.model_dump(mode="json", exclude_none=True),
             report_output_path=_DRY_RUN_REPORT_PATH,
-            state_root=resolve_state_paths(runtime_view.repo_root).root_dir.as_posix(),
+            state_root=resolve_state_root(runtime_view.repo_root).as_posix(),
             project_paths_repo_root=runtime_view.repo_root.as_posix(),
             project_paths_execution_cwd=runtime_view.repo_root.as_posix(),
         ),

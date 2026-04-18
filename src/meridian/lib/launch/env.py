@@ -6,7 +6,7 @@ from typing import cast
 
 from meridian.lib.harness.adapter import SpawnParams, SubprocessHarness
 from meridian.lib.safety.permissions import PermissionConfig
-from meridian.lib.state.paths import resolve_work_scratch_dir
+from meridian.lib.state.paths import resolve_repo_state_paths, resolve_work_scratch_dir
 from meridian.lib.state.session_store import get_session_active_work_id
 
 from .constants import BLOCKED_CHILD_ENV_VARS
@@ -47,14 +47,17 @@ def _normalize_meridian_fs_dir(env: dict[str, str]) -> None:
         env["MERIDIAN_FS_DIR"] = explicit_fs
         return
 
-    state_root = env.get("MERIDIAN_STATE_ROOT", "").strip()
-    if state_root:
-        env["MERIDIAN_FS_DIR"] = (Path(state_root).expanduser() / "fs").as_posix()
-        return
-
     repo_root = env.get("MERIDIAN_REPO_ROOT", "").strip()
     if repo_root:
-        env["MERIDIAN_FS_DIR"] = (Path(repo_root).expanduser() / ".meridian" / "fs").as_posix()
+        repo_state = resolve_repo_state_paths(Path(repo_root).expanduser())
+        env["MERIDIAN_FS_DIR"] = repo_state.fs_dir.as_posix()
+
+
+def _resolve_repo_state_root(env: Mapping[str, str]) -> Path | None:
+    repo_root = env.get("MERIDIAN_REPO_ROOT", "").strip()
+    if not repo_root:
+        return None
+    return resolve_repo_state_paths(Path(repo_root).expanduser()).root_dir
 
 
 def _normalize_meridian_work_dir(env: dict[str, str]) -> None:
@@ -65,10 +68,17 @@ def _normalize_meridian_work_dir(env: dict[str, str]) -> None:
 
     state_root_raw = env.get("MERIDIAN_STATE_ROOT", "").strip()
     work_id = env.get("MERIDIAN_WORK_ID", "").strip()
-    if state_root_raw and work_id:
+    repo_state_root = _resolve_repo_state_root(env)
+    if work_id:
+        target_root = repo_state_root
+        if target_root is None and state_root_raw:
+            target_root = Path(state_root_raw).expanduser()
+        if target_root is None:
+            return
         try:
-            state_root = Path(state_root_raw).expanduser()
-            env["MERIDIAN_WORK_DIR"] = resolve_work_scratch_dir(state_root, work_id).as_posix()
+            env["MERIDIAN_WORK_DIR"] = resolve_work_scratch_dir(
+                target_root, work_id
+            ).as_posix()
             return
         except Exception:
             return
@@ -85,8 +95,9 @@ def _normalize_meridian_work_dir(env: dict[str, str]) -> None:
         normalized_work_id = active_work_id.strip()
         if not normalized_work_id:
             return
+        target_root = repo_state_root if repo_state_root is not None else state_root
         env["MERIDIAN_WORK_DIR"] = resolve_work_scratch_dir(
-            state_root, normalized_work_id
+            target_root, normalized_work_id
         ).as_posix()
     except Exception:
         return
