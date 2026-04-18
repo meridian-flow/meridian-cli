@@ -1253,7 +1253,7 @@ def init_alias(
 
 @app.command(name="context")
 def context_cmd() -> None:
-    """Query runtime context: work_id, repo_root, state_root, depth."""
+    """Query runtime context: work_dir, fs_dir, repo_root, state_root, depth, context_roots."""
 
     from meridian.lib.ops.context import ContextInput, context_sync
 

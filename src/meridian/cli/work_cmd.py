@@ -61,7 +61,7 @@ def _work_start(
     ],
     description: Annotated[
         str,
-        Parameter(name="--description", help="Optional work item description."),
+        Parameter(name=["--description", "--desc"], help="Optional work item description."),
     ] = "",
 ) -> None:
     emit(
@@ -126,7 +126,7 @@ def _work_update(
     ] = None,
     description: Annotated[
         str | None,
-        Parameter(name="--description", help="Updated work item description."),
+        Parameter(name=["--description", "--desc"], help="Updated work item description."),
     ] = None,
 ) -> None:
     emit(

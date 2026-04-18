@@ -192,7 +192,7 @@ def _spawn_create(
     ] = None,
     desc: Annotated[
         str,
-        Parameter(name="--desc", help="Short description for the spawn."),
+        Parameter(name=["--desc", "--description"], help="Short description for the spawn."),
     ] = "",
     work: Annotated[
         str,

@@ -653,7 +653,10 @@ _OPERATIONS: tuple[OperationSpec[Any, Any], ...] = (
     ),
     _spec(
         name="context",
-        description="Query runtime context: work_id, repo_root, state_root, depth.",
+        description=(
+            "Query runtime context: work_dir, fs_dir, repo_root, "
+            "state_root, depth, context_roots."
+        ),
         handler=context,
         sync_handler=context_sync,
         input_type=ContextInput,
@@ -665,7 +668,7 @@ _OPERATIONS: tuple[OperationSpec[Any, Any], ...] = (
     ),
     _spec(
         name="work.current",
-        description="Return just the current work_id (or empty if none attached).",
+        description="Return the current work directory path (or empty if none attached).",
         handler=work_current,
         sync_handler=work_current_sync,
         input_type=WorkCurrentInput,
