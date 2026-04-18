@@ -67,7 +67,9 @@ python migrations/v001_uuid_state_split/check.py /path/to/repo
 
 ### Check what's pending
 ```bash
-python -m migrations.check /path/to/repo
+# Future: python -m migrations.check /path/to/repo
+# For now, run individual check scripts:
+python migrations/v001_uuid_state_split/check.py /path/to/repo
 # Lists migrations and their status (needed/done/not_applicable)
 ```
 
