@@ -1,6 +1,7 @@
 # Configuration
 
-Meridian works without config files, but you can override defaults in `.meridian/config.toml`.
+Meridian works without config files, but you can override defaults in project
+`meridian.toml` and user `~/.meridian/config.toml`.
 
 By default Meridian discovers agents and skills from repo-local `.agents/` only.
 Harness-specific compatibility paths such as `.claude/` are runtime concerns, not
@@ -20,29 +21,55 @@ meridian models config show
 
 ## Repository Layout
 
+Meridian splits state across two roots: repo-tracked files that belong in version control, and per-machine runtime state that does not.
+
+### Repo-tracked (`.meridian/`)
+
 ```text
 <repo-root>/
+  meridian.toml              # project config
   .agents/
     agents/
     skills/
   workspace.local.toml       # local-only, gitignored via .git/info/exclude
   .meridian/
-    config.toml
-    models.toml
-    fs/
-    work-items/
-    work/
-    work-archive/
-    spawns/
-      <spawn-id>/
-    spawns.jsonl
-    sessions.jsonl
+    .gitignore               # committed — controls what else is tracked
+    models.toml              # committed — model catalog overrides
+    fs/                      # committed — shared filesystem mirror
+    work/                    # committed — active work-item scratch dirs
+    work-archive/            # committed — scratch for completed work items
+    id                       # gitignored — project UUID (created on first write)
+    .migrations.json         # gitignored — migration state
 ```
 
-File state under `.meridian/` is authoritative for spawns, sessions, shared filesystem state, and work-item metadata.
-`work-items/` stores Meridian-owned coordination metadata. `work/` holds active work-scoped scratch files, and `work-archive/` holds scratch for completed work items.
+Read-only commands (`meridian spawn list`, `meridian config show`, `meridian doctor`, etc.) do not create `.meridian/id` or any runtime state.
 
-## `config.toml` Keys
+### User runtime (`~/.meridian/projects/<uuid>/`)
+
+High-churn runtime state lives outside the repo, keyed by project UUID so the repo can be moved or renamed without losing history.
+
+```text
+~/.meridian/                       # Unix/macOS default (see MERIDIAN_HOME)
+%LOCALAPPDATA%\meridian\           # Windows default
+  projects/
+    <uuid>/                        # one dir per project
+      spawns.jsonl
+      sessions.jsonl
+      session-id-counter
+      sessions/
+      spawns/
+        <spawn-id>/
+      artifacts/
+      cache/
+      config.toml
+      .migrations.json
+```
+
+The UUID is stored in `.meridian/id` (gitignored). Because state is keyed by UUID rather than path, renaming or moving the repo does not orphan runtime state.
+
+`work/` and `work-archive/` stay repo-side so work-item scratch files are visible to all collaborators and survive across machines.
+
+## `meridian.toml` Keys
 
 Canonical keys accepted by `meridian config set/get/reset`:
 
@@ -206,7 +233,8 @@ Use `meridian models config init/show/get/set/reset` to manage this file from th
 |---|---|
 | `MERIDIAN_REPO_ROOT` | Force repo root resolution |
 | `MERIDIAN_CONFIG` | User config overlay path |
-| `MERIDIAN_STATE_ROOT` | Override state root (default `.meridian`) |
+| `MERIDIAN_HOME` | Override user state root (default `~/.meridian/` on Unix/macOS, `%LOCALAPPDATA%\meridian\` on Windows) |
+| `MERIDIAN_STATE_ROOT` | Override the runtime state root. Absolute path = use as-is; relative path = resolve relative to repo root. Repo-owned paths (`fs/`, `work/`, `work-archive/`) always stay in `.meridian/` regardless of this setting. |
 | `MERIDIAN_FS_DIR` | Resolved shared filesystem path for the current repo state root |
 | `MERIDIAN_WORK_ID` | Active attached work item slug, when one exists |
 | `MERIDIAN_WORK_DIR` | Scratch/docs directory for the active work item, when one exists |
