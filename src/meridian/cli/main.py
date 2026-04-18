@@ -1407,12 +1407,24 @@ def _should_startup_bootstrap(argv: Sequence[str]) -> bool:
     top_level = _first_positional_token(argv)
     if top_level is None:
         return True
-    if top_level in {"context", "session", "models", "completion"}:
+    if top_level in {"context", "session", "completion", "doctor"}:
         return False
     subcommand = _first_subcommand_token(argv)
+    if top_level == "models" and subcommand in {None, "list", "show"}:
+        return False
+    if top_level == "config" and subcommand == "show":
+        return False
     if top_level == "work" and subcommand in {None, "list", "show", "sessions", "current"}:
         return False
-    if top_level == "spawn" and subcommand in {"list", "show", "stats", "wait", "files", "log"}:
+    if top_level == "spawn" and subcommand in {
+        "list",
+        "show",
+        "stats",
+        "wait",
+        "files",
+        "log",
+        "report",
+    }:
         return False
     return True
 
