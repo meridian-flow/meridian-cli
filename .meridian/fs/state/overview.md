@@ -2,23 +2,42 @@
 
 ## What It Is
 
-All Meridian state lives as files under `.meridian/`. No database, no service, no hidden in-memory state. The design guarantees that `cat spawns.jsonl | jq` is sufficient to understand the system state.
+Meridian state splits across two roots: repo-local `.meridian/` (committed scaffolding) and a user-level runtime directory keyed by project UUID (high-churn JSONL, artifacts). No database, no service, no hidden in-memory state. Both roots are files — `cat .meridian/spawns.jsonl | jq` still tells you everything on a machine that has the runtime state.
 
-Source: `src/meridian/lib/state/`
+Source: `src/meridian/lib/state/` (paths, user_paths, atomic, locks, reaper, spawn store, session store)
 
-## Directory Layout
+## Split State Layout
+
+### Repo `.meridian/` — committed scaffolding
 
 ```
 .meridian/
-  spawns.jsonl         # all spawn events (start/update/exited/finalize), append-only
-  spawns.jsonl.flock   # fcntl lock file for spawns.jsonl writes
-  sessions.jsonl       # all session events (start/stop/update), append-only
-  sessions.jsonl.flock # fcntl lock file for sessions.jsonl writes
-  session-id-counter   # monotonic counter for allocating c1, c2, ... IDs
-  sessions/            # per-session lock files and lease files
+  id                       # project UUID (36-char v4, no trailing newline; gitignored)
+  id.lock                  # exclusive lock used during UUID generation
+  .migrations.json         # repo-side migration tracking (gitignored)
+  .gitignore               # seeded/maintained non-destructively
+  fs/                      # agent-facing codebase mirror (committed)
+  work/                    # active work scratch dirs (committed)
+  work-archive/            # archived work scratch dirs (committed)
+  work-items/              # mutable JSON per work item (committed)
+    <work_id>.json
+    work-items.rename.intent.json  # crash-safe rename intent (transient)
+```
+
+### User runtime `~/.meridian/projects/<uuid>/` — local, gitignored
+
+```
+~/.meridian/projects/<uuid>/
+  spawns.jsonl             # all spawn events, append-only
+  spawns.jsonl.flock       # fcntl lock for spawns.jsonl writes
+  sessions.jsonl           # all session events, append-only
+  sessions.jsonl.flock     # fcntl lock for sessions.jsonl writes
+  session-id-counter       # monotonic counter for c1, c2, ...
+  session-id-counter.flock
+  sessions/                # per-session lock + lease files
     <chat_id>.lock
     <chat_id>.lease.json
-  spawns/              # per-spawn artifact directories
+  spawns/                  # per-spawn artifact dirs
     <spawn_id>/
       prompt.md
       report.md
@@ -26,47 +45,91 @@ Source: `src/meridian/lib/state/`
       stderr.log
       params.json
       tokens.json
-      heartbeat        # touched every 30s by runner; reaper liveness signal
-      ...
-  work-items/          # per-work-item metadata JSON files
-    <work_id>.json
-    work-items.rename.intent.json  # crash-safe rename intent (transient)
-  work/                # per-work-item scratch directories (active)
-    <work_id>/
-  work-archive/        # per-work-item scratch directories (done/archived)
-    <work_id>/
-  artifacts/           # artifact blob store for spawn outputs (LocalStore)
+      heartbeat            # touched every 30s; reaper liveness signal
+  artifacts/               # LocalStore blob store for spawn outputs
   cache/
-    models.json        # model list cache (24h TTL)
-  config.toml          # project config overrides
-  .gitignore           # seeded and maintained non-destructively
+    models.json            # model list cache (24h TTL)
+  config.toml              # project config overrides
+  .migrations.json         # user-side migration tracking
 ```
 
-Override root via `MERIDIAN_STATE_ROOT` env var.
+The split means projects can be moved, renamed, or duplicated without losing runtime history (runtime is keyed by UUID, not path). Repo state stays committable; runtime state stays local.
 
-## Storage Patterns
+## User Root Resolution
 
-**JSONL event stores** (spawns, sessions): append-only, crash-tolerant. Reads skip malformed lines (`json.JSONDecodeError` → skip). Writes go through `append_event()` under `fcntl.flock`. State is derived by replaying events from the beginning.
+`get_user_state_root()` in `user_paths.py` resolves the user root:
 
-**Per-file mutable JSON** (work items): one `<slug>.json` per item. Atomic overwrites via `tmp + os.replace()`. Better for mutable records correlated with a directory that moves on rename.
+1. `MERIDIAN_HOME` env var (if set)
+2. Platform default:
+   - Unix/macOS: `~/.meridian/`
+   - Windows: `%LOCALAPPDATA%\meridian\` (fallback: `%USERPROFILE%\AppData\Local\meridian\`)
 
-**Artifact directories** (spawns): one directory per spawn under `.meridian/spawns/<id>/`. Contains durable artifacts (stdout capture, stderr, report, params, tokens) plus the `heartbeat` coordination file touched every 30s by the runner. No PID files; PID and status transitions live in the event stream. The `heartbeat` file is the exception — it is a live coordination artifact read by the reaper for liveness.
+## Runtime Override Precedence
 
-## Crash Tolerance
+`MERIDIAN_STATE_ROOT` overrides the runtime root entirely (bypasses UUID lookup):
+- Absolute path → treated as the runtime root directly
+- Relative path → resolved relative to repo root
 
-Crash-only design: every write path is designed to be safely restartable.
-- JSONL appends: truncated lines are skipped on read. Missing lines don't corrupt earlier lines.
-- Work item renames: a `work-items.rename.intent.json` file is written before any renames begin. On startup/reconciliation, any leftover intent is replayed to completion.
-- Atomic writes: any file that needs to be replaced goes through `tmp + os.replace()` (via `atomic_write_text()` in `state/atomic.py`).
-- Spawn reconciliation: active spawns are auto-finalized on every read path (list, show, wait, dashboard). The reaper skips nested invocations (`MERIDIAN_DEPTH > 0`), checks heartbeat file recency as the primary liveness signal, and consults `runner_pid` psutil liveness for non-`finalizing` rows. No separate GC command. See `state/spawns.md` for full reaper logic.
+`MERIDIAN_HOME` only affects the user root default (step 2 above). It does not override an absolute `MERIDIAN_STATE_ROOT`.
 
-## Locking
+## Read vs Write Resolution
 
-- JSONL stores: `fcntl.flock(LOCK_EX)` on the `.flock` sidecar file. Reentrant within a thread (tracked via thread-local depth counter).
-- Session locks: per-session lock file (`<chat_id>.lock`) held for the duration of an active session. Lease file (`<chat_id>.lease.json`) carries PID + generation token for staleness detection.
+Bootstrap (UUID creation + runtime dir setup) is **skipped for read-only commands**. This prevents diagnostic/list commands from creating a UUID and runtime dir in untouched checkouts (CI, first-time tool runs, etc.).
+
+| Resolver | Creates UUID? | Use when |
+|----------|--------------|----------|
+| `resolve_runtime_state_root(repo_root)` | No | Read paths; falls back to repo `.meridian/` if no UUID yet |
+| `resolve_runtime_state_root_or_none(repo_root)` | No | Read paths where caller needs to know if uninitialized |
+| `resolve_runtime_state_root_for_write(repo_root)` | Yes (under lock) | Write paths; creates UUID + runtime dir on first write |
+
+UUID generation in `get_or_create_project_uuid()` is double-checked under `id.lock` (cross-process exclusive lock) so concurrent first-writes converge to the same UUID.
 
 ## Path Resolution (`paths.py`)
 
-`StateRootPaths.from_root_dir(root)` resolves all standard paths relative to a state root. Used everywhere in state code to avoid hardcoded path construction.
+Two path model classes:
 
-The `.gitignore` is seeded on first init and updated non-destructively — only adds new required entries, never removes entries added by users.
+**`StatePaths`** — repo-owned paths only (`root_dir`, `id_file`, `fs_dir`, `work_dir`, `work_archive_dir`). Built by `StatePaths.from_root_dir()`.
+
+**`StateRootPaths`** — runtime state paths (spawn/session indexes, per-spawn artifact dirs). Built by `StateRootPaths.from_root_dir()`. Still carries `fs_dir`, `work_dir`, `work_archive_dir` fields for transitional callers — these will be removed when all callers migrate to `StatePaths`. The authoritative repo paths come through `StatePaths`.
+
+Convenience resolvers:
+
+- `resolve_repo_state_paths(repo_root)` → `StatePaths` for repo `.meridian/` (ignores runtime overrides)
+- `resolve_state_paths(repo_root)` → `StatePaths` honoring `MERIDIAN_STATE_ROOT`
+- `resolve_cache_dir(repo_root)` → runtime `cache/` directory
+- `resolve_fs_dir(repo_root)` → repo `fs/` directory
+- `resolve_spawn_log_dir(repo_root, spawn_id)` → per-spawn artifact dir under runtime root
+
+## Storage Patterns
+
+**JSONL event stores** (spawns, sessions): append-only, crash-tolerant. Reads skip malformed lines. Writes go through `append_event()` under `fcntl.flock`. State is derived by replaying from the beginning. See `spawns.md` and `sessions.md` for store-specific detail.
+
+**Per-file mutable JSON** (work items): one `<slug>.json` per item under `work-items/`. Atomic overwrites via `tmp + os.replace()`. Better for mutable records correlated with a directory that moves on rename.
+
+**Artifact directories** (spawns): one directory per spawn under `spawns/<id>/`. Contains durable artifacts (stdout, stderr, report, params, tokens) plus the `heartbeat` coordination file touched every 30s. No PID files in artifact dirs — PID and status transitions live in the event stream. `heartbeat` is a live coordination artifact read by the reaper.
+
+## Crash Tolerance
+
+Crash-only design: every write path is safely restartable.
+- JSONL appends: truncated lines skipped on read; earlier lines unaffected.
+- Work item renames: `work-items.rename.intent.json` written before any rename begins; leftover intent replayed on startup/reconciliation.
+- Atomic writes: any replaced file goes through `tmp + os.replace()` (via `atomic_write_text()` in `state/atomic.py`).
+- Spawn reconciliation: active spawns auto-finalized on every read path (list, show, wait, dashboard). Reaper skips nested invocations (`MERIDIAN_DEPTH > 0`), checks heartbeat recency (primary), `runner_pid` psutil liveness (secondary, skipped for `finalizing`). See `spawns.md` for full reaper logic.
+
+## Locking
+
+- JSONL stores: `fcntl.flock(LOCK_EX)` on `.flock` sidecar. Reentrant within a thread (thread-local depth counter).
+- Session locks: per-session lock file (`<chat_id>.lock`) held for active session duration. Lease file (`<chat_id>.lease.json`) carries PID + generation token for staleness detection.
+- UUID creation: `id.lock` exclusive lock; double-checked read inside lock.
+
+## Migrations
+
+State transformation scripts live in top-level `migrations/`, completely decoupled from runtime code. Each migration is a versioned directory (`vNNN_short_name/`) containing `README.md`, `check.py`, `migrate.py`, and optional `rollback.py`. `registry.toml` lists migrations with status `stub` (not yet implemented) or `ready` (implemented).
+
+Tracking splits across two files, mirroring the state split:
+- `.meridian/.migrations.json` — repo-side (gitignored)
+- `~/.meridian/projects/<uuid>/.migrations.json` — user-side
+
+Migrations run manually via `python migrations/vNNN/migrate.py <repo_root>`. No auto-run; no CLI integration yet. See `migrations/README.md` for the framework, `migrations/registry.toml` for the current migration list.
+
+**v001 `uuid_state_split`** (introduced 0.0.34) — moves legacy runtime state from repo `.meridian/` to user `~/.meridian/projects/<uuid>/`. Currently a stub; not yet implemented.

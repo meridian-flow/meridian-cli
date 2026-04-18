@@ -78,20 +78,33 @@ Composition is centralized in `lib/launch/context.py:build_launch_context()`. Ev
 
 ## State Root Layout
 
+State splits across two roots keyed by a per-project UUID. See `fs/state/overview.md` for the full layout, path resolvers, and read-vs-write separation.
+
+**Repo `.meridian/`** — committed scaffolding:
 ```
 .meridian/
-  spawns.jsonl          append-only spawn events
-  sessions.jsonl        append-only session events
-  session-id-counter    monotonic counter for c1, c2, ...
-  config.toml           project config overrides
+  id                    project UUID (gitignored; generated on first write)
+  .gitignore            seeded/maintained non-destructively
   fs/                   agent-facing codebase mirror (this directory)
   work/                 active work scratch dirs
   work-archive/         archived work scratch dirs
   work-items/           mutable JSON per work item
+```
+
+**User `~/.meridian/projects/<uuid>/`** — runtime state (local, never committed):
+```
+~/.meridian/projects/<uuid>/
+  spawns.jsonl          append-only spawn events
+  sessions.jsonl        append-only session events
+  session-id-counter    monotonic counter for c1, c2, ...
+  config.toml           project config overrides
+  sessions/             per-session lock + lease files
   spawns/               per-spawn artifact dirs (<id>/prompt.md, report.md, ...)
   artifacts/            artifact blob store for spawn outputs (LocalStore)
   cache/                models.json cache, other transient data
 ```
+
+UUID mapping: repo `.meridian/id` → runtime directory. Projects can be moved or renamed without losing runtime state. Platform user root defaults: `~/.meridian/` (Unix/macOS), `%LOCALAPPDATA%\meridian\` (Windows). Override: `MERIDIAN_STATE_ROOT` (absolute → full runtime root override; relative → repo-relative), `MERIDIAN_HOME` (user root default only).
 
 ## Surface Summary
 
