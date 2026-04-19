@@ -2,8 +2,6 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-import pytest
-
 from meridian.lib.core.domain import SpawnStatus
 from meridian.lib.state.spawn_store import (
     finalize_spawn,

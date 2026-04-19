@@ -14,7 +14,6 @@ from meridian.lib.launch.env import (
 )
 from meridian.lib.safety.permissions import (
     CombinedToolsResolver,
-    DisallowedToolsResolver,
     ExplicitToolsResolver,
     PermissionConfig,
     build_permission_config,

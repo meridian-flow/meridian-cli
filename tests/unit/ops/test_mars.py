@@ -21,8 +21,11 @@ def _patch_outdated_command(
 
     def _fake_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
         observed.append(cmd)
-        output = stdout if stdout is not None else json.dumps(payload if payload is not None else [])
-        return subprocess.CompletedProcess(args=cmd, returncode=returncode, stdout=output, stderr="")
+        default_payload = json.dumps(payload if payload is not None else [])
+        output = stdout if stdout is not None else default_payload
+        return subprocess.CompletedProcess(
+            args=cmd, returncode=returncode, stdout=output, stderr=""
+        )
 
     monkeypatch.setattr(mars.subprocess, "run", _fake_run)
     return observed

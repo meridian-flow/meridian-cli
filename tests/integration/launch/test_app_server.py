@@ -14,7 +14,6 @@ from meridian.lib.app import server as server_module
 from meridian.lib.core.types import HarnessId, SpawnId
 from meridian.lib.harness.connections.base import ConnectionCapabilities, ConnectionConfig
 from meridian.lib.harness.launch_spec import ResolvedLaunchSpec
-from meridian.lib.state import spawn_store
 from meridian.lib.state.paths import resolve_state_paths
 from meridian.lib.state.spawn_store import get_spawn
 from meridian.lib.streaming.spawn_manager import DrainOutcome
@@ -122,7 +121,8 @@ def _create_spawn_handler(
 
     for route in app.routes:
         if route.path == "/api/spawns" and "POST" in route.methods:
-            return cast("Callable[[server_module.SpawnCreateRequest], Any]", route.endpoint), manager
+            endpoint = route.endpoint
+            return cast("Callable[[server_module.SpawnCreateRequest], Any]", endpoint), manager
     raise AssertionError("missing /api/spawns POST route")
 
 

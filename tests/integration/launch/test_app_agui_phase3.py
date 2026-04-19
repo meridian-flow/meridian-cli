@@ -7,8 +7,8 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
-from ag_ui.core import RunErrorEvent, RunFinishedEvent, RunStartedEvent
 
+from ag_ui.core import RunErrorEvent, RunFinishedEvent, RunStartedEvent
 from meridian.lib.app import agui_mapping as mapping_module
 from meridian.lib.app import ws_endpoint
 from meridian.lib.core.types import HarnessId, SpawnId
@@ -68,7 +68,8 @@ async def test_outbound_loop_skips_run_finished_after_run_error() -> None:
             self.payloads.append(cast("dict[str, object]", json.loads(data)))
 
     queue: asyncio.Queue[HarnessEvent | None] = asyncio.Queue()
-    await queue.put(HarnessEvent(event_type="error", payload={"message": "boom"}, harness_id="codex"))
+    event = HarnessEvent(event_type="error", payload={"message": "boom"}, harness_id="codex")
+    await queue.put(event)
     await queue.put(None)
 
     websocket = FakeWebSocket()
