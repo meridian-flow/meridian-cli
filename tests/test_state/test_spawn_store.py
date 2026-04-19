@@ -13,6 +13,9 @@ from meridian.lib.state.spawn_store import (
     APP_LAUNCH_MODE,
     AUTHORITATIVE_ORIGINS,
     LaunchMode,
+    SpawnExitedEvent,
+    SpawnFinalizeEvent,
+    SpawnStartEvent,
     SpawnOrigin,
     SpawnUpdateEvent,
     finalize_spawn,
@@ -23,6 +26,7 @@ from meridian.lib.state.spawn_store import (
     start_spawn,
     update_spawn,
 )
+from tests.support.fakes import FakeClock, FakeSpawnRepository
 
 
 def _state_root(tmp_path: Path) -> Path:
@@ -256,6 +260,93 @@ def test_get_spawn_survives_mixed_malformed_rows(tmp_path: Path) -> None:
     assert row.id == "p2"
     assert row.chat_id == "c2"
     assert row.status == "running"
+
+
+def test_start_spawn_accepts_injected_clock_and_repository(tmp_path: Path) -> None:
+    state_root = _state_root(tmp_path)
+    fake_clock = FakeClock(start=1_700_000_000.0)
+    fake_repository = FakeSpawnRepository()
+
+    spawn_id = start_spawn(
+        state_root,
+        chat_id="c1",
+        model="gpt-5.4",
+        agent="coder",
+        harness="codex",
+        prompt="hello",
+        clock=fake_clock,
+        repository=fake_repository,
+    )
+
+    events = fake_repository.read_events()
+    assert str(spawn_id) == "p1"
+    assert len(events) == 1
+    start_event = cast("SpawnStartEvent", events[0])
+    assert start_event.started_at == fake_clock.utc_now_iso()
+    assert start_event.id == "p1"
+
+
+def test_record_spawn_exited_accepts_injected_clock_and_repository(tmp_path: Path) -> None:
+    state_root = _state_root(tmp_path)
+    fake_repository = FakeSpawnRepository()
+    spawn_id = start_spawn(
+        state_root,
+        chat_id="c1",
+        model="gpt-5.4",
+        agent="coder",
+        harness="codex",
+        prompt="hello",
+        repository=fake_repository,
+    )
+    fake_clock = FakeClock(start=1_700_000_123.0)
+
+    record_spawn_exited(
+        state_root,
+        spawn_id,
+        exit_code=143,
+        clock=fake_clock,
+        repository=fake_repository,
+    )
+
+    events = fake_repository.read_events()
+    assert len(events) == 2
+    exited_event = cast("SpawnExitedEvent", events[-1])
+    assert exited_event.exited_at == fake_clock.utc_now_iso()
+    assert exited_event.exit_code == 143
+
+
+def test_finalize_spawn_accepts_injected_clock_and_repository(tmp_path: Path) -> None:
+    state_root = _state_root(tmp_path)
+    fake_repository = FakeSpawnRepository()
+    spawn_id = start_spawn(
+        state_root,
+        chat_id="c1",
+        model="gpt-5.4",
+        agent="coder",
+        harness="codex",
+        prompt="hello",
+        repository=fake_repository,
+    )
+    fake_clock = FakeClock(start=1_700_000_222.0)
+
+    wrote = finalize_spawn(
+        state_root,
+        spawn_id,
+        status="succeeded",
+        exit_code=0,
+        origin="runner",
+        clock=fake_clock,
+        repository=fake_repository,
+    )
+
+    assert wrote is True
+    events = fake_repository.read_events()
+    assert len(events) == 2
+    finalize_event = cast("SpawnFinalizeEvent", events[-1])
+    assert finalize_event.finished_at == fake_clock.utc_now_iso()
+    row = get_spawn(state_root, spawn_id, repository=fake_repository)
+    assert row is not None
+    assert row.status == "succeeded"
 
 
 def test_mark_finalizing_returns_true_from_running(tmp_path: Path) -> None:
