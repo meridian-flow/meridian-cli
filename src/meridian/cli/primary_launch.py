@@ -147,9 +147,23 @@ def run_primary_launch(
         if agent is not None and agent.strip():
             raise ValueError("Cannot combine --continue with --agent.")
         resolved_continue = resolve_session_target(repo_root=repo_root, continue_ref=resume_target)
+        source_harness = (
+            resolved_continue.harness.strip()
+            if resolved_continue.harness is not None and resolved_continue.harness.strip()
+            else None
+        )
+        if (
+            explicit_harness is not None
+            and source_harness is not None
+            and explicit_harness != source_harness
+        ):
+            raise ValueError(
+                "Cannot continue across harnesses: "
+                f"source is '{source_harness}', target is '{explicit_harness}'."
+            )
         continue_harness_session_id = resolved_continue.harness_session_id
         continue_chat_id = resolved_continue.chat_id
-        continue_harness = explicit_harness or resolved_continue.harness
+        continue_harness = explicit_harness or source_harness
         if continue_harness is None:
             raise ValueError(
                 f"Session '{resolved_continue.harness_session_id or resume_target}' "
