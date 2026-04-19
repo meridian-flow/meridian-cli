@@ -77,6 +77,12 @@ packages = ["src/meridian"]
 pythonVersion = "3.12"
 typeCheckingMode = "strict"
 reportMissingModuleSource = false
+# CLI commands are used via decorators; pyright doesn't track decorator usage
+reportUnusedFunction = "warning"
+# Cross-module internal helpers are intentional
+reportPrivateUsage = "warning"
+# Allow casts that may become redundant after type narrowing improvements
+reportUnnecessaryCast = "warning"
 venvPath = "."
 venv = ".venv"
 include = ["src"]

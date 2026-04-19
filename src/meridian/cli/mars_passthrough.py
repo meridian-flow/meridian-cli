@@ -197,10 +197,10 @@ def augment_sync_result(
 
     stdout_stream = sys.stdout if stdout is None else stdout
     stderr_stream = sys.stderr if stderr is None else stderr
-    formatter = (
+    formatter: Callable[[UpgradeAvailability], Sequence[str]] = (
         format_upgrade_availability
         if format_upgrades is None
-        else lambda upgrades: format_upgrades(upgrades)
+        else (lambda fn: lambda u: fn(u))(format_upgrades)
     )
 
     upgrades: UpgradeAvailability | None = None
