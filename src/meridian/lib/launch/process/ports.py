@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
+from collections.abc import Callable
 
 
 @dataclass(frozen=True)
@@ -13,6 +14,9 @@ class LaunchedProcess:
 
     exit_code: int
     pid: int | None
+
+
+ChildStartedHook = Callable[[int], None]
 
 
 class ProcessLauncher(Protocol):
@@ -25,7 +29,8 @@ class ProcessLauncher(Protocol):
         cwd: Path,
         env: dict[str, str],
         output_log_path: Path | None,
+        on_child_started: ChildStartedHook | None = None,
     ) -> LaunchedProcess: ...
 
 
-__all__ = ["LaunchedProcess", "ProcessLauncher"]
+__all__ = ["ChildStartedHook", "LaunchedProcess", "ProcessLauncher"]

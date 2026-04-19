@@ -1,0 +1,194 @@
+"""PTY-backed process launching."""
+
+from __future__ import annotations
+
+import os
+import signal
+import struct
+import sys
+from contextlib import suppress
+from pathlib import Path
+from typing import Any, cast
+
+from meridian.lib.platform import IS_WINDOWS, fcntl, termios
+
+from .ports import ChildStartedHook, LaunchedProcess, ProcessLauncher
+
+
+def can_use_pty(*, output_log_path: Path | None) -> bool:
+    return (
+        not IS_WINDOWS
+        and output_log_path is not None
+        and sys.stdin.isatty()
+        and sys.stdout.isatty()
+    )
+
+
+def _read_winsize(fd: int) -> bytes | None:
+    """Return packed winsize bytes for one terminal fd, or None if unavailable."""
+
+    try:
+        return fcntl.ioctl(fd, termios.TIOCGWINSZ, struct.pack("HHHH", 0, 0, 0, 0))
+    except OSError:
+        return None
+
+
+def _sync_pty_winsize(*, source_fd: int, target_fd: int) -> None:
+    """Copy the current terminal winsize onto the PTY master."""
+
+    winsize = _read_winsize(source_fd)
+    if winsize is None:
+        return
+    try:
+        fcntl.ioctl(target_fd, termios.TIOCSWINSZ, winsize)
+    except OSError:
+        return
+
+
+def _invoke_previous_sigwinch_handler(
+    previous: signal.Handlers,
+    *,
+    signum: int,
+    frame: Any,
+) -> None:
+    if previous in {signal.SIG_DFL, signal.SIG_IGN, None}:
+        return
+    if callable(previous):
+        previous(signum, frame)
+
+
+def _install_winsize_forwarding(*, source_fd: int, target_fd: int) -> Any:
+    """Sync PTY size now and on future terminal resize signals."""
+
+    _sync_pty_winsize(source_fd=source_fd, target_fd=target_fd)
+    previous = cast("signal.Handlers", signal.getsignal(signal.SIGWINCH))
+
+    def _handle_resize(signum: int, frame: Any) -> None:
+        _sync_pty_winsize(source_fd=source_fd, target_fd=target_fd)
+        _invoke_previous_sigwinch_handler(previous, signum=signum, frame=frame)
+
+    signal.signal(signal.SIGWINCH, _handle_resize)
+
+    def _restore() -> None:
+        signal.signal(signal.SIGWINCH, previous)
+
+    return _restore
+
+
+def _copy_primary_pty_output(
+    *,
+    child_pid: int,
+    master_fd: int,
+    output_log_path: Path,
+) -> int:
+    import select
+    import termios
+    import tty
+
+    stdin_fd = sys.stdin.fileno()
+    stdout_fd = sys.stdout.fileno()
+    stdin_open = True
+    saved_tty_attrs: Any = None
+
+    output_log_path.parent.mkdir(parents=True, exist_ok=True)
+    restore_resize = _install_winsize_forwarding(source_fd=stdout_fd, target_fd=master_fd)
+    try:
+        if os.isatty(stdin_fd):
+            saved_tty_attrs = termios.tcgetattr(stdin_fd)
+            tty.setraw(stdin_fd)
+
+        with output_log_path.open("wb") as output_handle:
+            while True:
+                fds = [master_fd]
+                if stdin_open:
+                    fds.append(stdin_fd)
+                ready, _, _ = select.select(fds, [], [])
+
+                if master_fd in ready:
+                    try:
+                        chunk = os.read(master_fd, 4096)
+                    except OSError:
+                        chunk = b""
+                    if not chunk:
+                        break
+                    output_handle.write(chunk)
+                    output_handle.flush()
+                    os.write(stdout_fd, chunk)
+
+                if stdin_open and stdin_fd in ready:
+                    data = os.read(stdin_fd, 1024)
+                    if not data:
+                        stdin_open = False
+                    else:
+                        os.write(master_fd, data)
+    finally:
+        restore_resize()
+        if saved_tty_attrs is not None:
+            termios.tcsetattr(stdin_fd, termios.TCSADRAIN, saved_tty_attrs)
+
+    _, status = os.waitpid(child_pid, 0)
+    return os.waitstatus_to_exitcode(status)
+
+
+class PtyProcessLauncher(ProcessLauncher):
+    """Unix PTY launcher with output capture."""
+
+    def launch(
+        self,
+        *,
+        command: tuple[str, ...],
+        cwd: Path,
+        env: dict[str, str],
+        output_log_path: Path | None,
+        on_child_started: ChildStartedHook | None = None,
+    ) -> LaunchedProcess:
+        if IS_WINDOWS:
+            raise RuntimeError("PTY launcher is not available on Windows")
+        if output_log_path is None:
+            raise ValueError("output_log_path is required for PTY launching")
+
+        import pty
+
+        master_fd, slave_fd = pty.openpty()
+        _sync_pty_winsize(source_fd=sys.stdout.fileno(), target_fd=master_fd)
+
+        child_pid = os.fork()
+        if child_pid == 0:
+            try:
+                os.close(master_fd)
+                os.login_tty(slave_fd)
+                os.chdir(cwd)
+                os.execvpe(command[0], command, env)
+            except FileNotFoundError:
+                os._exit(127)
+            except Exception:
+                os._exit(1)
+
+        os.close(slave_fd)
+        try:
+            if on_child_started is not None:
+                try:
+                    on_child_started(child_pid)
+                except Exception:
+                    with suppress(ProcessLookupError):
+                        os.kill(child_pid, signal.SIGTERM)
+                    with suppress(ChildProcessError):
+                        os.waitpid(child_pid, 0)
+                    raise
+            exit_code = _copy_primary_pty_output(
+                child_pid=child_pid,
+                master_fd=master_fd,
+                output_log_path=output_log_path,
+            )
+            return LaunchedProcess(exit_code=exit_code, pid=child_pid)
+        finally:
+            with suppress(OSError):
+                os.close(master_fd)
+
+
+__all__ = [
+    "PtyProcessLauncher",
+    "_install_winsize_forwarding",
+    "_sync_pty_winsize",
+    "can_use_pty",
+]
