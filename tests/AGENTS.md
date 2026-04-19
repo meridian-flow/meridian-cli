@@ -2,6 +2,62 @@
 
 Where to put tests, what they should look like, and when to write which kind.
 
+## Test Desiderata (Kent Beck)
+
+All good tests share these properties:
+
+| Property | Meaning |
+|----------|---------|
+| **Isolated** | Tests don't affect each other; run in any order |
+| **Deterministic** | Same inputs → same results, every time |
+| **Fast** | Unit: milliseconds. Integration: seconds. Never minutes. |
+| **Writable** | Easy to add new tests |
+| **Readable** | Clear what's being tested and why |
+| **Behavioral** | Test what code does, not how it does it |
+| **Structure-insensitive** | Refactoring internals shouldn't break tests |
+
+## The Two Rules
+
+### 1. Test Behavior, Not Implementation
+
+```python
+# BAD: Tests HOW it works (breaks on refactor)
+mock_helper.assert_called_once_with(internal_arg)
+assert obj._private_field == expected
+monkeypatch.setattr(module, "_internal_constant", value)
+
+# GOOD: Tests WHAT it does (survives refactor)
+assert result.status == "success"
+assert "expected_output" in result.text
+assert parse(input) == expected_output
+```
+
+### 2. One Test Per Invariant
+
+Each test should verify ONE behavioral invariant. If a test name has "and" in it, consider splitting.
+
+## Functional Core, Imperative Shell
+
+Structure code so pure logic is separable from I/O:
+
+```python
+# BAD: Logic mixed with I/O - hard to unit test
+def process_config(path: Path) -> Config:
+    data = path.read_text()           # I/O
+    parsed = json.loads(data)         # Pure
+    validated = validate(parsed)       # Pure
+    return Config(**validated)         # Pure
+
+# GOOD: Pure core, thin I/O shell
+def parse_and_validate(data: str) -> Config:  # Pure - unit test this
+    parsed = json.loads(data)
+    validated = validate(parsed)
+    return Config(**validated)
+
+def load_config(path: Path) -> Config:  # Shell - integration test this
+    return parse_and_validate(path.read_text())
+```
+
 ## The Core Question: What Boundary Are You Testing?
 
 | If you're testing... | Put it in... | Example |
@@ -26,35 +82,6 @@ Does it touch filesystem, network, subprocess, or real external systems?
                  └─ NO → integration/
 ```
 
-## The Two Rules
-
-### 1. Test Behavior, Not Implementation
-
-```python
-# BAD: Tests HOW it works (breaks on refactor)
-mock_helper.assert_called_once_with(internal_arg)
-assert obj._private_field == expected
-monkeypatch.setattr(module, "_internal_constant", value)
-
-# GOOD: Tests WHAT it does (survives refactor)
-assert result.status == "success"
-assert "expected_output" in result.text
-assert parse(input) == expected_output
-```
-
-### 2. One Test Per Invariant
-
-Each test should verify ONE behavioral invariant. If a test name has "and" in it, consider splitting:
-
-```python
-# Suspicious: testing two things
-def test_parse_validates_and_transforms(): ...
-
-# Better: separate concerns
-def test_parse_rejects_invalid_input(): ...
-def test_parse_transforms_valid_input(): ...
-```
-
 ## Test Tiers
 
 ### Unit Tests (`tests/unit/`)
@@ -68,12 +95,22 @@ def test_parse_extracts_version():
     assert result == Version(1, 2, 3)
 ```
 
-**Use fakes, not mocks:** See `tests/support/fakes.py` for `FakeClock`, `FakeSpawnRepository`.
+**Injectable seams:** When pure separation isn't possible, use dependency injection:
+```python
+def check_status(spawn_id: str, *, clock: Clock = real_clock) -> Status:
+    ...
+
+def test_check_status_expired():
+    fake_clock = FakeClock(now=1000)
+    result = check_status("p1", clock=fake_clock)
+    assert result == Status.EXPIRED
+```
+
+Available fakes in `tests/support/fakes.py`: `FakeClock`, `FakeHeartbeat`, `FakeSpawnRepository`
 
 **Red flags that it's not a unit test:**
 - `monkeypatch.setattr(module.subprocess, "run", ...)` 
 - `monkeypatch.setattr(module, "_private_thing", ...)`
-- `tmp_path` fixture for non-trivial file operations
 - Test takes >100ms
 
 ### Integration Tests (`tests/integration/`)
@@ -91,41 +128,30 @@ def test_spawn_creates_artifacts(tmp_path, monkeypatch):
 **Red flags that it's misclassified:**
 - All I/O is mocked → move to unit
 - Only testing one function's return value → probably unit
-- Testing exact internal call sequences → probably unit
 
 ### Contract Tests (`tests/contract/`)
 
 **What:** API shapes, type contracts, protocol parity that MUST NOT DRIFT.
 
-**Shape:**
-```python
-def test_spawn_record_has_required_fields():
-    record = SpawnRecord(...)
-    assert hasattr(record, "spawn_id")
-    assert hasattr(record, "status")
-    # These fields are part of the public contract
-```
-
-**Use sparingly.** Only for things that would break downstream consumers if changed.
+Use sparingly. Only for things that would break downstream consumers.
 
 ### Platform Tests (`tests/platform/`)
 
-**What:** OS-specific behavior that differs between Windows and POSIX.
+**What:** OS-specific behavior (Windows vs POSIX).
 
-**Shape:**
 ```python
 @pytest.mark.posix_only
 def test_flock_blocks_concurrent_access(): ...
 
 @pytest.mark.windows_only  
-def test_msvcrt_locking_blocks_concurrent_access(): ...
+def test_msvcrt_locking(): ...
 ```
 
 ### E2E / Smoke Tests (`tests/e2e/`)
 
-**What:** Manual smoke test guides (markdown). These ARE the smoke tests - no separate smoke tier exists.
+**What:** Manual smoke test guides (markdown). These ARE the smoke tests.
 
-Run these before releases to verify full user flows work.
+Run before releases to verify full user flows.
 
 ## Anti-Patterns
 
@@ -134,66 +160,38 @@ Run these before releases to verify full user flows work.
 # This is a unit test wearing integration clothes
 def test_check_status(monkeypatch):
     monkeypatch.setattr(subprocess, "run", fake_run)  # No real subprocess!
-    result = check_status()
-    assert result == expected
+    ...
 ```
 Move to `unit/` and use proper dependency injection.
 
 ### 2. Implementation Pinning
 ```python
-# Breaks when you refactor internals
-def test_foo(monkeypatch):
-    monkeypatch.setattr(module, "_helper", mock)
-    monkeypatch.setattr(module, "_PRIVATE_CONST", value)
-    foo()
-    mock.assert_called_with(exact_internal_args)
+monkeypatch.setattr(module, "_helper", mock)
+mock.assert_called_with(exact_internal_args)  # Breaks on refactor
 ```
 
 ### 3. Over-Testing
 ```python
-# 10 tests for the same invariant
-def test_rejects_empty(): ...
-def test_rejects_none(): ...
-def test_rejects_whitespace(): ...
-# ... 7 more
-
-# Better: 1 parametrized test
+# 10 tests for the same invariant - consolidate!
 @pytest.mark.parametrize("bad_input", ["", None, "  ", ...])
 def test_rejects_invalid(bad_input): ...
 ```
 
 ### 4. Redundant Coverage
-If `test_foo` in `unit/` and `test_foo_integration` in `integration/` test the same code path, delete one. Usually keep the lower-tier test (unit).
-
-## When to Write Which
-
-| Scenario | Test Type |
-|----------|-----------|
-| Adding a parser/validator | Unit |
-| Adding a CLI command | Integration + maybe E2E guide |
-| Adding a new harness adapter | Integration + Contract |
-| Fixing a bug | Unit test that reproduces the bug first |
-| Refactoring | Existing tests should pass; don't add new ones just for refactor |
-| Platform-specific code | Platform test with appropriate marker |
+If unit and integration test the same path, keep the unit test.
 
 ## Running Tests
 
 ```bash
 uv run pytest tests/unit/ -v          # Fast, run often
-uv run pytest tests/integration/ -v   # Slower, run before commit
-uv run pytest tests/contract/ -v      # API stability checks
+uv run pytest tests/integration/ -v   # Before commit
 uv run pytest tests/ -v               # Full suite before push
-uv run pytest tests/ -k "spawn"       # Pattern match
-uv run pytest tests/ --tb=short       # Shorter tracebacks
 ```
 
 ## Test Quality Checklist
 
-Before adding a test, ask:
-
-- [ ] Does this test behavior, not implementation?
-- [ ] Will this test survive a refactor of internals?
-- [ ] Is this the right tier (unit/integration/contract)?
-- [ ] Is there already a test covering this invariant?
-- [ ] Is this test deterministic (no flaky timing)?
-- [ ] Is this test isolated (no state leakage)?
+- [ ] Tests behavior, not implementation?
+- [ ] Survives internal refactoring?
+- [ ] Right tier (unit/integration/contract)?
+- [ ] No redundant coverage?
+- [ ] Deterministic and isolated?
