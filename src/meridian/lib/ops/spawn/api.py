@@ -62,6 +62,32 @@ from .query import (
 _WAIT_PROGRESS_INTERVAL_SECS = 5.0
 
 
+def _build_wait_timeout_message(pending_spawn_ids: set[str], elapsed_secs: float) -> str:
+    """Build actionable timeout message for LLM agents."""
+    sorted_ids = sorted(pending_spawn_ids)
+    ids_str = ", ".join(sorted_ids)
+    ids_joined = " ".join(sorted_ids)
+    
+    lines = [
+        f"Wait checkpoint after {elapsed_secs / 60:.0f}m. Still running: {ids_str}",
+        "",
+        "Check progress:",
+    ]
+    for spawn_id in sorted_ids[:3]:
+        lines.append(f"  meridian session log {spawn_id} --last 5")
+    if len(sorted_ids) > 3:
+        lines.append(f"  ... (+{len(sorted_ids) - 3} more)")
+    
+    lines.extend([
+        "",
+        f"If active, re-wait: meridian spawn wait {ids_joined}",
+        f"If stuck, cancel:   meridian spawn cancel {sorted_ids[0]}"
+        + (" ..." if len(sorted_ids) > 1 else ""),
+    ])
+    
+    return "\n".join(lines)
+
+
 def _resolve_repo_root_input(repo_root: str | None) -> Path:
     resolved_root, _ = resolve_runtime_root_and_config_for_read(repo_root)
     return resolved_root
@@ -651,8 +677,8 @@ def spawn_wait_sync(
 
         now = time.monotonic()
         if now >= deadline:
-            timed_out = "', '".join(sorted(pending))
-            raise TimeoutError(f"Timed out waiting for spawn(s) '{timed_out}'")
+            elapsed = now - started
+            raise TimeoutError(_build_wait_timeout_message(pending, elapsed))
         if now >= next_progress:
             progress = _render_wait_progress(
                 pending,
