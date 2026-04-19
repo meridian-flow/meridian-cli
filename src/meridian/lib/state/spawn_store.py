@@ -45,14 +45,13 @@ def _resolve_repository(
     paths: StateRootPaths,
     *,
     repository: SpawnRepository | None = None,
-    clock: Clock | None = None,
 ) -> SpawnRepository:
     if repository is not None:
         return repository
 
     from meridian.lib.state.spawn.repository import FileSpawnRepository
 
-    return FileSpawnRepository(paths, clock=clock)
+    return FileSpawnRepository(paths)
 
 
 def _next_spawn_id_from_events(events: list[SpawnEvent]) -> SpawnId:
@@ -278,7 +277,6 @@ def start_spawn(
     resolved_repository = _resolve_repository(
         paths,
         repository=repository,
-        clock=resolved_clock,
     )
     started = started_at or resolved_clock.utc_now_iso()
 
@@ -362,7 +360,6 @@ def record_spawn_exited(
     resolved_repository = _resolve_repository(
         paths,
         repository=repository,
-        clock=resolved_clock,
     )
     event = SpawnExitedEvent(
         id=str(spawn_id),
@@ -402,7 +399,6 @@ def finalize_spawn(
     resolved_repository = _resolve_repository(
         paths,
         repository=repository,
-        clock=resolved_clock,
     )
     with lock_file(paths.spawns_flock):
         records = reduce_events(resolved_repository.read_events())

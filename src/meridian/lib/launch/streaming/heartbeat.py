@@ -3,16 +3,13 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from pathlib import Path
-from typing import Protocol
 
 from meridian.lib.core.clock import Clock, RealClock
 
 
-class HeartbeatBackend(Protocol):
-    """Protocol for heartbeat touch operations."""
-
-    def touch(self) -> None: ...
+type HeartbeatTouch = Callable[[], None]
 
 
 class FileHeartbeat:
@@ -29,4 +26,4 @@ class FileHeartbeat:
         os.utime(self._path, (now, now))
 
 
-__all__ = ["FileHeartbeat", "HeartbeatBackend"]
+__all__ = ["FileHeartbeat", "HeartbeatTouch"]
