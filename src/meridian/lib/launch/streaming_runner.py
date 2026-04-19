@@ -336,6 +336,7 @@ async def run_streaming_spawn(
     spawn_id: SpawnId,
     stream_to_terminal: bool = False,
     heartbeat: HeartbeatBackend | None = None,
+    heartbeat_interval_secs: float = _HEARTBEAT_INTERVAL_SECS,
 ) -> DrainOutcome:
     """Run one streaming spawn to completion without spawn-store finalization.
 
@@ -348,7 +349,7 @@ async def run_streaming_spawn(
     manager = SpawnManager(
         state_root=state_root,
         repo_root=repo_root,
-        heartbeat_interval_secs=_HEARTBEAT_INTERVAL_SECS,
+        heartbeat_interval_secs=heartbeat_interval_secs,
         heartbeat_touch=lambda _state_root, _spawn_id: resolved_heartbeat.touch(),
     )
 
@@ -705,6 +706,7 @@ async def execute_with_streaming(
     debug: bool = False,
     clock: Clock | None = None,
     heartbeat: HeartbeatBackend | None = None,
+    heartbeat_interval_secs: float = _HEARTBEAT_INTERVAL_SECS,
 ) -> int:
     """Execute one streaming spawn and always finalize the spawn row.
 
@@ -822,7 +824,7 @@ async def execute_with_streaming(
     manager = SpawnManager(
         state_root=state_root,
         repo_root=repo_root,
-        heartbeat_interval_secs=_HEARTBEAT_INTERVAL_SECS,
+        heartbeat_interval_secs=heartbeat_interval_secs,
         heartbeat_touch=lambda _state_root, _spawn_id: resolved_heartbeat.touch(),
     )
     retries_attempted = 0

@@ -46,6 +46,7 @@ from meridian.lib.state import spawn_store
 from meridian.lib.state.artifact_store import LocalStore
 from meridian.lib.state.paths import resolve_runtime_state_root, resolve_spawn_log_dir
 from meridian.lib.streaming import spawn_manager as spawn_manager_module
+from tests.support.fakes import FakeClock, FakeHeartbeat
 
 streaming_runner_module = importlib.import_module("meridian.lib.launch.streaming_runner")
 execute_with_streaming = streaming_runner_module.execute_with_streaming
@@ -1553,12 +1554,9 @@ async def test_execute_with_streaming_starts_and_ticks_runner_heartbeat(
         _fake_connection_class,
     )
 
-    original_touch = streaming_runner_module._touch_heartbeat_file
-    touch_times: list[float] = []
-
-    def _tracked_touch(state_root_arg: Path, spawn_id_arg: SpawnId) -> None:
-        touch_times.append(asyncio.get_running_loop().time())
-        original_touch(state_root_arg, spawn_id_arg)
+    fake_clock = FakeClock(start=1000.0)
+    fake_heartbeat = FakeHeartbeat()
+    fake_heartbeat.set_clock(fake_clock)
 
     async def _delayed_terminal_consume(
         *,
@@ -1587,10 +1585,9 @@ async def test_execute_with_streaming_starts_and_ticks_runner_heartbeat(
             if terminal_outcome is None:
                 continue
             await asyncio.sleep(0.07)
+            fake_clock.advance(0.07)
             terminal_event_future.set_result(terminal_outcome)
 
-    monkeypatch.setattr(streaming_runner_module, "_HEARTBEAT_INTERVAL_SECS", 0.02)
-    monkeypatch.setattr(streaming_runner_module, "_touch_heartbeat_file", _tracked_touch)
     monkeypatch.setattr(
         streaming_runner_module,
         "_consume_subscriber_events",
@@ -1624,16 +1621,20 @@ async def test_execute_with_streaming_starts_and_ticks_runner_heartbeat(
             artifacts=artifacts,
             registry=registry,
             cwd=tmp_path,
+            clock=fake_clock,
+            heartbeat=fake_heartbeat,
+            heartbeat_interval_secs=0.02,
         ),
         timeout=1.0,
     )
 
     assert exit_code == 0
-    assert len(touch_times) >= 2
-    intervals = [later - earlier for earlier, later in pairwise(touch_times)]
+    assert len(fake_heartbeat.touches) >= 2
+    intervals = [
+        later - earlier for earlier, later in pairwise(fake_heartbeat.touches)
+    ]
     assert intervals
     assert max(intervals) <= 0.7
-    assert (state_root / "spawns" / str(run.spawn_id) / "heartbeat").exists()
 
 
 @pytest.mark.asyncio
@@ -1795,18 +1796,13 @@ async def test_execute_with_streaming_cancels_heartbeat_when_finalize_raises(
         _fake_connection_class,
     )
 
-    original_touch = streaming_runner_module._touch_heartbeat_file
-    touch_times: list[float] = []
-
-    def _tracked_touch(state_root_arg: Path, spawn_id_arg: SpawnId) -> None:
-        touch_times.append(asyncio.get_running_loop().time())
-        original_touch(state_root_arg, spawn_id_arg)
+    fake_clock = FakeClock(start=1000.0)
+    fake_heartbeat = FakeHeartbeat()
+    fake_heartbeat.set_clock(fake_clock)
 
     def _raising_finalize_spawn(*_args, **_kwargs) -> bool:
         raise RuntimeError("streaming finalize boom")
 
-    monkeypatch.setattr(streaming_runner_module, "_HEARTBEAT_INTERVAL_SECS", 0.01)
-    monkeypatch.setattr(streaming_runner_module, "_touch_heartbeat_file", _tracked_touch)
     monkeypatch.setattr(
         streaming_runner_module.spawn_store,
         "finalize_spawn",
@@ -1842,13 +1838,16 @@ async def test_execute_with_streaming_cancels_heartbeat_when_finalize_raises(
                 artifacts=artifacts,
                 registry=registry,
                 cwd=tmp_path,
+                clock=fake_clock,
+                heartbeat=fake_heartbeat,
+                heartbeat_interval_secs=0.01,
             ),
             timeout=1.0,
         )
 
-    touched_count = len(touch_times)
+    touched_count = len(fake_heartbeat.touches)
     await asyncio.sleep(0.05)
-    assert len(touch_times) == touched_count
+    assert len(fake_heartbeat.touches) == touched_count
 
 
 @pytest.mark.asyncio
@@ -1866,18 +1865,13 @@ async def test_execute_with_streaming_cancels_heartbeat_when_finalize_raises_val
         _fake_connection_class,
     )
 
-    original_touch = streaming_runner_module._touch_heartbeat_file
-    touch_times: list[float] = []
-
-    def _tracked_touch(state_root_arg: Path, spawn_id_arg: SpawnId) -> None:
-        touch_times.append(asyncio.get_running_loop().time())
-        original_touch(state_root_arg, spawn_id_arg)
+    fake_clock = FakeClock(start=1000.0)
+    fake_heartbeat = FakeHeartbeat()
+    fake_heartbeat.set_clock(fake_clock)
 
     def _raising_finalize_spawn(*_args, **_kwargs) -> bool:
         raise ValueError("streaming finalize value error")
 
-    monkeypatch.setattr(streaming_runner_module, "_HEARTBEAT_INTERVAL_SECS", 0.01)
-    monkeypatch.setattr(streaming_runner_module, "_touch_heartbeat_file", _tracked_touch)
     monkeypatch.setattr(
         streaming_runner_module.spawn_store,
         "finalize_spawn",
@@ -1913,13 +1907,16 @@ async def test_execute_with_streaming_cancels_heartbeat_when_finalize_raises_val
                 artifacts=artifacts,
                 registry=registry,
                 cwd=tmp_path,
+                clock=fake_clock,
+                heartbeat=fake_heartbeat,
+                heartbeat_interval_secs=0.01,
             ),
             timeout=1.0,
         )
 
-    touched_count = len(touch_times)
+    touched_count = len(fake_heartbeat.touches)
     await asyncio.sleep(0.05)
-    assert len(touch_times) == touched_count
+    assert len(fake_heartbeat.touches) == touched_count
 
 
 @pytest.mark.asyncio
@@ -1937,26 +1934,26 @@ async def test_execute_with_streaming_continues_when_terminal_heartbeat_touch_fa
         _fake_connection_class,
     )
 
-    touch_calls = 0
+    fake_clock = FakeClock(start=1000.0)
     warning_messages: list[str] = []
-    original_touch = streaming_runner_module._touch_heartbeat_file
 
-    def _touch_with_terminal_failure(state_root_arg: Path, spawn_id_arg: SpawnId) -> None:
-        nonlocal touch_calls
-        touch_calls += 1
-        if touch_calls >= 2:
-            raise OSError("permission denied")
-        original_touch(state_root_arg, spawn_id_arg)
+    class _FailingHeartbeat(FakeHeartbeat):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls = 0
+
+        def touch(self) -> None:
+            self.calls += 1
+            if self.calls >= 2:
+                raise OSError("permission denied")
+            super().touch()
+
+    failing_heartbeat = _FailingHeartbeat()
+    failing_heartbeat.set_clock(fake_clock)
 
     def _capture_warning(message: str, *_args, **_kwargs) -> None:
         warning_messages.append(message)
 
-    monkeypatch.setattr(streaming_runner_module, "_HEARTBEAT_INTERVAL_SECS", 60.0)
-    monkeypatch.setattr(
-        streaming_runner_module,
-        "_touch_heartbeat_file",
-        _touch_with_terminal_failure,
-    )
     monkeypatch.setattr(streaming_runner_module.logger, "warning", _capture_warning)
 
     run = Spawn(
@@ -1986,6 +1983,9 @@ async def test_execute_with_streaming_continues_when_terminal_heartbeat_touch_fa
             artifacts=artifacts,
             registry=registry,
             cwd=tmp_path,
+            clock=fake_clock,
+            heartbeat=failing_heartbeat,
+            heartbeat_interval_secs=60.0,
         ),
         timeout=1.0,
     )
