@@ -32,6 +32,8 @@ _TOP_LEVEL_BOOL_FLAGS = frozenset(
         "--help",
         "-h",
         "--version",
+        "--verbose",
+        "-v",
         "--json",
         "--no-json",
         "--yes",
@@ -221,6 +223,9 @@ def extract_global_options(
             continue
         if arg == "--human":
             force_human = True
+            index += 1
+            continue
+        if arg in {"--verbose", "-v"} and _first_positional_token(cleaned) is None:
             index += 1
             continue
 

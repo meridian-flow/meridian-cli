@@ -30,6 +30,24 @@ def test_validate_top_level_command_allows_passthrough_with_harness() -> None:
     cli_main._validate_top_level_command(cleaned, global_harness=options.harness)
 
 
+def test_extract_global_options_strips_prefix_verbose_flags() -> None:
+    cleaned, _ = cli_main._extract_global_options(["-v", "--verbose", "spawn", "list"])
+    assert cleaned == ["spawn", "list"]
+
+
+def test_extract_global_options_preserves_subcommand_verbose_flag() -> None:
+    cleaned, _ = cli_main._extract_global_options(["spawn", "list", "--verbose"])
+    assert cleaned == ["spawn", "list", "--verbose"]
+
+
+def test_validate_top_level_command_allows_verbose_short_flag_before_subcommand() -> None:
+    cli_main._validate_top_level_command(["-v", "spawn", "list"])
+
+
+def test_validate_top_level_command_allows_verbose_long_flag_before_subcommand() -> None:
+    cli_main._validate_top_level_command(["--verbose", "spawn", "list"])
+
+
 def test_config_help_mentions_meridian_toml() -> None:
     assert "meridian.toml" in cli_main.config_app.help
     assert ".meridian/config.toml" not in cli_main.config_app.help
