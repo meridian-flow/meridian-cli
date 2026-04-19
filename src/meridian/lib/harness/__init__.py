@@ -43,7 +43,7 @@ HARNESS_EXTENSION_TOUCHPOINTS: tuple[str, ...] = (
         "(approval/sandbox CLI flag projection)"
     ),
     (
-        "src/meridian/lib/launch/streaming_runner.py::terminal_event_outcome() "
+        "src/meridian/lib/launch/streaming/decision.py::terminal_event_outcome() "
         "(streaming terminal-event classification)"
     ),
 )
