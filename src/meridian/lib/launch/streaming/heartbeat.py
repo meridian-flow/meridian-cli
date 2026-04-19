@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
 from typing import Protocol
+
+from meridian.lib.core.clock import Clock, RealClock
 
 
 class HeartbeatBackend(Protocol):
@@ -11,4 +15,18 @@ class HeartbeatBackend(Protocol):
     def touch(self) -> None: ...
 
 
-__all__ = ["HeartbeatBackend"]
+class FileHeartbeat:
+    """File-backed heartbeat implementation."""
+
+    def __init__(self, path: Path, clock: Clock | None = None):
+        self._path = path
+        self._clock = clock or RealClock()
+
+    def touch(self) -> None:
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        self._path.touch(exist_ok=True)
+        now = self._clock.time()
+        os.utime(self._path, (now, now))
+
+
+__all__ = ["FileHeartbeat", "HeartbeatBackend"]
