@@ -1,6 +1,6 @@
 """Spawn state projection helpers."""
 
 from meridian.lib.state.spawn.events import reduce_events
-from meridian.lib.state.spawn.repository import SpawnRepository
+from meridian.lib.state.spawn.repository import FileSpawnRepository, SpawnRepository
 
-__all__ = ["SpawnRepository", "reduce_events"]
+__all__ = ["FileSpawnRepository", "SpawnRepository", "reduce_events"]
