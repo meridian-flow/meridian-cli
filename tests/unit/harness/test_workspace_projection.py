@@ -84,12 +84,18 @@ def test_workspace_projection_opencode_parent_env_suppresses_workspace_projectio
     assert diagnostic.payload == {"env_var": OPENCODE_CONFIG_CONTENT_ENV}
 
 
-def test_workspace_projection_marks_codex_as_unsupported_with_roots() -> None:
+def test_workspace_projection_codex_produces_add_dir_args() -> None:
+    # Codex supports --add-dir like Claude (though only for write access)
     result = project_workspace_roots(
         harness_id=HarnessId.CODEX,
-        roots=(Path("/tmp/workspace/root-a"),),
+        roots=(Path("/tmp/workspace/root-a"), Path("/tmp/workspace/root-b")),
     )
 
-    assert result.applicability == "unsupported:requires_config_generation"
-    assert result.args == ()
+    assert result.applicability == "active"
+    assert result.args == (
+        "--add-dir",
+        "/tmp/workspace/root-a",
+        "--add-dir",
+        "/tmp/workspace/root-b",
+    )
     assert result.env_overrides == {}

@@ -263,26 +263,8 @@ def test_doctor_surfaces_workspace_unknown_and_missing_root_warnings(
     }
 
 
-def test_doctor_surfaces_workspace_unsupported_harness_for_codex(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    repo_root = _create_repo_root(tmp_path)
-    _create_agent_skill_dirs(repo_root)
-    (repo_root / "shared").mkdir()
-    (repo_root / "workspace.local.toml").write_text(
-        "[[context-roots]]\n"
-        'path = "./shared"\n',
-        encoding="utf-8",
-    )
-
-    result = _run_doctor_without_upgrade_noise(repo_root, monkeypatch)
-
-    warning = _warning_by_code(result, "workspace_unsupported_harness")
-    assert warning.payload == {
-        "harness": "codex",
-        "applicability": "unsupported:requires_config_generation",
-    }
+# test_doctor_surfaces_workspace_unsupported_harness_for_codex was removed
+# because Codex now supports --add-dir for workspace projection.
 
 
 def test_doctor_skips_model_resolution_for_config_surface(
