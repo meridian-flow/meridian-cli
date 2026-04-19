@@ -23,7 +23,7 @@ dependencies = [
   "coolname>=4.0.0",
   "cyclopts>=3.0",
   "fastapi>=0.115",
-  "mars-agents==0.1.5",
+  "mars-agents==0.1.6",
   "mcp>=1.0",
   "psutil>=7.2.2",
   "pydantic>=2.12",
