@@ -203,12 +203,7 @@ def _run_primary_process_with_capture(
     if child_pid == 0:
         try:
             os.close(master_fd)
-            os.setsid()
-            os.dup2(slave_fd, 0)
-            os.dup2(slave_fd, 1)
-            os.dup2(slave_fd, 2)
-            if slave_fd > 2:
-                os.close(slave_fd)
+            os.login_tty(slave_fd)
             os.chdir(cwd)
             os.execvpe(command[0], command, env)
         except FileNotFoundError:
