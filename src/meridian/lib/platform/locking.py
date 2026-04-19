@@ -10,7 +10,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import IO, Any, cast
 
-from meridian.lib.platform import IS_WINDOWS
+from meridian.lib.platform import IS_WINDOWS, fcntl
 
 _THREAD_LOCAL = threading.local()
 
@@ -61,14 +61,10 @@ def lock_file(lock_path: Path) -> Iterator[IO[bytes]]:
 
 
 def _acquire_posix_lock(handle: IO[bytes]) -> None:
-    import fcntl
-
     fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
 
 
 def _release_posix_lock(handle: IO[bytes]) -> None:
-    import fcntl
-
     fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 

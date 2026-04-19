@@ -22,3 +22,15 @@ class DeferredUnixModule:
 
 fcntl = DeferredUnixModule("fcntl")
 termios = DeferredUnixModule("termios")
+pty = DeferredUnixModule("pty")
+select = DeferredUnixModule("select")
+tty = DeferredUnixModule("tty")
+
+__all__ = [
+    "DeferredUnixModule",
+    "fcntl",
+    "pty",
+    "select",
+    "termios",
+    "tty",
+]

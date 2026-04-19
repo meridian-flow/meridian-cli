@@ -10,7 +10,7 @@ from contextlib import suppress
 from pathlib import Path
 from typing import Any, cast
 
-from meridian.lib.platform import IS_WINDOWS, fcntl, termios
+from meridian.lib.platform import IS_WINDOWS, fcntl, pty, select, termios, tty
 
 from .ports import ChildStartedHook, LaunchedProcess, ProcessLauncher
 
@@ -81,10 +81,6 @@ def _copy_primary_pty_output(
     master_fd: int,
     output_log_path: Path,
 ) -> int:
-    import select
-    import termios
-    import tty
-
     stdin_fd = sys.stdin.fileno()
     stdout_fd = sys.stdout.fileno()
     stdin_open = True
@@ -146,8 +142,6 @@ class PtyProcessLauncher(ProcessLauncher):
             raise RuntimeError("PTY launcher is not available on Windows")
         if output_log_path is None:
             raise ValueError("output_log_path is required for PTY launching")
-
-        import pty
 
         master_fd, slave_fd = pty.openpty()
         _sync_pty_winsize(source_fd=sys.stdout.fileno(), target_fd=master_fd)
