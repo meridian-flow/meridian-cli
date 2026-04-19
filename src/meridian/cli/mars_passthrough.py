@@ -9,9 +9,7 @@ import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TextIO
-
-from pydantic import BaseModel
+from typing import TYPE_CHECKING, TextIO
 
 from meridian.lib.ops.mars import (
     UpgradeAvailability,
@@ -19,6 +17,9 @@ from meridian.lib.ops.mars import (
     format_upgrade_availability,
     resolve_mars_executable,
 )
+
+if TYPE_CHECKING:
+    from pydantic import BaseModel
 
 
 @dataclass(frozen=True)
@@ -181,7 +182,9 @@ def augment_sync_result(
     result: MarsPassthroughResult,
     *,
     output_format: str | None = None,
-    check_upgrades: Callable[[Path | None], UpgradeAvailability | None] = check_upgrade_availability,
+    check_upgrades: Callable[[Path | None], UpgradeAvailability | None] = (
+        check_upgrade_availability
+    ),
     format_upgrades: Callable[[UpgradeAvailability], Sequence[str]] | None = None,
     stdout: TextIO | None = None,
     stderr: TextIO | None = None,
@@ -229,7 +232,9 @@ def run_mars_passthrough(
     output_format: str | None = None,
     resolve_executable: Callable[[], str | None] = resolve_mars_executable,
     parse_request: Callable[..., MarsPassthroughRequest] = parse_mars_passthrough,
-    execute_request: Callable[[MarsPassthroughRequest], MarsPassthroughResult] = execute_mars_passthrough,
+    execute_request: Callable[[MarsPassthroughRequest], MarsPassthroughResult] = (
+        execute_mars_passthrough
+    ),
     augment_result: Callable[[MarsPassthroughResult], None] = augment_sync_result,
     stdout: TextIO | None = None,
     stderr: TextIO | None = None,
@@ -285,7 +290,9 @@ def run_init_link_flow_json(
     config_result: BaseModel,
     emit: Callable[[object], None],
     parse_request: Callable[..., MarsPassthroughRequest] = parse_mars_passthrough,
-    execute_request: Callable[[MarsPassthroughRequest], MarsPassthroughResult] = execute_mars_passthrough,
+    execute_request: Callable[[MarsPassthroughRequest], MarsPassthroughResult] = (
+        execute_mars_passthrough
+    ),
     decode_values: Callable[[str], list[object] | None] = decode_json_values,
 ) -> None:
     request = parse_request(mars_args, output_format="json", executable=executable)
