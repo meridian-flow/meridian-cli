@@ -70,6 +70,7 @@ from meridian.lib.launch.streaming.decision import (
     TerminalEventOutcome,
     terminal_event_outcome,
 )
+from meridian.lib.launch.streaming.heartbeat import FileHeartbeat, HeartbeatBackend
 from meridian.lib.safety.budget import Budget, BudgetBreach, LiveBudgetTracker
 from meridian.lib.safety.guardrails import run_guardrails
 from meridian.lib.safety.redaction import SecretSpec, redact_secret_bytes
@@ -108,18 +109,25 @@ class _AttemptRuntime:
     start_error: str | None = None
 
 
+@dataclass(frozen=True)
+class _StateHeartbeat:
+    state_root: Path
+    spawn_id: SpawnId
+
+    def touch(self) -> None:
+        _touch_heartbeat_file(self.state_root, self.spawn_id)
+
+
 def _touch_heartbeat_file(
     state_root: Path,
     spawn_id: SpawnId,
     *,
     clock: Clock | None = None,
 ) -> None:
-    resolved_clock = clock or RealClock()
-    heartbeat_path = state_paths.heartbeat_path(state_root, spawn_id)
-    heartbeat_path.parent.mkdir(parents=True, exist_ok=True)
-    heartbeat_path.touch(exist_ok=True)
-    now = resolved_clock.time()
-    os.utime(heartbeat_path, (now, now))
+    FileHeartbeat(
+        state_paths.heartbeat_path(state_root, spawn_id),
+        clock=clock,
+    ).touch()
 
 
 def _install_signal_handlers(
@@ -327,6 +335,7 @@ async def run_streaming_spawn(
     repo_root: Path,
     spawn_id: SpawnId,
     stream_to_terminal: bool = False,
+    heartbeat: HeartbeatBackend | None = None,
 ) -> DrainOutcome:
     """Run one streaming spawn to completion without spawn-store finalization.
 
@@ -335,11 +344,12 @@ async def run_streaming_spawn(
     executor accepts a fully-composed spec and MUST NOT perform composition.
     """
 
+    resolved_heartbeat = heartbeat or _StateHeartbeat(state_root, spawn_id)
     manager = SpawnManager(
         state_root=state_root,
         repo_root=repo_root,
         heartbeat_interval_secs=_HEARTBEAT_INTERVAL_SECS,
-        heartbeat_touch=_touch_heartbeat_file,
+        heartbeat_touch=lambda _state_root, _spawn_id: resolved_heartbeat.touch(),
     )
 
     loop = asyncio.get_running_loop()
@@ -694,6 +704,7 @@ async def execute_with_streaming(
     stream_stderr_to_terminal: bool = False,
     debug: bool = False,
     clock: Clock | None = None,
+    heartbeat: HeartbeatBackend | None = None,
 ) -> int:
     """Execute one streaming spawn and always finalize the spawn row.
 
@@ -704,6 +715,10 @@ async def execute_with_streaming(
 
     _ = stream_stderr_to_terminal
     resolved_clock = clock or RealClock()
+    resolved_heartbeat = heartbeat or _StateHeartbeat(
+        state_root,
+        run.spawn_id,
+    )
     log_dir = resolve_spawn_log_dir(repo_root, run.spawn_id)
     output_log_path = log_dir / OUTPUT_FILENAME
     report_path = launch_context.report_output_path
@@ -808,7 +823,7 @@ async def execute_with_streaming(
         state_root=state_root,
         repo_root=repo_root,
         heartbeat_interval_secs=_HEARTBEAT_INTERVAL_SECS,
-        heartbeat_touch=_touch_heartbeat_file,
+        heartbeat_touch=lambda _state_root, _spawn_id: resolved_heartbeat.touch(),
     )
     retries_attempted = 0
     started_at = resolved_clock.monotonic()
@@ -1133,7 +1148,7 @@ async def execute_with_streaming(
                 marked_finalizing = spawn_store.mark_finalizing(state_root, run.spawn_id)
                 if marked_finalizing:
                     try:
-                        _touch_heartbeat_file(state_root, run.spawn_id)
+                        resolved_heartbeat.touch()
                     except Exception:
                         logger.warning(
                             "Failed to touch heartbeat after entering finalizing; "
