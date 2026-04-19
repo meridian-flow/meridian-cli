@@ -7,7 +7,6 @@ import json
 import os
 import signal
 import sys
-import time
 from collections.abc import Callable, Iterable
 from contextlib import suppress
 from dataclasses import dataclass
@@ -17,6 +16,7 @@ from typing import TYPE_CHECKING, Any, cast
 import structlog
 
 from meridian.lib.config.settings import MeridianConfig
+from meridian.lib.core.clock import Clock, RealClock
 from meridian.lib.core.domain import Spawn
 from meridian.lib.core.spawn_lifecycle import (
     has_durable_report_completion,
@@ -108,10 +108,18 @@ class _AttemptRuntime:
     start_error: str | None = None
 
 
-def _touch_heartbeat_file(state_root: Path, spawn_id: SpawnId) -> None:
+def _touch_heartbeat_file(
+    state_root: Path,
+    spawn_id: SpawnId,
+    *,
+    clock: Clock | None = None,
+) -> None:
+    resolved_clock = clock or RealClock()
     heartbeat_path = state_paths.heartbeat_path(state_root, spawn_id)
     heartbeat_path.parent.mkdir(parents=True, exist_ok=True)
     heartbeat_path.touch(exist_ok=True)
+    now = resolved_clock.time()
+    os.utime(heartbeat_path, (now, now))
 
 
 def _install_signal_handlers(
@@ -685,6 +693,7 @@ async def execute_with_streaming(
     stream_stdout_to_terminal: bool = False,
     stream_stderr_to_terminal: bool = False,
     debug: bool = False,
+    clock: Clock | None = None,
 ) -> int:
     """Execute one streaming spawn and always finalize the spawn row.
 
@@ -694,6 +703,7 @@ async def execute_with_streaming(
     """
 
     _ = stream_stderr_to_terminal
+    resolved_clock = clock or RealClock()
     log_dir = resolve_spawn_log_dir(repo_root, run.spawn_id)
     output_log_path = log_dir / OUTPUT_FILENAME
     report_path = launch_context.report_output_path
@@ -801,8 +811,8 @@ async def execute_with_streaming(
         heartbeat_touch=_touch_heartbeat_file,
     )
     retries_attempted = 0
-    started_at = time.monotonic()
-    started_at_epoch = time.time()
+    started_at = resolved_clock.monotonic()
+    started_at_epoch = resolved_clock.time()
     exit_code = DEFAULT_INFRA_EXIT_CODE
     extracted: FinalizeExtraction | None = None
     failure_reason: str | None = None
@@ -1100,7 +1110,7 @@ async def execute_with_streaming(
             _remove_signal_handlers(loop, installed_signals)
             with suppress(Exception):
                 await manager.shutdown(status="cancelled", exit_code=1, error="shutdown")
-            duration_seconds = time.monotonic() - started_at
+            duration_seconds = resolved_clock.monotonic() - started_at
             finalized_usage = extracted.usage if extracted is not None else None
             durable_report_completion = extracted is not None and has_durable_report_completion(
                 extracted.report.content
