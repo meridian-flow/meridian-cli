@@ -33,4 +33,12 @@ class ProcessLauncher(Protocol):
     ) -> LaunchedProcess: ...
 
 
-__all__ = ["ChildStartedHook", "LaunchedProcess", "ProcessLauncher"]
+ProcessLauncherSelector = Callable[[Path | None], ProcessLauncher]
+
+
+__all__ = [
+    "ChildStartedHook",
+    "LaunchedProcess",
+    "ProcessLauncher",
+    "ProcessLauncherSelector",
+]

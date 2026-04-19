@@ -37,6 +37,7 @@ from ..fork import materialize_fork
 from ..request import LaunchCompositionSurface
 from ..session_scope import session_scope
 from ..types import SessionMode
+from .ports import ProcessLauncher, ProcessLauncherSelector
 from .pty_launcher import PtyProcessLauncher, can_use_pty
 from .session import (
     build_session_metadata,
@@ -70,28 +71,33 @@ RunPrimaryProcessWithCapture = Callable[
 ]
 
 
+def select_process_launcher(output_log_path: Path | None) -> ProcessLauncher:
+    """Choose the launch backend for one primary process invocation."""
+
+    if can_use_pty(output_log_path=output_log_path):
+        return PtyProcessLauncher()
+    return SubprocessProcessLauncher()
+
+
 def run_primary_process_with_capture(
     command: tuple[str, ...],
     cwd: Path,
     env: dict[str, str],
     output_log_path: Path | None,
     on_child_started: Callable[[int], None] | None = None,
+    *,
+    launcher_selector: ProcessLauncherSelector = select_process_launcher,
 ) -> tuple[int, int | None]:
-    if can_use_pty(output_log_path=output_log_path):
-        launched = PtyProcessLauncher().launch(
-            command=command,
-            cwd=cwd,
-            env=env,
-            output_log_path=output_log_path,
-            on_child_started=on_child_started,
-        )
-        return launched.exit_code, launched.pid
+    launcher: ProcessLauncher = launcher_selector(output_log_path)
+    resolved_output_log_path = output_log_path
+    if IS_WINDOWS and isinstance(launcher, SubprocessProcessLauncher):
+        resolved_output_log_path = None
 
-    launched = SubprocessProcessLauncher().launch(
+    launched = launcher.launch(
         command=command,
         cwd=cwd,
         env=env,
-        output_log_path=None if IS_WINDOWS else output_log_path,
+        output_log_path=resolved_output_log_path,
         on_child_started=on_child_started,
     )
     return launched.exit_code, launched.pid
@@ -375,4 +381,5 @@ __all__ = [
     "ProcessOutcome",
     "run_harness_process",
     "run_primary_process_with_capture",
+    "select_process_launcher",
 ]
