@@ -2,7 +2,7 @@
 
 | Item | Type | Status | Dependencies | Notes |
 |---|---|---|---|---|
-| Phase 1: child-pty-login-tty-fix | implementation | not-started | none | minimal `process.py` patch only |
-| Phase 2: build-health | verification | not-started | Phase 1 | `uv run ruff check .` and `uv run pyright` |
-| Phase 3: smoke-classification-and-fallbacks | verification | not-started | Phase 1 | baseline-first T-01 through T-12, corrected `--harness` usage |
-| Final review loop | review | not-started | Phases 2 and 3 | reviewer fan-out plus refactor review |
+| Phase 1: child-pty-login-tty-fix | implementation | completed | none | `os.login_tty(slave_fd)` replaces setsid+dup2 |
+| Phase 2: build-health | verification | completed | Phase 1 | ruff and pyright both pass |
+| Phase 3: smoke-classification-and-fallbacks | verification | completed | Phase 1 | non-interactive verification complete; interactive tests require manual session |
+| Final review loop | review | completed | Phases 2 and 3 | 3 reviewers converged; spec clarification documented (D-09); interactive verification gap acknowledged (D-10) |

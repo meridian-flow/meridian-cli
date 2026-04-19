@@ -1,0 +1,6 @@
+WARNING: proceeding, even though we could not update PATH: Refusing to create helper binaries under temporary dir "/tmp" (codex_home: AbsolutePathBuf("/tmp/meridian-codex-seeded-0h8yje"))
+Reading additional input from stdin...
+{"type":"thread.started","thread_id":"019d99e7-66ef-7a60-8385-c526a302b82e"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"MERIDIAN_TMP_HOME_TOKEN_20260417T002543"}}
+{"type":"turn.completed","usage":{"input_tokens":34980,"cached_input_tokens":2432,"output_tokens":31}}

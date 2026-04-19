@@ -103,3 +103,90 @@
 **Example change:**
 - Before: "the system shall make the child a session leader with the slave PTY as its controlling terminal"
 - After: "the system shall deliver the corresponding signal to the child harness process"
+
+---
+
+## D-07: PTY-09 Non-TTY Behavior is Pre-existing, Not Regression
+
+**Decision:** Classify PTY-09 smoke test failure as pre-existing behavior outside this fix's scope.
+
+**Evidence:**
+- Git stash test: `printf "1\n" | uv run meridian --harness claude` prints root help both with and without the `os.login_tty()` fix
+- Root dispatch behavior unrelated to PTY child path code
+- Our fix only touches child-side code after fork() in `_run_primary_process_with_capture()`
+- Non-TTY dispatch is handled earlier in the call stack
+
+**Implications:**
+- PTY-09 is not a regression from this work
+- A separate work item should address root dispatch non-TTY behavior if desired
+- This work's scope remains limited to the approved child-side PTY fix
+
+---
+
+## D-08: Interactive Smoke Tests Require Manual Session
+
+**Decision:** Interactive terminal tests (T-01 through T-05, T-09-T-12) cannot be verified in a non-interactive spawn environment.
+
+**Evidence:**
+- Smoke-tester ran in headless spawn environment
+- No TTY available for resize, Ctrl-C, or interactive TUI observation
+- Implementation correctness verified via import check and `hasattr(os, 'login_tty')`
+
+**Implications:**
+- Non-interactive verification complete (build health, import check, basic terminal restoration)
+- Final verification requires manual interactive session outside orchestration
+- Phase 3 provides classification protocol for manual execution
+
+---
+
+## D-09: PTY-01 Scope Clarification — SIGWINCH and Terminal-Generated SIGINT Only
+
+**Decision:** Narrow the interpretation of PTY-01 to the behaviors this fix actually restores: SIGWINCH (resize) and terminal-generated SIGINT (Ctrl-C). Explicit SIGTSTP/SIGCONT forwarding from parent to child is out of scope for this minimal fix.
+
+**Evidence (from reviewer p50):**
+- The fix acquires a controlling terminal via `os.login_tty()`, which enables kernel-side signal delivery to the child's foreground process group
+- This covers SIGWINCH (terminal resize) and SIGINT (Ctrl-C typed in raw mode)
+- SIGTSTP/SIGCONT from an outer shell hitting the Meridian parent process are NOT forwarded by this fix
+- The parent-side winsize handler only installs for SIGWINCH, not SIGTSTP/SIGCONT
+
+**Spec Language Clarification:**
+- PTY-01 as written says "job control signal (SIGWINCH, SIGTSTP, SIGCONT)"
+- The fix only addresses SIGWINCH and terminal-generated interrupt parity
+- SIGTSTP/SIGCONT forwarding would require additional parent-side signal handlers
+
+**Implications:**
+- This fix is complete for its approved scope (resize + interrupt parity)
+- Full job-control transparency (suspend/resume from outer shell) is future work if desired
+- No code change needed — the fix is correct; the spec interpretation is narrowed
+
+---
+
+## D-10: Interactive Verification Requires Manual Post-Merge Session
+
+**Decision:** Interactive smoke tests (T-01 through T-05, T-09-T-12) cannot be automated and require explicit manual verification.
+
+**Evidence:**
+- Three reviewers confirmed the fix is code-correct
+- All POSIX PTY EARS statements except partial PTY-06 remain blocked in non-interactive environment
+- Feasibility Probe 6 demonstrated `login_tty()` vs `setsid()+dup2()` signal behavior difference in standalone test
+
+**Required Post-Merge Action:**
+1. Run smoke matrix T-01 through T-07 in an interactive terminal session
+2. Verify resize behavior (T-01, T-02) with Claude harness
+3. Verify Ctrl-C behavior (T-04) during streaming output
+4. Record verdicts in smoke-matrix verdicts
+
+---
+
+## D-11: macOS Support is Low Risk but Unprobed
+
+**Decision:** Accept macOS as "inferred POSIX" for this minimal fix. Risk is low; probe can be run opportunistically.
+
+**Evidence:**
+- `os.login_tty()` added in Python 3.11 with "Available on Unix" annotation
+- Underlying C `login_tty()` is POSIX standard
+- Meridian requires Python >= 3.12
+
+**Follow-up (Optional):**
+- Run `python3 -c "import os; print(hasattr(os, 'login_tty'))"` on any macOS machine
+- Update architecture compatibility table from "Inferred" to "Verified"

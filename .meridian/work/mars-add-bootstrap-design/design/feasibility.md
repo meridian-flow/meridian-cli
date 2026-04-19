@@ -1,38 +1,38 @@
-# Feasibility: Init-Centric Bootstrap
+# Feasibility: Walk-Up Add, Explicit Init
 
 ## Validated Assumptions
 
-### Init logic is extractable
-
-**Probe**: Read `src/cli/init.rs` lines 46-54
-
-**Finding**: `ensure_consumer_config` creates `[dependencies]\n` and returns whether config already existed. The core bootstrap logic (create config + create directories) is about 10 lines.
-
-**Verdict**: Confirmed. Extracting a `bootstrap_at()` function is straightforward.
-
-### Current walk-up has git boundary
+### Walk-up code exists and is modifiable
 
 **Probe**: Read `find_agents_root_from()` (lines 326-353)
 
-**Finding**: Walk-up stops at `.git` boundary (line 337). This single check can be removed.
+**Finding**: Walk-up exists and stops at `.git` boundary (line 337). This single check can be removed to walk to filesystem root.
 
 **Verdict**: Confirmed. Removing git boundary is a one-line deletion.
+
+### Add can use standard context discovery
+
+**Probe**: Read command dispatch in `src/cli/mod.rs`
+
+**Finding**: Commands are dispatched through a central match. `Add` can use the same `find_root_for_context` as other context commands.
+
+**Verdict**: Confirmed. No special handling needed for add.
+
+### Init logic is self-contained
+
+**Probe**: Read `src/cli/init.rs`
+
+**Finding**: `ensure_consumer_config` creates `[dependencies]\n` and returns whether config already existed. Init is idempotent and self-contained.
+
+**Verdict**: Confirmed. Init does not need changes beyond removing git-root default.
 
 ### MarsContext structure is local
 
 **Probe**: Read `src/cli/mod.rs` lines 46-88
 
-**Finding**: `MarsContext` is defined in the CLI layer. Adding `bootstrapped: bool` affects CLI code only.
+**Finding**: `MarsContext` is defined in the CLI layer. Removing `bootstrapped` field (if present) affects CLI code only.
 
-**Verdict**: Confirmed. No library-layer changes needed.
-
-### Command dispatch supports per-command behavior
-
-**Probe**: Read `dispatch_result()` (lines 182-194)
-
-**Finding**: Commands are dispatched through a central match. `Add` can be extracted to its own arm to pass `AutoInit::Allowed`.
-
-**Verdict**: Confirmed. The dispatch structure supports per-command auto-init control.
+**Verdict**: Confirmed. Simplification is straightforward.
 
 ### Atomic write is safe for concurrent init
 
@@ -40,7 +40,7 @@
 
 **Finding**: Uses tmp+rename pattern. If two processes race to init, the first one's rename wins; the second sees the file on its next check.
 
-**Verdict**: Confirmed. Concurrent auto-init is safe.
+**Verdict**: Confirmed. Concurrent init is safe.
 
 ### Init is idempotent
 
@@ -48,7 +48,7 @@
 
 **Finding**: If `mars.toml` exists, returns `true` (already initialized) without modifying it.
 
-**Verdict**: Confirmed. Auto-init can safely call init logic even if another process just created the config.
+**Verdict**: Confirmed. Re-running init is safe.
 
 ## Windows Path Semantics
 
@@ -122,55 +122,56 @@ Walk-up terminates safely.
 
 ## Open Questions (resolved in design)
 
-### Q: Which commands should auto-init?
+### Q: Should `add` auto-init if no project exists?
 
-**Decision**: Only `init` (canonical) and `add` (clear first-use intent). All others fail on missing config.
+**Decision**: No. `add` errors and directs user to `mars init`.
 
-**Rationale**: Running `mars sync` or `mars list` in a non-project directory is likely a user error. Fail fast.
+**Rationale**: Matches `uv add`, `cargo add` semantics. No surprising file creation.
+
+### Q: Should `add` in a subdirectory use the ancestor project?
+
+**Decision**: Yes. Walk-up finds nearest `mars.toml`.
+
+**Rationale**: This is the mainstream pattern. Users expect subdirectory usage to work.
+
+### Q: Should we warn when using an ancestor project?
+
+**Decision**: No. Using ancestor is correct behavior, not a warning condition.
+
+**Rationale**: Walk-up is the expected behavior. Warning would add noise.
+
+### Q: Should nested projects be created implicitly?
+
+**Decision**: No. Nested projects require explicit `mars init`.
+
+**Rationale**: Implicit nesting was a source of confusion. Explicit creation is clearer.
 
 ### Q: Should init still walk up to git root by default?
 
-**Decision**: No. `init` uses cwd as the project root, same as auto-init from `add`.
+**Decision**: No. `init` uses cwd as the project root.
 
-**Rationale**: Consistency. Users learn one model. Git is not special.
+**Rationale**: Git is not a requirement. Consistency with the overall design.
 
-### Q: How does auto-init interact with `--root`?
+### Q: How does `--root` interact with walk-up for add?
 
-**Decision**: `--root` sets the project root unconditionally. Auto-init creates config at `--root`, not cwd.
+**Decision**: `--root` sets where walk-up starts, not where config is created.
 
-**Rationale**: `--root` is explicit intent. Honor it.
-
-### Q: Should we add a `--no-init` flag?
-
-**Decision**: Not initially. Can be added later if users want to fail fast when they expect config to exist.
-
-**Rationale**: YAGNI. The auto-init behavior matches npm. Wait for real demand.
+**Rationale**: `add` finds existing projects. `--root` changes where to start looking.
 
 ## No Probes Needed
 
-- **Concurrent bootstrap race**: Handled by atomic_write + idempotent init. No runtime test required.
+- **Concurrent init race**: Handled by atomic_write + idempotent init.
 - **Permissions errors**: Standard I/O error handling.
 - **Git detection**: No longer relevant — git is not consulted.
-
-## Removed from Previous Feasibility
-
-### Git boundary detection
-
-**Previous probe**: `default_project_root()` and git root detection.
-
-**Status**: Removed. Git is not a requirement. Walk-up proceeds to filesystem root.
-
-### Submodule isolation
-
-**Previous finding**: Walk-up stops at `.git` (directory or file) for submodule handling.
-
-**Status**: Removed. Submodules are ordinary directories in the new design.
+- **Auto-init logic**: Removed from design.
+- **Ancestor warning**: Removed from design.
 
 ## Implementation Risk Assessment
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|------------|--------|------------|
 | Walk-up termination wrong on Windows | Low | High | Stdlib handles it; add Windows CI tests |
-| Init/add race creates duplicate config | Very low | Low | Atomic writes + idempotent init |
+| Init race creates duplicate config | Very low | Low | Atomic writes + idempotent init |
 | Users expect git-root default for init | Medium | Low | Clear init message shows location; doc update |
-| Auto-init in wrong directory | Medium | Low | Init message surfaces location; easy recovery |
+| Users expect add to auto-init | Medium | Low | Clear error message directs to init |
+| Users expect cwd-first for add | Low | Low | Walk-up is the mainstream pattern |

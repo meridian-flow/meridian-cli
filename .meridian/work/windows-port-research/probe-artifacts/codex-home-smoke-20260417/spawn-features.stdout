@@ -1,0 +1,57 @@
+apply_patch_freeform             under development  false
+apps                             stable             true
+artifact                         under development  false
+child_agents_md                  under development  false
+code_mode                        under development  false
+code_mode_only                   under development  false
+codex_git_commit                 under development  false
+codex_hooks                      under development  false
+collaboration_modes              removed            true
+default_mode_request_user_input  under development  false
+elevated_windows_sandbox         removed            false
+enable_fanout                    under development  false
+enable_request_compression       stable             true
+exec_permission_approvals        under development  false
+experimental_windows_sandbox     removed            false
+fast_mode                        stable             true
+general_analytics                stable             true
+guardian_approval                experimental       false
+image_detail_original            removed            false
+image_generation                 under development  false
+js_repl                          experimental       false
+js_repl_tools_only               under development  false
+memories                         under development  false
+multi_agent                      stable             false
+multi_agent_v2                   under development  false
+personality                      stable             true
+plugins                          stable             true
+prevent_idle_sleep               experimental       false
+realtime_conversation            under development  false
+remote_control                   under development  false
+remote_models                    removed            false
+request_permissions_tool         under development  false
+request_rule                     removed            false
+responses_websockets             removed            false
+responses_websockets_v2          removed            false
+runtime_metrics                  under development  false
+search_tool                      removed            false
+shell_snapshot                   stable             true
+shell_tool                       stable             true
+shell_zsh_fork                   under development  false
+skill_env_var_dependency_prompt  under development  false
+skill_mcp_dependency_install     stable             true
+sqlite                           removed            true
+steer                            removed            true
+telepathy                        under development  false
+tool_call_mcp_elicitation        stable             true
+tool_search                      under development  false
+tool_suggest                     stable             true
+tui_app_server                   removed            true
+undo                             stable             false
+unified_exec                     stable             true
+use_agent_identity               under development  false
+use_legacy_landlock              stable             false
+use_linux_sandbox_bwrap          removed            false
+web_search_cached                deprecated         false
+web_search_request               deprecated         false
+workspace_dependencies           stable             true

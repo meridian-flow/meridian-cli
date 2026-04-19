@@ -1,49 +1,48 @@
-# Architecture: Init-Centric Bootstrap
+# Architecture: Walk-Up Add, Explicit Init
 
 ## Target Repository
 
 `mars-agents` — all changes land in the mars CLI. No meridian changes required unless doc updates reference the new behavior.
 
-## Design Decision: Init as the Bootstrap Primitive
+## Design Decision: Unified Walk-Up for Context Commands
 
-### Rejected: Per-command bootstrap logic
+### Key Insight
 
-Each command that requires context (`add`, `sync`, etc.) could independently check for missing config and bootstrap. This leads to duplication, inconsistent behavior, and hidden special cases.
+All context-requiring commands (add, sync, list, etc.) share the same project discovery algorithm: walk up from cwd to filesystem root, find nearest `mars.toml`, error if not found.
 
-### Chosen: Shared init semantics via allowlist
+Only `init` is different: it creates a project at an explicit target (cwd or `--root`) without walking up.
 
-The dispatch layer checks whether a command is in the auto-init allowlist. Auto-init commands invoke init logic when config is missing; init-required commands fail fast. The init logic is shared, not duplicated.
+### Rejected: Dual-path with cwd-first for add
+
+Using cwd-first for `add` (auto-init if no config at cwd) was rejected because:
+- Diverges from `uv add`, `cargo add`, npm semantics
+- Creates nested projects implicitly — confusing when user meant to add to parent
+- Requires ancestor-warning machinery that adds complexity without benefit
+
+### Chosen: Single walk-up algorithm for all context commands
+
+The dispatch layer uses one algorithm for context commands:
+- **Context commands** (`add`, `sync`, `list`, etc.): walk up from cwd (or `--root`) to filesystem root, error if not found
+- **Create command** (`init`): target is cwd (or `--root`) exactly, no walk-up
 
 ## Implementation Shape
 
-### Modified: `find_agents_root` signature
+### Existing: `find_root_for_context` function
+
+For all context commands, walk up to find existing config:
 
 ```rust
-pub fn find_agents_root(
+/// Find project root for context/read commands.
+/// Walks from target (cwd or --root) to filesystem root.
+fn find_root_for_context(
     explicit: Option<&Path>,
-    auto_init: AutoInit,
-) -> Result<MarsContext, MarsError>
-
-/// Whether this command may auto-initialize a project.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AutoInit {
-    /// Auto-initialize if config is missing.
-    Allowed,
-    /// Fail if config is missing.
-    Required,
-}
-```
-
-### Modified: `find_agents_root_from`
-
-```rust
-fn find_agents_root_from(
-    _explicit: Option<&Path>,
-    start: &Path,
-    auto_init: AutoInit,
 ) -> Result<MarsContext, MarsError> {
-    let cwd_canon = start.canonicalize().unwrap_or_else(|_| start.to_path_buf());
-    let mut dir = cwd_canon.as_path();
+    let start = match explicit {
+        Some(p) => p.to_path_buf(),
+        None => std::env::current_dir()?,
+    };
+    let start_canon = start.canonicalize().unwrap_or_else(|_| start.clone());
+    let mut dir = start_canon.as_path();
 
     loop {
         let config_path = dir.join("mars.toml");
@@ -59,10 +58,6 @@ fn find_agents_root_from(
     }
 
     // No config found anywhere
-    if auto_init == AutoInit::Allowed {
-        return invoke_init_at(&cwd_canon);
-    }
-
     Err(MarsError::Config(ConfigError::Invalid {
         message: format!(
             "no mars.toml found from {} to filesystem root. Run `mars init` first.",
@@ -72,89 +67,51 @@ fn find_agents_root_from(
 }
 ```
 
-### New: `invoke_init_at` helper
+### Init: target-based, no walk-up
 
-This helper reuses the init logic from `init.rs`:
-
-```rust
-/// Invoke init semantics at a directory, returning context with bootstrapped=true.
-fn invoke_init_at(project_root: &Path) -> Result<MarsContext, MarsError> {
-    // Reuse the core init logic
-    init::bootstrap_at(project_root)?;
-    
-    let mut ctx = MarsContext::new(project_root.to_path_buf())?;
-    ctx.bootstrapped = true;
-    Ok(ctx)
-}
-```
-
-### Modified: `init.rs` — extract bootstrap_at
-
-Factor out the core bootstrap logic from `init::run` so it can be called by auto-init:
+Init uses cwd (or `--root`) directly without walk-up:
 
 ```rust
-/// Core bootstrap: create mars.toml and managed directory.
-/// Returns (project_root, managed_root, already_initialized).
-pub fn bootstrap_at(project_root: &Path) -> Result<(PathBuf, PathBuf, bool), MarsError> {
-    let config_path = project_root.join("mars.toml");
-    let already_initialized = config_path.exists();
-    
-    if !already_initialized {
-        crate::fs::atomic_write(&config_path, b"[dependencies]\n")?;
-    }
-    
-    let managed_root = project_root.join(".agents");
-    std::fs::create_dir_all(&managed_root)?;
-    std::fs::create_dir_all(project_root.join(".mars"))?;
-    
-    Ok((project_root.to_path_buf(), managed_root, already_initialized))
-}
-
 /// Run `mars init` (CLI entry point).
 pub fn run(args: &InitArgs, explicit_root: Option<&Path>, json: bool) -> Result<i32, MarsError> {
-    // 1. Determine project root
+    // 1. Determine project root — cwd or explicit --root, no walk-up
     let project_root = explicit_root.map(Path::to_path_buf).unwrap_or_else(|| {
         std::env::current_dir().unwrap()
     });
+    let project_root_canon = project_root.canonicalize()
+        .unwrap_or_else(|_| project_root.clone());
 
-    // 2. Determine target from args or existing config
-    let target = determine_target(args, &project_root);
-    validate_target(&target)?;
-    
+    // 2. Check if already initialized
+    let config_path = project_root_canon.join("mars.toml");
+    if config_path.exists() {
+        if !json {
+            output::print_info(&format!(
+                "already initialized at {}",
+                project_root_canon.display()
+            ));
+        }
+        return Ok(0);
+    }
+
     // 3. Bootstrap
-    let (_, managed_root, already_initialized) = bootstrap_at(&project_root)?;
-    
-    // 4. Persist settings.managed_root if non-default
-    if target != ".agents" {
-        persist_managed_root(&project_root, &target)?;
+    crate::fs::atomic_write(&config_path, b"[dependencies]\n")?;
+    std::fs::create_dir_all(project_root_canon.join(".agents"))?;
+    std::fs::create_dir_all(project_root_canon.join(".mars"))?;
+
+    if !json {
+        output::print_success(&format!(
+            "initialized {} with mars.toml",
+            project_root_canon.display()
+        ));
     }
-    
-    // ... rest of init logic (messaging, --link, etc.)
+
+    // 4. Handle additional init args (--link, etc.)
+    // ...
+    Ok(0)
 }
 ```
 
-### Modified: MarsContext struct
-
-```rust
-pub struct MarsContext {
-    pub project_root: PathBuf,
-    pub managed_root: PathBuf,
-    pub bootstrapped: bool,  // NEW: true if this invocation created the project
-}
-
-impl MarsContext {
-    pub fn new(project_root: PathBuf) -> Result<Self, MarsError> {
-        // ... existing logic ...
-        Ok(MarsContext {
-            project_root: project_canon,
-            managed_root,
-            bootstrapped: false,  // default
-        })
-    }
-}
-```
-
-### Modified: Command dispatch
+### Command dispatch
 
 ```rust
 fn dispatch_result(cli: Cli) -> Result<i32, MarsError> {
@@ -164,34 +121,37 @@ fn dispatch_result(cli: Cli) -> Result<i32, MarsError> {
         Command::Check(args) => check::run(args, cli.json),
         Command::Cache(args) => cache::run(args, cli.json),
         
-        // Auto-init allowed
-        Command::Add(args) => {
-            let ctx = find_agents_root(cli.root.as_deref(), AutoInit::Allowed)?;
-            add::run(args, &ctx, cli.json)
-        }
-        
-        // Init-required (all other commands)
+        // All context commands use walk-up (including add)
         cmd => {
-            let ctx = find_agents_root(cli.root.as_deref(), AutoInit::Required)?;
-            dispatch_with_root(cmd, &ctx, cli.json)
+            let ctx = find_root_for_context(cli.root.as_deref())?;
+            dispatch_with_context(cmd, &ctx, cli.json)
         }
+    }
+}
+
+fn dispatch_with_context(cmd: &Command, ctx: &MarsContext, json: bool) -> Result<i32, MarsError> {
+    match cmd {
+        Command::Add(args) => add::run(args, ctx, json),
+        Command::Sync(args) => sync::run(args, ctx, json),
+        Command::List(args) => list::run(args, ctx, json),
+        // ... other context commands
+        _ => unreachable!("root-free commands handled separately"),
     }
 }
 ```
 
-### Modified: add.rs output
+### add.rs: no auto-init, no ancestor handling
 
 ```rust
-pub fn run(args: &AddArgs, ctx: &super::MarsContext, json: bool) -> Result<i32, MarsError> {
-    // Print bootstrap message first if auto-init occurred
-    if ctx.bootstrapped && !json {
-        output::print_success(&format!(
-            "initialized {} with mars.toml",
-            ctx.project_root.display()
-        ));
-    }
+pub fn run(
+    args: &AddArgs, 
+    ctx: &MarsContext,
+    json: bool,
+) -> Result<i32, MarsError> {
+    // Context was resolved by dispatcher — project exists
+    // No bootstrap logic, no ancestor warnings
     
-    // ... rest of existing add logic ...
+    // ... existing add logic: resolve package, update mars.toml, sync ...
 }
 ```
 
@@ -199,10 +159,9 @@ pub fn run(args: &AddArgs, ctx: &super::MarsContext, json: bool) -> Result<i32, 
 
 | File | Change |
 |------|--------|
-| `src/cli/mod.rs` | Add `AutoInit` enum, modify `find_agents_root` to accept it, remove git boundary from walk-up, add `invoke_init_at` helper, modify dispatch to pass `AutoInit::Allowed` for `add` |
-| `src/cli/init.rs` | Extract `bootstrap_at()` as reusable core logic |
-| `src/cli/add.rs` | Check `ctx.bootstrapped` and print init message if true |
-| `src/types.rs` | Add `bootstrapped: bool` to `MarsContext` struct |
+| `src/cli/mod.rs` | Remove dual-path root selection, use single `find_root_for_context` for all context commands including `add` |
+| `src/cli/init.rs` | Confirm cwd-only target, no walk-up |
+| `src/cli/add.rs` | Remove bootstrap/auto-init logic, remove ancestor parameter |
 
 ## Walk-up Changes
 
@@ -215,46 +174,27 @@ if dir.join(".git").exists() {
 }
 ```
 
-### New behavior (filesystem root only)
+### New behavior
 
-The `.git` check is removed. Walk-up continues until `Path::parent()` returns `None` (filesystem root).
+The `.git` check is removed. Walk-up continues until `Path::parent()` returns `None`.
 
 ### Key implications
 
-- A project can span multiple git repos
-- Non-git directories work identically to git directories
-- Nested git repos don't affect root discovery
-- Walk-up still prefers the nearest `mars.toml`, so existing projects work unchanged
+- Walk-up finds nearest ancestor `mars.toml`
+- Git is not a boundary or requirement for any operation
+- `add` from a subdirectory uses the ancestor project (not auto-init at cwd)
+- Nested mars projects require explicit `mars init`
 
 ## Default Project Root
 
-The current `default_project_root()` function walks up to git root. For `mars init` in the new model:
+The previous `default_project_root()` function walked up to git root. This is replaced:
 
-**Option A**: Remove git-root behavior, use cwd directly.  
-**Option B**: Keep git-root for init, but use cwd for auto-init from add.
-
-**Chosen**: Option A — consistency. `mars init` uses cwd as the project root unless `--root` is specified. This matches the auto-init behavior and removes the git dependency from init as well.
+**For init**: cwd directly (or `--root`), no helper needed
+**For context commands**: walk-up via `find_root_for_context`
 
 ```rust
-// Before: walk up to git root
-pub fn default_project_root() -> Result<PathBuf, MarsError> {
-    let cwd = std::env::current_dir()?;
-    let mut dir = cwd.as_path();
-    loop {
-        if dir.join(".git").exists() {
-            return Ok(dir.to_path_buf());
-        }
-        match dir.parent() {
-            Some(parent) => dir = parent,
-            None => return Ok(cwd),
-        }
-    }
-}
-
-// After: just use cwd
-pub fn default_project_root() -> Result<PathBuf, MarsError> {
-    std::env::current_dir().map_err(Into::into)
-}
+// Removed: default_project_root() that walked to git root
+// Replaced by: direct cwd usage for init, walk-up for context commands
 ```
 
 ## Windows Path Semantics
@@ -291,36 +231,38 @@ Windows paths are case-insensitive. `canonicalize()` normalizes case, so path co
 
 ### Unit tests to add
 
-1. `auto_init_at_cwd_when_no_config` — no `mars.toml` anywhere, `AutoInit::Allowed`, invoke_init_at at cwd
-2. `no_init_when_required` — no `mars.toml`, `AutoInit::Required`, error returned
-3. `existing_config_not_overwritten` — `mars.toml` exists, `bootstrapped` is false, content unchanged
-4. `walk_up_finds_ancestor_config` — `mars.toml` in parent, no init even with `AutoInit::Allowed`
-5. `walk_up_reaches_filesystem_root` — deep directory with no `mars.toml` anywhere, init at cwd
+1. `add_walks_up_to_ancestor` — ancestor `mars.toml` exists, cwd does not, `add` uses ancestor
+2. `add_fails_when_no_project` — no config anywhere, `add` errors with "Run `mars init` first"
+3. `add_does_not_auto_init` — no config anywhere, `add` does NOT create config
+4. `context_walk_up_finds_ancestor` — for `sync`, walk-up finds ancestor config
+5. `explicit_root_starts_walk_from_path` — `--root /path` walks up from that path
 
 ### Unit tests to remove
 
 - `walk_up_stops_at_git_boundary` — git is no longer a boundary
 - `submodule_isolation` — git submodules are no longer special
+- `auto_init_at_cwd_not_ancestor` — auto-init removed
+- `auto_init_warns_on_ancestor` — ancestor warning removed
 
 ### Windows-specific tests
 
 These tests run only on Windows (`#[cfg(target_os = "windows")]`):
 
 1. `walk_up_terminates_at_drive_root` — deep path on `C:\`, walk-up terminates at `C:\`
-2. `auto_init_at_cwd_not_drive_root` — `mars add` from `C:\temp\test`, init at cwd not `C:\`
+2. `add_finds_ancestor_across_drive_path` — `mars add` from `C:\project\subdir` finds `C:\project\mars.toml`
 3. `root_flag_accepts_forward_slashes` — `--root C:/project` works
 4. `root_flag_accepts_backslashes` — `--root C:\project` works
 5. `unc_path_walk_up` — `\\server\share\project\subdir` walks up correctly
 
 ### Smoke tests
 
-1. Fresh directory (no git) → `mars add owner/repo` → prints init message, adds dependency
-2. Fresh directory → `mars init` then `mars add` → no init message second time
-3. Existing project → `mars add another/dep` → no init message
-4. Subdirectory of project → `mars add pkg` → finds existing `mars.toml`, no init
-5. Subdirectory of project → `mars add pkg --root .` → creates nested project
+1. Fresh directory (no project) → `mars add owner/repo` → error "Run `mars init` first"
+2. Fresh directory → `mars init` then `mars add` → works
+3. Existing project → `mars add another/dep` → works
+4. Subdirectory of project → `mars add pkg` → uses parent project (walk-up)
+5. Subdirectory of project → `mars sync` → finds parent project via walk-up
 6. Fresh directory → `mars sync` → error with "Run `mars init` first"
-7. Fresh directory → `mars list` → error with "Run `mars init` first"
+7. Nested projects → `mars list` in nested → uses nested config, not ancestor
 
 ### CI matrix
 
@@ -332,49 +274,65 @@ These tests run only on Windows (`#[cfg(target_os = "windows")]`):
 
 ### Nested mars projects
 
-If `/project/mars.toml` exists and user runs from `/project/subdir`, walk-up finds the existing config. No init. If user wants a nested project, they use `mars add --root .` to force cwd.
+If `/project/mars.toml` and `/project/subdir/mars.toml` both exist:
+- Run `mars add foo` from `/project/subdir` → uses `/project/subdir/mars.toml` (nearest)
+- Run `mars add foo` from `/project/subdir/deeper` → uses `/project/subdir/mars.toml` (nearest)
+
+Nested projects require explicit `mars init` to create. Walk-up finds the nearest config.
 
 ### Permission errors
 
-If `mars.toml` cannot be written, the error surfaces naturally from `atomic_write`.
+If `mars.toml` cannot be read, the error surfaces naturally from the filesystem.
 
-### Race with concurrent `mars add`
+### Race with concurrent init
 
-Two `mars add` commands in the same uninitialized directory:
-- Both detect missing `mars.toml`
-- Both attempt `invoke_init_at`
+Two `mars init` commands in the same directory:
+- Both attempt to create `mars.toml`
 - First atomic_write wins (tmp+rename)
 - Second one sees existing file on next check
-- `bootstrap_at` returns `already_initialized=true` for the second
-- Both proceed to add their dependency
-
-This is correct. Atomic writes and idempotent init handle the race.
+- Init reports "already initialized" for the second
+- Both succeed
 
 ### Existing `.agents/` without `mars.toml`
 
-`bootstrap_at` creates `mars.toml` and leaves `.agents/` as-is. This covers repos with manually created `.agents/`.
+`mars add` fails — no `mars.toml` means no project, even if `.agents/` exists. User must run `mars init`.
+
+### --root for add
+
+If user runs `mars add foo/bar --root /path`:
+- Walk-up starts from `/path`, not cwd
+- Find nearest `mars.toml` at or above `/path`
+- If not found, error with "Run `mars init` first"
 
 ## Migration / Compatibility
 
-### Behavioral change: add
+### Behavioral change: add requires existing project
 
-Previously: `mars add` in uninitialized directory → error
-Now: `mars add` in uninitialized directory → auto-init at cwd + add
+Previously: `mars add` auto-inited if no config found
+Now: `mars add` errors, requires `mars init` first
 
-This is additive. No existing workflows depend on the error.
+This is intentional. Users who expected auto-init now get a clear error directing them to `mars init`.
+
+### Behavioral change: add in subdirectory uses ancestor
+
+Previously: `mars add` from subdirectory auto-inited nested project with warning
+Now: `mars add` from subdirectory uses ancestor project
+
+This matches `uv add`, `cargo add`, npm semantics.
 
 ### Behavioral change: init
 
 Previously: `mars init` defaults to git root if inside a git repo
 Now: `mars init` defaults to cwd
 
-This could affect users who expect `mars init` from a subdirectory to create config at git root. Mitigation: the init message shows exactly where config was created. Users can retry with `--root $(git rev-parse --show-toplevel)` if needed.
+Users who expected git-root initialization can use `--root $(git rev-parse --show-toplevel)`.
 
 ### Documentation updates
 
 | Doc | Change |
 |-----|--------|
-| `mars-agents/docs/quickstart.md` | Simplify — `mars add` works directly, no init step |
+| `mars-agents/docs/quickstart.md` | Document two-step flow: `mars init` then `mars add` |
 | `mars-agents/docs/commands/init.md` | Note that init defaults to cwd, not git root |
+| `mars-agents/docs/commands/add.md` | Document walk-up behavior, remove auto-init |
 | `mars-agents/docs/troubleshooting.md` | Update "no mars.toml found" section |
-| `meridian-cli/docs/getting-started.md` | Simplify first-use flow |
+| `meridian-cli/docs/getting-started.md` | Document `mars init` step |

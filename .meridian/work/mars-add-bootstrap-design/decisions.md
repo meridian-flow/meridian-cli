@@ -1,139 +1,117 @@
-# Decisions: Init-Centric Bootstrap
+# Decisions: Walk-Up Add, Explicit Init
 
-## D1: Init is the canonical bootstrap primitive
+## D1: Init is the only project creation command
 
-**Choice**: `mars init` defines bootstrapping. All auto-init paths invoke init semantics, not separate bootstrap logic.
-
-**Alternatives rejected**:
-- Per-command bootstrap logic — leads to duplication, inconsistent behavior, hidden special cases
-- `add`-specific bootstrap mode — makes `add` magical while other commands behave differently
-
-**Rationale**: One model for users to learn. Auto-init from `add` is a convenience that reuses init, not a separate feature.
-
-## D2: Explicit auto-init allowlist
-
-**Choice**: Commands are explicitly classified as auto-init allowed or init-required. The allowlist is:
-- `init` — canonical
-- `add` — clear project-setup intent
-
-All other context-requiring commands are init-required.
+**Choice**: Only `mars init` creates `mars.toml`. No other command auto-initializes projects.
 
 **Alternatives rejected**:
-- Allow auto-init on any command — running `mars sync` in an empty directory should fail, not create a project
-- Infer intent from command shape — heuristic, error-prone
+- Auto-init from `add` — leads to surprising file creation, nested project confusion
+- Per-command bootstrap logic — duplication, inconsistent behavior
 
-**Rationale**: Auto-init is a convenience for first-use, not a general behavior. Only commands with unambiguous project-setup intent qualify.
+**Rationale**: One model for users to learn. Project creation is always explicit.
 
-## D3: Bootstrap at current working directory
+## D2: Add walks up to find existing project
 
-**Choice**: When auto-init or explicit init runs, `mars.toml` is created at cwd (or `--root` if specified).
+**Choice**: `mars add` walks from cwd to filesystem root searching for `mars.toml`. Uses nearest config found. Errors if not found.
+
+**Alternatives rejected**:
+- Cwd-first: check cwd only, auto-init if missing — diverges from mainstream tooling
+- Git-bounded walk-up: stop at `.git` — makes git a requirement
+
+**Rationale**: This matches `uv add`, `cargo add`, and npm semantics. Users expect to be able to run `add` from any subdirectory.
+
+## D3: Add does not create projects
+
+**Choice**: When `mars add` finds no `mars.toml` from cwd to filesystem root, it errors with "Run `mars init` first."
+
+**Supersedes**: Previous design with auto-init at cwd.
+
+**Alternatives rejected**:
+- Auto-init at cwd — creates files in unexpected locations
+- Auto-init at walk-up root — unclear which directory to pick
+
+**Rationale**: Project creation is `init`'s job. Clear separation of concerns. No surprising file creation.
+
+## D4: Init uses cwd as default target
+
+**Choice**: `mars init` creates project at cwd. `--root <path>` overrides to create at `<path>`.
 
 **Supersedes**: Previous design that walked up to git root.
 
 **Alternatives rejected**:
-- Git root as default — git is not a requirement, fails in non-git directories
-- Walk-up to first common project marker — heuristic, varies by ecosystem
+- Git root as default — git is not a requirement
+- Walk-up to find "best" location — heuristic, error-prone
 
 **Rationale**: The user ran the command from this directory. That is their declaration of intent.
 
-**Tradeoff accepted**: If the user is in a subdirectory and wanted the project root elsewhere, the init message shows where config was created. Easy recovery.
+## D5: Init does not walk up
 
-## D4: Walk-up to filesystem root (no git boundary)
+**Choice**: `mars init` creates at cwd (or `--root`) exactly. No walk-up.
 
-**Choice**: When searching for existing `mars.toml`, walk from cwd to filesystem root. Git is not consulted.
+**Rationale**: Init creates a new project. Walking up would conflate creation with discovery.
+
+## D6: Walk-up boundary is filesystem root
+
+**Choice**: Walk-up continues from cwd to filesystem root. Git boundaries do not stop the walk.
 
 **Supersedes**: Previous design that stopped at `.git` boundary.
 
 **Alternatives rejected**:
 - Stop at git root — makes git a requirement
-- Stop at first common project marker — heuristic, adds complexity
+- Stop at common project markers — heuristic, adds complexity
 
-**Rationale**: Git is not a requirement. A valid mars project is simply a directory with `mars.toml`. Walk-up finds the nearest one.
+**Rationale**: Git is not a requirement. A valid mars project is simply a directory with `mars.toml`.
 
-## D5: `--root` forces target unconditionally
+## D7: `--root` overrides walk-up start, not target
 
-**Choice**: `mars add --root /path` or `mars init --root /path` uses `/path` as project root, regardless of cwd or walk-up.
+**Choice**: For context commands (`add`, `sync`, etc.), `--root <path>` sets where walk-up starts. Walk-up still runs from `<path>` to filesystem root.
 
-**Unchanged from previous design**.
+For `init`, `--root <path>` sets the creation target directly (no walk-up).
 
-**Rationale**: `--root` is an explicit escape hatch. The user has already decided where the project lives.
+**Rationale**: Consistent with different command semantics. Context commands find existing projects; init creates new ones.
 
-## D6: Init creates minimal config
+## D8: Init creates minimal config
 
-**Choice**: Auto-created `mars.toml` contains only `[dependencies]\n` — no settings, no comments, no managed_root.
-
-**Unchanged from previous design**.
+**Choice**: Auto-created `mars.toml` contains only `[dependencies]\n` — no settings, no comments.
 
 **Rationale**: Minimal config is easier to read and modify. Defaults are self-documenting through behavior.
 
-## D7: MarsContext gains `bootstrapped` field
+## D9: Init is idempotent
 
-**Choice**: `MarsContext` includes `bootstrapped: bool` to indicate whether this invocation created the project.
+**Choice**: Running `mars init` in an already-initialized directory reports "already initialized" and succeeds.
 
-**Alternatives rejected**:
-- Separate return value — clutters call sites
-- Check filesystem before/after — race-prone, wasteful
+**Rationale**: Re-running init should not break existing projects.
 
-**Rationale**: The context already flows through command dispatch. Adding a field is clean and explicit.
+## D10: Error message directs to init
 
-## D8: Remove default_project_root git behavior
-
-**Choice**: `default_project_root()` returns cwd directly instead of walking up to git root.
-
-**Alternatives rejected**:
-- Keep git-root for init, cwd for add — inconsistent, confusing
-- Remove the function entirely — still useful as the default when `--root` is not specified
-
-**Rationale**: Consistency. Both `init` and auto-init use cwd. Git is not special.
-
-## D9: Visible init message
-
-**Choice**: When auto-init occurs, print `initialized <path> with mars.toml` before command output.
-
-**Unchanged from previous design** (was D9: Bootstrap message).
-
-**Rationale**: Since init happens at cwd (which could be "wrong"), the message surfaces mistakes immediately.
-
-## D10: Error message updated for non-git context
-
-**Choice**: When `AutoInit::Required` and no config is found, error says:
+**Choice**: When context commands find no project, error says:
 ```
 no mars.toml found from <cwd> to filesystem root. Run `mars init` first.
 ```
 
-**Supersedes**: Previous error that mentioned "repository root".
-
-**Rationale**: Git is not consulted; the error should not reference it.
+**Rationale**: Clear recovery path. User knows exactly what to do.
 
 ## D11: Windows compatibility via stdlib
 
 **Choice**: Windows path handling uses Rust stdlib (`Path::parent()`, `canonicalize()`) without platform-specific branches.
 
-**Unchanged from previous design**.
-
-**Rationale**: Rust's `Path` abstracts platform differences. The init-centric design works identically on Windows, macOS, and Linux.
+**Rationale**: Rust's `Path` abstracts platform differences. Walk-up works identically on Windows, macOS, and Linux.
 
 ## D12: Extended-length paths accepted
 
-**Choice**: Paths returned by `canonicalize()` on Windows (e.g., `\\?\C:\project`) are valid project roots. The `\\?\` prefix is not stripped.
+**Choice**: Paths returned by `canonicalize()` on Windows (e.g., `\\?\C:\project`) are valid project roots.
 
-**Unchanged from previous design**.
-
-**Rationale**: Extended-length paths are the canonical form on Windows. Stripping them could break long path support.
+**Rationale**: Extended-length paths are the canonical form on Windows.
 
 ## D13: Both slash styles accepted on Windows
 
 **Choice**: `--root C:/project` and `--root C:\project` both work on Windows.
 
-**Unchanged from previous design**.
-
-**Rationale**: Windows supports both separators. Forcing one style adds friction without benefit.
+**Rationale**: Windows supports both separators. Forcing one style adds friction.
 
 ## D14: UNC paths supported
 
 **Choice**: UNC paths (`\\server\share\project`) are valid project roots.
-
-**Unchanged from previous design**.
 
 **Rationale**: UNC paths are standard Windows paths. No special handling needed.
 
@@ -141,18 +119,26 @@ no mars.toml found from <cwd> to filesystem root. Run `mars init` first.
 
 **Choice**: CI runs the test suite on Windows (in addition to Linux/macOS).
 
-**Unchanged from previous design**.
-
 **Rationale**: Windows support is a hard constraint. Without CI coverage, regressions go undetected.
 
 ## D16: Git de-coupling is a separate follow-on track
 
 **Choice**: Removing git assumptions from the codebase (the `.git` check in walk-up, git-root default in init, etc.) is implementation work for this feature but also names a broader follow-on track for auditing other git-coupled behaviors in mars.
 
-**Rationale**: This design specifies git-agnostic behavior. The implementation removes the specific checks. But there may be other git assumptions elsewhere in the codebase that should be audited separately.
+**Rationale**: This design specifies git-agnostic behavior. There may be other git assumptions elsewhere.
 
 ## D17: Windows compatibility audit is a separate follow-on track
 
-**Choice**: This design specifies Windows-correct bootstrap/walk-up behavior. A repo-wide Windows compatibility audit is named as a separate effort.
+**Choice**: This design specifies Windows-correct walk-up behavior. A repo-wide Windows compatibility audit is a separate effort.
 
-**Rationale**: Bootstrap is one command. Full Windows compatibility covers sync, install, source resolution, shell invocations, and more. Scoping that into this feature would delay shipping bootstrap.
+**Rationale**: Walk-up is one feature. Full Windows compatibility covers sync, install, source resolution, and more.
+
+## Removed Decisions (from previous cwd-first design)
+
+The following decisions from the previous cwd-first design are explicitly removed:
+
+- **D18 (Cwd-first for write commands)**: Removed. Add uses walk-up, not cwd-first.
+- **D19 (Ancestor warning)**: Removed. No warnings needed — using ancestor is correct behavior.
+- **D20 (Dual-path root selection)**: Removed. Single walk-up algorithm for all context commands.
+- **D2 (Explicit auto-init allowlist)**: Removed. No commands auto-init.
+- **D7 (MarsContext bootstrapped field)**: Removed. No auto-init means no bootstrapped tracking.

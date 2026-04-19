@@ -1,60 +1,71 @@
-# Behavioral Spec: Init-Centric Bootstrap
+# Behavioral Spec: Walk-Up Add, Explicit Init
 
 ## Overview
 
-`mars init` is the canonical bootstrap primitive. Commands that carry clear project-setup intent may auto-initialize by invoking init semantics internally, eliminating the separate explicit init step for first-use.
+`mars add` finds the nearest existing project by walking up from cwd. `mars init` creates a new project at cwd (or `--root`). This matches mainstream tooling semantics: `uv add`, `cargo add`, and npm local project resolution.
 
-## Core Principle
+**Core invariant**: `add` never creates `mars.toml`. Only `init` creates projects.
 
-Bootstrap is initialization. Every auto-bootstrap path reuses `mars init` semantics — same root selection, same config creation, same messaging. There is no separate "bootstrap mode" with its own rules.
+## Separation of Concerns
 
-## Auto-Init Allowlist
+| Concern | Commands | Behavior | Walk-Up |
+|---------|----------|----------|---------|
+| **Context discovery** | `add`, `sync`, `list`, `upgrade`, etc. | Find nearest existing `mars.toml`. Error if not found. | YES |
+| **Project creation** | `init` | Create `mars.toml` at target. Target is cwd or `--root`. | **NO** |
 
-Commands are explicitly classified as **auto-init allowed** or **init-required**:
+The difference matters:
+- All commands that operate on an existing project use walk-up
+- Only `init` creates new projects, and it does so at an explicit location
 
-| Command | Classification | Rationale |
-|---------|---------------|-----------|
-| `init` | auto-init allowed | The canonical bootstrap primitive |
-| `add` | auto-init allowed | Clear project-setup intent (adding first dependency) |
-| `sync` | init-required | Running sync on nothing is likely a user error |
-| `list` | init-required | Listing an uninitialized project is an error |
-| `upgrade` | init-required | No dependencies to upgrade = wrong directory |
-| `remove` | init-required | No dependencies to remove = wrong directory |
-| `doctor` | init-required | Nothing to diagnose = wrong directory |
-| `repair` | init-required | Nothing to repair = wrong directory |
-| `outdated` | init-required | No dependencies to check = wrong directory |
-| `link` | init-required | Linking into an uninitialized project is an error |
-| `why` | init-required | No dependencies to explain = wrong directory |
-| `rename` | init-required | No items to rename = wrong directory |
-| `resolve` | init-required | No conflicts to resolve = wrong directory |
-| `override` | init-required | No sources to override = wrong directory |
-| `adopt` | init-required | Adopting requires existing context |
-| `version` | init-required | Versioning requires existing package |
-| `models` | init-required | Models cache is project-scoped |
-| `cache` | root-free | Global cache, no project context |
-| `check` | root-free | Validates a source package, not a consumer project |
+## Command Classifications
 
-**Design rule**: A command is auto-init allowed only when the user's intent is unambiguous: they want this directory to become a mars project. `add` qualifies because you cannot add a dependency without a project. `sync` does not qualify because running `mars sync` in the wrong directory should fail fast.
+| Command | Classification | Behavior |
+|---------|---------------|----------|
+| `init` | create | Creates project at cwd (or `--root`). No walk-up. |
+| `add` | context | Walks up to find project. Errors if not found. |
+| `sync` | context | Walks up to find project. Errors if not found. |
+| `list` | context | Walks up to find project. Errors if not found. |
+| `upgrade` | context | Walks up to find project. Errors if not found. |
+| `remove` | context | Walks up to find project. Errors if not found. |
+| `doctor` | context | Walks up to find project. Errors if not found. |
+| `repair` | context | Walks up to find project. Errors if not found. |
+| `outdated` | context | Walks up to find project. Errors if not found. |
+| `link` | context | Walks up to find project. Errors if not found. |
+| `why` | context | Walks up to find project. Errors if not found. |
+| `rename` | context | Walks up to find project. Errors if not found. |
+| `resolve` | context | Walks up to find project. Errors if not found. |
+| `override` | context | Walks up to find project. Errors if not found. |
+| `adopt` | context | Walks up to find project. Errors if not found. |
+| `version` | context | Walks up to find project. Errors if not found. |
+| `models` | context | Walks up to find project. Errors if not found. |
+| `cache` | root-free | Global cache, no project context. |
+| `check` | root-free | Validates a source package, not a consumer project. |
+
+**Design rule**: All commands except `init`, `cache`, and `check` use walk-up context discovery. Only `init` creates projects.
 
 ## EARS Statements
 
-### INIT-1: Init is the canonical bootstrap path
+### INIT-1: Init creates project at target location
 
-When `mars init` is invoked in a directory without `mars.toml`, the system shall create `mars.toml` at the target root with minimal content, create the managed directory, and report success.
+When `mars init` is invoked, the system shall create `mars.toml` at the target root with minimal content, create the managed directory, and report success.
 
-**Rationale**: `init` defines what bootstrapping means. All other auto-init paths delegate to this behavior.
+The target is:
+- `--root <path>` if specified
+- Current working directory otherwise
 
-### INIT-2: Init root selection defaults to cwd
+**Rationale**: `init` is the explicit project creation command. It does not search for existing projects.
 
-When `mars init` is invoked without `--root`, the system shall use the current working directory as the project root.
+### INIT-2: Init does not walk up
 
-**Rationale**: The user ran the command from this directory. That is their declaration of intent.
+When `mars init` is invoked, the system shall NOT walk up to find an existing `mars.toml`. The target is determined solely by cwd or `--root`.
+
+**Rationale**: Init creates a new project. Walking up would conflate creation with discovery.
 
 ### INIT-3: Init is idempotent on existing projects
 
 When `mars init` is invoked in a directory that already contains `mars.toml`, the system shall report "already initialized" and succeed without modifying the existing config.
 
-**Rationale**: Re-running init should not break existing projects. This also enables safe auto-init from other commands.
+**Rationale**: Re-running init should not break existing projects.
 
 ### INIT-4: Init creates minimal config
 
@@ -68,56 +79,73 @@ When `mars init` creates `mars.toml`, the system shall also create the managed d
 
 **Rationale**: A mars project needs its output directories. Create them atomically with the config.
 
-### AUTO-1: Add invokes init when config is missing
+### ADD-1: Add walks up to find existing project
 
-When `mars add` is invoked and no `mars.toml` exists in the cwd-to-root walk, the system shall invoke init semantics at the current working directory before proceeding with the add operation.
+When `mars add` is invoked without `--root`, the system shall walk from cwd to filesystem root searching for `mars.toml`. The nearest config wins.
 
-**Rationale**: `mars add <source>` is a first-use command. The user wants this directory to be a project with this dependency.
+**Explicit behavior**:
+1. Check `cwd/mars.toml`
+2. If not found, check `parent(cwd)/mars.toml`
+3. Continue walking up until filesystem root
+4. If found at any level, use that project
+5. If not found anywhere, error (see ADD-2)
 
-### AUTO-2: Add reports bootstrap before proceeding
+**Rationale**: This matches `uv add`, `cargo add`, and npm semantics. Users expect to be able to run `add` from any subdirectory of their project.
 
-When `mars add` auto-initializes, the system shall print `initialized <path> with mars.toml` before the add output (unless `--json`).
+### ADD-2: Add fails when no project exists
 
-**Rationale**: The user should know that init happened and where. This surfaces mistakes immediately.
+When `mars add` is invoked and no `mars.toml` is found from cwd to filesystem root, the system shall error with:
+```
+no mars.toml found from <cwd> to filesystem root. Run `mars init` first.
+```
 
-### AUTO-3: Auto-init respects --root
+**Rationale**: `add` operates on existing projects. It does not create them.
 
-When `mars add --root <path>` is invoked and `<path>` does not contain `mars.toml`, the system shall auto-initialize at `<path>`, not at cwd.
+### ADD-3: Add does not create projects
 
-**Rationale**: `--root` is an explicit declaration of project location. Auto-init honors it.
+The system shall NOT auto-initialize a project when `mars add` finds no existing config. Project creation is exclusively the responsibility of `mars init`.
 
-### WALK-1: Walk-up finds existing config
+**Rationale**: This prevents surprising file creation and matches mainstream tooling semantics.
 
-When any command requiring context is invoked and `mars.toml` exists in the cwd or any ancestor directory, the system shall use the existing config (nearest wins). No initialization occurs.
+### CONTEXT-1: Walk-up boundary is filesystem root
 
-**Rationale**: Existing projects work unchanged. Auto-init only triggers on first use.
-
-### WALK-2: Walk-up boundary is filesystem root
-
-When searching for existing `mars.toml`, the system shall walk from cwd to filesystem root. Git boundaries do not stop the walk.
+When walking up to find `mars.toml`, the system shall walk from cwd to filesystem root. Git boundaries do not stop the walk.
 
 **Rationale**: Git is not a requirement. A `mars.toml` in any ancestor directory is a valid project root.
 
-### WALK-3: Windows drive root termination
+### CONTEXT-2: Windows drive root termination
 
-When the walk-up reaches a Windows drive root (e.g., `C:\`), `Path::parent()` returns `None`. The system shall treat this as filesystem root and terminate the walk-up.
+When the walk-up reaches a Windows drive root (e.g., `C:\`), `Path::parent()` returns `None`. The system shall treat this as filesystem root and terminate the walk.
 
 **Rationale**: Windows filesystem roots are drive letters, not `/`. The walk-up must terminate correctly on all platforms.
 
-### WALK-4: UNC path handling
+### CONTEXT-3: UNC path handling
 
 When the walk-up encounters a UNC path (e.g., `\\server\share\project`), the system shall walk up through directories and terminate when `Path::parent()` returns `None` at the server/share root.
 
 **Rationale**: UNC paths are valid project locations on Windows. Walk-up should work identically.
 
-### FAIL-1: Init-required commands fail on missing config
+### ROOT-1: --root sets search start for context commands
 
-When a command classified as init-required is invoked and no `mars.toml` exists in the cwd-to-root walk, the system shall error with:
-```
-no mars.toml found from <cwd> to filesystem root. Run `mars init` first.
-```
+When a context command (`add`, `sync`, etc.) is invoked with `--root <path>`:
+1. Walk up from `<path>` to filesystem root searching for `mars.toml`
+2. If found, use that project
+3. If not found, error with the standard message
 
-**Rationale**: These commands have no clear project-setup intent. Failing fast is safer than guessing.
+The system shall NOT check cwd when `--root` is specified.
+
+**Rationale**: `--root` overrides where the walk-up starts, not where the project is created.
+
+### ROOT-2: --root sets target for init
+
+When `mars init --root <path>` is invoked:
+1. Check if `<path>/mars.toml` exists
+2. If exists, report "already initialized" and succeed
+3. If not exists, create `mars.toml` at `<path>`
+
+The system shall NOT walk up from `<path>`.
+
+**Rationale**: `--root` for init sets the creation target, not a search start.
 
 ### PATH-1: Path style normalization
 
@@ -133,15 +161,23 @@ When `canonicalize()` returns an extended-length path on Windows (prefixed with 
 
 ## Non-requirements
 
-- **Git detection**: Git presence does not affect bootstrap or walk-up behavior.
-- **Prompting**: No interactive confirmation before auto-init. Intent is clear from command + arguments.
-- **`--init` flag**: No explicit flag to enable auto-init on `add`. It is always on.
-- **`--no-init` flag**: Not needed initially. Can be added later if users want to fail-fast on missing config.
-- **Project marker heuristics**: No scanning for `pyproject.toml`, `package.json`, etc. The user's cwd is the signal.
+- **Git detection**: Git presence does not affect walk-up or init behavior.
+- **Auto-init**: No command auto-creates `mars.toml`. That is init's job.
+- **Ancestor warnings**: Since `add` adopts the nearest ancestor (correct behavior), no warning is needed.
+- **Nested project magic**: Nested projects are created explicitly with `mars init`.
+
+### Explicit Prohibitions
+
+These behaviors are explicitly NOT supported and must NOT be implemented:
+
+- **Auto-init from add**: `mars add` NEVER creates `mars.toml`.
+- **Cwd-first for add**: `mars add` walks up, it does not check cwd-only.
+- **Walk-up for init target**: `mars init` creates at cwd or `--root`, it does not search.
+- **Git boundary**: Walk-up continues to filesystem root, git is irrelevant.
 
 ## Error Messages
 
-### Missing config (init-required command)
+### Missing config (all context commands)
 
 ```
 no mars.toml found from <cwd> to filesystem root. Run `mars init` first.
@@ -153,38 +189,42 @@ Standard I/O errors surface naturally. No special handling.
 
 ## Tradeoffs
 
-### Risk: Auto-init in wrong directory
+### Risk: User forgets to init
 
-**Scenario**: User is in `/project/src/lib` and runs `mars add owner/repo`. Auto-init creates `/project/src/lib/mars.toml` instead of `/project/mars.toml`.
+**Scenario**: User runs `mars add owner/repo` in a fresh directory, expects project creation.
 
 **Mitigations**:
-1. Clear message shows exactly where config was created
-2. User explicitly ran the command from this directory
-3. Easy recovery: delete `mars.toml`, cd to correct location, retry
-4. Walk-up finds existing config, so this only happens on first use
+1. Clear error message directs user to `mars init`
+2. Two-command flow is familiar from `cargo new` + `cargo add`, `uv init` + `uv add`
+3. Once initialized, all subdirectory usage "just works"
 
-### Risk: Expanding allowlist over time
+### Benefit: No surprising file creation
 
-**Scenario**: Adding more commands to the auto-init allowlist dilutes the safety of init-required classification.
+`add` never creates files in unexpected locations. Users know exactly when `mars.toml` is created: only when they run `mars init`.
 
-**Mitigation**: The allowlist is explicit in this spec. Adding a command requires updating this document and justifying the intent-is-clear criterion.
+### Benefit: Works from any subdirectory
 
-### Benefit: Single bootstrap model
+Once a project exists, users can run `mars add` from any subdirectory. This is the common workflow when editing code in `src/` and wanting to add a dependency.
 
-All bootstrap paths share the same behavior. Users learn one model (`init`), and auto-init is a convenience that reuses it. No hidden one-off bootstrap modes.
+### Benefit: Explicit nested projects
+
+Nested mars projects require explicit `mars init`. No accidental nesting, no warnings to parse.
+
+### Benefit: Predictable behavior
+
+Same walk-up logic for all context commands. Users learn one model.
 
 ## Comparison to other tools
 
-| Tool | First-use behavior |
-|------|-------------------|
-| `npm install <pkg>` | Creates package.json at cwd |
-| `cargo add <crate>` | Errors if no Cargo.toml |
-| `pip install` | No project file needed |
-| `go mod init` + `go get` | Two-step |
-| `uv add` | Errors if no project file |
-| **mars add (new)** | Auto-inits at cwd, then adds |
+| Tool | Add behavior | Project creation |
+|------|-------------|------------------|
+| `uv add` | Walks up to find pyproject.toml | Requires `uv init` |
+| `cargo add` | Walks up to find Cargo.toml | Requires `cargo new` or `cargo init` |
+| `npm install <pkg>` | Walks up to find package.json | Requires `npm init` (or creates minimal package.json) |
+| `pnpm add` | Walks up to find package.json | Requires `pnpm init` |
+| **mars add (new)** | Walks up to find mars.toml | Requires `mars init` |
 
-The npm model is the closest match for `add`: single command works on first use.
+Mars now matches the mainstream pattern: walk-up for operations, explicit init for creation.
 
 ## Follow-On Design Tracks
 
@@ -192,19 +232,12 @@ These concerns are scoped out of this design:
 
 ### 1. Remove accidental git assumptions
 
-The current implementation of `find_agents_root_from()` stops at `.git` boundaries. This design specifies git-agnostic walk-up, but a focused implementation pass is needed to:
-- Remove the `.git` check from walk-up
-- Update error messages that reference "repository root"
+The current implementation of `default_project_root()` walks up to git root. This design specifies cwd-only init, but a focused implementation pass is needed to:
+- Remove the git-root default from init
 - Remove or update tests that assume git boundaries
 
-This is a discrete refactor, not part of the auto-init feature.
+This is a discrete refactor, not part of the walk-up add feature.
 
 ### 2. Repo-wide Windows compatibility
 
-While this design specifies Windows-correct behavior for bootstrap/walk-up, a separate repo-wide audit is needed to ensure Windows compatibility across all mars commands and the sync/install pipeline. That audit should cover:
-- Path handling in source resolution
-- File operations in the install pipeline
-- Shell invocations and process spawning
-- Extended-length path support beyond root discovery
-
-This is its own design track with its own scope.
+While this design specifies Windows-correct behavior for walk-up, a separate repo-wide audit is needed to ensure Windows compatibility across all mars commands and the sync/install pipeline.

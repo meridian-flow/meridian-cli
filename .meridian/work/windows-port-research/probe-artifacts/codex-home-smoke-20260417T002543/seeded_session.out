@@ -1,0 +1,5 @@
+Reading additional input from stdin...
+{"type":"thread.started","thread_id":"019d99e7-5005-7be3-9a61-2ab4bd7075e4"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"MERIDIAN_SESSION_HOME_TOKEN_20260417T002543"}}
+{"type":"turn.completed","usage":{"input_tokens":35075,"cached_input_tokens":2432,"output_tokens":37}}
