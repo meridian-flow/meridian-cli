@@ -59,6 +59,8 @@ def _normalized_work_id(work_id: str | None) -> str | None:
 
 
 def reduce_events(events: list[SpawnEvent]) -> dict[str, SpawnRecord]:
+    # Intentional seam boundary: this reducer was extracted for tests, but event
+    # model ownership still lives in spawn_store, so runtime type imports remain.
     from meridian.lib.state import spawn_store
 
     records: dict[str, SpawnRecord] = {}
