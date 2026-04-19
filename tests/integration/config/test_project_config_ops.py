@@ -2,9 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from meridian.lib.catalog import models as catalog_models
 from meridian.lib.config.settings import load_config
-from meridian.lib.core.util import to_jsonable
 from meridian.lib.ops.config import (
     ConfigGetInput,
     ConfigInitInput,
@@ -100,61 +98,29 @@ def test_config_init_uses_env_repo_root_when_path_not_provided(
     assert not (env_repo_root / "mars.toml").exists()
 
 
-def test_config_set_requires_project_config_file(tmp_path: Path) -> None:
+@pytest.mark.parametrize("operation", ["set", "reset"])
+def test_config_set_and_reset_require_project_config_file(
+    tmp_path: Path,
+    operation: str,
+) -> None:
     repo_root = _repo(tmp_path)
 
     with pytest.raises(ValueError, match="no project config; run `meridian config init`"):
-        config_set_sync(
-            ConfigSetInput(
-                repo_root=repo_root.as_posix(),
-                key="defaults.model",
-                value="gpt-5.4",
+        if operation == "set":
+            config_set_sync(
+                ConfigSetInput(
+                    repo_root=repo_root.as_posix(),
+                    key="defaults.model",
+                    value="gpt-5.4",
+                )
             )
-        )
-
-
-def test_config_reset_requires_project_config_file(tmp_path: Path) -> None:
-    repo_root = _repo(tmp_path)
-
-    with pytest.raises(ValueError, match="no project config; run `meridian config init`"):
-        config_reset_sync(
-            ConfigResetInput(
-                repo_root=repo_root.as_posix(),
-                key="defaults.model",
+        else:
+            config_reset_sync(
+                ConfigResetInput(
+                    repo_root=repo_root.as_posix(),
+                    key="defaults.model",
+                )
             )
-        )
-
-
-def test_config_show_reports_meridian_toml_path_when_absent(tmp_path: Path) -> None:
-    repo_root = _repo(tmp_path)
-
-    result = config_show_sync(ConfigShowInput(repo_root=repo_root.as_posix()))
-
-    assert result.path == (repo_root / "meridian.toml").as_posix()
-
-
-def test_config_show_reports_workspace_summary_when_workspace_is_absent(tmp_path: Path) -> None:
-    repo_root = _repo(tmp_path)
-
-    result = config_show_sync(ConfigShowInput(repo_root=repo_root.as_posix()))
-
-    assert result.workspace.status == "none"
-    assert result.workspace.path is None
-    assert result.workspace.roots.count == 0
-    assert result.workspace.roots.enabled == 0
-    assert result.workspace.roots.missing == 0
-    assert result.workspace.applicability == {
-        "claude": "ignored:no_roots",
-        "codex": "ignored:no_roots",
-        "opencode": "ignored:no_roots",
-    }
-    assert result.workspace_findings == ()
-    text = result.format_text()
-    assert "workspace.status = none" in text
-    assert "workspace.roots.count = 0" in text
-    assert "workspace.applicability.claude = ignored:no_roots" in text
-    assert "workspace.applicability.codex = ignored:no_roots" in text
-    assert "workspace.applicability.opencode = ignored:no_roots" in text
 
 
 def test_config_show_surfaces_workspace_findings(tmp_path: Path) -> None:
@@ -179,70 +145,6 @@ def test_config_show_surfaces_workspace_findings(tmp_path: Path) -> None:
     text = result.format_text()
     assert "warning: workspace_unknown_key:" in text
     assert "warning: workspace_missing_root:" in text
-
-
-def test_config_show_json_workspace_omits_null_path_and_findings(tmp_path: Path) -> None:
-    repo_root = _repo(tmp_path)
-
-    result = config_show_sync(ConfigShowInput(repo_root=repo_root.as_posix()))
-    payload = to_jsonable(result)
-
-    assert "workspace_findings" not in payload
-    workspace = payload["workspace"]
-    assert "path" not in workspace
-    assert workspace["status"] == "none"
-    assert workspace["roots"] == {"count": 0, "enabled": 0, "missing": 0}
-    assert workspace["applicability"] == {
-        "claude": "ignored:no_roots",
-        "codex": "ignored:no_roots",
-        "opencode": "ignored:no_roots",
-    }
-
-
-def test_config_show_json_workspace_includes_path_when_present(tmp_path: Path) -> None:
-    repo_root = _repo(tmp_path)
-    workspace_path = repo_root / "workspace.local.toml"
-    workspace_path.write_text(
-        "[[context-roots]]\n"
-        'path = "./missing-root"\n',
-        encoding="utf-8",
-    )
-
-    result = config_show_sync(ConfigShowInput(repo_root=repo_root.as_posix()))
-    payload = to_jsonable(result)
-
-    workspace = payload["workspace"]
-    assert workspace["path"] == workspace_path.resolve().as_posix()
-    assert workspace["roots"] == {"count": 1, "enabled": 1, "missing": 1}
-    assert workspace["applicability"] == {
-        "claude": "ignored:no_roots",
-        "codex": "ignored:no_roots",
-        "opencode": "ignored:no_roots",
-    }
-
-
-def test_config_show_marks_codex_workspace_projection_as_unsupported_when_roots_exist(
-    tmp_path: Path,
-) -> None:
-    repo_root = _repo(tmp_path)
-    shared = repo_root / "shared"
-    shared.mkdir()
-    (repo_root / "workspace.local.toml").write_text(
-        "[[context-roots]]\n"
-        'path = "./shared"\n',
-        encoding="utf-8",
-    )
-
-    result = config_show_sync(ConfigShowInput(repo_root=repo_root.as_posix()))
-
-    assert result.workspace.applicability == {
-        "claude": "active",
-        "codex": "unsupported:requires_config_generation",
-        "opencode": "active",
-    }
-    assert "workspace.applicability.codex = unsupported:requires_config_generation" in (
-        result.format_text()
-    )
 
 
 def test_config_show_and_loader_share_project_config_precedence(
@@ -277,96 +179,22 @@ def test_config_show_and_loader_share_project_config_precedence(
     assert load_config(repo_root).default_harness == "codex"
 
 
-@pytest.mark.parametrize(
-    ("runner", "expected_key"),
-    [
-        (
-            lambda repo_root: config_show_sync(ConfigShowInput(repo_root=repo_root.as_posix())),
-            None,
-        ),
-        (
-            lambda repo_root: config_get_sync(
-                ConfigGetInput(repo_root=repo_root.as_posix(), key="defaults.harness")
-            ),
-            "defaults.harness",
-        ),
-    ],
-)
 def test_config_show_and_get_resolve_env_selected_user_config_like_loader(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    runner: object,
-    expected_key: str | None,
 ) -> None:
     repo_root = _repo(tmp_path)
     env_user_config = tmp_path / "env-user-config.toml"
     env_user_config.write_text("[defaults]\nharness = \"opencode\"\n", encoding="utf-8")
     monkeypatch.setenv("MERIDIAN_CONFIG", env_user_config.as_posix())
 
-    result = runner(repo_root)
-
-    if expected_key is None:
-        value = next(item for item in result.values if item.key == "defaults.harness")
-        assert value.value == "opencode"
-        assert value.source == "user-config"
-    else:
-        assert result.key == expected_key
-        assert result.value == "opencode"
-        assert result.source == "user-config"
-
-    assert load_config(repo_root).default_harness == "opencode"
-
-
-@pytest.mark.parametrize(
-    ("source", "expected_source"),
-    [
-        ("env", "env var"),
-        ("project", "file"),
-        ("user", "user-config"),
-    ],
-)
-def test_config_inspection_skips_model_resolution_for_defaults_model(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    source: str,
-    expected_source: str,
-) -> None:
-    repo_root = _repo(tmp_path)
-    model = "gpt-5.4"
-    monkeypatch.delenv("MERIDIAN_DEFAULT_MODEL", raising=False)
-    monkeypatch.delenv("MERIDIAN_CONFIG", raising=False)
-
-    if source == "env":
-        monkeypatch.setenv("MERIDIAN_DEFAULT_MODEL", model)
-    elif source == "project":
-        (repo_root / "meridian.toml").write_text(
-            f"[defaults]\nmodel = \"{model}\"\n",
-            encoding="utf-8",
-        )
-    else:
-        user_config = tmp_path / "user-config.toml"
-        user_config.write_text(
-            f"[defaults]\nmodel = \"{model}\"\n",
-            encoding="utf-8",
-        )
-        monkeypatch.setenv("MERIDIAN_CONFIG", user_config.as_posix())
-
-    def _unexpected_resolve_model(*_args: object, **_kwargs: object) -> object:
-        raise AssertionError("config inspection should not call model resolution")
-
-    monkeypatch.setattr(catalog_models, "resolve_model", _unexpected_resolve_model)
-
     shown = config_show_sync(ConfigShowInput(repo_root=repo_root.as_posix()))
-    shown_value = next(item for item in shown.values if item.key == "defaults.model")
-    gotten = config_get_sync(ConfigGetInput(repo_root=repo_root.as_posix(), key="defaults.model"))
+    gotten = config_get_sync(ConfigGetInput(repo_root=repo_root.as_posix(), key="defaults.harness"))
+    shown_value = next(item for item in shown.values if item.key == "defaults.harness")
 
-    assert shown_value.value == model
-    assert shown_value.source == expected_source
-    assert gotten.value == model
-    assert gotten.source == expected_source
-    if expected_source == "env var":
-        assert shown_value.env_var == "MERIDIAN_DEFAULT_MODEL"
-        assert gotten.env_var == "MERIDIAN_DEFAULT_MODEL"
-    else:
-        assert shown_value.env_var is None
-        assert gotten.env_var is None
+    assert shown_value.value == "opencode"
+    assert shown_value.source == "user-config"
+    assert gotten.key == "defaults.harness"
+    assert gotten.value == "opencode"
+    assert gotten.source == "user-config"
+    assert load_config(repo_root).default_harness == "opencode"

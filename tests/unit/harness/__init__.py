@@ -1,1 +1,1 @@
-"""Harness unit tests."""
+"""Harness unit test package markers for deterministic pytest imports."""

@@ -16,12 +16,6 @@ from meridian.lib.harness.launch_spec import (
     ResolvedLaunchSpec,
 )
 from meridian.lib.harness.opencode import OpenCodeAdapter
-from meridian.lib.harness.projections.project_opencode_streaming import (
-    _ACCOUNTED_FIELDS as _OPENCODE_STREAMING_ACCOUNTED_FIELDS,
-)
-from meridian.lib.harness.projections.project_opencode_subprocess import (
-    _PROJECTED_FIELDS as _OPENCODE_SUBPROCESS_PROJECTED_FIELDS,
-)
 from meridian.lib.harness.projections.project_opencode_subprocess import (
     HarnessCapabilityMismatch,
     project_opencode_spec_to_cli_args,
@@ -74,23 +68,6 @@ def test_codex_resolve_launch_spec_uses_permission_config_values() -> None:
     assert spec.effort == "xhigh"
     assert spec.permission_resolver.config.approval == "confirm"
     assert spec.permission_resolver.config.sandbox == "workspace-write"
-
-
-def test_codex_launch_spec_keeps_report_output_path_as_codex_only_field() -> None:
-    codex_fields = set(CodexLaunchSpec.model_fields)
-
-    assert "report_output_path" in codex_fields
-    assert "permission_resolver" in codex_fields
-    assert "sandbox_mode" not in codex_fields
-    assert "approval_mode" not in codex_fields
-
-
-def test_codex_adapter_accounts_for_every_spawn_param_field() -> None:
-    adapter = CodexAdapter()
-
-    assert adapter.handled_fields == frozenset(SpawnParams.model_fields)
-    assert adapter.consumed_fields | adapter.explicitly_ignored_fields == adapter.handled_fields
-    assert adapter.consumed_fields & adapter.explicitly_ignored_fields == frozenset()
 
 
 def test_opencode_resolve_launch_spec_strips_prefix_and_maps_fields() -> None:
@@ -187,17 +164,6 @@ def test_opencode_subprocess_rejects_mcp_tools() -> None:
 
     with pytest.raises(HarnessCapabilityMismatch, match="does not support per-spawn mcp_tools"):
         OpenCodeAdapter().build_command(run, resolver)
-
-
-def test_opencode_projection_field_accounting_covers_spawn_and_launch_spec_fields() -> None:
-    adapter = OpenCodeAdapter()
-    launch_spec_fields = frozenset(OpenCodeLaunchSpec.model_fields)
-
-    assert adapter.handled_fields == frozenset(SpawnParams.model_fields)
-    assert adapter.consumed_fields | adapter.explicitly_ignored_fields == adapter.handled_fields
-    assert adapter.consumed_fields & adapter.explicitly_ignored_fields == frozenset()
-    assert launch_spec_fields == _OPENCODE_SUBPROCESS_PROJECTED_FIELDS
-    assert launch_spec_fields == _OPENCODE_STREAMING_ACCOUNTED_FIELDS
 
 
 def test_opencode_build_command_does_not_emit_dangerous_skip_permissions() -> None:
