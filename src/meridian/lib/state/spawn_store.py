@@ -26,6 +26,7 @@ from meridian.lib.core.spawn_lifecycle import (
 from meridian.lib.core.types import SpawnId
 from meridian.lib.state.event_store import append_event, lock_file, read_events, utc_now_iso
 from meridian.lib.state.paths import StateRootPaths
+from meridian.lib.state.spawn.events import reduce_events
 
 logger = structlog.get_logger(__name__)
 
@@ -186,6 +187,9 @@ class SpawnFinalizeEvent(BaseModel):
 
 
 type SpawnEvent = SpawnStartEvent | SpawnUpdateEvent | SpawnExitedEvent | SpawnFinalizeEvent
+
+# Backward-compatible alias for legacy imports.
+_record_from_events = reduce_events
 
 
 def _coerce_launch_mode(value: object) -> object:
@@ -367,7 +371,7 @@ def finalize_spawn(
     """
     paths = StateRootPaths.from_root_dir(state_root)
     with lock_file(paths.spawns_flock):
-        records = _record_from_events(read_events(paths.spawns_jsonl, _parse_event))
+        records = reduce_events(read_events(paths.spawns_jsonl, _parse_event))
         record = records.get(str(spawn_id))
         if origin == "reconciler" and (
             record is None or record.status in _TERMINAL_SPAWN_STATUSES
@@ -413,7 +417,7 @@ def mark_finalizing(state_root: Path, spawn_id: SpawnId | str) -> bool:
 
     paths = StateRootPaths.from_root_dir(state_root)
     with lock_file(paths.spawns_flock):
-        records = _record_from_events(read_events(paths.spawns_jsonl, _parse_event))
+        records = reduce_events(read_events(paths.spawns_jsonl, _parse_event))
         record = records.get(str(spawn_id))
         if record is None or record.status != "running":
             return False
@@ -438,7 +442,7 @@ def mark_spawn_running(
 ) -> None:
     paths = StateRootPaths.from_root_dir(state_root)
     with lock_file(paths.spawns_flock):
-        records = _record_from_events(read_events(paths.spawns_jsonl, _parse_event))
+        records = reduce_events(read_events(paths.spawns_jsonl, _parse_event))
         record = records.get(str(spawn_id))
         if record is not None and record.status not in {"unknown", "running"}:
             _validate_transition(cast("SpawnStatus", record.status), "running")
@@ -457,208 +461,6 @@ def mark_spawn_running(
         )
 
 
-def _empty_record(spawn_id: str) -> SpawnRecord:
-    return SpawnRecord(
-        id=spawn_id,
-        chat_id=None,
-        parent_id=None,
-        model=None,
-        agent=None,
-        agent_path=None,
-        skills=(),
-        skill_paths=(),
-        harness=None,
-        kind="child",
-        desc=None,
-        work_id=None,
-        harness_session_id=None,
-        execution_cwd=None,
-        launch_mode=None,
-        worker_pid=None,
-        runner_pid=None,
-        status="unknown",
-        prompt=None,
-        started_at=None,
-        exited_at=None,
-        process_exit_code=None,
-        finished_at=None,
-        exit_code=None,
-        duration_secs=None,
-        total_cost_usd=None,
-        input_tokens=None,
-        output_tokens=None,
-        error=None,
-        terminal_origin=None,
-    )
-
-
-def _normalized_work_id(work_id: str | None) -> str | None:
-    if work_id is None:
-        return None
-    normalized = work_id.strip()
-    return normalized or None
-
-
-def _record_from_events(events: list[SpawnEvent]) -> dict[str, SpawnRecord]:
-    records: dict[str, SpawnRecord] = {}
-
-    for event in events:
-        spawn_id = event.id
-        if not spawn_id:
-            continue
-        current = records.get(spawn_id, _empty_record(spawn_id))
-
-        if isinstance(event, SpawnStartEvent):
-            records[spawn_id] = current.model_copy(
-                update={
-                    "chat_id": event.chat_id if event.chat_id is not None else current.chat_id,
-                    "parent_id": (
-                        event.parent_id if event.parent_id is not None else current.parent_id
-                    ),
-                    "model": event.model if event.model is not None else current.model,
-                    "agent": event.agent if event.agent is not None else current.agent,
-                    "agent_path": (
-                        event.agent_path if event.agent_path is not None else current.agent_path
-                    ),
-                    "skills": event.skills if event.skills else current.skills,
-                    "skill_paths": event.skill_paths if event.skill_paths else current.skill_paths,
-                    "harness": event.harness if event.harness is not None else current.harness,
-                    "kind": event.kind if event.kind is not None else current.kind,
-                    "desc": event.desc if event.desc is not None else current.desc,
-                    "work_id": (
-                        _normalized_work_id(event.work_id)
-                        if event.work_id is not None
-                        else current.work_id
-                    ),
-                    "harness_session_id": (
-                        event.harness_session_id
-                        if event.harness_session_id is not None
-                        else current.harness_session_id
-                    ),
-                    "execution_cwd": (
-                        event.execution_cwd
-                        if event.execution_cwd is not None
-                        else current.execution_cwd
-                    ),
-                    "launch_mode": (
-                        event.launch_mode if event.launch_mode is not None else current.launch_mode
-                    ),
-                    "worker_pid": (
-                        event.worker_pid if event.worker_pid is not None else current.worker_pid
-                    ),
-                    "runner_pid": (
-                        event.runner_pid if event.runner_pid is not None else current.runner_pid
-                    ),
-                    "status": event.status,
-                    "prompt": event.prompt if event.prompt is not None else current.prompt,
-                    "started_at": event.started_at
-                    if event.started_at is not None
-                    else current.started_at,
-                }
-            )
-            continue
-
-        if isinstance(event, SpawnUpdateEvent):
-            resolved_status = current.status
-            if event.status is not None and current.status not in _TERMINAL_SPAWN_STATUSES:
-                resolved_status = event.status
-            records[spawn_id] = current.model_copy(
-                update={
-                    "status": resolved_status,
-                    "launch_mode": (
-                        event.launch_mode if event.launch_mode is not None else current.launch_mode
-                    ),
-                    "worker_pid": (
-                        event.worker_pid if event.worker_pid is not None else current.worker_pid
-                    ),
-                    "runner_pid": (
-                        event.runner_pid if event.runner_pid is not None else current.runner_pid
-                    ),
-                    "harness_session_id": (
-                        event.harness_session_id
-                        if event.harness_session_id is not None
-                        else current.harness_session_id
-                    ),
-                    "execution_cwd": (
-                        event.execution_cwd
-                        if event.execution_cwd is not None
-                        else current.execution_cwd
-                    ),
-                    "error": event.error if event.error is not None else current.error,
-                    "desc": event.desc if event.desc is not None else current.desc,
-                    "work_id": (
-                        _normalized_work_id(event.work_id)
-                        if event.work_id is not None
-                        else current.work_id
-                    ),
-                }
-            )
-            continue
-
-        if isinstance(event, SpawnExitedEvent):
-            records[spawn_id] = current.model_copy(
-                update={
-                    "exited_at": event.exited_at
-                    if event.exited_at is not None
-                    else current.exited_at,
-                    "process_exit_code": event.exit_code,
-                }
-            )
-            continue
-
-        incoming_origin = event.origin if event.origin is not None else "runner"
-        incoming_authoritative = incoming_origin in AUTHORITATIVE_ORIGINS
-        already_terminal = current.status in _TERMINAL_SPAWN_STATUSES
-        replace_terminal = (
-            not already_terminal
-            or (current.terminal_origin == "reconciler" and incoming_authoritative)
-        )
-        if not replace_terminal:
-            resolved_status = current.status
-            resolved_exit_code = current.exit_code
-            resolved_error = current.error
-            resolved_terminal_origin = current.terminal_origin
-        else:
-            event_status = event.status if event.status is not None else current.status
-            resolved_status = event_status
-            resolved_exit_code = (
-                event.exit_code if event.exit_code is not None else current.exit_code
-            )
-            resolved_error = event.error
-            resolved_terminal_origin = incoming_origin
-        records[spawn_id] = current.model_copy(
-            update={
-                "status": resolved_status,
-                "finished_at": event.finished_at
-                if event.finished_at is not None
-                else current.finished_at,
-                "exit_code": resolved_exit_code,
-                "duration_secs": (
-                    event.duration_secs
-                    if event.duration_secs is not None
-                    else current.duration_secs
-                ),
-                "total_cost_usd": (
-                    event.total_cost_usd
-                    if event.total_cost_usd is not None
-                    else current.total_cost_usd
-                ),
-                "input_tokens": (
-                    event.input_tokens if event.input_tokens is not None else current.input_tokens
-                ),
-                "output_tokens": (
-                    event.output_tokens
-                    if event.output_tokens is not None
-                    else current.output_tokens
-                ),
-                "error": resolved_error,
-                "terminal_origin": resolved_terminal_origin,
-            }
-        )
-
-    return records
-
-
 def _spawn_sort_key(spawn: SpawnRecord) -> tuple[int, str]:
     if len(spawn.id) >= 2 and spawn.id[0] in {"p", "r"} and spawn.id[1:].isdigit():
         return (int(spawn.id[1:]), spawn.id)
@@ -669,7 +471,7 @@ def list_spawns(state_root: Path, filters: Mapping[str, Any] | None = None) -> l
     """List derived spawn records with optional equality filters."""
 
     paths = StateRootPaths.from_root_dir(state_root)
-    spawns = list(_record_from_events(read_events(paths.spawns_jsonl, _parse_event)).values())
+    spawns = list(reduce_events(read_events(paths.spawns_jsonl, _parse_event)).values())
 
     if filters:
         filtered: list[SpawnRecord] = []
