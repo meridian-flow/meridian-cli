@@ -264,7 +264,7 @@ uv run meridian -p "count to 1000 slowly"
 **Purpose:** Verify PTY behavior with Claude harness.
 
 ```bash
-uv run meridian -H claude
+uv run meridian --harness claude
 # Run T-01 through T-07 with Claude
 ```
 
@@ -279,7 +279,7 @@ uv run meridian -H claude
 **Purpose:** Verify PTY behavior with Codex harness.
 
 ```bash
-uv run meridian -H codex
+uv run meridian --harness codex
 # Run T-01 through T-07 with Codex
 ```
 
@@ -294,7 +294,7 @@ uv run meridian -H codex
 **Purpose:** Verify PTY behavior with OpenCode harness.
 
 ```bash
-uv run meridian -H opencode
+uv run meridian --harness opencode
 # Run T-01 through T-07 with OpenCode
 ```
 
