@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from meridian.lib.core.domain import SpawnStatus
+from meridian.lib.core.types import HarnessId
 
 if TYPE_CHECKING:
     from meridian.lib.harness.connections.base import HarnessEvent
@@ -34,7 +35,58 @@ def _stringify_terminal_error(error: object) -> str | None:
 
 
 def terminal_event_outcome(event: HarnessEvent) -> TerminalEventOutcome | None:
-    _ = event
+    if event.harness_id == HarnessId.CODEX.value and event.event_type == "turn/completed":
+        return TerminalEventOutcome(status="succeeded", exit_code=0)
+
+    if event.event_type == "error/connectionClosed":
+        return TerminalEventOutcome(
+            status="failed",
+            exit_code=1,
+            error="connection_closed",
+        )
+
+    if event.harness_id == HarnessId.CLAUDE.value and event.event_type == "result":
+        if bool(event.payload.get("is_error")):
+            error = (
+                _stringify_terminal_error(event.payload.get("result"))
+                or _stringify_terminal_error(event.payload.get("error"))
+                or "claude_result_error"
+            )
+            return TerminalEventOutcome(status="failed", exit_code=1, error=error)
+
+        subtype = str(event.payload.get("subtype", "")).strip().lower()
+        terminal_reason = str(event.payload.get("terminal_reason", "")).strip().lower()
+        if subtype in {"", "success"} and terminal_reason in {"", "completed"}:
+            return TerminalEventOutcome(status="succeeded", exit_code=0)
+        if terminal_reason == "completed":
+            return TerminalEventOutcome(status="succeeded", exit_code=0)
+
+        error = _stringify_terminal_error(event.payload.get("result"))
+        if subtype not in {"", "success"}:
+            error = error or f"claude_result_{subtype}"
+        elif terminal_reason:
+            error = error or f"claude_terminal_{terminal_reason}"
+        else:
+            error = error or "claude_result_unknown"
+        return TerminalEventOutcome(status="failed", exit_code=1, error=error)
+
+    if event.harness_id == HarnessId.OPENCODE.value:
+        if event.event_type == "session.idle":
+            return TerminalEventOutcome(status="succeeded", exit_code=0)
+
+        if event.event_type == "session.error":
+            properties = event.payload.get("properties")
+            error = (
+                _stringify_terminal_error(cast("dict[str, object]", properties))
+                if isinstance(properties, dict)
+                else _stringify_terminal_error(event.payload.get("error"))
+            )
+            return TerminalEventOutcome(
+                status="failed",
+                exit_code=1,
+                error=error or "opencode_session_error",
+            )
+
     return None
 
 

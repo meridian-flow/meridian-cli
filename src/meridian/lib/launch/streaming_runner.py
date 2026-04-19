@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any, cast
 import structlog
 
 from meridian.lib.config.settings import MeridianConfig
-from meridian.lib.core.domain import Spawn, SpawnStatus
+from meridian.lib.core.domain import Spawn
 from meridian.lib.core.spawn_lifecycle import (
     has_durable_report_completion,
     resolve_execution_terminal_state,
@@ -66,6 +66,10 @@ from meridian.lib.launch.runner_helpers import (
     write_structured_failure_artifact as _write_structured_failure_artifact,
 )
 from meridian.lib.launch.signals import signal_coordinator, signal_to_exit_code
+from meridian.lib.launch.streaming.decision import (
+    TerminalEventOutcome,
+    terminal_event_outcome,
+)
 from meridian.lib.safety.budget import Budget, BudgetBreach, LiveBudgetTracker
 from meridian.lib.safety.guardrails import run_guardrails
 from meridian.lib.safety.redaction import SecretSpec, redact_secret_bytes
@@ -102,13 +106,6 @@ class _AttemptRuntime:
     terminated_by_report_watchdog: bool
     terminal_observed: bool = False
     start_error: str | None = None
-
-
-@dataclass(frozen=True)
-class TerminalEventOutcome:
-    status: SpawnStatus
-    exit_code: int
-    error: str | None = None
 
 
 def _touch_heartbeat_file(state_root: Path, spawn_id: SpawnId) -> None:
@@ -224,76 +221,6 @@ def _emit_stream_event(
         return
     sys.stderr.write(f"{rendered}\n")
     sys.stderr.flush()
-
-
-def _stringify_terminal_error(error: object) -> str | None:
-    if error is None:
-        return None
-    if isinstance(error, str):
-        normalized = error.strip()
-        return normalized or None
-    try:
-        rendered = json.dumps(error, sort_keys=True)
-    except (TypeError, ValueError):
-        rendered = str(error)
-    normalized = rendered.strip()
-    return normalized or None
-
-
-def terminal_event_outcome(event: HarnessEvent) -> TerminalEventOutcome | None:
-    if event.harness_id == HarnessId.CODEX.value and event.event_type == "turn/completed":
-        return TerminalEventOutcome(status="succeeded", exit_code=0)
-
-    if event.event_type == "error/connectionClosed":
-        return TerminalEventOutcome(
-            status="failed",
-            exit_code=1,
-            error="connection_closed",
-        )
-
-    if event.harness_id == HarnessId.CLAUDE.value and event.event_type == "result":
-        if bool(event.payload.get("is_error")):
-            error = (
-                _stringify_terminal_error(event.payload.get("result"))
-                or _stringify_terminal_error(event.payload.get("error"))
-                or "claude_result_error"
-            )
-            return TerminalEventOutcome(status="failed", exit_code=1, error=error)
-
-        subtype = str(event.payload.get("subtype", "")).strip().lower()
-        terminal_reason = str(event.payload.get("terminal_reason", "")).strip().lower()
-        if subtype in {"", "success"} and terminal_reason in {"", "completed"}:
-            return TerminalEventOutcome(status="succeeded", exit_code=0)
-        if terminal_reason == "completed":
-            return TerminalEventOutcome(status="succeeded", exit_code=0)
-
-        error = _stringify_terminal_error(event.payload.get("result"))
-        if subtype not in {"", "success"}:
-            error = error or f"claude_result_{subtype}"
-        elif terminal_reason:
-            error = error or f"claude_terminal_{terminal_reason}"
-        else:
-            error = error or "claude_result_unknown"
-        return TerminalEventOutcome(status="failed", exit_code=1, error=error)
-
-    if event.harness_id == HarnessId.OPENCODE.value:
-        if event.event_type == "session.idle":
-            return TerminalEventOutcome(status="succeeded", exit_code=0)
-
-        if event.event_type == "session.error":
-            properties = event.payload.get("properties")
-            error = (
-                _stringify_terminal_error(cast("dict[str, object]", properties))
-                if isinstance(properties, dict)
-                else _stringify_terminal_error(event.payload.get("error"))
-            )
-            return TerminalEventOutcome(
-                status="failed",
-                exit_code=1,
-                error=error or "opencode_session_error",
-            )
-
-    return None
 
 
 async def _await_terminal_outcome_after_completion(
@@ -1242,3 +1169,6 @@ __all__ = [
     "run_streaming_spawn",
     "terminal_event_outcome",
 ]
+
+# Backward-compatible private alias used by existing tests and callers.
+_terminal_event_outcome = terminal_event_outcome
