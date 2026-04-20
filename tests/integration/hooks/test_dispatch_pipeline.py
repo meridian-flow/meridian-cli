@@ -382,9 +382,8 @@ def test_dispatch_pipeline_logs_fail_open_failures_and_completion_metadata(
         (
             log
             for log in logs
-            if log.get("hook") == "runs-after-failure"
-            and log.get("hook_event") == "spawn.finalized"
-            and log.get("outcome") == "success"
+            if log.get("event") == "hook_execution_finished"
+            and log.get("hook") == "runs-after-failure"
         ),
         None,
     )
