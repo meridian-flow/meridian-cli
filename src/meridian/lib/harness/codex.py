@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import sqlite3
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -51,6 +52,8 @@ CODEX_ROLLOUT_FILENAME_RE = re.compile(
 
 
 def _fsync_directory(path: Path) -> None:
+    if sys.platform == "win32":
+        return
     flags = os.O_RDONLY
     if hasattr(os, "O_DIRECTORY"):
         flags |= os.O_DIRECTORY

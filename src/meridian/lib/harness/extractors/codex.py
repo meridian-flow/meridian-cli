@@ -18,6 +18,7 @@ from meridian.lib.harness.common import (
 )
 from meridian.lib.harness.connections.base import HarnessEvent
 from meridian.lib.harness.launch_spec import CodexLaunchSpec
+from meridian.lib.platform import get_home_path
 
 from .base import HarnessExtractor, session_from_mapping_with_keys
 
@@ -110,7 +111,7 @@ def _detect_primary_session_id(
     elif home:
         sessions_root = Path(home).expanduser() / ".codex" / "sessions"
     else:
-        sessions_root = Path.home() / ".codex" / "sessions"
+        sessions_root = get_home_path() / ".codex" / "sessions"
 
     if not sessions_root.is_dir():
         return None

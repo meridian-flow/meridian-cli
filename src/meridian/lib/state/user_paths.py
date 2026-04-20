@@ -6,7 +6,7 @@ import os
 import uuid
 from pathlib import Path
 
-from meridian.lib.platform import IS_WINDOWS
+from meridian.lib.platform import IS_WINDOWS, get_home_path
 from meridian.lib.platform.locking import lock_file
 from meridian.lib.state.atomic import atomic_write_text
 
@@ -35,9 +35,9 @@ def get_user_state_root() -> Path:
         if user_profile:
             return Path(user_profile) / "AppData" / "Local" / "meridian"
 
-        return Path.home() / "AppData" / "Local" / "meridian"
+        return get_home_path() / "AppData" / "Local" / "meridian"
 
-    return Path.home() / ".meridian"
+    return get_home_path() / ".meridian"
 
 
 def get_project_uuid(meridian_dir: Path) -> str | None:

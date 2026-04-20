@@ -6,6 +6,8 @@ import os
 from collections.abc import Iterator, Mapping
 from pathlib import Path
 
+from meridian.lib.platform import get_home_path
+
 
 def resolve_opencode_storage_root(launch_env: Mapping[str, str] | None = None) -> Path:
     """Resolve OpenCode storage root from launch env with XDG fallback."""
@@ -24,7 +26,7 @@ def resolve_opencode_storage_root(launch_env: Mapping[str, str] | None = None) -
     if home:
         return Path(home).expanduser() / ".local" / "share" / "opencode" / "storage"
 
-    return Path.home() / ".local" / "share" / "opencode" / "storage"
+    return get_home_path() / ".local" / "share" / "opencode" / "storage"
 
 
 def iter_opencode_session_files(storage_root: Path) -> Iterator[Path]:

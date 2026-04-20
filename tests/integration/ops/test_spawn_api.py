@@ -42,8 +42,14 @@ def test_spawn_create_dry_run_resolves_project_root_from_nested_cwd(
     )
 
     assert result.status == "dry-run"
-    assert result.reference_files == (reference_file.resolve().as_posix(),)
-    assert reference_file.resolve().as_posix() in (result.composed_prompt or "")
+    resolved_reference = reference_file.resolve()
+    assert len(result.reference_files) == 1
+    assert Path(result.reference_files[0]).resolve() == resolved_reference
+    composed_prompt = result.composed_prompt or ""
+    assert (
+        str(resolved_reference) in composed_prompt
+        or resolved_reference.as_posix() in composed_prompt
+    )
 
 
 def test_spawn_stats_includes_finalizing_bucket(tmp_path: Path) -> None:

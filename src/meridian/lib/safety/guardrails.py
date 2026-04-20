@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.config.settings import MeridianConfig
 from meridian.lib.core.types import SpawnId
+from meridian.lib.platform import IS_WINDOWS
 
 DEFAULT_GUARDRAIL_TIMEOUT_SECONDS = MeridianConfig().guardrail_timeout_minutes * 60.0
 
@@ -30,6 +31,30 @@ class GuardrailResult(BaseModel):
 
     ok: bool
     failures: tuple[GuardrailFailure, ...] = ()
+
+
+def _resolve_guardrail_command(script: Path) -> list[str]:
+    script_text = str(script)
+    suffix = script.suffix.lower()
+
+    if IS_WINDOWS:
+        if suffix in {".cmd", ".bat"}:
+            return ["cmd.exe", "/d", "/c", script_text]
+        if suffix == ".ps1":
+            return [
+                "powershell.exe",
+                "-NoProfile",
+                "-NonInteractive",
+                "-File",
+                script_text,
+            ]
+        return [script_text]
+
+    if os.access(script, os.X_OK):
+        return [script_text]
+    return ["bash", script_text]
+
+
 def run_guardrails(
     guardrails: tuple[Path, ...],
     *,
@@ -60,9 +85,7 @@ def run_guardrails(
 
     failures: list[GuardrailFailure] = []
     for script in guardrails:
-        command = [str(script)]
-        if not os.access(script, os.X_OK):
-            command = ["bash", str(script)]
+        command = _resolve_guardrail_command(script)
 
         try:
             try:
@@ -76,7 +99,7 @@ def run_guardrails(
                     timeout=timeout_seconds,
                 )
             except OSError:
-                if command[0] == "bash":
+                if IS_WINDOWS or command[0] == "bash":
                     raise
                 completed = subprocess.run(
                     ["bash", str(script)],
@@ -101,6 +124,14 @@ def run_guardrails(
                     script=script.as_posix(),
                     exit_code=124,
                     stderr=f"Guardrail timed out after {timeout_seconds:.1f}s: {exc}",
+                )
+            )
+        except OSError as exc:
+            failures.append(
+                GuardrailFailure(
+                    script=script.as_posix(),
+                    exit_code=127,
+                    stderr=f"Guardrail failed to start: {exc}",
                 )
             )
 

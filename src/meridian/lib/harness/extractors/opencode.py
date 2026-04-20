@@ -24,6 +24,7 @@ from meridian.lib.harness.opencode_storage import (
     opencode_session_id_from_path,
     resolve_opencode_storage_root,
 )
+from meridian.lib.platform import get_home_path
 
 from .base import HarnessExtractor, session_from_mapping_with_keys
 
@@ -69,7 +70,7 @@ def _resolve_logs_root(launch_env: Mapping[str, str]) -> Path:
     if home:
         return Path(home).expanduser() / ".local" / "share" / "opencode" / "log"
 
-    return Path.home() / ".local" / "share" / "opencode" / "log"
+    return get_home_path() / ".local" / "share" / "opencode" / "log"
 
 
 def _safe_resolve(path: Path) -> Path:

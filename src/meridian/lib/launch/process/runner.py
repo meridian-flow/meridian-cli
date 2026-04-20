@@ -20,7 +20,6 @@ from meridian.lib.core.spawn_lifecycle import (
 from meridian.lib.core.types import HarnessId, SpawnId
 from meridian.lib.harness.claude_preflight import ensure_claude_session_accessible
 from meridian.lib.harness.registry import HarnessRegistry
-from meridian.lib.platform import IS_WINDOWS
 from meridian.lib.state import spawn_store
 from meridian.lib.state.artifact_store import LocalStore, make_artifact_key
 from meridian.lib.state.paths import resolve_spawn_log_dir
@@ -90,15 +89,12 @@ def run_primary_process_with_capture(
     launcher_selector: ProcessLauncherSelector = select_process_launcher,
 ) -> tuple[int, int | None]:
     launcher: ProcessLauncher = launcher_selector(output_log_path)
-    resolved_output_log_path = output_log_path
-    if IS_WINDOWS and isinstance(launcher, SubprocessProcessLauncher):
-        resolved_output_log_path = None
 
     launched = launcher.launch(
         command=command,
         cwd=cwd,
         env=env,
-        output_log_path=resolved_output_log_path,
+        output_log_path=output_log_path,
         on_child_started=on_child_started,
     )
     return launched.exit_code, launched.pid

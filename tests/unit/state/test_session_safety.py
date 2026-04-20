@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import multiprocessing
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -46,6 +47,7 @@ def _can_acquire_lock_nonblocking_worker(
         queue.put(True)
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="fcntl not available")
 def test_acquire_session_lock_retries_when_lock_file_is_replaced(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
