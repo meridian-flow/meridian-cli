@@ -20,7 +20,9 @@ class PathSecurityError(Exception):
 
 
 # Patterns for detecting Windows-style paths and UNC paths
-_WINDOWS_DRIVE_RE = re.compile(r"^[A-Za-z]:[/\\]")
+# Matches "C:" with or without a following slash — covers both absolute
+# (C:\foo, C:/foo) and drive-relative (C:foo) forms.
+_WINDOWS_DRIVE_RE = re.compile(r"^[A-Za-z]:")
 
 
 def _normalize_separators(path: str) -> str:
@@ -122,27 +124,24 @@ def validate_project_path(
         
         # Now handle symlinks if requested
         if resolve_symlinks:
-            # Only resolve if the path exists
-            if normalized_candidate.exists():
-                try:
-                    resolved_candidate = normalized_candidate.resolve()
-                except (OSError, RuntimeError) as e:
-                    # Handle cases like circular symlinks
-                    raise PathSecurityError(f"Cannot resolve path: {e}") from e
-                
-                # Check if resolved path is still within project root
-                try:
-                    resolved_candidate.relative_to(resolved_root)
-                except ValueError:
-                    raise PathSecurityError(
-                        f"Symlink escapes project root: {relative_path}"
-                    ) from None
-                
-                return resolved_candidate
-            else:
-                # Path doesn't exist, return the normalized candidate
-                # (can't resolve symlinks for non-existent paths)
-                return normalized_candidate
+            # Always resolve — Path.resolve(strict=False) handles non-existent
+            # paths without raising, eliminating the TOCTOU race that exists()
+            # then resolve() would introduce.
+            try:
+                resolved_candidate = normalized_candidate.resolve()
+            except (OSError, RuntimeError) as e:
+                # Handle cases like circular symlinks
+                raise PathSecurityError(f"Cannot resolve path: {e}") from e
+
+            # Check if resolved path is still within project root
+            try:
+                resolved_candidate.relative_to(resolved_root)
+            except ValueError:
+                raise PathSecurityError(
+                    f"Symlink escapes project root: {relative_path}"
+                ) from None
+
+            return resolved_candidate
         else:
             return normalized_candidate
             

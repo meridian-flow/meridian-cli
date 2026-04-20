@@ -268,6 +268,8 @@ def register_file_routes(
             raise http_exception(status_code=400, detail=str(e)) from e
         except FileNotFoundError as e:
             raise http_exception(status_code=404, detail=str(e)) from e
+        except ValueError as e:
+            raise http_exception(status_code=400, detail=str(e)) from e
         except RuntimeError as e:
             raise http_exception(status_code=500, detail=str(e)) from e
 

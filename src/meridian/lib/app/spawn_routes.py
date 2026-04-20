@@ -748,7 +748,7 @@ def register_spawn_query_routes(
 
     async def get_spawn_events(
         spawn_id: str,
-        since: int | None = Query(default=None, description="Start from line number"),
+        since: int | None = Query(default=None, ge=0, description="Start from line number"),
         tail: int | None = Query(default=None, ge=1, le=1000, description="Last N events"),
     ) -> list[dict[str, object]]:
         """Get events from a spawn's output.jsonl."""

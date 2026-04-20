@@ -205,10 +205,12 @@ def register_work_routes(
                 )
             )
 
+        # No cursor is produced, so advertising has_more=True would cause
+        # clients to loop forever on a null cursor. Report truthfully.
         return CursorEnvelope(
             items=projections,
-            next_cursor=None,  # Simplified for now
-            has_more=len(items) > limit,
+            next_cursor=None,
+            has_more=False,
         )
 
     async def get_work_item(work_id: str) -> WorkProjection:
