@@ -64,6 +64,7 @@ def test_validate_rejects_unexpected_key_mixed_with_allowed() -> None:
 def test_build_produces_depth_always() -> None:
     """MERIDIAN_DEPTH must always appear in the result."""
     result = build_child_env_overrides(
+        parent_spawn_id=None,
         repo_root=None,
         state_root=None,
         parent_chat_id=None,
@@ -75,6 +76,7 @@ def test_build_produces_depth_always() -> None:
 def test_build_increments_depth_by_default() -> None:
     """Default increment_depth=True must produce parent_depth + 1."""
     result = build_child_env_overrides(
+        parent_spawn_id=None,
         repo_root=None,
         state_root=None,
         parent_chat_id=None,
@@ -86,6 +88,7 @@ def test_build_increments_depth_by_default() -> None:
 def test_build_no_increment_keeps_depth() -> None:
     """increment_depth=False must keep the depth value unchanged."""
     result = build_child_env_overrides(
+        parent_spawn_id=None,
         repo_root=None,
         state_root=None,
         parent_chat_id=None,
@@ -98,6 +101,7 @@ def test_build_no_increment_keeps_depth() -> None:
 def test_build_omits_none_fields() -> None:
     """Fields that are None/empty must not appear in the result dict."""
     result = build_child_env_overrides(
+        parent_spawn_id=None,
         repo_root=None,
         state_root=None,
         parent_chat_id=None,
@@ -122,6 +126,7 @@ def test_build_full_overrides() -> None:
     fs_dir = Path("/repo/.meridian/fs")
 
     result = build_child_env_overrides(
+        parent_spawn_id=None,
         repo_root=repo,
         state_root=state,
         parent_chat_id="c99",
@@ -145,6 +150,7 @@ def test_build_full_overrides() -> None:
 def test_build_result_keys_are_subset_of_allowed() -> None:
     """All keys produced by build_child_env_overrides must be in ALLOWED_CHILD_ENV_KEYS."""
     result = build_child_env_overrides(
+        parent_spawn_id=None,
         repo_root=Path("/r"),
         state_root=Path("/s"),
         parent_chat_id="c1",
@@ -182,6 +188,7 @@ def test_integration_matches_resolved_context_child_env_overrides() -> None:
     expected = ctx.child_env_overrides()
 
     result = build_child_env_overrides(
+        parent_spawn_id=None,
         repo_root=repo,
         state_root=state,
         parent_chat_id="c7",
@@ -205,6 +212,7 @@ def test_integration_increment_depth_false_matches_resolved_context() -> None:
     expected = ctx.child_env_overrides(increment_depth=False)
 
     result = build_child_env_overrides(
+        parent_spawn_id=None,
         repo_root=Path("/r"),
         state_root=Path("/s"),
         parent_chat_id="c5",
@@ -223,6 +231,7 @@ def test_integration_increment_depth_false_matches_resolved_context() -> None:
 def test_build_no_increment_at_depth_zero_stays_zero() -> None:
     """increment_depth=False at parent_depth=0 must produce MERIDIAN_DEPTH=0, not -1."""
     result = build_child_env_overrides(
+        parent_spawn_id=None,
         repo_root=None,
         state_root=None,
         parent_chat_id=None,
@@ -235,6 +244,7 @@ def test_build_no_increment_at_depth_zero_stays_zero() -> None:
 def test_build_no_increment_preserves_large_depth() -> None:
     """increment_depth=False must keep an arbitrary depth value unchanged."""
     result = build_child_env_overrides(
+        parent_spawn_id=None,
         repo_root=None,
         state_root=None,
         parent_chat_id=None,
@@ -280,6 +290,7 @@ def test_validate_multiple_bad_keys_raises_on_first_encountered() -> None:
 def test_build_empty_string_chat_id_is_omitted() -> None:
     """An empty parent_chat_id string must not produce a MERIDIAN_CHAT_ID key."""
     result = build_child_env_overrides(
+        parent_spawn_id=None,
         repo_root=None,
         state_root=None,
         parent_chat_id="",
@@ -291,6 +302,7 @@ def test_build_empty_string_chat_id_is_omitted() -> None:
 def test_build_none_chat_id_is_omitted() -> None:
     """A None parent_chat_id must not produce a MERIDIAN_CHAT_ID key."""
     result = build_child_env_overrides(
+        parent_spawn_id=None,
         repo_root=None,
         state_root=None,
         parent_chat_id=None,
@@ -308,6 +320,7 @@ def test_build_depth_is_always_numeric_string() -> None:
     """MERIDIAN_DEPTH must always be a string representation of a non-negative integer."""
     for depth in (0, 1, 10, 100):
         result = build_child_env_overrides(
+            parent_spawn_id=None,
             repo_root=None,
             state_root=None,
             parent_chat_id=None,

@@ -174,4 +174,4 @@ def test_build_launch_context_projects_runtime_child_env_paths(
     assert runtime_ctx.env_overrides["MERIDIAN_FS_DIR"] == (
         tmp_path / ".meridian" / "fs"
     ).as_posix()
-    assert set(runtime_ctx.env_overrides) == ALLOWED_CHILD_ENV_KEYS
+    assert set(runtime_ctx.env_overrides) <= ALLOWED_CHILD_ENV_KEYS  # subset - spawn_id may be absent

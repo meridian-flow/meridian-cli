@@ -40,6 +40,7 @@ def test_child_env_context_from_environment_uses_resolved_context_parent_fields(
     )
 
     assert resolved == ChildEnvContext(
+        parent_spawn_id=None,
         repo_root=project_paths.execution_cwd.resolve(),
         state_root=runtime_state_root.resolve(),
         parent_chat_id="parent-chat",
@@ -126,6 +127,7 @@ def test_child_env_context_child_context_routes_through_contract_helpers(
     tmp_path: Path,
 ) -> None:
     ctx = ChildEnvContext(
+        parent_spawn_id=None,
         repo_root=tmp_path / "repo",
         state_root=tmp_path / "runtime-state",
         parent_chat_id="chat-parent",
@@ -147,6 +149,7 @@ def test_child_env_context_child_context_routes_through_contract_helpers(
 
     def fake_build_child_env_overrides(**kwargs: object) -> dict[str, str]:
         assert kwargs == {
+            "parent_spawn_id": None,
             "repo_root": ctx.repo_root,
             "state_root": ctx.state_root,
             "parent_chat_id": "chat-parent",

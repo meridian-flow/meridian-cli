@@ -7,10 +7,13 @@ propagate into child processes.
 from collections.abc import Mapping
 from pathlib import Path
 
+from meridian.lib.core.types import SpawnId
+
 # Authoritative ``MERIDIAN_*`` key allowlist for child-process propagation.
 # Must stay aligned with ResolvedContext.child_env_overrides().
 ALLOWED_CHILD_ENV_KEYS: frozenset[str] = frozenset(
     {
+        "MERIDIAN_SPAWN_ID",
         "MERIDIAN_REPO_ROOT",
         "MERIDIAN_STATE_ROOT",
         "MERIDIAN_DEPTH",
@@ -35,6 +38,7 @@ def validate_child_env_keys(overrides: Mapping[str, str]) -> None:
 
 def build_child_env_overrides(
     *,
+    parent_spawn_id: str | None,
     repo_root: Path | None,
     state_root: Path | None,
     parent_chat_id: str | None,
@@ -51,6 +55,8 @@ def build_child_env_overrides(
 
     Parameters
     ----------
+    parent_spawn_id:
+        Parent spawn ID string, or ``None`` to omit ``MERIDIAN_SPAWN_ID``.
     repo_root:
         Repo root path, or ``None`` to omit ``MERIDIAN_REPO_ROOT``.
     state_root:
@@ -79,6 +85,7 @@ def build_child_env_overrides(
 
     # Route through ResolvedContext so all launch paths share one contract.
     ctx = ResolvedContext(
+        spawn_id=SpawnId(parent_spawn_id) if parent_spawn_id else None,
         depth=parent_depth,
         repo_root=repo_root,
         state_root=state_root,

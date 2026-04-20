@@ -187,6 +187,7 @@ def _spawn_background_worker_env(
     # correct in the inherited os.environ.  increment_depth=False because the
     # background worker is a peer, not a depth-child.
     child_env = build_child_env_overrides(
+        parent_spawn_id=None,  # inherited from os.environ
         repo_root=None,
         state_root=None,
         parent_chat_id=None,

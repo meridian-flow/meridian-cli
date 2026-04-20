@@ -118,6 +118,8 @@ class ResolvedContext:
 
         next_depth = self.depth + 1 if increment_depth else self.depth
         overrides: dict[str, str] = {"MERIDIAN_DEPTH": str(next_depth)}
+        if self.spawn_id is not None:
+            overrides["MERIDIAN_SPAWN_ID"] = str(self.spawn_id)
         if self.repo_root is not None:
             overrides["MERIDIAN_REPO_ROOT"] = self.repo_root.as_posix()
         if self.state_root is not None:

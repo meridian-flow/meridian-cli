@@ -440,9 +440,9 @@ def test_work_dir_is_none_when_no_work_id_even_with_state_root(
 # ---------------------------------------------------------------------------
 
 
-def test_child_env_overrides_does_not_propagate_spawn_id() -> None:
-    """MERIDIAN_SPAWN_ID must never appear in child_env_overrides output —
-    each child gets its own spawn identity."""
+def test_child_env_overrides_propagates_spawn_id() -> None:
+    """MERIDIAN_SPAWN_ID must appear in child_env_overrides output so
+    children know their parent spawn for parent_id tracking."""
     from meridian.lib.core.types import SpawnId
 
     resolved = ResolvedContext(
@@ -453,7 +453,7 @@ def test_child_env_overrides_does_not_propagate_spawn_id() -> None:
 
     overrides = resolved.child_env_overrides()
 
-    assert "MERIDIAN_SPAWN_ID" not in overrides
+    assert overrides.get("MERIDIAN_SPAWN_ID") == "parent-spawn"
 
 
 # ---------------------------------------------------------------------------

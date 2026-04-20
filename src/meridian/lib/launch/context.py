@@ -76,6 +76,7 @@ if TYPE_CHECKING:
 class ChildEnvContext:
     """Sole producer for child `MERIDIAN_*` environment overrides."""
 
+    parent_spawn_id: str | None
     repo_root: Path
     state_root: Path
     parent_chat_id: str | None
@@ -92,6 +93,7 @@ class ChildEnvContext:
         state_root: Path,
     ) -> ChildEnvContext:
         parent_ctx = ResolvedContext.from_environment()
+        parent_spawn_id = str(parent_ctx.spawn_id) if parent_ctx.spawn_id else None
         parent_chat_id = parent_ctx.chat_id.strip() or None
         parent_depth = parent_ctx.depth
 
@@ -115,6 +117,7 @@ class ChildEnvContext:
         return cls(
             # Keep launch semantics unchanged: runtime repo_root follows the
             # execution cwd used by the child process.
+            parent_spawn_id=parent_spawn_id,
             repo_root=resolved_repo_root,
             state_root=resolved_state_root,
             parent_chat_id=parent_chat_id,
@@ -126,6 +129,7 @@ class ChildEnvContext:
 
     def child_context(self) -> dict[str, str]:
         overrides = build_child_env_overrides(
+            parent_spawn_id=self.parent_spawn_id,
             repo_root=self.repo_root,
             state_root=self.state_root,
             parent_chat_id=self.parent_chat_id,
