@@ -689,3 +689,47 @@ def test_event_id_stable_recomputed_from_scratch(tmp_path: Path) -> None:
             f"Event ID mismatch for {event.event_type}: "
             f"dispatched={event.event_id}, recomputed={recomputed}"
         )
+
+
+# ---------------------------------------------------------------------------
+# 15. Invalid transition: mark_running on a terminal spawn raises ValueError
+# ---------------------------------------------------------------------------
+
+
+def test_mark_running_on_terminal_spawn_raises_value_error(tmp_path: Path) -> None:
+    """mark_running on a terminal spawn (succeeded → running) must raise ValueError.
+
+    Terminal states have no allowed outbound transitions.  The store's
+    _validate_transition guard raises ValueError which propagates through the
+    service unchanged — the caller must handle the illegal-transition case.
+    """
+    repo = FakeSpawnRepository()
+    svc = _make_service(tmp_path, repository=repo)
+    spawn_id = _start_spawn(svc, status="running")
+    svc.finalize(spawn_id, "succeeded", 0, origin="runner")
+
+    # Spawn is now in terminal state: succeeded → running is forbidden
+    with pytest.raises(ValueError, match="Illegal spawn transition"):
+        svc.mark_running(spawn_id)
+
+
+def test_mark_running_on_failed_spawn_raises_value_error(tmp_path: Path) -> None:
+    """mark_running on a failed spawn (failed → running) must also raise ValueError."""
+    repo = FakeSpawnRepository()
+    svc = _make_service(tmp_path, repository=repo)
+    spawn_id = _start_spawn(svc, status="running")
+    svc.finalize(spawn_id, "failed", 1, origin="launcher")
+
+    with pytest.raises(ValueError, match="Illegal spawn transition"):
+        svc.mark_running(spawn_id)
+
+
+def test_mark_running_on_cancelled_spawn_raises_value_error(tmp_path: Path) -> None:
+    """mark_running on a cancelled spawn (cancelled → running) must raise ValueError."""
+    repo = FakeSpawnRepository()
+    svc = _make_service(tmp_path, repository=repo)
+    spawn_id = _start_spawn(svc, status="running")
+    svc.cancel(spawn_id)
+
+    with pytest.raises(ValueError, match="Illegal spawn transition"):
+        svc.mark_running(spawn_id)

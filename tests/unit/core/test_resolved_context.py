@@ -414,3 +414,100 @@ def test_child_env_overrides_does_not_propagate_spawn_id() -> None:
     overrides = resolved.child_env_overrides()
 
     assert "MERIDIAN_SPAWN_ID" not in overrides
+
+
+# ---------------------------------------------------------------------------
+# Edge case: whitespace-only MERIDIAN_SPAWN_ID → spawn_id is None
+# ---------------------------------------------------------------------------
+
+
+def test_from_environment_whitespace_only_spawn_id_treated_as_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A whitespace-only MERIDIAN_SPAWN_ID must be stripped to '' and treated as absent,
+    producing spawn_id=None rather than a SpawnId wrapping a blank string."""
+    _clear_meridian_env(monkeypatch)
+    monkeypatch.setenv("MERIDIAN_SPAWN_ID", "   ")
+
+    resolved = ResolvedContext.from_environment(backend=FakeBackend())
+
+    assert resolved.spawn_id is None
+
+
+# ---------------------------------------------------------------------------
+# Edge case: large valid MERIDIAN_DEPTH is preserved exactly
+# ---------------------------------------------------------------------------
+
+
+def test_from_environment_large_valid_depth_preserved(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A large but valid positive integer MERIDIAN_DEPTH must be preserved exactly.
+    Only negative values are clamped — large valid integers pass through unchanged."""
+    _clear_meridian_env(monkeypatch)
+    monkeypatch.setenv("MERIDIAN_DEPTH", "9999")
+
+    resolved = ResolvedContext.from_environment(backend=FakeBackend())
+
+    assert resolved.depth == 9999
+
+
+# ---------------------------------------------------------------------------
+# Edge case: state_root present + empty chat_id → session lookup skipped
+# ---------------------------------------------------------------------------
+
+
+def test_from_environment_session_lookup_skipped_when_chat_id_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Session lookup must be skipped when chat_id resolves to '' even if
+    state_root is populated.  The lookup branch guards on both state_root and
+    a non-empty chat_id — an empty MERIDIAN_CHAT_ID must prevent the call."""
+    _clear_meridian_env(monkeypatch)
+    monkeypatch.setenv("MERIDIAN_STATE_ROOT", "/runtime/state")
+    monkeypatch.setenv("MERIDIAN_CHAT_ID", "")
+    backend = FakeBackend(session_active_work_id="should-not-be-returned")
+
+    resolved = ResolvedContext.from_environment(backend=backend)
+
+    assert resolved.work_id is None
+    assert resolved.work_dir is None
+    assert backend.session_lookup_calls == []
+
+
+# ---------------------------------------------------------------------------
+# Edge case: child_env_overrides with all optional fields absent
+# ---------------------------------------------------------------------------
+
+
+def test_child_env_overrides_minimal_context_only_emits_depth() -> None:
+    """When all optional fields are None/empty, child_env_overrides must emit only
+    MERIDIAN_DEPTH — no spurious keys for absent paths or IDs."""
+    resolved = ResolvedContext()  # all defaults: depth=0, everything else None/""
+
+    overrides = resolved.child_env_overrides()
+
+    assert list(overrides.keys()) == ["MERIDIAN_DEPTH"]
+    assert overrides["MERIDIAN_DEPTH"] == "1"
+
+
+# ---------------------------------------------------------------------------
+# Edge case: relative path in MERIDIAN_REPO_ROOT is handled without error
+# ---------------------------------------------------------------------------
+
+
+def test_from_environment_relative_repo_root_handled_gracefully(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A relative path string in MERIDIAN_REPO_ROOT must not raise an exception.
+    The module performs no filesystem existence check — it merely constructs
+    the Path object and derives downstream paths from it."""
+    _clear_meridian_env(monkeypatch)
+    monkeypatch.setenv("MERIDIAN_REPO_ROOT", "../relative/repo")
+
+    resolved = ResolvedContext.from_environment(backend=FakeBackend())
+
+    # Relative path accepted without error — downstream callers must resolve
+    assert resolved.repo_root == Path("../relative/repo")
+    # fs_dir is also derived relative — still no error
+    assert resolved.fs_dir == Path("../relative/repo/.meridian/fs")
