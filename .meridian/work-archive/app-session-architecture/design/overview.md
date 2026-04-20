@@ -215,3 +215,50 @@ Shows:
 When `--host` support is added later, authentication will use a token query parameter (`?token=abc123`) that sets a cookie on first visit. The URL structure (`/`, `/s/<session_id>`, `/api/...`) stays identical. The token validation adds a middleware layer — no routing changes needed.
 
 The session API already uses random IDs that aren't guessable, which is a prerequisite for the auth model. The health endpoint will need to be excluded from auth (or use a separate auth mechanism) so discovery probes can reach it.
+
+---
+
+## Harness Control Model
+
+### The Problem
+
+Harness slash commands (`/model`, `/compact`, `/skill-name`, `$skill`) are TUI features. When the app runs harnesses in API/stream-json mode, it's unclear which commands work.
+
+### Pending Probe
+
+A smoke-tester is probing what each harness's API mode actually accepts:
+- Does `/model opus` sent as a user message switch models?
+- Do control message types exist beyond `{"type": "user", ...}`?
+- What's session-scoped vs requires stop+resume?
+
+### Two Possible Patterns
+
+**If live switching works:**
+- App sends slash commands as user messages or control messages
+- Harness handles them natively
+- Simple passthrough model
+
+**If stop+resume required:**
+- Model/effort/agent changes → stop connection, start new spawn with `--resume <sid> --model opus`
+- More complex but explicit about what's happening
+- Cross-harness switch = fresh start (can't resume across harness formats)
+
+### What We Know
+
+| Harness | Skill Syntax | Model Syntax |
+|---------|--------------|--------------|
+| Claude Code | `/skill-name` | `/model opus` |
+| Codex | `$skill-name` | `/model` |
+| OpenCode | `/agent [name]` | `/model [name]` |
+
+### Launch-Time Config (always works)
+
+These are set at spawn creation via CLI flags:
+- `--model` — initial model
+- `--agent` — agent profile
+- `--effort` — reasoning effort
+- `--append-system-prompt` — custom instructions
+
+### Cross-Harness Switching
+
+Cannot resume a Claude session in Codex or vice versa — session formats are incompatible. Cross-harness switch = view past session (read-only) + start fresh on new harness.

@@ -187,3 +187,86 @@ If OpenCode HTTP has a fork API, mark `CAPABILITY_SESSION_FORK` as supported for
 **Depends on**: PROBE-003 (Claude resume + append-system-prompt)
 
 Affects whether `SessionPolicy.active_skills` changes can take effect on resume. Decision on skill refresh semantics deferred until probe completes.
+
+---
+
+## 2026-04-19 — Design Pivot: Thin Passthrough Model
+
+### Decision: Kill the policy abstraction layer
+
+**What**: Abandon RunPolicy/SessionPolicy/TurnIntent, InstructionStack, HarnessProjector, and complex CapabilityManifest. Replace with thin command passthrough.
+
+**Why**:
+- Harnesses already have rich slash command interfaces (`/model`, `/compact`, `/skill-name`, etc.)
+- Slash commands are just user messages — Meridian can send them directly
+- Building an abstraction layer over this is unnecessary complexity
+- Skills are harness-native, not Meridian-injected content
+
+**What we're keeping**:
+- HarnessConnection (still need to talk to harnesses)
+- Launch-time config (model, agent, effort at spawn creation)
+- AG-UI mapper (translate events for UI rendering)
+
+**What we're killing**:
+- RunPolicy / SessionPolicy / TurnIntent types
+- InstructionStack (5 layers)
+- HarnessProjector abstraction
+- Projection modes (append_system_prompt, inline_prompt, session_context)
+- Complex CapabilityManifest with scope mapping
+
+---
+
+### Decision: Cross-harness switching = view past + start fresh
+
+**What**: When switching harnesses, don't try to carry conversation context. Show past session as read-only, start fresh on new harness.
+
+**Why**:
+- Session formats are harness-specific and incompatible
+- Context carrying would require N×N conversion paths
+- Maintenance nightmare as harnesses evolve
+- Users have context in their head / on screen — don't need programmatic transfer
+
+**Alternatives rejected**:
+- Fork with context summary → still requires format translation
+- Fork with full transcript → formats don't match
+- Abstract session format → massive scope creep
+
+---
+
+### Decision: Intra-harness changes via native slash commands
+
+**What**: Model switching, effort changes, skill activation, compact — all via harness slash commands.
+
+**How it works**:
+- User clicks "Switch to Opus" → UI sends `/model opus` to harness
+- User clicks "Compact" → UI sends `/compact` to harness
+- User activates skill → UI sends `/skill-name` to harness
+
+**Why**:
+- Harnesses already implement this
+- No abstraction needed
+- UI just needs to know what commands each harness supports
+
+---
+
+### Decision: Simple capability model (command list, not scope mapping)
+
+**What**: Replace CapabilityManifest with simple `HarnessCommands` that lists supported slash commands and launch flags.
+
+**Why**:
+- Don't need scope (run/session/turn) — harness handles that
+- Don't need degradation paths — if command not supported, don't show the button
+- Simple list is sufficient for UI to show/hide controls
+
+---
+
+## Superseded Decisions
+
+The following decisions from 2026-04-17 are superseded by this pivot:
+
+- ~~Three-layer policy model~~ → No policy layers
+- ~~InstructionStack with five layers~~ → No instruction injection
+- ~~Three instruction projection modes~~ → No projection
+- ~~CapabilityManifest as capability → scope mapping~~ → Simple command list
+- ~~Projectors separate from adapters~~ → No projectors
+- ~~Session fork for harness/model switching~~ → Fresh start for harness, slash command for model
