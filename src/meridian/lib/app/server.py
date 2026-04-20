@@ -17,6 +17,7 @@ from uuid import uuid4
 from pydantic import BaseModel, model_validator
 
 from meridian.lib.config.project_paths import resolve_project_paths
+from meridian.lib.core.lifecycle import SpawnLifecycleService
 from meridian.lib.core.spawn_lifecycle import TERMINAL_SPAWN_STATUSES
 from meridian.lib.core.types import HarnessId, SpawnId
 from meridian.lib.harness.connections.base import ConnectionConfig
@@ -192,17 +193,17 @@ def create_app(
 
     state_root = spawn_manager.state_root
     project_paths = resolve_project_paths(repo_root=spawn_manager.repo_root)
+    lifecycle_service = SpawnLifecycleService(state_root)
     spawn_id_lock = asyncio.Lock()
 
     async def _background_finalize(spawn_id: SpawnId) -> None:
         outcome = await spawn_manager.wait_for_completion(spawn_id)
         if outcome is None:
             return
-        spawn_store.finalize_spawn(
-            state_root,
-            spawn_id,
-            status=outcome.status,
-            exit_code=outcome.exit_code,
+        lifecycle_service.finalize(
+            str(spawn_id),
+            outcome.status,
+            outcome.exit_code,
             origin="runner",
             duration_secs=outcome.duration_secs,
             error=outcome.error,
@@ -217,18 +218,19 @@ def create_app(
         prompt: str,
     ) -> SpawnId:
         async with spawn_id_lock:
-            return await asyncio.to_thread(
-                spawn_store.start_spawn,
-                state_root,
-                chat_id=chat_id,
-                model=model,
-                agent=agent,
-                harness=harness,
-                kind="streaming",
-                prompt=prompt,
-                launch_mode="app",
-                runner_pid=os.getpid(),
-                status="running",
+            return SpawnId(
+                await asyncio.to_thread(
+                    lifecycle_service.start,
+                    chat_id=chat_id,
+                    model=model,
+                    agent=agent,
+                    harness=harness,
+                    kind="streaming",
+                    prompt=prompt,
+                    launch_mode="app",
+                    runner_pid=os.getpid(),
+                    status="running",
+                )
             )
 
     def _validate_spawn_id(raw: str) -> SpawnId:
@@ -351,11 +353,10 @@ def create_app(
             connection = await spawn_manager.start_spawn(config, launch_ctx.spec)
             await spawn_manager._start_heartbeat(spawn_id)  # pyright: ignore[reportPrivateUsage]
         except Exception as exc:
-            spawn_store.finalize_spawn(
-                state_root,
-                spawn_id,
-                status="failed",
-                exit_code=1,
+            lifecycle_service.finalize(
+                str(spawn_id),
+                "failed",
+                1,
                 origin="launch_failure",
                 error=str(exc),
             )
