@@ -700,7 +700,7 @@ def cleanup_stale_sessions(state_root: Path) -> StaleSessionCleanup:
     with lock_file(paths.sessions_flock):
         records = _records_by_session(state_root)
         stopped_at = utc_now_iso()
-        for chat_id, lock_path, _ in stale:
+        for chat_id, _lock_path, _ in stale:
             existing = records.get(chat_id)
             lease_exists, lease_session_instance_id = _read_session_lease(paths, chat_id)
             if existing is not None and existing.kind == "primary":
@@ -742,14 +742,20 @@ def cleanup_stale_sessions(state_root: Path) -> StaleSessionCleanup:
             if existing is not None and existing.harness.strip():
                 stale_cleanup_scopes.append(existing.harness.strip())
             cleaned_ids.append(chat_id)
-            lock_path.unlink(missing_ok=True)
-            _session_lease_path(paths, chat_id).unlink(missing_ok=True)
+            # Defer unlink until after handle release (required on Windows).
 
-    for chat_id, _, handle in stale:
+    # Release lock handles first so Windows allows lock-file deletion.
+    for chat_id, _lock_path, handle in stale:
         _release_session_lock_handle(handle)
         handle.close()
         if chat_id in cleaned_ids:
             _SESSION_LOCK_HANDLES.pop(_session_lock_key(state_root, chat_id), None)
+
+    # Remove lock and lease files only after all handles are closed.
+    for chat_id, lock_path, _ in stale:
+        if chat_id in cleaned_ids:
+            lock_path.unlink(missing_ok=True)
+            _session_lease_path(paths, chat_id).unlink(missing_ok=True)
 
     return StaleSessionCleanup(
         cleaned_ids=tuple(sorted(cleaned_ids, key=_session_sort_key)),
