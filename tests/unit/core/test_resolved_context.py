@@ -322,6 +322,39 @@ def test_from_environment_explicit_work_id_beats_session_lookup(
     assert backend.session_lookup_calls == []
 
 
+def test_from_environment_work_id_resolution_precedence_d8(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D8 precedence: explicit_work_id > MERIDIAN_WORK_ID > session lookup."""
+    _clear_meridian_env(monkeypatch)
+    monkeypatch.setenv("MERIDIAN_REPO_ROOT", "/repo")
+    monkeypatch.setenv("MERIDIAN_STATE_ROOT", "/runtime/state")
+    monkeypatch.setenv("MERIDIAN_CHAT_ID", "c42")
+    monkeypatch.setenv("MERIDIAN_WORK_ID", "env-work")
+
+    explicit_backend = FakeBackend(session_active_work_id="session-work")
+    resolved_explicit = ResolvedContext.from_environment(
+        explicit_work_id="explicit-work",
+        backend=explicit_backend,
+    )
+    assert resolved_explicit.work_id == "explicit-work"
+    assert explicit_backend.session_lookup_calls == []
+    assert explicit_backend.work_dir_calls == [(Path("/repo/.meridian"), "explicit-work")]
+
+    env_backend = FakeBackend(session_active_work_id="session-work")
+    resolved_env = ResolvedContext.from_environment(backend=env_backend)
+    assert resolved_env.work_id == "env-work"
+    assert env_backend.session_lookup_calls == []
+    assert env_backend.work_dir_calls == [(Path("/repo/.meridian"), "env-work")]
+
+    monkeypatch.delenv("MERIDIAN_WORK_ID", raising=False)
+    session_backend = FakeBackend(session_active_work_id="session-work")
+    resolved_session = ResolvedContext.from_environment(backend=session_backend)
+    assert resolved_session.work_id == "session-work"
+    assert session_backend.session_lookup_calls == [(Path("/runtime/state"), "c42")]
+    assert session_backend.work_dir_calls == [(Path("/repo/.meridian"), "session-work")]
+
+
 # ---------------------------------------------------------------------------
 # Edge case 4: Immutability — other fields besides depth
 # ---------------------------------------------------------------------------

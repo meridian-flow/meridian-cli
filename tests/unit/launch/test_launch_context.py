@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from meridian.lib.core.child_env import ALLOWED_CHILD_ENV_KEYS
 from meridian.lib.core.types import HarnessId
 from meridian.lib.harness.registry import get_default_harness_registry
 from meridian.lib.launch.context import build_launch_context
@@ -173,3 +174,4 @@ def test_build_launch_context_projects_runtime_child_env_paths(
     assert runtime_ctx.env_overrides["MERIDIAN_FS_DIR"] == (
         tmp_path / ".meridian" / "fs"
     ).as_posix()
+    assert set(runtime_ctx.env_overrides) == ALLOWED_CHILD_ENV_KEYS
