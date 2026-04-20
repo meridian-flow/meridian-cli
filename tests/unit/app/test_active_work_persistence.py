@@ -5,8 +5,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from fastapi import HTTPException
 import pytest
+from fastapi import HTTPException
 
 from meridian.lib.app.work_routes import (
     _read_active_work_state,
@@ -15,25 +15,28 @@ from meridian.lib.app.work_routes import (
 )
 from meridian.lib.state import work_store
 
+RouteHandler = Callable[..., Any]
+RouteRegistration = Callable[[RouteHandler], RouteHandler]
+
 
 class _RouteApp:
     def __init__(self) -> None:
         self.routes: list[tuple[str, str, Callable[..., Any]]] = []
 
-    def get(self, path: str, **kwargs: object) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    def get(self, path: str, **kwargs: object) -> RouteRegistration:
         _ = kwargs
         return self._register("GET", path)
 
-    def post(self, path: str, **kwargs: object) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    def post(self, path: str, **kwargs: object) -> RouteRegistration:
         _ = kwargs
         return self._register("POST", path)
 
-    def put(self, path: str, **kwargs: object) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    def put(self, path: str, **kwargs: object) -> RouteRegistration:
         _ = kwargs
         return self._register("PUT", path)
 
-    def _register(self, method: str, path: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+    def _register(self, method: str, path: str) -> RouteRegistration:
+        def decorator(func: RouteHandler) -> RouteHandler:
             self.routes.append((method, path, func))
             return func
 

@@ -460,7 +460,7 @@ def test_dispatch_catches_builtin_exception_and_continues_fail_open(
     assert [result.outcome for result in results] == ["failure", "success"]
     assert results[0].error == "builtin exploded"
     assert runner.calls == [("notify", 60)]
-    assert ("hook_execution_failed",) == (log.warning_calls[0][0],)
+    assert log.warning_calls[0][0] == "hook_execution_failed"
     assert log.warning_calls[0][1]["hook"] == "git-autosync"
     assert log.warning_calls[0][1]["hook_event"] == "spawn.finalized"
     assert log.warning_calls[0][1]["error"] == "builtin exploded"
@@ -479,7 +479,9 @@ def test_dispatch_logs_throttled_skip_reason(
         tmp_path / "state",
         registry=StubRegistry((hook,)),
         interval_tracker=tracker,
-        external_runner=StubExternalRunner(results={"notify": _result("notify", "spawn.finalized")}),
+        external_runner=StubExternalRunner(
+            results={"notify": _result("notify", "spawn.finalized")}
+        ),
     )
 
     dispatcher.fire(_context())

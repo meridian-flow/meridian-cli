@@ -7,12 +7,10 @@ import time
 from pathlib import Path
 from uuid import uuid4
 
-import pytest
 from structlog.testing import capture_logs
 
 from meridian.lib.hooks.config import HooksConfig
-from meridian.lib.hooks.dispatch import BUILTIN_HOOKS
-from meridian.lib.hooks.dispatch import HookDispatcher
+from meridian.lib.hooks.dispatch import BUILTIN_HOOKS, HookDispatcher
 from meridian.lib.hooks.registry import HookRegistry
 from meridian.lib.hooks.types import Hook, HookContext, HookEventName, HookOutcome, HookResult
 
