@@ -40,6 +40,7 @@ from meridian.lib.launch.constants import (
     BASE_COMMAND_CODEX_SUBPROCESS,
     PRIMARY_BASE_COMMAND_CODEX,
 )
+from meridian.lib.platform import get_home_path
 from meridian.lib.safety.permissions import PermissionConfig
 
 logger = logging.getLogger(__name__)
@@ -179,7 +180,7 @@ def _resolve_rollout_session_id(path: Path, resolved_repo: Path) -> str | None:
 
 
 def _detect_primary_session_id(repo_root: Path, started_at_epoch: float) -> str | None:
-    sessions_root = Path.home() / ".codex" / "sessions"
+    sessions_root = get_home_path() / ".codex" / "sessions"
     if not sessions_root.is_dir():
         return None
 
@@ -224,7 +225,7 @@ def _owns_session(repo_root: Path, session_ref: str) -> bool:
         return False
 
     resolved_repo = repo_root.resolve()
-    codex_root = Path.home() / ".codex" / "sessions"
+    codex_root = get_home_path() / ".codex" / "sessions"
     if not codex_root.is_dir():
         return False
 
@@ -393,7 +394,7 @@ class CodexAdapter(BaseHarnessAdapter[CodexLaunchSpec]):
         if not normalized_session_id:
             return None
 
-        sessions_root = Path.home() / ".codex" / "sessions"
+        sessions_root = get_home_path() / ".codex" / "sessions"
         if not sessions_root.is_dir():
             return None
 
@@ -426,7 +427,7 @@ class CodexAdapter(BaseHarnessAdapter[CodexLaunchSpec]):
         if not normalized_source_session_id:
             raise ValueError("source_session_id is required.")
 
-        db_path = Path.home() / ".codex" / "state_5.sqlite"
+        db_path = get_home_path() / ".codex" / "state_5.sqlite"
         connection: sqlite3.Connection | None = None
         try:
             connection = sqlite3.connect(str(db_path), timeout=10)

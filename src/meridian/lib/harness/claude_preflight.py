@@ -14,7 +14,7 @@ import structlog
 
 from meridian.lib.launch.launch_types import PreflightResult
 from meridian.lib.launch.text_utils import dedupe_nonempty
-from meridian.lib.platform import IS_WINDOWS
+from meridian.lib.platform import IS_WINDOWS, get_home_path
 
 logger = structlog.get_logger(__name__)
 
@@ -53,7 +53,7 @@ def ensure_claude_session_accessible(
     ):
         return
 
-    claude_projects = Path.home() / ".claude" / "projects"
+    claude_projects = get_home_path() / ".claude" / "projects"
     source_slug = project_slug(source_cwd)
     child_slug = project_slug(child_cwd)
 
@@ -148,7 +148,7 @@ def expand_claude_passthrough_args(
     if child_cwd.resolve() == execution_cwd.resolve():
         return passthrough_args
 
-    expanded_args: list[str] = [*passthrough_args, "--add-dir", str(execution_cwd)]
+    expanded_args: list[str] = [*passthrough_args, "--add-dir", execution_cwd.as_posix()]
     parent_additional_directories, parent_allowed_tools = read_parent_claude_permissions(
         execution_cwd
     )

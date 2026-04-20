@@ -37,6 +37,7 @@ from meridian.lib.launch.constants import (
     PRIMARY_BASE_COMMAND_CLAUDE,
 )
 from meridian.lib.launch.launch_types import PreflightResult
+from meridian.lib.platform import get_home_path
 from meridian.lib.safety.permissions import PermissionConfig
 
 logger = logging.getLogger(__name__)
@@ -68,7 +69,7 @@ def project_slug(repo_root: Path) -> str:
 
 
 def _claude_projects_root() -> Path:
-    return Path.home() / ".claude" / "projects"
+    return get_home_path() / ".claude" / "projects"
 
 
 def _claude_project_dir(repo_root: Path) -> Path:

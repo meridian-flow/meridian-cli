@@ -36,6 +36,7 @@ from meridian.lib.launch.constants import (
     BASE_COMMAND_OPENCODE_SUBPROCESS,
     PRIMARY_BASE_COMMAND_OPENCODE,
 )
+from meridian.lib.platform import get_home_path
 from meridian.lib.safety.permissions import PermissionConfig
 
 logger = logging.getLogger(__name__)
@@ -67,7 +68,7 @@ def _detect_primary_session_id(
     started_at_epoch: float,
     started_at_local_iso: str,
 ) -> str | None:
-    logs_root = Path.home() / ".local" / "share" / "opencode" / "log"
+    logs_root = get_home_path() / ".local" / "share" / "opencode" / "log"
     if not logs_root.is_dir():
         return None
 
@@ -115,7 +116,7 @@ def _owns_session(repo_root: Path, session_ref: str) -> bool:
         return False
 
     resolved_repo = repo_root.resolve()
-    opencode_logs = Path.home() / ".local" / "share" / "opencode" / "log"
+    opencode_logs = get_home_path() / ".local" / "share" / "opencode" / "log"
     if not opencode_logs.is_dir():
         return False
 
