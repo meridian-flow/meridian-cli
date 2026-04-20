@@ -11,14 +11,14 @@ from pathlib import Path
 import structlog
 
 from meridian.lib.core.domain import SpawnStatus
+from meridian.lib.core.lifecycle import SpawnLifecycleService
 from meridian.lib.core.spawn_lifecycle import (
     has_durable_report_completion,
     is_active_spawn_status,
     resolve_reconciled_terminal_state,
 )
-from meridian.lib.core.types import SpawnId
 from meridian.lib.state.liveness import is_process_alive
-from meridian.lib.state.spawn_store import SpawnRecord, finalize_spawn
+from meridian.lib.state.spawn_store import SpawnRecord
 
 logger = structlog.get_logger(__name__)
 
@@ -183,11 +183,10 @@ def _finalize_and_log(
     state_root: Path, record: SpawnRecord, *, status: SpawnStatus, exit_code: int,
     error: str | None, reason: str, snapshot: ArtifactSnapshot, now: float
 ) -> SpawnRecord:
-    if not finalize_spawn(
-        state_root,
-        SpawnId(record.id),
-        status=status,
-        exit_code=exit_code,
+    if not SpawnLifecycleService(state_root).finalize(
+        record.id,
+        status,
+        exit_code,
         origin="reconciler",
         error=error,
     ):
