@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 from meridian.lib.config.project_paths import ProjectPaths
 from meridian.lib.config.settings import MeridianConfig, load_config
 from meridian.lib.config.workspace import get_projectable_roots
+from meridian.lib.core.child_env import ALLOWED_CHILD_ENV_KEYS, build_child_env_overrides
 from meridian.lib.core.overrides import RuntimeOverrides
 from meridian.lib.core.types import HarnessId, ModelId
 from meridian.lib.harness.adapter import SubprocessHarness
@@ -66,15 +67,6 @@ from .workspace import resolve_workspace_snapshot_for_launch
 if TYPE_CHECKING:
     from meridian.lib.harness.registry import HarnessRegistry
 
-_ALLOWED_MERIDIAN_KEYS: frozenset[str] = frozenset(
-    {
-        "MERIDIAN_REPO_ROOT",
-        "MERIDIAN_STATE_ROOT",
-        "MERIDIAN_DEPTH",
-        "MERIDIAN_CHAT_ID",
-    }
-)
-
 
 @dataclass(frozen=True)
 class ChildEnvContext:
@@ -110,17 +102,20 @@ class ChildEnvContext:
         )
 
     def child_context(self) -> dict[str, str]:
-        overrides: dict[str, str] = {
-            "MERIDIAN_REPO_ROOT": self.repo_root.as_posix(),
-            "MERIDIAN_STATE_ROOT": self.state_root.as_posix(),
-            "MERIDIAN_DEPTH": str(self.parent_depth + 1),
-        }
-        if self.parent_chat_id:
-            overrides["MERIDIAN_CHAT_ID"] = self.parent_chat_id
-
-        if not set(overrides).issubset(_ALLOWED_MERIDIAN_KEYS):
-            missing = sorted(set(overrides) - _ALLOWED_MERIDIAN_KEYS)
-            raise RuntimeError(f"ChildEnvContext.child_context drifted keys: {missing}")
+        overrides = build_child_env_overrides(
+            repo_root=self.repo_root,
+            state_root=self.state_root,
+            parent_chat_id=self.parent_chat_id,
+            parent_depth=self.parent_depth,
+            work_id=None,
+            work_dir=None,
+            fs_dir=None,
+        )
+        # Guard against future drift: all produced keys must remain in the
+        # shared allowed set.
+        if not set(overrides).issubset(ALLOWED_CHILD_ENV_KEYS):
+            drifted = sorted(set(overrides) - ALLOWED_CHILD_ENV_KEYS)
+            raise RuntimeError(f"ChildEnvContext.child_context drifted keys: {drifted}")
         return overrides
 
 

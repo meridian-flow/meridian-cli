@@ -16,6 +16,7 @@ import structlog
 from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.config.project_paths import ProjectPaths, resolve_project_paths
+from meridian.lib.core.child_env import build_child_env_overrides
 from meridian.lib.core.context import RuntimeContext
 from meridian.lib.core.domain import Spawn, SpawnStatus
 from meridian.lib.core.sink import OutputSink
@@ -163,16 +164,37 @@ def _spawn_background_worker_env(
     work_id: str | None = None,
     autocompact: int | None = None,
 ) -> dict[str, str]:
-    """Build child env overrides for the detached background worker process."""
+    """Build child env overrides for the detached background worker process.
 
-    child_env: dict[str, str] = {}
-    normalized_work_id = (work_id or "").strip()
+    The background worker runs as a peer of the launching process (same
+    ``MERIDIAN_DEPTH``), not as a depth-child.  Depth is inherited unchanged;
+    only the work-item keys differ from the parent environment.
+    """
+    # Read the current depth so the worker inherits the same value.
+    parent_depth = 0
+    with suppress(ValueError, TypeError):
+        parent_depth = max(0, int(os.getenv("MERIDIAN_DEPTH", "0").strip()))
+
+    normalized_work_id = (work_id or "").strip() or None
+    work_dir: Path | None = None
     if normalized_work_id:
-        child_env["MERIDIAN_WORK_ID"] = normalized_work_id
-        child_env["MERIDIAN_WORK_DIR"] = resolve_work_scratch_dir(
+        work_dir = resolve_work_scratch_dir(
             resolve_repo_state_paths(repo_root).root_dir,
             normalized_work_id,
-        ).as_posix()
+        )
+
+    # Omit repo_root/state_root/chat_id (pass None) — those are already
+    # correct in the inherited os.environ.  increment_depth=False because the
+    # background worker is a peer, not a depth-child.
+    child_env = build_child_env_overrides(
+        repo_root=None,
+        state_root=None,
+        parent_chat_id=None,
+        parent_depth=parent_depth,
+        work_id=normalized_work_id,
+        work_dir=work_dir,
+        increment_depth=False,
+    )
     if autocompact is not None:
         child_env["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"] = str(autocompact)
     return child_env

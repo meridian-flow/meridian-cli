@@ -4,6 +4,7 @@ from collections.abc import Callable, Collection, Mapping
 from pathlib import Path
 from typing import cast
 
+from meridian.lib.core.child_env import ALLOWED_CHILD_ENV_KEYS
 from meridian.lib.harness.adapter import SpawnParams, SubprocessHarness
 from meridian.lib.safety.permissions import PermissionConfig
 from meridian.lib.state.paths import resolve_repo_state_paths, resolve_work_scratch_dir
@@ -171,8 +172,13 @@ def merge_env_overrides(
     runtime_overrides: Mapping[str, str],
     preflight_overrides: Mapping[str, str],
 ) -> dict[str, str]:
-    """Merge env overrides and reject `MERIDIAN_*` leaks from plan/preflight."""
+    """Merge env overrides and reject ``MERIDIAN_*`` leaks from plan/preflight.
 
+    Keys in :data:`~meridian.lib.core.child_env.ALLOWED_CHILD_ENV_KEYS` must
+    only enter the child environment via ``ChildEnvContext.child_context()``,
+    which is in ``runtime_overrides``.  Any ``MERIDIAN_*`` key appearing in
+    ``plan_overrides`` or ``preflight_overrides`` is a contract violation.
+    """
     forbidden: list[tuple[str, str]] = []
     for key in plan_overrides:
         if key.startswith("MERIDIAN_"):
@@ -183,9 +189,10 @@ def merge_env_overrides(
 
     if forbidden:
         rendered = ", ".join(f"{key} via {source}" for key, source in sorted(forbidden))
+        allowed_summary = ", ".join(sorted(ALLOWED_CHILD_ENV_KEYS))
         raise RuntimeError(
-            "MERIDIAN_* keys may only be set by ChildEnvContext.child_context(); "
-            f"found leaks: {rendered}"
+            "MERIDIAN_* keys may only be set by ChildEnvContext.child_context() "
+            f"(allowed: {allowed_summary}); found leaks: {rendered}"
         )
 
     merged = dict(plan_overrides)
