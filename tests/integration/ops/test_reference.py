@@ -51,6 +51,7 @@ def _seed_spawn(
     harness: str = "codex",
     kind: str = "child",
     execution_cwd: str | None = None,
+    started_at: str | None = None,
 ) -> None:
     spawn_store.start_spawn(
         state_root,
@@ -65,6 +66,7 @@ def _seed_spawn(
         work_id="w-spawn",
         harness_session_id=harness_session_id,
         execution_cwd=execution_cwd,
+        started_at=started_at,
     )
 
 
@@ -110,6 +112,43 @@ def test_resolve_session_reference_for_spawn_id_reads_spawn_metadata(tmp_path: P
     assert resolved.source_work_id == "w-spawn"
     assert resolved.tracked is True
     assert resolved.warning is None
+
+
+def test_resolve_spawn_ref_prefers_direct_spawn_id_match(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    state_root = _state_root(repo_root)
+    _seed_spawn(state_root, spawn_id="p7", chat_id="c7", harness_session_id="spawn-session-7")
+
+    resolved = reference.resolve_spawn_ref(state_root, "p7")
+
+    assert resolved is not None
+    assert str(resolved) == "p7"
+
+
+def test_resolve_spawn_ref_uses_latest_chat_match_by_started_at(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    state_root = _state_root(repo_root)
+    _seed_spawn(
+        state_root,
+        spawn_id="p3",
+        chat_id="c213",
+        harness_session_id="session-new",
+        started_at="2026-01-02T00:00:00Z",
+    )
+    _seed_spawn(
+        state_root,
+        spawn_id="p9",
+        chat_id="c213",
+        harness_session_id="session-old",
+        started_at="2026-01-01T00:00:00Z",
+    )
+
+    resolved = reference.resolve_spawn_ref(state_root, "c213")
+
+    assert resolved is not None
+    assert str(resolved) == "p3"
 
 
 def test_resolve_session_reference_for_spawn_uses_execution_cwd_when_recorded(

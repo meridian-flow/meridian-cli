@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from meridian.lib.core.types import SpawnId
 from meridian.lib.harness.registry import get_default_harness_registry
 from meridian.lib.harness.session_detection import infer_harness_from_untracked_session_ref
 from meridian.lib.ops.runtime import resolve_state_root_for_read
@@ -43,6 +44,21 @@ def _normalize_optional(value: str | None) -> str | None:
         return None
     normalized = value.strip()
     return normalized or None
+
+
+def resolve_spawn_ref(state_root: Path, ref: str) -> SpawnId | None:
+    """Resolve a spawn reference from spawn id first, then chat id."""
+
+    spawn = spawn_store.get_spawn(state_root, ref)
+    if spawn is not None:
+        return SpawnId(spawn.id)
+
+    matches = spawn_store.list_spawns(state_root, filters={"chat_id": ref})
+    if matches:
+        matches.sort(key=lambda item: item.started_at or "", reverse=True)
+        return SpawnId(matches[0].id)
+
+    return None
 
 
 def _latest_harness_session_id(record: session_store.SessionRecord) -> str | None:
@@ -203,4 +219,5 @@ def resolve_session_reference(repo_root: Path, ref: str) -> ResolvedSessionRefer
 __all__ = [
     "ResolvedSessionReference",
     "resolve_session_reference",
+    "resolve_spawn_ref",
 ]

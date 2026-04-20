@@ -163,3 +163,45 @@ def test_spawn_list_status_accepts_finalizing(
     assert exc_info.value.code == 0
     assert captured["payload"].status == "finalizing"
     assert captured["payload"].statuses is None
+
+
+def test_spawn_children_resolves_parent_reference_before_filtering(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    state_root = repo_root / ".meridian"
+    seen: dict[str, object] = {}
+
+    monkeypatch.setattr(spawn_cli, "resolve_project_root", lambda: repo_root)
+    monkeypatch.setattr(spawn_cli, "resolve_state_root_for_read", lambda _root: state_root)
+    monkeypatch.setattr(
+        spawn_cli,
+        "resolve_spawn_reference",
+        lambda _repo_root, ref: "p77" if ref == "c213" else ref,
+    )
+    monkeypatch.setattr(
+        spawn_cli.spawn_store,
+        "list_spawns",
+        lambda _state_root, filters=None: _capture_filters_and_return_empty(seen, filters),
+    )
+    monkeypatch.setattr(
+        "meridian.lib.state.reaper.reconcile_spawns",
+        lambda _state_root, spawns: spawns,
+    )
+
+    emitted: list[SpawnListOutput] = []
+    spawn_cli._spawn_children(emitted.append, "c213")
+
+    assert seen["filters"] == {"parent_id": "p77"}
+    assert len(emitted) == 1
+    assert emitted[0].spawns == ()
+
+
+def _capture_filters_and_return_empty(
+    seen: dict[str, object],
+    filters: object,
+) -> list[object]:
+    seen["filters"] = filters
+    return []

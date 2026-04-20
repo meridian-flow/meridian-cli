@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import cast
 
 from meridian.lib.core.spawn_lifecycle import is_active_spawn_status
+from meridian.lib.ops.reference import resolve_spawn_ref
 from meridian.lib.ops.runtime import resolve_state_root_for_read
 from meridian.lib.state import spawn_store
 
@@ -43,7 +44,9 @@ def resolve_spawn_reference(repo_root: Path, ref: str) -> str:
     if not normalized:
         raise ValueError("spawn_id is required")
     if not normalized.startswith("@"):
-        return normalized
+        state_root = resolve_state_root_for_read(repo_root)
+        resolved = resolve_spawn_ref(state_root, normalized)
+        return str(resolved) if resolved is not None else normalized
 
     status_filter = _SPAWN_REFERENCE_STATUS_FILTERS.get(normalized)
     if normalized not in _SPAWN_REFERENCE_STATUS_FILTERS:

@@ -503,10 +503,11 @@ def _spawn_children(
         Parameter(name="spawn_id", help="Parent spawn ID."),
     ],
 ) -> None:
-    normalized_spawn_id = spawn_id.strip()
-    if not normalized_spawn_id:
+    normalized_ref = spawn_id.strip()
+    if not normalized_ref:
         raise ValueError("spawn_id is required")
     repo_root = resolve_project_root()
+    normalized_spawn_id = resolve_spawn_reference(repo_root, normalized_ref)
     state_root = resolve_state_root_for_read(repo_root)
     from meridian.lib.state.reaper import reconcile_spawns
 
