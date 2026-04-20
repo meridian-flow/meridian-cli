@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from meridian.lib.platform import IS_WINDOWS
 from meridian.lib.state import spawn_store
 
 spawn_inject = importlib.import_module("meridian.cli.spawn_inject")
@@ -36,7 +37,7 @@ class _FakeWriter:
         return None
 
 
-def _create_running_spawn_layout(state_root: Path, spawn_id: str) -> None:
+def _create_running_spawn_layout_for_interrupt_path(state_root: Path, spawn_id: str) -> None:
     spawn_store.start_spawn(
         state_root,
         chat_id="c1",
@@ -48,7 +49,32 @@ def _create_running_spawn_layout(state_root: Path, spawn_id: str) -> None:
     )
     spawn_dir = state_root / "spawns" / spawn_id
     spawn_dir.mkdir(parents=True, exist_ok=True)
-    (spawn_dir / "control.sock").write_text("", encoding="utf-8")
+    if IS_WINDOWS:
+        (spawn_dir / "control.port").write_text("12345", encoding="utf-8")
+    else:
+        (spawn_dir / "control.sock").write_text("", encoding="utf-8")
+
+
+def _create_running_spawn_layout_for_validation_path(state_root: Path, spawn_id: str) -> None:
+    """Create spawn layout WITHOUT control endpoint.
+
+    This tests that validation runs BEFORE endpoint discovery.
+    If validation comes first, we get "provide a message or --interrupt".
+    If discovery comes first, we get "no control endpoint".
+    """
+    spawn_store.start_spawn(
+        state_root,
+        chat_id="c1",
+        model="gpt-5.4",
+        agent="coder",
+        harness="codex",
+        prompt="hello",
+        spawn_id=spawn_id,
+    )
+    spawn_dir = state_root / "spawns" / spawn_id
+    spawn_dir.mkdir(parents=True, exist_ok=True)
+    # Intentionally DO NOT create control.sock or control.port.
+    # This proves validation runs before discovery.
 
 
 def test_inject_requires_message_or_interrupt(
@@ -58,7 +84,7 @@ def test_inject_requires_message_or_interrupt(
 ) -> None:
     state_root = tmp_path / ".meridian"
     state_root.mkdir(parents=True, exist_ok=True)
-    _create_running_spawn_layout(state_root, "p1")
+    _create_running_spawn_layout_for_validation_path(state_root, "p1")
 
     monkeypatch.setattr(spawn_inject, "resolve_runtime_root_and_config", lambda _: (tmp_path, None))
     monkeypatch.setattr(spawn_inject, "resolve_state_root", lambda _repo_root: state_root)
@@ -77,18 +103,26 @@ def test_interrupt_inject_allows_self_caller_and_sends_request(
 ) -> None:
     state_root = tmp_path / ".meridian"
     state_root.mkdir(parents=True, exist_ok=True)
-    _create_running_spawn_layout(state_root, "p1")
+    _create_running_spawn_layout_for_interrupt_path(state_root, "p1")
 
     monkeypatch.setattr(spawn_inject, "resolve_runtime_root_and_config", lambda _: (tmp_path, None))
     monkeypatch.setattr(spawn_inject, "resolve_state_root", lambda _repo_root: state_root)
 
     writer = _FakeWriter()
 
-    async def _fake_open(path: str) -> tuple[_FakeReader, _FakeWriter]:
-        assert path.endswith("/spawns/p1/control.sock")
-        return _FakeReader(b'{"ok":true}\n'), writer
+    if IS_WINDOWS:
 
-    monkeypatch.setattr(asyncio, "open_unix_connection", _fake_open)
+        async def _fake_tcp_connect(host: str, port: int) -> tuple[_FakeReader, _FakeWriter]:
+            return _FakeReader(b'{"ok":true}\n'), writer
+
+        monkeypatch.setattr(asyncio, "open_connection", _fake_tcp_connect)
+    else:
+
+        async def _fake_unix_connect(path: str) -> tuple[_FakeReader, _FakeWriter]:
+            assert path.endswith("/spawns/p1/control.sock")
+            return _FakeReader(b'{"ok":true}\n'), writer
+
+        monkeypatch.setattr(asyncio, "open_unix_connection", _fake_unix_connect)
 
     asyncio.run(spawn_inject.inject_message("p1", None, interrupt=True))
 

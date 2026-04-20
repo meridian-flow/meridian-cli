@@ -12,6 +12,7 @@ from typing import Any, cast
 import pytest
 
 from meridian.lib.core.types import SpawnId
+from meridian.lib.platform import IS_WINDOWS
 from meridian.lib.state import spawn_store
 from meridian.lib.state.paths import resolve_state_paths
 from meridian.lib.state.spawn_store import LaunchMode
@@ -215,6 +216,12 @@ async def _start_http_socket_server(
         with suppress(Exception):
             await writer.wait_closed()
 
+    if IS_WINDOWS:
+        server = await asyncio.start_server(_handler, host="127.0.0.1", port=0)
+        port = server.sockets[0].getsockname()[1]
+        port_file = socket_path.parent / "app.port"
+        port_file.write_text(str(port))
+        return server
     return await asyncio.start_unix_server(_handler, path=str(socket_path))
 
 

@@ -38,15 +38,11 @@ def _can_acquire_lock_nonblocking_worker(
     lock_path = Path(lock_path_str)
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open("a+b") as handle:
-        try:
-            session_store.fcntl.flock(
-                handle.fileno(),
-                session_store.fcntl.LOCK_EX | session_store.fcntl.LOCK_NB,
-            )
-        except BlockingIOError:
+        locked = session_store._try_lock_nonblocking(handle)
+        if not locked:
             queue.put(False)
             return
-        session_store.fcntl.flock(handle.fileno(), session_store.fcntl.LOCK_UN)
+        session_store._release_session_lock_handle(handle)
         queue.put(True)
 
 
