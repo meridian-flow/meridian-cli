@@ -1,4 +1,9 @@
-"""Spawn lifecycle service with first-class LifecycleEvent hook dispatch.
+"""Authoritative lifecycle-transition seam for spawn state.
+
+This module is the single service boundary for lifecycle transitions
+(``start``, ``mark_running``, ``record_exited``, ``mark_finalizing``,
+``finalize``, ``cancel``) and post-write lifecycle hook dispatch.
+Persistence remains delegated to :mod:`meridian.lib.state.spawn_store`.
 
 Design decisions in effect:
 - D1: Service wraps store, not replaces — delegates to spawn_store functions
@@ -131,11 +136,11 @@ class LifecycleHook(Protocol):
 
 
 class SpawnLifecycleService:
-    """Wraps spawn_store lifecycle functions with hook dispatch.
+    """Authoritative lifecycle API that wraps spawn_store with hook dispatch.
 
-    Delegates all persistence to spawn_store.  After each successful
-    store write, dispatches a LifecycleEvent to registered hooks.
-    Hooks run synchronously but their exceptions never block transitions.
+    This class is the intended caller-facing transition seam. It delegates
+    persistence to ``spawn_store`` and only adds consistent post-write
+    ``LifecycleEvent`` dispatch semantics.
     """
 
     def __init__(
@@ -179,6 +184,7 @@ class SpawnLifecycleService:
         clock: Clock | None = None,
     ) -> str:
         """Start a new spawn and dispatch spawn.created."""
+        # Authoritative transition write still happens in spawn_store.
         result_id = spawn_store.start_spawn(
             self._state_root,
             chat_id=chat_id,
@@ -217,6 +223,7 @@ class SpawnLifecycleService:
         runner_pid: int | None = None,
     ) -> None:
         """Mark a spawn as running and dispatch spawn.running."""
+        # Authoritative transition write still happens in spawn_store.
         spawn_store.mark_spawn_running(
             self._state_root,
             spawn_id,
@@ -237,6 +244,7 @@ class SpawnLifecycleService:
         clock: Clock | None = None,
     ) -> None:
         """Record process exit — no lifecycle event dispatched."""
+        # Authoritative transition write still happens in spawn_store.
         spawn_store.record_spawn_exited(
             self._state_root,
             spawn_id,
@@ -262,6 +270,7 @@ class SpawnLifecycleService:
         clock: Clock | None = None,
     ) -> bool:
         """Finalize a spawn.  Dispatches spawn.finalized only on first terminal transition."""
+        # Authoritative transition write still happens in spawn_store.
         transitioned = spawn_store.finalize_spawn(
             self._state_root,
             spawn_id,
@@ -284,6 +293,7 @@ class SpawnLifecycleService:
 
     def mark_finalizing(self, spawn_id: str) -> bool:
         """CAS transition running -> finalizing.  No lifecycle event dispatched."""
+        # Authoritative transition write still happens in spawn_store.
         return spawn_store.mark_finalizing(
             self._state_root,
             spawn_id,
@@ -335,6 +345,7 @@ class SpawnLifecycleService:
                 )
 
     def _build_event(self, event_type: EventType, spawn_id: str) -> LifecycleEvent:
+        # Read event payload through the same authoritative store boundary.
         record = spawn_store.get_spawn(
             self._state_root, spawn_id, repository=self._repository
         )

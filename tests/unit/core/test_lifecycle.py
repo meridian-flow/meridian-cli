@@ -96,6 +96,7 @@ def _start_spawn(svc: SpawnLifecycleService, **overrides: Any) -> str:
 
 
 def test_start_creates_spawn_record(tmp_path: Path) -> None:
+    """Service start() must delegate creation to spawn_store."""
     repo = FakeSpawnRepository()
     svc = _make_service(tmp_path, repository=repo)
 
@@ -109,6 +110,7 @@ def test_start_creates_spawn_record(tmp_path: Path) -> None:
 
 
 def test_mark_running_updates_spawn_status(tmp_path: Path) -> None:
+    """Service mark_running() must delegate status transition to spawn_store."""
     repo = FakeSpawnRepository()
     svc = _make_service(tmp_path, repository=repo)
     spawn_id = _start_spawn(svc, status="queued")
@@ -121,6 +123,7 @@ def test_mark_running_updates_spawn_status(tmp_path: Path) -> None:
 
 
 def test_record_exited_stores_exit_code(tmp_path: Path) -> None:
+    """Service record_exited() must persist process exit code through spawn_store."""
     repo = FakeSpawnRepository()
     svc = _make_service(tmp_path, repository=repo)
     spawn_id = _start_spawn(svc, status="running")
@@ -133,6 +136,7 @@ def test_record_exited_stores_exit_code(tmp_path: Path) -> None:
 
 
 def test_finalize_transitions_spawn_to_terminal(tmp_path: Path) -> None:
+    """Service finalize() must commit terminal status/origin through spawn_store."""
     repo = FakeSpawnRepository()
     svc = _make_service(tmp_path, repository=repo)
     spawn_id = _start_spawn(svc, status="running")
@@ -147,6 +151,7 @@ def test_finalize_transitions_spawn_to_terminal(tmp_path: Path) -> None:
 
 
 def test_mark_finalizing_transitions_running_to_finalizing(tmp_path: Path) -> None:
+    """Service mark_finalizing() must apply CAS running->finalizing via spawn_store."""
     repo = FakeSpawnRepository()
     svc = _make_service(tmp_path, repository=repo)
     spawn_id = _start_spawn(svc, status="running")
@@ -160,6 +165,7 @@ def test_mark_finalizing_transitions_running_to_finalizing(tmp_path: Path) -> No
 
 
 def test_cancel_finalizes_with_cancelled_status(tmp_path: Path) -> None:
+    """Service cancel() must route to finalize(cancelled, origin=cancel)."""
     repo = FakeSpawnRepository()
     svc = _make_service(tmp_path, repository=repo)
     spawn_id = _start_spawn(svc, status="running")
@@ -179,6 +185,7 @@ def test_cancel_finalizes_with_cancelled_status(tmp_path: Path) -> None:
 
 
 def test_spawn_created_event_dispatched_after_start(tmp_path: Path) -> None:
+    """start() must emit exactly one post-write spawn.created event."""
     hook = RecordingHook()
     svc = _make_service(tmp_path, hooks=[hook])
     spawn_id = _start_spawn(svc)
@@ -194,6 +201,7 @@ def test_spawn_created_event_dispatched_after_start(tmp_path: Path) -> None:
 
 
 def test_spawn_created_event_carries_context_fields(tmp_path: Path) -> None:
+    """spawn.created event must mirror persisted context fields from the created row."""
     hook = RecordingHook()
     svc = _make_service(tmp_path, hooks=[hook])
 
@@ -211,6 +219,7 @@ def test_spawn_created_event_carries_context_fields(tmp_path: Path) -> None:
 
 
 def test_spawn_running_event_dispatched_after_mark_running(tmp_path: Path) -> None:
+    """mark_running() must emit one spawn.running event after the store transition."""
     hook = RecordingHook()
     svc = _make_service(tmp_path, hooks=[hook])
     spawn_id = _start_spawn(svc, status="queued")
@@ -226,6 +235,7 @@ def test_spawn_running_event_dispatched_after_mark_running(tmp_path: Path) -> No
 
 
 def test_mark_running_does_not_dispatch_finalized_event(tmp_path: Path) -> None:
+    """mark_running() must never emit spawn.finalized."""
     hook = RecordingHook()
     svc = _make_service(tmp_path, hooks=[hook])
     spawn_id = _start_spawn(svc, status="queued")
@@ -242,6 +252,7 @@ def test_mark_running_does_not_dispatch_finalized_event(tmp_path: Path) -> None:
 
 
 def test_spawn_finalized_dispatched_on_first_terminal_transition(tmp_path: Path) -> None:
+    """finalize() must emit spawn.finalized exactly once on first terminal write."""
     hook = RecordingHook()
     svc = _make_service(tmp_path, hooks=[hook])
     spawn_id = _start_spawn(svc, status="running")
@@ -258,6 +269,7 @@ def test_spawn_finalized_dispatched_on_first_terminal_transition(tmp_path: Path)
 
 
 def test_spawn_finalized_event_has_status_and_origin(tmp_path: Path) -> None:
+    """spawn.finalized payload must include persisted terminal status/origin fields."""
     hook = RecordingHook()
     svc = _make_service(tmp_path, hooks=[hook])
     spawn_id = _start_spawn(svc, status="running")
@@ -275,6 +287,7 @@ def test_spawn_finalized_event_has_status_and_origin(tmp_path: Path) -> None:
 
 
 def test_spawn_finalized_not_dispatched_when_already_terminal(tmp_path: Path) -> None:
+    """No spawn.finalized event should be dispatched after terminal idempotent finalize."""
     hook = RecordingHook()
     svc = _make_service(tmp_path, hooks=[hook])
     spawn_id = _start_spawn(svc, status="running")
@@ -291,6 +304,7 @@ def test_spawn_finalized_not_dispatched_when_already_terminal(tmp_path: Path) ->
 
 
 def test_cancel_dispatches_finalized_only_once(tmp_path: Path) -> None:
+    """cancel() must be idempotent after terminal state and not re-dispatch events."""
     hook = RecordingHook()
     svc = _make_service(tmp_path, hooks=[hook])
     spawn_id = _start_spawn(svc, status="running")
@@ -311,6 +325,7 @@ def test_cancel_dispatches_finalized_only_once(tmp_path: Path) -> None:
 
 
 def test_hook_exception_does_not_block_transition(tmp_path: Path) -> None:
+    """Hook failures must not block store writes or downstream hooks."""
     failing = FailingHook()
     recording = RecordingHook()
     svc = _make_service(tmp_path, hooks=[failing, recording])
@@ -327,6 +342,7 @@ def test_hook_exception_does_not_block_transition(tmp_path: Path) -> None:
 
 
 def test_hook_exception_does_not_block_finalize(tmp_path: Path) -> None:
+    """Hook failures during finalize must not roll back terminal state writes."""
     failing = FailingHook()
     svc = _make_service(tmp_path, hooks=[failing])
     spawn_id = _start_spawn(svc, status="running")
@@ -345,6 +361,7 @@ def test_hook_exception_does_not_block_finalize(tmp_path: Path) -> None:
 
 
 def test_lifecycle_event_is_frozen(tmp_path: Path) -> None:
+    """Dispatched LifecycleEvent instances must be immutable."""
     hook = RecordingHook()
     svc = _make_service(tmp_path, hooks=[hook])
     _start_spawn(svc)
@@ -367,6 +384,7 @@ def test_lifecycle_event_dataclass_is_frozen_flag() -> None:
 
 
 def test_generate_event_id_is_deterministic() -> None:
+    """generate_event_id() must be stable for identical inputs."""
     id1 = generate_event_id("p1", "spawn.created", 0)
     id2 = generate_event_id("p1", "spawn.created", 0)
 
@@ -375,6 +393,7 @@ def test_generate_event_id_is_deterministic() -> None:
 
 
 def test_generate_event_id_differs_by_event_type() -> None:
+    """Event type must participate in event-id identity."""
     created = generate_event_id("p1", "spawn.created", 0)
     running = generate_event_id("p1", "spawn.running", 0)
 
@@ -382,6 +401,7 @@ def test_generate_event_id_differs_by_event_type() -> None:
 
 
 def test_generate_event_id_differs_by_spawn_id() -> None:
+    """Spawn id must participate in event-id identity."""
     id_p1 = generate_event_id("p1", "spawn.created", 0)
     id_p2 = generate_event_id("p2", "spawn.created", 0)
 
@@ -389,6 +409,7 @@ def test_generate_event_id_differs_by_spawn_id() -> None:
 
 
 def test_generate_event_id_differs_by_sequence() -> None:
+    """Sequence must participate in event-id identity."""
     seq0 = generate_event_id("p1", "spawn.running", 0)
     seq1 = generate_event_id("p1", "spawn.running", 1)
 
@@ -396,6 +417,7 @@ def test_generate_event_id_differs_by_sequence() -> None:
 
 
 def test_event_id_stable_in_dispatched_events(tmp_path: Path) -> None:
+    """Service-dispatched events must reuse generate_event_id deterministic identity."""
     hook = RecordingHook()
     svc = _make_service(tmp_path, hooks=[hook])
     spawn_id = _start_spawn(svc)
@@ -426,6 +448,7 @@ def test_finalized_event_metrics_may_be_none(tmp_path: Path) -> None:
 
 
 def test_finalized_event_includes_metrics_when_provided(tmp_path: Path) -> None:
+    """spawn.finalized must surface metrics fields when finalize() provides them."""
     hook = RecordingHook()
     svc = _make_service(tmp_path, hooks=[hook])
     spawn_id = _start_spawn(svc, status="running")
@@ -449,6 +472,7 @@ def test_finalized_event_includes_metrics_when_provided(tmp_path: Path) -> None:
 
 
 def test_created_and_running_events_never_carry_metrics(tmp_path: Path) -> None:
+    """Non-terminal lifecycle events must never include metrics payload."""
     hook = RecordingHook()
     svc = _make_service(tmp_path, hooks=[hook])
     spawn_id = _start_spawn(svc, status="queued")
@@ -763,6 +787,7 @@ def test_mark_running_on_cancelled_spawn_raises_value_error(tmp_path: Path) -> N
 
 
 def test_required_path_start_and_running_dispatches_post_write(tmp_path: Path) -> None:
+    """Required path: start/running events must observe post-write store snapshots."""
     repo = FakeSpawnRepository()
     recording = RecordingHook()
     snapshot = StoreSnapshotHook(tmp_path, repo)
@@ -779,6 +804,7 @@ def test_required_path_start_and_running_dispatches_post_write(tmp_path: Path) -
 
 
 def test_required_path_mark_finalizing_then_finalize(tmp_path: Path) -> None:
+    """Required path: finalizing+finalize must emit one finalized event with runner origin."""
     repo = FakeSpawnRepository()
     recording = RecordingHook()
     snapshot = StoreSnapshotHook(tmp_path, repo)
@@ -798,6 +824,7 @@ def test_required_path_mark_finalizing_then_finalize(tmp_path: Path) -> None:
 
 
 def test_required_path_launch_failure_finalize_origin(tmp_path: Path) -> None:
+    """Required path: launch-failure finalization must preserve launch_failure origin."""
     repo = FakeSpawnRepository()
     recording = RecordingHook()
     snapshot = StoreSnapshotHook(tmp_path, repo)
@@ -822,6 +849,7 @@ def test_required_path_launch_failure_finalize_origin(tmp_path: Path) -> None:
 
 
 def test_required_path_cancel_origin_and_post_write_hook(tmp_path: Path) -> None:
+    """Required path: cancel must finalize with cancel origin and post-write visibility."""
     repo = FakeSpawnRepository()
     recording = RecordingHook()
     snapshot = StoreSnapshotHook(tmp_path, repo)
@@ -840,6 +868,7 @@ def test_required_path_cancel_origin_and_post_write_hook(tmp_path: Path) -> None
 
 
 def test_required_path_reconciler_finalize_origin(tmp_path: Path) -> None:
+    """Required path: reconciler finalization must surface reconciler as terminal origin."""
     repo = FakeSpawnRepository()
     recording = RecordingHook()
     snapshot = StoreSnapshotHook(tmp_path, repo)

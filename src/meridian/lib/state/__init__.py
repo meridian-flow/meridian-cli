@@ -1,5 +1,11 @@
-"""Public state layer API."""
+"""Public state-layer API surface.
 
+This package-level export list is intentionally narrow: external callers should
+import only these names, while internal state modules remain private unless
+explicitly promoted here.
+"""
+
+# Lifecycle service boundary is public; transition writes behind it stay in spawn_store.
 from meridian.lib.core.lifecycle import LifecycleEvent, LifecycleHook, SpawnLifecycleService
 from meridian.lib.state.artifact_store import (
     ArtifactStore,
@@ -27,8 +33,9 @@ from meridian.lib.state.spawn_store import (
     start_spawn,
 )
 
-# Lifecycle writers are intentionally still exported while R13b privatization is
-# deferred. Executor-facing code should call SpawnLifecycleService instead.
+# Transitional compatibility exports: keep direct lifecycle writers public only
+# until R13b privatization lands. New executor-facing code should use
+# SpawnLifecycleService as the authoritative lifecycle seam.
 __all__ = [
     "ArtifactStore",
     "InMemoryStore",

@@ -1,4 +1,8 @@
-"""Resolved runtime context for process and child-environment composition."""
+"""Authoritative runtime-context resolution from ``MERIDIAN_*`` inputs.
+
+This module defines the canonical environment-to-context translation used by
+launch, ops, and child-environment composition paths.
+"""
 
 from contextlib import suppress
 from dataclasses import dataclass
@@ -11,7 +15,7 @@ from meridian.lib.state import session_store
 
 
 class ContextBackend(Protocol):
-    """Backend for context resolution supporting different storage strategies."""
+    """Backend interface for the authoritative context resolution workflow."""
 
     def get_session_active_work_id(self, state_root: Path, chat_id: str) -> str | None:
         """Look up the active work ID for a session."""
@@ -34,7 +38,7 @@ class LocalFilesystemBackend:
 
 @dataclass(frozen=True)
 class ResolvedContext:
-    """Fully resolved runtime context derived from `MERIDIAN_*` environment."""
+    """Canonical immutable runtime context resolved from ``MERIDIAN_*`` inputs."""
 
     spawn_id: SpawnId | None = None
     depth: int = 0
@@ -52,7 +56,7 @@ class ResolvedContext:
         explicit_work_id: str | None = None,
         backend: ContextBackend | None = None,
     ) -> Self:
-        """Build immutable context from `MERIDIAN_*` environment variables."""
+        """Resolve and freeze canonical runtime context from ``MERIDIAN_*`` values."""
 
         import os
 
@@ -73,6 +77,8 @@ class ResolvedContext:
         repo_root = Path(repo_root_raw) if repo_root_raw else None
         state_root = Path(state_root_raw) if state_root_raw else None
 
+        # Authoritative work-ID precedence:
+        # explicit override > MERIDIAN_WORK_ID > session active work lookup.
         work_id: str | None = None
         if explicit_work_id_raw:
             work_id = explicit_work_id_raw
@@ -83,6 +89,7 @@ class ResolvedContext:
 
         work_dir: Path | None = None
         if work_id:
+            # Repo-scoped state paths take precedence when repo_root is known.
             if repo_root is not None:
                 repo_state_root = state_paths.resolve_repo_state_paths(repo_root).root_dir
                 work_dir = backend_impl.resolve_work_scratch_dir(repo_state_root, work_id)

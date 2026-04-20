@@ -46,6 +46,7 @@ def _clear_meridian_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_from_environment_without_env_vars(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Canonical resolver output should remain empty/default when env is unset."""
     _clear_meridian_env(monkeypatch)
     backend = FakeBackend()
 
@@ -64,6 +65,7 @@ def test_from_environment_without_env_vars(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_from_environment_prefers_explicit_work_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Explicit work override must win over MERIDIAN_WORK_ID in resolver precedence."""
     _clear_meridian_env(monkeypatch)
     repo_root = Path("/repo")
     state_root = Path("/runtime/state")
@@ -84,6 +86,7 @@ def test_from_environment_prefers_explicit_work_id(monkeypatch: pytest.MonkeyPat
 
 
 def test_from_environment_uses_meridian_work_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Resolver must honor MERIDIAN_WORK_ID when no explicit override is provided."""
     _clear_meridian_env(monkeypatch)
     repo_root = Path("/repo")
     backend = FakeBackend()
@@ -103,6 +106,7 @@ def test_from_environment_uses_meridian_work_id(monkeypatch: pytest.MonkeyPatch)
 def test_from_environment_falls_back_to_session_store(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Resolver must consult session active-work lookup only after env sources miss."""
     _clear_meridian_env(monkeypatch)
     state_root = Path("/runtime/state")
     backend = FakeBackend(session_active_work_id="active-work", work_dir_suffix="fallback")
@@ -119,6 +123,7 @@ def test_from_environment_falls_back_to_session_store(
 
 
 def test_child_env_overrides_output_format() -> None:
+    """Child-env projection must serialize the canonical ResolvedContext fields."""
     resolved = ResolvedContext(
         depth=2,
         repo_root=Path("/repo"),
@@ -144,6 +149,7 @@ def test_child_env_overrides_output_format() -> None:
 
 
 def test_resolved_context_is_frozen() -> None:
+    """ResolvedContext contract requires immutability after resolution."""
     resolved = ResolvedContext(depth=1)
 
     with pytest.raises(FrozenInstanceError):
@@ -153,6 +159,7 @@ def test_resolved_context_is_frozen() -> None:
 def test_work_dir_prefers_repo_state_root_over_runtime_state_root(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Resolver must derive work_dir from repo-scoped state when repo_root exists."""
     _clear_meridian_env(monkeypatch)
     backend = FakeBackend()
 

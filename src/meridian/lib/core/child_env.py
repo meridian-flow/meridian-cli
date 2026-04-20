@@ -1,10 +1,14 @@
-"""Shared child-env contract for spawn and launch paths."""
+"""Shared child-env contract for spawn and launch boundaries.
+
+This module defines the canonical ``MERIDIAN_*`` key surface that callers may
+propagate into child processes.
+"""
 
 from collections.abc import Mapping
 from pathlib import Path
 
-# The keys that ChildEnvContext.child_context() is allowed to produce.
-# Matches the full output set of ResolvedContext.child_env_overrides().
+# Authoritative ``MERIDIAN_*`` key allowlist for child-process propagation.
+# Must stay aligned with ResolvedContext.child_env_overrides().
 ALLOWED_CHILD_ENV_KEYS: frozenset[str] = frozenset(
     {
         "MERIDIAN_REPO_ROOT",
@@ -43,7 +47,7 @@ def build_child_env_overrides(
     """Build ``MERIDIAN_*`` child env overrides from resolved context fields.
 
     Delegates to :meth:`~meridian.lib.core.resolved_context.ResolvedContext.child_env_overrides`
-    so that all key-name knowledge lives in one place.
+    so that key naming and omission rules are owned by one authoritative seam.
 
     Parameters
     ----------
@@ -73,6 +77,7 @@ def build_child_env_overrides(
     """
     from meridian.lib.core.resolved_context import ResolvedContext
 
+    # Route through ResolvedContext so all launch paths share one contract.
     ctx = ResolvedContext(
         depth=parent_depth,
         repo_root=repo_root,
