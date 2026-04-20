@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 from collections.abc import Mapping
 from pathlib import Path
 from typing import cast
@@ -13,6 +14,7 @@ import structlog
 
 from meridian.lib.launch.launch_types import PreflightResult
 from meridian.lib.launch.text_utils import dedupe_nonempty
+from meridian.lib.platform import IS_WINDOWS
 
 logger = structlog.get_logger(__name__)
 
@@ -31,7 +33,11 @@ def ensure_claude_session_accessible(
     source_cwd: Path | None,
     child_cwd: Path,
 ) -> None:
-    """Symlink one source Claude session file into the child's project dir."""
+    """Make one source Claude session file accessible in the child's project dir.
+
+    On POSIX, creates a symlink. On Windows, copies the file since symlinks
+    require developer mode or admin privileges.
+    """
 
     if source_cwd is None:
         return
@@ -58,6 +64,20 @@ def ensure_claude_session_accessible(
     child_project = claude_projects / child_slug
     child_project.mkdir(parents=True, exist_ok=True)
     target_file = child_project / f"{safe_session_id}.jsonl"
+
+    if IS_WINDOWS:
+        # Windows symlinks require developer mode or admin; copy instead
+        try:
+            if not target_file.exists():
+                shutil.copy2(source_file, target_file)
+            elif not target_file.samefile(source_file):
+                target_file.unlink()
+                shutil.copy2(source_file, target_file)
+        except OSError:
+            pass
+        return
+
+    # POSIX: use symlinks
     try:
         os.symlink(source_file, target_file)
     except FileExistsError:

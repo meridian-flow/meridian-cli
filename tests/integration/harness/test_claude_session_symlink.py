@@ -4,6 +4,7 @@ import pytest
 
 from meridian.lib.harness.claude import project_slug
 from meridian.lib.harness.claude_preflight import ensure_claude_session_accessible
+from meridian.lib.platform import IS_WINDOWS
 
 
 def _write_session_file(home: Path, project_root: Path, session_id: str) -> Path:
@@ -33,7 +34,7 @@ def test_ensure_claude_session_accessible_is_noop_when_source_cwd_missing(
     assert not (fake_home / ".claude").exists()
 
 
-def test_ensure_claude_session_accessible_symlinks_session_into_child_project(
+def test_ensure_claude_session_accessible_makes_session_available_in_child_project(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -50,11 +51,16 @@ def test_ensure_claude_session_accessible_symlinks_session_into_child_project(
     ensure_claude_session_accessible("session-1", source_cwd, child_cwd)
 
     target_file = _target_session_file(fake_home, child_cwd, "session-1")
-    assert target_file.is_symlink()
-    assert target_file.resolve() == source_file.resolve()
+    assert target_file.exists()
+    # On POSIX: symlink. On Windows: copy.
+    if IS_WINDOWS:
+        assert target_file.read_text() == source_file.read_text()
+    else:
+        assert target_file.is_symlink()
+        assert target_file.resolve() == source_file.resolve()
 
 
-def test_ensure_claude_session_accessible_is_idempotent_on_existing_symlink(
+def test_ensure_claude_session_accessible_is_idempotent_on_existing_file(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -69,13 +75,23 @@ def test_ensure_claude_session_accessible_is_idempotent_on_existing_symlink(
     source_file = _write_session_file(fake_home, source_cwd, "session-1")
     target_file = _target_session_file(fake_home, child_cwd, "session-1")
     target_file.parent.mkdir(parents=True, exist_ok=True)
-    target_file.symlink_to(source_file)
 
-    # Existing symlink triggers FileExistsError from os.symlink and should be tolerated.
+    if IS_WINDOWS:
+        # Pre-create as copy
+        target_file.write_text(source_file.read_text())
+    else:
+        # Pre-create as symlink
+        target_file.symlink_to(source_file)
+
+    # Should tolerate existing file/symlink
     ensure_claude_session_accessible("session-1", source_cwd, child_cwd)
 
-    assert target_file.is_symlink()
-    assert target_file.resolve() == source_file.resolve()
+    assert target_file.exists()
+    if IS_WINDOWS:
+        assert target_file.read_text() == source_file.read_text()
+    else:
+        assert target_file.is_symlink()
+        assert target_file.resolve() == source_file.resolve()
 
 
 @pytest.mark.parametrize("session_id", ("../../evil", "foo/bar"))
