@@ -32,6 +32,7 @@ from meridian.lib.launch.request import (
 from meridian.lib.launch.session_scope import session_scope
 from meridian.lib.launch.streaming_runner import execute_with_streaming
 from meridian.lib.ops.work_attachment import ensure_explicit_work_item
+from meridian.lib.platform import IS_WINDOWS
 from meridian.lib.state import spawn_store
 from meridian.lib.state.atomic import atomic_write_text
 from meridian.lib.state.paths import (
@@ -175,6 +176,25 @@ def _spawn_background_worker_env(
     if autocompact is not None:
         child_env["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"] = str(autocompact)
     return child_env
+
+
+
+def _build_detached_popen_kwargs() -> dict[str, Any]:
+    """Build platform-appropriate kwargs for a detached subprocess.Popen.
+
+    On POSIX, uses start_new_session=True to create a new process group.
+    On Windows, uses creationflags to detach the process.
+    """
+    if IS_WINDOWS:
+        return {
+            "creationflags": (
+                subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+            ),
+        }
+    return {
+        "start_new_session": True,
+        "close_fds": True,
+    }
 
 
 def _resolve_work_id(
@@ -702,8 +722,7 @@ def execute_spawn_background(
                 stdin=subprocess.DEVNULL,
                 stdout=stdout_handle,
                 stderr=stderr_handle,
-                start_new_session=True,
-                close_fds=True,
+                **_build_detached_popen_kwargs(),
             )
     except OSError as exc:
         spawn_store.finalize_spawn(
