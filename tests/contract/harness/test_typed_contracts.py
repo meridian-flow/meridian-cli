@@ -52,7 +52,7 @@ def _class_definition_sites(class_name: str) -> list[str]:
     for path in sorted(_SRC_ROOT.rglob("*.py")):
         for line_number, line in enumerate(path.read_text().splitlines(), start=1):
             if pattern.match(line):
-                matches.append(f"{path.relative_to(_REPO_ROOT)}:{line_number}")
+                matches.append(f"{path.relative_to(_REPO_ROOT).as_posix()}:{line_number}")
     return matches
 
 
