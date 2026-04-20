@@ -36,6 +36,31 @@ async def _connect_windows(
     return await asyncio.open_connection("127.0.0.1", port)
 
 
+async def _connect_posix(
+    socket_path: str,
+) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
+    """Connect via Unix domain socket on POSIX."""
+    # Import the function locally to avoid pyright errors on Windows
+    from asyncio import open_unix_connection as _open_unix
+
+    return await _open_unix(socket_path)
+
+
+async def _send_and_receive(
+    reader: asyncio.StreamReader,
+    writer: asyncio.StreamWriter,
+    request: dict[str, str],
+) -> bytes:
+    """Send request and receive response, with proper cleanup."""
+    try:
+        writer.write((json.dumps(request, separators=(",", ":")) + "\n").encode("utf-8"))
+        await writer.drain()
+        return await asyncio.wait_for(reader.readline(), timeout=10.0)
+    finally:
+        writer.close()
+        await writer.wait_closed()
+
+
 async def inject_message(
     spawn_id: str,
     message: str | None,
@@ -87,16 +112,13 @@ async def inject_message(
     else:
         request = {"type": "user_message", "text": normalized_message}
 
-    writer: asyncio.StreamWriter | None = None
     response_data = b""
     try:
         if IS_WINDOWS:
             reader, writer = await _connect_windows(str(port_file))
         else:
-            reader, writer = await asyncio.open_unix_connection(str(socket_path))
-        writer.write((json.dumps(request, separators=(",", ":")) + "\n").encode("utf-8"))
-        await writer.drain()
-        response_data = await asyncio.wait_for(reader.readline(), timeout=10.0)
+            reader, writer = await _connect_posix(str(socket_path))
+        response_data = await _send_and_receive(reader, writer, request)
     except TimeoutError:
         _fail(f"timed out waiting for response from spawn {normalized_spawn_id}")
     except ConnectionRefusedError:
@@ -109,10 +131,6 @@ async def inject_message(
         if exc.errno == errno.ECONNREFUSED:
             _fail(f"connection refused: spawn {normalized_spawn_id} is not running")
         raise
-    finally:
-        if writer is not None:
-            writer.close()
-            await writer.wait_closed()
 
     if not response_data:
         _fail(f"spawn not running: {normalized_spawn_id} returned no response")
