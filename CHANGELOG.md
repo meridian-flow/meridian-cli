@@ -1,27 +1,26 @@
 # Changelog
 
 Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [SemVer](https://semver.org/). Versions `0.0.6` through `0.0.25` in git history only — changelog fell stale, resumed at `[Unreleased]`.
-
 ## [Unreleased]
 
 ### Added
-- `spawn show/children/files/cancel/wait/log` accept chat_id refs (e.g. `c213`). Resolves to most recent spawn with that chat_id.
-- `meridian context` command — returns context tuple (`work_id`, `repo_root`, `state_root`, `depth`). JSON when spawned or with `--json`; human-friendly text in TTY.
-- `meridian work current` command — convenience alias returning just the `work_id`.
-- spawn: `--bg` output now reminds to wait for results (`meridian spawn wait <id>`).
-- `SpawnLifecycleService` centralizes all spawn state transitions. Hook dispatch seam for future extensibility.
-- `ResolvedContext` frozen dataclass — single source of truth for context resolution. `ContextBackend` protocol enables future remote/hybrid backends.
-- `ChildEnvContract` shared module — unified MERIDIAN_* env var handling for child processes.
+- **Hook system**: Event-driven hooks for lifecycle events (`spawn.created`, `spawn.running`, `spawn.finalized`, `work.started`, `work.done`). External hooks (subprocess) and built-in hooks (Python). CLI: `hooks list`, `hooks check`, `hooks run`.
+- **git-autosync**: Built-in hook for syncing git-backed contexts. Auto-registers when `source = "git"`. Interval throttling, fail-open semantics.
+- **App server Phase 1**: Sessions/SSE/Work facade endpoints. Multiplexed SSE stream for live updates.
+- **`meridian.local.toml`**: Personal config overrides, gitignored. Precedence: local > project > user.
 
 ### Changed
-- All spawn lifecycle writes (start, finalize, mark_running, mark_finalizing) now go through `SpawnLifecycleService`. Direct `spawn_store` calls migrated.
-- Context resolution consolidated: `launch/env.py`, `launch/context.py`, `ops/context.py`, `core/context.py` all delegate to `ResolvedContext`.
+- `spawn show/children/files/cancel/wait/log` accept chat_id refs (e.g. `c213`). Resolves to most recent spawn with that chat_id.
+- `meridian context` command — returns context tuple (`work_id`, `repo_root`, `state_root`, `depth`). JSON when spawned or with `--json`; human-friendly text in TTY.
 
 ### Fixed
-- `spawn children` now returns child spawns. `MERIDIAN_SPAWN_ID` propagated to child env so parent_id tracked.
-- fix(codex): `codex app-server` no longer fails with `unexpected argument --add-dir`. Workspace projection `--add-dir` paths are now converted to `-c sandbox_workspace_write.writable_roots=[...]` in the streaming path.
-- fix(windows): Claude session linking uses file copy instead of symlink. Windows doesn't support symlinks without admin.
-- fix(windows): pyright errors for spawn inject type narrowing resolved.
+- Windows: `_fsync_directory` no-op on Windows (not supported).
+- Windows: `output.jsonl` capture enabled on Windows.
+- Windows: Guardrails platform dispatch for `.cmd`/`.ps1` scripts.
+- Windows: `Path.home()` → `get_home_path()` to respect `HOME` env var.
+- Windows: fcntl test skip on Windows.
+- Windows: Path assertion normalized for cross-platform.
+
 
 ## [0.0.33] - 2026-04-17
 
