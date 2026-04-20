@@ -85,6 +85,13 @@ async def inject_message(
     if not spawn_dir.exists():
         _fail(f"spawn not found: {normalized_spawn_id}")
 
+    normalized_message = message.strip() if message is not None else ""
+    action_count = int(interrupt) + int(bool(normalized_message))
+    if action_count == 0:
+        _fail("provide a message or --interrupt")
+    if action_count > 1:
+        _fail("message text is mutually exclusive with --interrupt")
+
     # The control socket/port may not be visible immediately after spawn start.
     # Retry briefly to tolerate the startup race.
     _SOCKET_WAIT_ATTEMPTS = 3
@@ -98,13 +105,6 @@ async def inject_message(
             await asyncio.sleep(_SOCKET_WAIT_INTERVAL)
     else:
         _fail(f"spawn not running: {normalized_spawn_id} has no control endpoint")
-
-    normalized_message = message.strip() if message is not None else ""
-    action_count = int(interrupt) + int(bool(normalized_message))
-    if action_count == 0:
-        _fail("provide a message or --interrupt")
-    if action_count > 1:
-        _fail("message text is mutually exclusive with --interrupt")
 
     request: dict[str, str]
     if interrupt:
