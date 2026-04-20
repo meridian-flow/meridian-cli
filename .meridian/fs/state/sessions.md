@@ -26,28 +26,31 @@ Events in `.meridian/sessions.jsonl`:
 
 ## ID Allocation
 
-`next_session_id()` reads the counter file atomically, increments, and writes back. The counter is seeded from the count of existing `start` events in `sessions.jsonl` if the counter file doesn't exist (upgrade path).
+`reserve_chat_id()` acquires `session_id_counter_flock` via `platform.locking.lock_file()`, reads the counter file, increments, and writes back atomically. Returns `c<N>`. The counter is seeded from the **highest existing `c<N>` chat ID** found in `sessions.jsonl` (via `_seed_counter_from_events()`) if the counter file doesn't exist (upgrade path) — not from the count of start events.
 
 ## Locking and Leases
 
 Sessions hold two artifacts while active:
 
-**Lock file** (`.meridian/sessions/<chat_id>.lock`): `platform.locking.lock_file()` held for the session's lifetime (cross-platform: `fcntl.flock` on POSIX, `msvcrt.locking` on Windows). Any new process trying to acquire the same lock will block or detect contention.
+**Lock file** (`.meridian/sessions/<chat_id>.lock`): held for the session's lifetime by a dedicated helper in `session_store.py` (not `platform.locking.lock_file()`). Platform dispatch:
+- **POSIX** (`_posix_acquire_session_lock()`): `fcntl.flock(fileno, LOCK_EX)` (blocking). Wraps in an inode-rematch loop — after acquiring the lock, verifies the handle's inode matches the path's current inode; retries if the file was unlinked between open and lock.
+- **Windows** (`_win_acquire_session_lock()`): `msvcrt.locking(fileno, LK_LOCK, 1)` (blocking, 1-byte region). Same inode-rematch loop.
+- Release: `_release_session_lock_handle()` dispatches to `LOCK_UN` (POSIX) or `LK_UNLCK` (Windows).
 
-**Lease file** (`.meridian/sessions/<chat_id>.lease.json`): Written atomically alongside the lock. Contains:
-- `pid` — the process holding the session
-- `generation` — the `session_instance_id` UUID, changes each time the session starts
+This is distinct from the **sessions flock** (`.meridian/sessions.flock`), which is acquired via `platform.locking.lock_file()` around all `append_event` + lease writes to serialize concurrent access to the JSONL store.
 
-The lease enables stale session detection without needing to check if the lock file's PID is still alive: if the lease PID is dead or the generation doesn't match what the lock holder recorded, the session is stale.
+**Lease file** (`.meridian/sessions/<chat_id>.lease.json`): Written atomically alongside the start event. Contains:
+- `owner_pid` — the PID of the process holding the session
+- `session_instance_id` — random UUID, changes each time the session starts (generation token)
 
-`start_session()`: writes `start` event → acquires persistent lock → writes lease file.
-`stop_session()`: writes `stop` event → releases lock → removes lease file.
+`start_session()`: acquires persistent lock (`_acquire_session_lock()`) first → then, under the sessions flock: appends `start` event and writes lease file. Registers the lock handle in `_SESSION_LOCK_HANDLES`.
+`stop_session()`: under the sessions flock: appends `stop` event and unlinks lease file → then releases the persistent lock.
 
 ## Stale Session Cleanup
 
 `cleanup_stale_sessions()` (called by `doctor`):
-1. Collect stale candidates by attempting a non-blocking lock on each `<chat_id>.lock` — sessions whose process is alive will already hold the lock and cannot be acquired.
-2. Under the sessions flock, emit `SessionStopEvent`s for sessions with no `stopped_at` and decide which IDs to clean.
+1. Collect stale candidates by attempting a non-blocking lock on each `<chat_id>.lock` (`_try_lock_nonblocking()` — POSIX `LOCK_EX|LOCK_NB`, Windows `LK_NBLCK`). Success means nobody is holding the lifetime lock → stale candidate. A live process keeps its lock held, so this is the primary liveness signal (no PID-alive check).
+2. Under the sessions flock: for each candidate, read the lease and compare its `session_instance_id` against the event-projected record via `_generation_matches()`. Emit a `SessionStopEvent` for sessions with no `stopped_at` whose generation matches (or whose lease is absent). Decide which IDs to clean.
 3. **Release all lock handles first** (separate pass before any file deletion) — Windows forbids deleting a file while an open handle to it exists.
 4. Unlink `*.lock` and `*.lease.json` files for cleaned IDs.
 
@@ -74,4 +77,4 @@ Scans all compaction segments for a session, highlights matches, emits navigatio
 
 ## Work Attachment
 
-`active_work_id` in session update events tracks which work item the session is currently attached to. Updated via `update_session()` when work context changes.
+`active_work_id` in session update events tracks which work item the session is currently attached to. Updated via `update_session_work_id()` when work context changes.
