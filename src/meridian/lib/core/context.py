@@ -1,11 +1,11 @@
 """Runtime context derived from MERIDIAN_* environment variables."""
 
-from contextlib import suppress
 from pathlib import Path
 from typing import Self
 
 from pydantic import BaseModel, ConfigDict
 
+from meridian.lib.core.resolved_context import ResolvedContext
 from meridian.lib.core.types import SpawnId
 from meridian.lib.state.paths import resolve_repo_state_paths, resolve_work_scratch_dir
 
@@ -23,27 +23,15 @@ class RuntimeContext(BaseModel):
     @classmethod
     def from_environment(cls) -> Self:
         """Build context from MERIDIAN_* environment variables."""
-
-        import os
-
-        spawn_id_raw = os.getenv("MERIDIAN_SPAWN_ID", "").strip()
-        depth_raw = os.getenv("MERIDIAN_DEPTH", "0").strip()
-        repo_root_raw = os.getenv("MERIDIAN_REPO_ROOT", "").strip()
-        state_root_raw = os.getenv("MERIDIAN_STATE_ROOT", "").strip()
-        chat_id_raw = os.getenv("MERIDIAN_CHAT_ID", "").strip()
-        work_id_raw = os.getenv("MERIDIAN_WORK_ID", "").strip()
-
-        depth = 0
-        with suppress(ValueError, TypeError):
-            depth = max(0, int(depth_raw))
+        resolved = ResolvedContext.from_environment()
 
         return cls(
-            spawn_id=SpawnId(spawn_id_raw) if spawn_id_raw else None,
-            depth=depth,
-            repo_root=Path(repo_root_raw) if repo_root_raw else None,
-            state_root=Path(state_root_raw) if state_root_raw else None,
-            chat_id=chat_id_raw,
-            work_id=work_id_raw or None,
+            spawn_id=resolved.spawn_id,
+            depth=resolved.depth,
+            repo_root=resolved.repo_root,
+            state_root=resolved.state_root,
+            chat_id=resolved.chat_id,
+            work_id=resolved.work_id,
         )
 
     def to_env_overrides(self) -> dict[str, str]:
