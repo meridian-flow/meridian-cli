@@ -438,3 +438,254 @@ def test_created_and_running_events_never_carry_metrics(tmp_path: Path) -> None:
         assert event.total_cost_usd is None
         assert event.input_tokens is None
         assert event.output_tokens is None
+
+
+# ---------------------------------------------------------------------------
+# 10. Illegal transition attempts — mark_finalizing guards
+# ---------------------------------------------------------------------------
+
+
+def test_mark_finalizing_returns_false_on_queued_spawn(tmp_path: Path) -> None:
+    """mark_finalizing requires running status — queued spawn is silently rejected."""
+    repo = FakeSpawnRepository()
+    svc = _make_service(tmp_path, repository=repo)
+    spawn_id = _start_spawn(svc, status="queued")
+
+    result = svc.mark_finalizing(spawn_id)
+
+    assert result is False
+    record = spawn_store.get_spawn(tmp_path, spawn_id, repository=repo)
+    assert record is not None
+    assert record.status == "queued"  # Status must be unchanged
+
+
+def test_mark_finalizing_returns_false_on_terminal_spawn(tmp_path: Path) -> None:
+    """mark_finalizing is a no-op once the spawn has reached a terminal state."""
+    repo = FakeSpawnRepository()
+    svc = _make_service(tmp_path, repository=repo)
+    spawn_id = _start_spawn(svc, status="running")
+    svc.finalize(spawn_id, "succeeded", 0, origin="runner")
+
+    result = svc.mark_finalizing(spawn_id)
+
+    assert result is False
+    record = spawn_store.get_spawn(tmp_path, spawn_id, repository=repo)
+    assert record is not None
+    assert record.status == "succeeded"  # Terminal status must be preserved
+
+
+def test_mark_finalizing_idempotent_second_call_returns_false(tmp_path: Path) -> None:
+    """Calling mark_finalizing twice: first returns True, second returns False."""
+    repo = FakeSpawnRepository()
+    svc = _make_service(tmp_path, repository=repo)
+    spawn_id = _start_spawn(svc, status="running")
+
+    first = svc.mark_finalizing(spawn_id)
+    second = svc.mark_finalizing(spawn_id)  # Already finalizing, not running
+
+    assert first is True
+    assert second is False
+    record = spawn_store.get_spawn(tmp_path, spawn_id, repository=repo)
+    assert record is not None
+    assert record.status == "finalizing"
+
+
+# ---------------------------------------------------------------------------
+# 11. Repeated finalize calls — second always returns False
+# ---------------------------------------------------------------------------
+
+
+def test_second_finalize_returns_false_with_different_terminal_status(tmp_path: Path) -> None:
+    """Second finalize with a *different* terminal status still returns False.
+
+    The first writer to reach the terminal state wins; subsequent calls
+    must not overwrite the authoritative outcome.
+    """
+    repo = FakeSpawnRepository()
+    svc = _make_service(tmp_path, repository=repo)
+    spawn_id = _start_spawn(svc, status="running")
+
+    first = svc.finalize(spawn_id, "succeeded", 0, origin="runner")
+    second = svc.finalize(spawn_id, "failed", 1, origin="launcher")
+
+    assert first is True
+    assert second is False
+    record = spawn_store.get_spawn(tmp_path, spawn_id, repository=repo)
+    assert record is not None
+    assert record.status == "succeeded"  # First terminal status wins
+
+
+def test_second_finalize_does_not_dispatch_event(tmp_path: Path) -> None:
+    """spawn.finalized must not be dispatched on the second finalize call."""
+    hook = RecordingHook()
+    svc = _make_service(tmp_path, hooks=[hook])
+    spawn_id = _start_spawn(svc, status="running")
+
+    svc.finalize(spawn_id, "succeeded", 0, origin="runner")
+    hook.events.clear()
+
+    result = svc.finalize(spawn_id, "failed", 1, origin="launcher")
+
+    assert result is False
+    finalize_events = [e for e in hook.events if e.event_type == "spawn.finalized"]
+    assert finalize_events == []
+
+
+def test_cancel_twice_second_returns_false_no_event(tmp_path: Path) -> None:
+    """cancel() is backed by finalize(); double-cancel follows the same contract."""
+    hook = RecordingHook()
+    svc = _make_service(tmp_path, hooks=[hook])
+    spawn_id = _start_spawn(svc, status="running")
+
+    first = svc.cancel(spawn_id)
+    hook.events.clear()
+    second = svc.cancel(spawn_id)
+
+    assert first is True
+    assert second is False
+    assert hook.events == []
+
+
+# ---------------------------------------------------------------------------
+# 12. Hook failure isolation — middle-hook failure must not silence later hooks
+# ---------------------------------------------------------------------------
+
+
+def test_middle_hook_failure_does_not_block_later_hooks_on_finalize(tmp_path: Path) -> None:
+    """A failing hook mid-list must not prevent subsequent hooks receiving events."""
+    early = RecordingHook()
+    middle = FailingHook()
+    late = RecordingHook()
+    svc = _make_service(tmp_path, hooks=[early, middle, late])
+    spawn_id = _start_spawn(svc, status="running")
+
+    svc.finalize(spawn_id, "succeeded", 0, origin="runner")
+
+    # Both recording hooks must receive: spawn.created + spawn.finalized
+    assert len(early.events) == 2
+    assert len(late.events) == 2
+    assert early.events[-1].event_type == "spawn.finalized"
+    assert late.events[-1].event_type == "spawn.finalized"
+
+
+def test_first_hook_failure_does_not_silence_remaining_hooks(tmp_path: Path) -> None:
+    """When the first hook raises, all subsequent hooks still receive the event."""
+    failing = FailingHook()
+    recording1 = RecordingHook()
+    recording2 = RecordingHook()
+    svc = _make_service(tmp_path, hooks=[failing, recording1, recording2])
+
+    _start_spawn(svc)
+
+    assert len(recording1.events) == 1
+    assert len(recording2.events) == 1
+    assert recording1.events[0].event_type == "spawn.created"
+    assert recording2.events[0].event_type == "spawn.created"
+
+
+def test_all_hooks_fail_transition_still_succeeds(tmp_path: Path) -> None:
+    """Even when every hook raises, the store write must complete successfully."""
+    failing1 = FailingHook()
+    failing2 = FailingHook()
+    svc = _make_service(tmp_path, hooks=[failing1, failing2])
+    spawn_id = _start_spawn(svc, status="running")
+
+    transitioned = svc.finalize(spawn_id, "succeeded", 0, origin="runner")
+
+    assert transitioned is True
+    record = spawn_store.get_spawn(tmp_path, spawn_id, repository=svc._repository)
+    assert record is not None
+    assert record.status == "succeeded"
+
+
+# ---------------------------------------------------------------------------
+# 13. Incomplete metrics on spawn.finalized — partial None values handled
+# ---------------------------------------------------------------------------
+
+
+def test_finalized_event_partial_metrics_none_values_handled(tmp_path: Path) -> None:
+    """spawn.finalized fires correctly when only some metrics are provided."""
+    hook = RecordingHook()
+    svc = _make_service(tmp_path, hooks=[hook])
+    spawn_id = _start_spawn(svc, status="running")
+
+    svc.finalize(
+        spawn_id,
+        "succeeded",
+        0,
+        origin="runner",
+        duration_secs=5.0,
+        total_cost_usd=None,  # Explicitly absent
+        input_tokens=200,
+        output_tokens=None,   # Explicitly absent
+    )
+
+    event = next(e for e in hook.events if e.event_type == "spawn.finalized")
+    assert event.duration_secs == 5.0
+    assert event.total_cost_usd is None
+    assert event.input_tokens == 200
+    assert event.output_tokens is None
+
+
+def test_finalized_event_zero_metrics_are_not_none(tmp_path: Path) -> None:
+    """Zero values for numeric metrics must be preserved, not coerced to None."""
+    hook = RecordingHook()
+    svc = _make_service(tmp_path, hooks=[hook])
+    spawn_id = _start_spawn(svc, status="running")
+
+    svc.finalize(
+        spawn_id,
+        "succeeded",
+        0,
+        origin="runner",
+        duration_secs=0.0,
+        total_cost_usd=0.0,
+        input_tokens=0,
+        output_tokens=0,
+    )
+
+    event = next(e for e in hook.events if e.event_type == "spawn.finalized")
+    assert event.duration_secs == 0.0
+    assert event.total_cost_usd == 0.0
+    assert event.input_tokens == 0
+    assert event.output_tokens == 0
+
+
+# ---------------------------------------------------------------------------
+# 14. Event ID stability across service instances
+# ---------------------------------------------------------------------------
+
+
+def test_event_id_stable_across_service_instances(tmp_path: Path) -> None:
+    """Events for the same spawn_id/event_type carry identical IDs regardless
+    of which service instance built the event."""
+    hook1 = RecordingHook()
+    hook2 = RecordingHook()
+
+    svc1 = _make_service(tmp_path, hooks=[hook1])
+    spawn_id = _start_spawn(svc1)  # spawns through svc1
+
+    # Second service shares the same repository so it can see the spawn
+    svc2 = _make_service(tmp_path, hooks=[hook2], repository=svc1._repository)
+    svc2.mark_running(spawn_id)
+
+    expected_created_id = generate_event_id(spawn_id, "spawn.created", 0)
+    expected_running_id = generate_event_id(spawn_id, "spawn.running", 0)
+
+    assert hook1.events[0].event_id == expected_created_id
+    assert hook2.events[0].event_id == expected_running_id
+
+
+def test_event_id_stable_recomputed_from_scratch(tmp_path: Path) -> None:
+    """generate_event_id called independently must match IDs in dispatched events."""
+    hook = RecordingHook()
+    svc = _make_service(tmp_path, hooks=[hook])
+    spawn_id = _start_spawn(svc, status="running")
+    svc.finalize(spawn_id, "succeeded", 0, origin="runner")
+
+    for event in hook.events:
+        recomputed = generate_event_id(spawn_id, event.event_type, 0)
+        assert event.event_id == recomputed, (
+            f"Event ID mismatch for {event.event_type}: "
+            f"dispatched={event.event_id}, recomputed={recomputed}"
+        )
