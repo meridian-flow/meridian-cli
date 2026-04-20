@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import time
 from collections.abc import AsyncIterator, Callable
 from contextlib import suppress
@@ -15,11 +14,15 @@ from meridian.lib.core.types import SpawnId
 from meridian.lib.harness.connections.base import HarnessEvent
 from meridian.lib.streaming.spawn_manager import SpawnManager
 
-logger = logging.getLogger(__name__)
+
+class _FastAPIAppState(Protocol):
+    stream_broadcaster: StreamBroadcaster
 
 
 class _FastAPIApp(Protocol):
     """Minimal FastAPI app surface consumed by this module."""
+
+    state: _FastAPIAppState
 
     def get(self, path: str, **kwargs: object) -> Callable[[Callable[..., object]], object]: ...
 
@@ -128,6 +131,8 @@ class SpawnMultiSubscriberManager:
 
     async def unsubscribe(self, spawn_id: SpawnId, subscriber_id: int) -> None:
         """Unsubscribe from spawn events."""
+        pump_task: asyncio.Task[None] | None = None
+
         async with self._lock:
             broadcaster = self._broadcasters.get(spawn_id)
             if broadcaster is not None:
@@ -135,12 +140,16 @@ class SpawnMultiSubscriberManager:
                 # Clean up if no more subscribers
                 if broadcaster.subscriber_count == 0:
                     self._spawn_manager.unsubscribe(spawn_id)
-                    task = self._pump_tasks.pop(spawn_id, None)
-                    if task is not None:
-                        task.cancel()
-                        with suppress(asyncio.CancelledError):
-                            await task
-                    del self._broadcasters[spawn_id]
+                    self._broadcasters.pop(spawn_id, None)
+                    pump_task = self._pump_tasks.pop(spawn_id, None)
+                    if pump_task is not None:
+                        pump_task.cancel()
+
+        # Never await the pump while holding self._lock:
+        # _pump_loop() also acquires this lock in its finally block.
+        if pump_task is not None:
+            with suppress(asyncio.CancelledError):
+                await pump_task
 
     async def _pump_loop(
         self,
@@ -180,7 +189,6 @@ class SpawnMultiSubscriberManager:
 
 async def sse_event_generator(
     broadcaster: StreamBroadcaster,
-    subscriber_id: int,
     queue: asyncio.Queue[dict[str, object] | None],
     unsubscribe_fn: Callable[[], object],
 ) -> AsyncIterator[str]:
@@ -201,13 +209,39 @@ async def sse_event_generator(
             await result
 
 
+def get_or_create_stream_broadcaster(app: object) -> StreamBroadcaster:
+    """Return app-global SSE broadcaster, creating it on first access."""
+    typed_app = cast("_FastAPIApp", app)
+    existing = getattr(typed_app.state, "stream_broadcaster", None)
+    if isinstance(existing, StreamBroadcaster):
+        return existing
+    broadcaster = StreamBroadcaster()
+    typed_app.state.stream_broadcaster = broadcaster
+    return broadcaster
+
+
+def broadcast_stream_event(
+    app: object,
+    event_type: str,
+    payload: dict[str, object] | None = None,
+) -> None:
+    """Broadcast one app event to all SSE subscribers."""
+    event: dict[str, object] = {
+        "type": event_type,
+        "timestamp": time.time(),
+    }
+    if payload:
+        event.update(payload)
+    get_or_create_stream_broadcaster(app).broadcast(event)
+
+
 def register_stream_routes(
     app: object,
     spawn_manager: SpawnManager,
     *,
     state_root: Path,
     multi_sub_manager: SpawnMultiSubscriberManager | None = None,
-) -> SpawnMultiSubscriberManager:
+) -> StreamBroadcaster:
     """Register SSE streaming routes on the FastAPI app.
     
     Returns the multi-subscriber manager for use by other routes.
@@ -215,9 +249,11 @@ def register_stream_routes(
     from importlib import import_module
     
     typed_app = cast("_FastAPIApp", app)
-    
-    # Create or use provided multi-subscriber manager
-    manager = multi_sub_manager or SpawnMultiSubscriberManager(spawn_manager)
+
+    _ = multi_sub_manager
+    _ = spawn_manager
+    _ = state_root
+    global_broadcaster = get_or_create_stream_broadcaster(app)
     
     try:
         responses_module = import_module("starlette.responses")
@@ -228,22 +264,18 @@ def register_stream_routes(
 
     async def stream_endpoint() -> object:
         """Multiplexed SSE stream for all spawn updates.
-        
+
         Clients can filter by query params in future, but for now broadcasts all.
         """
-        # Create a global broadcast queue for all spawn events
-        global_broadcaster = StreamBroadcaster()
         sub_id, queue = await global_broadcaster.subscribe()
-        
+
         async def cleanup() -> None:
             await global_broadcaster.unsubscribe(sub_id)
         
         async def event_generator() -> AsyncIterator[str]:
             # Send initial keepalive
             yield "event: connected\ndata: {}\n\n"
-            
-            # For now, just send keepalives since we don't have global spawn event subscription yet
-            # Full implementation would watch all active spawns
+
             try:
                 while True:
                     try:
@@ -270,13 +302,15 @@ def register_stream_routes(
         )
 
     typed_app.get("/api/stream")(stream_endpoint)
-    
-    return manager
+
+    return global_broadcaster
 
 
 __all__ = [
     "SpawnMultiSubscriberManager",
     "StreamBroadcaster",
+    "broadcast_stream_event",
+    "get_or_create_stream_broadcaster",
     "register_stream_routes",
     "sse_event_generator",
 ]

@@ -8,6 +8,7 @@ import json as json_module
 import logging
 import os
 import re
+import time
 from collections.abc import Callable
 from dataclasses import asdict
 from pathlib import Path
@@ -30,6 +31,7 @@ from meridian.lib.streaming.signal_canceller import SignalCanceller
 from meridian.lib.streaming.spawn_manager import SpawnManager
 
 if TYPE_CHECKING:
+    from meridian.lib.app.stream import StreamBroadcaster
     from meridian.lib.state.spawn_store import SpawnRecord
 
 _SPAWN_ID_RE = re.compile(r"^p\d+$")
@@ -152,6 +154,7 @@ def register_spawn_routes(
     lifecycle_service: SpawnLifecycleService,
     spawn_id_lock: asyncio.Lock,
     background_finalize_tasks: set[asyncio.Task[None]],
+    event_broadcaster: StreamBroadcaster | None = None,
     allow_unsafe_no_permissions: bool = False,
     http_exception: HTTPExceptionCallable,
 ) -> None:
@@ -198,6 +201,13 @@ def register_spawn_routes(
     def _require_not_finalizing(record: SpawnRecord) -> None:
         require_not_finalizing(record, http_exception)
 
+    def _broadcast(event_type: str, payload: dict[str, object]) -> None:
+        if event_broadcaster is None:
+            return
+        event: dict[str, object] = {"type": event_type, "timestamp": time.time()}
+        event.update(payload)
+        event_broadcaster.broadcast(event)
+
     async def _background_finalize(spawn_id: SpawnId) -> None:
         outcome = await spawn_manager.wait_for_completion(spawn_id)
         if outcome is None:
@@ -209,6 +219,16 @@ def register_spawn_routes(
             origin="runner",
             duration_secs=outcome.duration_secs,
             error=outcome.error,
+        )
+        _broadcast(
+            "spawn.finalized",
+            {
+                "spawn_id": str(spawn_id),
+                "status": outcome.status,
+                "exit_code": outcome.exit_code,
+                "duration_secs": outcome.duration_secs,
+                "error": outcome.error,
+            },
         )
 
     async def create_spawn(body: SpawnCreateRequest) -> dict[str, object]:
@@ -313,6 +333,15 @@ def register_spawn_routes(
         finalize_task = asyncio.create_task(_background_finalize(spawn_id))
         background_finalize_tasks.add(finalize_task)
         finalize_task.add_done_callback(background_finalize_tasks.discard)
+
+        _broadcast(
+            "spawn.created",
+            {
+                "spawn_id": str(config.spawn_id),
+                "harness": connection.harness_id.value,
+                "state": connection.state,
+            },
+        )
 
         return {
             "spawn_id": str(config.spawn_id),
@@ -431,6 +460,7 @@ def _decode_cursor(cursor: str) -> tuple[str, str] | None:
 
 def _spawn_to_projection(record: SpawnRecord) -> SpawnProjection:
     """Convert spawn record to API projection."""
+    sort_ts = record.started_at or ""
     return SpawnProjection(
         spawn_id=record.id,
         status=record.status,
@@ -439,7 +469,7 @@ def _spawn_to_projection(record: SpawnRecord) -> SpawnProjection:
         agent=record.agent or "",
         work_id=record.work_id if record.work_id else None,
         desc=record.desc or "",
-        created_at=record.created_at,
+        created_at=sort_ts,
         started_at=record.started_at,
         finished_at=record.finished_at,
     )
@@ -453,7 +483,6 @@ def register_spawn_query_routes(
 ) -> None:
     """Register expanded spawn query routes (filters, pagination, stats)."""
     from importlib import import_module
-    from typing import Annotated
 
     try:
         fastapi_module = import_module("fastapi")
@@ -465,12 +494,12 @@ def register_spawn_query_routes(
     typed_app = cast("_FastAPIApp", app)
 
     async def list_spawns_paginated(
-        work_id: Annotated[str | None, Query(description="Filter by work item")] = None,
-        status: Annotated[str | None, Query(description="Filter by status")] = None,
-        agent: Annotated[str | None, Query(description="Filter by agent")] = None,
-        harness: Annotated[str | None, Query(description="Filter by harness")] = None,
-        limit: Annotated[int, Query(ge=1, le=100, description="Page size")] = 20,
-        cursor: Annotated[str | None, Query(description="Pagination cursor")] = None,
+        work_id: str | None = Query(default=None, description="Filter by work item"),
+        status: str | None = Query(default=None, description="Filter by status"),
+        agent: str | None = Query(default=None, description="Filter by agent"),
+        harness: str | None = Query(default=None, description="Filter by harness"),
+        limit: int = Query(default=20, ge=1, le=100, description="Page size"),
+        cursor: str | None = Query(default=None, description="Pagination cursor"),
     ) -> CursorEnvelope[SpawnProjection]:
         """List spawns with filtering and cursor-based pagination."""
         from meridian.lib.state.reaper import reconcile_spawns
@@ -492,9 +521,9 @@ def register_spawn_query_routes(
             spawn_store.list_spawns(state_root, filters=filters if filters else None),
         )
 
-        # Sort by created_at desc, id desc for stable pagination
+        # Sort by started_at desc, id desc for stable pagination
         def sort_key(s: SpawnRecord) -> tuple[str, str]:
-            return (s.created_at or "", s.id)
+            return (s.started_at or "", s.id)
 
         spawns.sort(key=sort_key, reverse=True)
 
@@ -506,7 +535,7 @@ def register_spawn_query_routes(
             cursor_id, cursor_ts = decoded
             # Find position after cursor
             cursor_key = (cursor_ts, cursor_id)
-            spawns = [s for s in spawns if (s.created_at or "", s.id) < cursor_key]
+            spawns = [s for s in spawns if (s.started_at or "", s.id) < cursor_key]
 
         # Take one extra to check if there are more
         page = spawns[: limit + 1]
@@ -517,7 +546,7 @@ def register_spawn_query_routes(
         next_cursor = None
         if has_more and page:
             last = page[-1]
-            next_cursor = _encode_cursor(last.id, last.created_at or "")
+            next_cursor = _encode_cursor(last.id, last.started_at or "")
 
         return CursorEnvelope(
             items=[_spawn_to_projection(s) for s in page],
@@ -526,7 +555,7 @@ def register_spawn_query_routes(
         )
 
     async def get_spawn_stats(
-        work_id: Annotated[str | None, Query(description="Filter by work item")] = None,
+        work_id: str | None = Query(default=None, description="Filter by work item"),
     ) -> SpawnStatsProjection:
         """Get aggregated spawn statistics."""
         from meridian.lib.state.reaper import reconcile_spawns
@@ -572,8 +601,8 @@ def register_spawn_query_routes(
 
     async def get_spawn_events(
         spawn_id: str,
-        since: Annotated[int | None, Query(description="Start from line number")] = None,
-        tail: Annotated[int | None, Query(ge=1, le=1000, description="Last N events")] = None,
+        since: int | None = Query(default=None, description="Start from line number"),
+        tail: int | None = Query(default=None, ge=1, le=1000, description="Last N events"),
     ) -> list[dict[str, object]]:
         """Get events from a spawn's output.jsonl."""
         typed_spawn_id = validate_spawn_id(spawn_id, http_exception)

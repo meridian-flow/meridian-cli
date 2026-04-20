@@ -28,6 +28,7 @@ class _AppState(Protocol):
     """App state payload carrying shared runtime singletons."""
 
     spawn_manager: SpawnManager
+    stream_broadcaster: object
 
 
 class _FastAPIApp(Protocol):
@@ -168,6 +169,21 @@ def create_app(
 
     http_exception = cast("HTTPExceptionCallable", http_exception_cls)
 
+    # Register expanded spawn query routes first so static paths win over
+    # /api/spawns/{spawn_id} path parameter route.
+    register_spawn_query_routes(
+        app_obj,
+        state_root=state_root,
+        http_exception=http_exception,
+    )
+
+    # Register SSE stream routes and capture shared broadcaster.
+    event_broadcaster = register_stream_routes(
+        app_obj,
+        spawn_manager,
+        state_root=state_root,
+    )
+
     # Register spawn routes
     register_spawn_routes(
         app_obj,
@@ -177,22 +193,9 @@ def create_app(
         lifecycle_service=lifecycle_service,
         spawn_id_lock=spawn_id_lock,
         background_finalize_tasks=background_finalize_tasks,
+        event_broadcaster=event_broadcaster,
         allow_unsafe_no_permissions=allow_unsafe_no_permissions,
         http_exception=http_exception,
-    )
-
-    # Register expanded spawn query routes (pagination, stats, events)
-    register_spawn_query_routes(
-        app_obj,
-        state_root=state_root,
-        http_exception=http_exception,
-    )
-
-    # Register SSE stream routes
-    register_stream_routes(
-        app_obj,
-        spawn_manager,
-        state_root=state_root,
     )
 
     # Register work routes (stub for now)
@@ -201,6 +204,7 @@ def create_app(
         state_root=state_root,
         repo_state_root=repo_state_root,
         repo_root=project_paths.repo_root,
+        event_broadcaster=event_broadcaster,
         http_exception=http_exception,
     )
 

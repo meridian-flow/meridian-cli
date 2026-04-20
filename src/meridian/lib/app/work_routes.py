@@ -2,14 +2,20 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from pathlib import Path
-from typing import Protocol, cast
+from typing import TYPE_CHECKING, Protocol, cast
 
 from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.app.api_models import CursorEnvelope, WorkProjection
 from meridian.lib.app.spawn_routes import HTTPExceptionCallable
+from meridian.lib.state.atomic import atomic_write_text
+from meridian.lib.state.event_store import lock_file
+
+if TYPE_CHECKING:
+    from meridian.lib.app.stream import StreamBroadcaster
 
 
 class _FastAPIApp(Protocol):
@@ -44,6 +50,49 @@ class SyncResponse(BaseModel):
 
     status: str = "not_implemented"
     message: str = "Work sync is not yet implemented"
+
+
+class _ActiveWorkState(BaseModel):
+    """Persisted active work selection for app mode."""
+
+    model_config = ConfigDict(frozen=True)
+
+    work_id: str | None = None
+
+
+def _active_work_state_path(repo_state_root: Path) -> Path:
+    """Path for persisted app active-work selection."""
+    return repo_state_root / "app" / "active_work.json"
+
+
+def _active_work_lock_path(repo_state_root: Path) -> Path:
+    """Lock path for active-work state updates."""
+    return repo_state_root / "app" / "active_work.flock"
+
+
+def _read_active_work_state(repo_state_root: Path) -> str | None:
+    """Read persisted active work selection."""
+    state_path = _active_work_state_path(repo_state_root)
+    lock_path = _active_work_lock_path(repo_state_root)
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_file(lock_path):
+        try:
+            state = _ActiveWorkState.model_validate_json(state_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, json.JSONDecodeError):
+            return None
+        return state.work_id
+
+
+def _write_active_work_state(repo_state_root: Path, work_id: str | None) -> None:
+    """Persist active work selection atomically."""
+    state_path = _active_work_state_path(repo_state_root)
+    lock_path = _active_work_lock_path(repo_state_root)
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_file(lock_path):
+        atomic_write_text(
+            state_path,
+            _ActiveWorkState(work_id=work_id).model_dump_json(indent=2) + "\n",
+        )
 
 
 def _work_item_to_projection(
@@ -83,11 +132,11 @@ def register_work_routes(
     state_root: Path,
     repo_state_root: Path,
     repo_root: Path,
+    event_broadcaster: StreamBroadcaster | None = None,
     http_exception: HTTPExceptionCallable,
 ) -> None:
     """Register work-related routes on the FastAPI app."""
     from importlib import import_module
-    from typing import Annotated
 
     from meridian.lib.state import session_store, spawn_store, work_store
 
@@ -99,6 +148,11 @@ def register_work_routes(
         raise RuntimeError(msg) from exc
 
     typed_app = cast("_FastAPIApp", app)
+
+    def _broadcast(event_type: str, payload: dict[str, object]) -> None:
+        if event_broadcaster is None:
+            return
+        event_broadcaster.broadcast({"type": event_type, **payload})
 
     def _get_work_stats(work_id: str) -> tuple[int, int, str | None]:
         """Get spawn count, session count, and last activity for a work item."""
@@ -121,8 +175,8 @@ def register_work_routes(
         return spawn_count, session_count, last_activity
 
     async def list_work_items(
-        status: Annotated[str | None, Query(description="Filter by status")] = None,
-        limit: Annotated[int, Query(ge=1, le=100, description="Page size")] = 20,
+        status: str | None = Query(default=None, description="Filter by status"),
+        limit: int = Query(default=20, ge=1, le=100, description="Page size"),
     ) -> CursorEnvelope[WorkProjection]:
         """List work items with optional status filter."""
         items = work_store.list_work_items(repo_state_root)
@@ -193,6 +247,7 @@ def register_work_routes(
             )
 
         item = work_store.create_work_item(repo_state_root, name, body.description)
+        _broadcast("work.created", {"work_id": item.name, "status": item.status})
         return _work_item_to_projection(
             item,
             repo_root=repo_root,
@@ -212,6 +267,7 @@ def register_work_routes(
             )
 
         archived_item = work_store.archive_work_item(repo_state_root, work_id)
+        _broadcast("work.archived", {"work_id": archived_item.name, "status": archived_item.status})
         return _work_item_to_projection(
             archived_item,
             repo_root=repo_root,
@@ -220,9 +276,13 @@ def register_work_routes(
 
     async def get_active_work() -> dict[str, str | None]:
         """Get the currently active work item for this session."""
-        # For app mode, we look at the most recently active work item
-        # This is a simplified implementation - in full implementation,
-        # this would be session-scoped
+        persisted_work_id = _read_active_work_state(repo_state_root)
+        if persisted_work_id:
+            persisted = work_store.get_work_item(repo_state_root, persisted_work_id)
+            if persisted is not None and persisted.status != "done":
+                return {"work_id": persisted.name}
+
+        # Fallback: most recently created non-done work item.
         items = work_store.list_work_items(repo_state_root)
         active_items = [item for item in items if item.status != "done"]
 
@@ -231,7 +291,9 @@ def register_work_routes(
 
         # Sort by created_at desc and return most recent
         active_items.sort(key=lambda x: x.created_at, reverse=True)
-        return {"work_id": active_items[0].name}
+        fallback_work_id = active_items[0].name
+        _write_active_work_state(repo_state_root, fallback_work_id)
+        return {"work_id": fallback_work_id}
 
     async def set_active_work(body: ActiveWorkRequest) -> dict[str, str | None]:
         """Set the active work item."""
@@ -239,6 +301,8 @@ def register_work_routes(
 
         if work_id is None:
             # Clear active work
+            _write_active_work_state(repo_state_root, None)
+            _broadcast("work.active_changed", {"work_id": None})
             return {"work_id": None}
 
         item = work_store.get_work_item(repo_state_root, work_id)
@@ -251,6 +315,8 @@ def register_work_routes(
                 detail=f"Work item '{work_id}' is archived. Reopen it first.",
             )
 
+        _write_active_work_state(repo_state_root, item.name)
+        _broadcast("work.active_changed", {"work_id": item.name})
         return {"work_id": item.name}
 
     async def trigger_sync(work_id: str) -> SyncResponse:
