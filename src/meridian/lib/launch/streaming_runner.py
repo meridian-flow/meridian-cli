@@ -18,6 +18,7 @@ import structlog
 from meridian.lib.config.settings import MeridianConfig
 from meridian.lib.core.clock import Clock, RealClock
 from meridian.lib.core.domain import Spawn
+from meridian.lib.core.lifecycle import SpawnLifecycleService
 from meridian.lib.core.spawn_lifecycle import (
     has_durable_report_completion,
     resolve_execution_terminal_state,
@@ -363,6 +364,7 @@ async def run_streaming_spawn(
         spawn_id,
         runner_pid=os.getpid(),
     )
+    lifecycle_service = SpawnLifecycleService(state_root)
     try:
         await manager.start_spawn(config, run_spec)
         await manager._start_heartbeat(spawn_id)  # pyright: ignore[reportPrivateUsage]
@@ -451,9 +453,8 @@ async def run_streaming_spawn(
         else:
             resolved_outcome = outcome
         with suppress(Exception):
-            spawn_store.record_spawn_exited(
-                state_root,
-                spawn_id,
+            lifecycle_service.record_exited(
+                str(spawn_id),
                 exit_code=resolved_outcome.exit_code,
             )
         return resolved_outcome
@@ -506,6 +507,7 @@ async def _run_streaming_attempt(
     timed_out = False
     terminated_by_report_watchdog = False
     terminal_outcome: TerminalEventOutcome | None = None
+    lifecycle_service = SpawnLifecycleService(state_root)
 
     try:
         connection = await manager.start_spawn(config, run_spec)
@@ -638,9 +640,8 @@ async def _run_streaming_attempt(
             drain_exit_code = drain_outcome.exit_code
             drain_error = drain_outcome.error
         with suppress(Exception):
-            spawn_store.record_spawn_exited(
-                state_root,
-                run.spawn_id,
+            lifecycle_service.record_exited(
+                str(run.spawn_id),
                 exit_code=drain_exit_code,
             )
     except Exception as exc:
@@ -822,6 +823,7 @@ async def execute_with_streaming(
         heartbeat_interval_secs=heartbeat_interval_secs,
         heartbeat_touch=lambda _state_root, _spawn_id: resolved_heartbeat_touch(),
     )
+    lifecycle_service = SpawnLifecycleService(state_root)
     retries_attempted = 0
     started_at = resolved_clock.monotonic()
     started_at_epoch = resolved_clock.time()
@@ -1142,7 +1144,7 @@ async def execute_with_streaming(
                 terminated_after_completion=terminated_after_completion,
             )
             with signal_coordinator().mask_sigterm():
-                marked_finalizing = spawn_store.mark_finalizing(state_root, run.spawn_id)
+                marked_finalizing = lifecycle_service.mark_finalizing(str(run.spawn_id))
                 if marked_finalizing:
                     try:
                         resolved_heartbeat_touch()
@@ -1160,11 +1162,10 @@ async def execute_with_streaming(
                         spawn_id=str(run.spawn_id),
                         harness_id=str(harness.id),
                     )
-                spawn_store.finalize_spawn(
-                    state_root,
-                    run.spawn_id,
-                    status=status,
-                    exit_code=exit_code,
+                lifecycle_service.finalize(
+                    str(run.spawn_id),
+                    status,
+                    exit_code,
                     origin="runner",
                     duration_secs=duration_seconds,
                     total_cost_usd=(
