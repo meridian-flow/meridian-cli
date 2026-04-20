@@ -1,5 +1,6 @@
 """Public state layer API."""
 
+from meridian.lib.core.lifecycle import LifecycleEvent, LifecycleHook, SpawnLifecycleService
 from meridian.lib.state.artifact_store import (
     ArtifactStore,
     InMemoryStore,
@@ -28,6 +29,9 @@ from meridian.lib.state.spawn_store import (
 
 __all__ = [
     "ArtifactStore",
+    "LifecycleEvent",
+    "LifecycleHook",
+    "SpawnLifecycleService",
     "InMemoryStore",
     "LocalStore",
     "SpawnRecord",

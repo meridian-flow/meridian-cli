@@ -1,0 +1,385 @@
+"""Spawn lifecycle service with first-class LifecycleEvent hook dispatch.
+
+Design decisions in effect:
+- D1: Service wraps store, not replaces — delegates to spawn_store functions
+- D4: Hooks are post-dispatch only — fire after successful store write
+- D5: keep update_spawn public — metadata only, no transition
+- D9: No async — synchronous methods matching spawn_store
+- D12: First-class LifecycleEvent over ad hoc callbacks
+- D13: Metrics may be None on spawn.finalized — fire once on first terminal transition
+
+Import note
+-----------
+``spawn_store`` is imported at the BOTTOM of this module to avoid a circular
+import.  ``meridian.lib.state.__init__`` re-exports types from this module;
+when Python resolves that package import it would re-enter this file.  By
+placing the ``spawn_store`` import after all public symbols are defined, the
+partially-initialised module already exposes ``LifecycleEvent``,
+``LifecycleHook``, and ``SpawnLifecycleService`` when ``__init__.py`` asks for
+them.  Method bodies reference ``spawn_store`` by name at call time, not at
+definition time, so the delayed import is transparent to callers.
+"""
+
+from __future__ import annotations
+
+import uuid
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Literal, Protocol
+from uuid import UUID
+
+import structlog
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from meridian.lib.core.clock import Clock
+    from meridian.lib.core.domain import SpawnStatus
+    from meridian.lib.state.spawn.repository import SpawnRepository
+    from meridian.lib.state.spawn_store import LaunchMode, SpawnOrigin
+
+logger = structlog.get_logger(__name__)
+
+# ---------------------------------------------------------------------------
+# Public type aliases
+# ---------------------------------------------------------------------------
+
+EventType = Literal["spawn.created", "spawn.running", "spawn.finalized"]
+TerminalStatus = Literal["succeeded", "failed", "cancelled"]
+TerminalOrigin = Literal["runner", "launcher", "cancel", "reconciler", "launch_failure"]
+
+_TERMINAL_STATUS_VALUES: frozenset[str] = frozenset({"succeeded", "failed", "cancelled"})
+
+# ---------------------------------------------------------------------------
+# Event ID generation
+# ---------------------------------------------------------------------------
+
+
+def generate_event_id(spawn_id: str, event_type: str, sequence: int) -> UUID:
+    """Generate stable event ID using UUID v5.
+
+    Stability across retries: same spawn_id + event_type + sequence
+    always produces the same UUID.
+    """
+    namespace = uuid.UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8")  # URL namespace
+    name = f"meridian:spawn:{spawn_id}:{event_type}:{sequence}"
+    return uuid.uuid5(namespace, name)
+
+
+# ---------------------------------------------------------------------------
+# LifecycleEvent
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class LifecycleEvent:
+    """Immutable event passed to lifecycle hooks.
+
+    Provides stable identity for idempotent execution and full context
+    for declarative filters.
+    """
+
+    # Identity
+    event_id: UUID
+    event_type: EventType
+    timestamp: datetime
+
+    # Spawn context (always present)
+    spawn_id: str
+    parent_id: str | None
+    chat_id: str | None
+    work_id: str | None
+
+    # Execution context (always present)
+    agent: str | None
+    model: str | None
+    harness: str | None
+
+    # Terminal-only fields (None for non-terminal events)
+    status: TerminalStatus | None = None
+    origin: TerminalOrigin | None = None
+
+    # Metrics (may be None even on terminal events — reducer may merge later)
+    duration_secs: float | None = None
+    total_cost_usd: float | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+
+
+# ---------------------------------------------------------------------------
+# LifecycleHook protocol
+# ---------------------------------------------------------------------------
+
+
+class LifecycleHook(Protocol):
+    """Protocol for lifecycle event observers."""
+
+    def on_event(self, event: LifecycleEvent) -> None:
+        """Called after successful lifecycle state write.
+
+        Called synchronously after the authoritative store write succeeds.
+        Implementations should be fast — defer heavy work to background.
+
+        Exceptions are logged but do not block lifecycle transitions.
+        """
+        ...
+
+
+# ---------------------------------------------------------------------------
+# SpawnLifecycleService
+# ---------------------------------------------------------------------------
+
+
+class SpawnLifecycleService:
+    """Wraps spawn_store lifecycle functions with hook dispatch.
+
+    Delegates all persistence to spawn_store.  After each successful
+    store write, dispatches a LifecycleEvent to registered hooks.
+    Hooks run synchronously but their exceptions never block transitions.
+    """
+
+    def __init__(
+        self,
+        state_root: Path,
+        *,
+        hooks: list[LifecycleHook] | None = None,
+        repository: SpawnRepository | None = None,
+    ) -> None:
+        self._state_root = state_root
+        self._hooks = hooks or []
+        self._repository = repository
+
+    # ------------------------------------------------------------------
+    # Lifecycle transitions
+    # ------------------------------------------------------------------
+
+    def start(
+        self,
+        *,
+        chat_id: str,
+        parent_id: str | None = None,
+        model: str,
+        agent: str,
+        agent_path: str | None = None,
+        skills: tuple[str, ...] = (),
+        skill_paths: tuple[str, ...] = (),
+        harness: str,
+        kind: str = "child",
+        prompt: str,
+        desc: str | None = None,
+        work_id: str | None = None,
+        spawn_id: str | None = None,
+        harness_session_id: str | None = None,
+        execution_cwd: str | None = None,
+        launch_mode: LaunchMode | None = None,
+        worker_pid: int | None = None,
+        runner_pid: int | None = None,
+        status: SpawnStatus = "running",
+        started_at: str | None = None,
+        clock: Clock | None = None,
+    ) -> str:
+        """Start a new spawn and dispatch spawn.created."""
+        result_id = spawn_store.start_spawn(
+            self._state_root,
+            chat_id=chat_id,
+            parent_id=parent_id,
+            model=model,
+            agent=agent,
+            agent_path=agent_path,
+            skills=skills,
+            skill_paths=skill_paths,
+            harness=harness,
+            kind=kind,
+            prompt=prompt,
+            desc=desc,
+            work_id=work_id,
+            spawn_id=spawn_id,
+            harness_session_id=harness_session_id,
+            execution_cwd=execution_cwd,
+            launch_mode=launch_mode,
+            worker_pid=worker_pid,
+            runner_pid=runner_pid,
+            status=status,
+            started_at=started_at,
+            clock=clock,
+            repository=self._repository,
+        )
+        event = self._build_event("spawn.created", str(result_id))
+        self._dispatch(event)
+        return str(result_id)
+
+    def mark_running(
+        self,
+        spawn_id: str,
+        *,
+        launch_mode: LaunchMode | None = None,
+        worker_pid: int | None = None,
+        runner_pid: int | None = None,
+    ) -> None:
+        """Mark a spawn as running and dispatch spawn.running."""
+        spawn_store.mark_spawn_running(
+            self._state_root,
+            spawn_id,
+            launch_mode=launch_mode,
+            worker_pid=worker_pid,
+            runner_pid=runner_pid,
+            repository=self._repository,
+        )
+        event = self._build_event("spawn.running", spawn_id)
+        self._dispatch(event)
+
+    def record_exited(
+        self,
+        spawn_id: str,
+        *,
+        exit_code: int,
+        exited_at: str | None = None,
+        clock: Clock | None = None,
+    ) -> None:
+        """Record process exit — no lifecycle event dispatched."""
+        spawn_store.record_spawn_exited(
+            self._state_root,
+            spawn_id,
+            exit_code=exit_code,
+            exited_at=exited_at,
+            clock=clock,
+            repository=self._repository,
+        )
+
+    def finalize(
+        self,
+        spawn_id: str,
+        status: SpawnStatus,
+        exit_code: int,
+        *,
+        origin: SpawnOrigin,
+        duration_secs: float | None = None,
+        total_cost_usd: float | None = None,
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
+        finished_at: str | None = None,
+        error: str | None = None,
+        clock: Clock | None = None,
+    ) -> bool:
+        """Finalize a spawn.  Dispatches spawn.finalized only on first terminal transition."""
+        transitioned = spawn_store.finalize_spawn(
+            self._state_root,
+            spawn_id,
+            status,
+            exit_code,
+            origin=origin,
+            duration_secs=duration_secs,
+            total_cost_usd=total_cost_usd,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            finished_at=finished_at,
+            error=error,
+            clock=clock,
+            repository=self._repository,
+        )
+        if transitioned:
+            event = self._build_event("spawn.finalized", spawn_id)
+            self._dispatch(event)
+        return transitioned
+
+    def mark_finalizing(self, spawn_id: str) -> bool:
+        """CAS transition running -> finalizing.  No lifecycle event dispatched."""
+        return spawn_store.mark_finalizing(
+            self._state_root,
+            spawn_id,
+            repository=self._repository,
+        )
+
+    def cancel(
+        self,
+        spawn_id: str,
+        exit_code: int = 130,
+        *,
+        duration_secs: float | None = None,
+        total_cost_usd: float | None = None,
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
+        finished_at: str | None = None,
+        error: str | None = None,
+        clock: Clock | None = None,
+    ) -> bool:
+        """Cancel a spawn — convenience for finalize(status='cancelled', origin='cancel')."""
+        return self.finalize(
+            spawn_id,
+            "cancelled",
+            exit_code,
+            origin="cancel",
+            duration_secs=duration_secs,
+            total_cost_usd=total_cost_usd,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            finished_at=finished_at,
+            error=error,
+            clock=clock,
+        )
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _dispatch(self, event: LifecycleEvent) -> None:
+        for hook in self._hooks:
+            try:
+                hook.on_event(event)
+            except Exception:
+                logger.exception(
+                    "Lifecycle hook raised exception; transition continues",
+                    event_id=str(event.event_id),
+                    event_type=event.event_type,
+                    spawn_id=event.spawn_id,
+                )
+
+    def _build_event(self, event_type: EventType, spawn_id: str) -> LifecycleEvent:
+        record = spawn_store.get_spawn(
+            self._state_root, spawn_id, repository=self._repository
+        )
+
+        # Terminal-only fields
+        status: TerminalStatus | None = None
+        origin: TerminalOrigin | None = None
+        duration_secs: float | None = None
+        total_cost_usd: float | None = None
+        input_tokens: int | None = None
+        output_tokens: int | None = None
+
+        if event_type == "spawn.finalized" and record is not None:
+            rec_status = record.status
+            if rec_status in _TERMINAL_STATUS_VALUES:
+                status = rec_status  # type: ignore[assignment]
+            origin = record.terminal_origin  # type: ignore[assignment]
+            duration_secs = record.duration_secs
+            total_cost_usd = record.total_cost_usd
+            input_tokens = record.input_tokens
+            output_tokens = record.output_tokens
+
+        return LifecycleEvent(
+            event_id=generate_event_id(spawn_id, event_type, 0),
+            event_type=event_type,
+            timestamp=datetime.now(tz=UTC),
+            spawn_id=spawn_id,
+            parent_id=record.parent_id if record is not None else None,
+            chat_id=record.chat_id if record is not None else None,
+            work_id=record.work_id if record is not None else None,
+            agent=record.agent if record is not None else None,
+            model=record.model if record is not None else None,
+            harness=record.harness if record is not None else None,
+            status=status,
+            origin=origin,
+            duration_secs=duration_secs,
+            total_cost_usd=total_cost_usd,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Deferred import — must be at module bottom to break circular dependency with
+# meridian.lib.state.__init__ which re-exports types from this module.
+# ---------------------------------------------------------------------------
+
+import meridian.lib.state.spawn_store as spawn_store  # noqa: E402
