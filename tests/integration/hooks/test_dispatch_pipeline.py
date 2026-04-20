@@ -377,11 +377,25 @@ def test_dispatch_pipeline_logs_fail_open_failures_and_completion_metadata(
     assert [result.outcome for result in results] == ["failure", "success"]
     assert success_marker.read_text(encoding="utf-8") == "ok"
 
-    failure_log = next(log for log in logs if log["event"] == "hook_execution_failed")
+    failure_log = next((log for log in logs if log["event"] == "hook_execution_failed"), None)
     success_log = next(
-        log
-        for log in logs
-        if log["event"] == "hook_execution_finished" and log["hook"] == "runs-after-failure"
+        (
+            log
+            for log in logs
+            if log.get("hook") == "runs-after-failure"
+            and log.get("hook_event") == "spawn.finalized"
+            and log.get("outcome") == "success"
+        ),
+        None,
+    )
+
+    assert failure_log is not None, (
+        f"Expected hook_execution_failed log entry. "
+        f"Captured events: {[log.get('event') for log in logs]}"
+    )
+    assert success_log is not None, (
+        "Expected success completion log entry for runs-after-failure. "
+        f"Captured events: {[log.get('event') for log in logs]}"
     )
 
     assert failure_log["hook"] == "fails-first"
