@@ -15,10 +15,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from meridian.lib.core.domain import SpawnStatus
+from meridian.lib.core.lifecycle import SpawnLifecycleService
 from meridian.lib.core.spawn_lifecycle import TERMINAL_SPAWN_STATUSES
 from meridian.lib.core.types import SpawnId
 from meridian.lib.platform import IS_WINDOWS
-from meridian.lib.core.lifecycle import SpawnLifecycleService
 from meridian.lib.state import spawn_store
 from meridian.lib.state.liveness import is_process_alive
 from meridian.lib.state.spawn_store import APP_LAUNCH_MODE, SpawnOrigin

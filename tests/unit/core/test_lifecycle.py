@@ -17,7 +17,6 @@ from meridian.lib.core.lifecycle import (
 from meridian.lib.state import spawn_store
 from tests.support.fakes import FakeSpawnRepository
 
-
 # ---------------------------------------------------------------------------
 # Test doubles
 # ---------------------------------------------------------------------------

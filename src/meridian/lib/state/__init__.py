@@ -29,11 +29,11 @@ from meridian.lib.state.spawn_store import (
 
 __all__ = [
     "ArtifactStore",
+    "InMemoryStore",
     "LifecycleEvent",
     "LifecycleHook",
-    "SpawnLifecycleService",
-    "InMemoryStore",
     "LocalStore",
+    "SpawnLifecycleService",
     "SpawnRecord",
     "StatePaths",
     "StateRootPaths",
