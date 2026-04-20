@@ -82,6 +82,9 @@ class SpawnActionOutput(BaseModel):
         wire: dict[str, object] = {"status": self.status}
         if self.spawn_id is not None:
             wire["spawn_id"] = self.spawn_id
+            if self.background and self.status == "running":
+                note = f"Backgrounded. Run `meridian spawn wait {self.spawn_id}` to get results."
+                wire["note"] = note
         if self.forked_from is not None:
             wire["forked_from"] = self.forked_from
         if self.duration_secs is not None:
@@ -128,6 +131,8 @@ class SpawnActionOutput(BaseModel):
             lines.append(f"Spawn {self.status}.")
         if self.spawn_id:
             lines.append(f"Spawn id: {self.spawn_id}")
+            if self.background and self.status == "running":
+                lines.append(f"Run `meridian spawn wait {self.spawn_id}` to get results.")
         if self.forked_from:
             lines.append(f"Forked from: {self.forked_from}")
         if self.model and self.harness_id:
