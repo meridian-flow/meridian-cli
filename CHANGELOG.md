@@ -5,6 +5,7 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- `spawn show/children/files/cancel/wait/log` accept chat_id refs (e.g. `c213`). Resolves to most recent spawn with that chat_id.
 - `meridian context` command — returns context tuple (`work_id`, `repo_root`, `state_root`, `depth`). JSON when spawned or with `--json`; human-friendly text in TTY.
 - `meridian work current` command — convenience alias returning just the `work_id`.
 - spawn: `--bg` output now reminds to wait for results (`meridian spawn wait <id>`).
@@ -17,6 +18,7 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Context resolution consolidated: `launch/env.py`, `launch/context.py`, `ops/context.py`, `core/context.py` all delegate to `ResolvedContext`.
 
 ### Fixed
+- `spawn children` now returns child spawns. `MERIDIAN_SPAWN_ID` propagated to child env so parent_id tracked.
 - fix(codex): `codex app-server` no longer fails with `unexpected argument --add-dir`. Workspace projection `--add-dir` paths are now converted to `-c sandbox_workspace_write.writable_roots=[...]` in the streaming path.
 - fix(windows): Claude session linking uses file copy instead of symlink. Windows doesn't support symlinks without admin.
 - fix(windows): pyright errors for spawn inject type narrowing resolved.
