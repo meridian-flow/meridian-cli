@@ -589,7 +589,7 @@ def _decode_cursor(cursor: str) -> tuple[str, str] | None:
     try:
         data = json_module.loads(base64.urlsafe_b64decode(cursor.encode()))
         return (data["id"], data["ts"])
-    except (ValueError, KeyError, json_module.JSONDecodeError):
+    except (ValueError, KeyError, TypeError, json_module.JSONDecodeError):
         return None
 
 
