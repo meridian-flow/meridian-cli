@@ -4,35 +4,25 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
-import re
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
-from dataclasses import asdict
 from importlib import import_module
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, cast
-from uuid import uuid4
+from typing import Any, Protocol, cast
 
-from pydantic import BaseModel, model_validator
-
+# Re-export for backward compatibility
+from meridian.lib.app.spawn_routes import (
+    InjectRequest,
+    PermissionRequest,
+    SpawnCreateRequest,
+)
 from meridian.lib.config.project_paths import resolve_project_paths
 from meridian.lib.core.lifecycle import SpawnLifecycleService
-from meridian.lib.core.spawn_lifecycle import TERMINAL_SPAWN_STATUSES
-from meridian.lib.core.types import HarnessId, SpawnId
-from meridian.lib.harness.connections.base import ConnectionConfig
-from meridian.lib.harness.registry import get_default_harness_registry
-from meridian.lib.launch.context import build_launch_context
-from meridian.lib.launch.request import LaunchArgvIntent, LaunchRuntime, SpawnRequest
-from meridian.lib.state import spawn_store
-from meridian.lib.streaming.signal_canceller import SignalCanceller
+from meridian.lib.state.paths import resolve_repo_state_paths
 from meridian.lib.streaming.spawn_manager import SpawnManager
 
-_SPAWN_ID_RE = re.compile(r"^p\d+$")
 logger = logging.getLogger(__name__)
 
-if TYPE_CHECKING:
-    from meridian.lib.state.spawn_store import SpawnRecord
 
 class _AppState(Protocol):
     """App state payload carrying shared runtime singletons."""
@@ -76,39 +66,6 @@ class _StaticFilesModule(Protocol):
     StaticFiles: type[object]
 
 
-class PermissionRequest(BaseModel):
-    """REST permission payload for creating one spawn."""
-
-    sandbox: str
-    approval: str
-
-
-class SpawnCreateRequest(BaseModel):
-    """REST payload for creating one spawn."""
-
-    harness: str
-    prompt: str
-    model: str | None = None
-    agent: str | None = None
-    permissions: PermissionRequest | None = None
-
-
-class InjectRequest(BaseModel):
-    """REST payload for injecting one user message."""
-
-    text: str | None = None
-    interrupt: bool = False
-
-    @model_validator(mode="after")
-    def _exactly_one(self) -> InjectRequest:
-        text_set = self.text is not None and self.text.strip() != ""
-        if text_set and self.interrupt:
-            raise ValueError("text and interrupt are mutually exclusive")
-        if not text_set and not self.interrupt:
-            raise ValueError("provide text or interrupt: true")
-        return self
-
-
 def create_app(
     spawn_manager: SpawnManager,
     *,
@@ -143,7 +100,7 @@ def create_app(
     cors = cast("_FastAPICorsModule", cors_module)
     app_obj = fastapi.FastAPI(title="Meridian App", lifespan=lifespan)
     app = cast("_FastAPIApp", app_obj)
-    http_exception_cls = cast("Callable[..., Exception]", fastapi.HTTPException)
+    http_exception_cls = fastapi.HTTPException
     request_validation_error_cls = cast(
         "type[Exception]",
         validation_module.RequestValidationError,
@@ -193,284 +150,68 @@ def create_app(
 
     state_root = spawn_manager.state_root
     project_paths = resolve_project_paths(repo_root=spawn_manager.repo_root)
+    repo_state_root = resolve_repo_state_paths(project_paths.repo_root).root_dir
     lifecycle_service = SpawnLifecycleService(state_root)
     spawn_id_lock = asyncio.Lock()
 
-    async def _background_finalize(spawn_id: SpawnId) -> None:
-        outcome = await spawn_manager.wait_for_completion(spawn_id)
-        if outcome is None:
-            return
-        lifecycle_service.finalize(
-            str(spawn_id),
-            outcome.status,
-            outcome.exit_code,
-            origin="runner",
-            duration_secs=outcome.duration_secs,
-            error=outcome.error,
-        )
-
-    async def reserve_spawn_id(
-        *,
-        chat_id: str,
-        model: str,
-        agent: str,
-        harness: str,
-        prompt: str,
-    ) -> SpawnId:
-        async with spawn_id_lock:
-            return SpawnId(
-                await asyncio.to_thread(
-                    lifecycle_service.start,
-                    chat_id=chat_id,
-                    model=model,
-                    agent=agent,
-                    harness=harness,
-                    kind="streaming",
-                    prompt=prompt,
-                    launch_mode="app",
-                    runner_pid=os.getpid(),
-                    status="running",
-                )
-            )
-
-    def _validate_spawn_id(raw: str) -> SpawnId:
-        if not _SPAWN_ID_RE.match(raw):
-            raise http_exception_cls(status_code=400, detail=f"invalid spawn ID: {raw}")
-        return SpawnId(raw)
-
-    def _spawn_is_terminal(status: str) -> bool:
-        return status in TERMINAL_SPAWN_STATUSES
-
-    def _require_spawn(spawn_id: SpawnId) -> SpawnRecord:
-        record = spawn_store.get_spawn(state_root, spawn_id)
-        if record is None:
-            raise http_exception_cls(status_code=404, detail="spawn not found")
-        return record
-
-    def _require_active_manager(spawn_id: SpawnId) -> None:
-        if spawn_manager.get_connection(spawn_id) is None:
-            raise http_exception_cls(status_code=404, detail="spawn not found")
-
-    def _require_not_terminal(record: SpawnRecord) -> None:
-        if _spawn_is_terminal(record.status):
-            raise http_exception_cls(status_code=410, detail="spawn already terminal")
-
-    def _require_not_finalizing(record: SpawnRecord) -> None:
-        if record.status == "finalizing":
-            raise http_exception_cls(
-                status_code=503,
-                detail="spawn is finalizing",
-                headers={"Retry-After": "2"},
-            )
-
-    async def create_spawn(body: SpawnCreateRequest) -> dict[str, object]:
-        prompt = body.prompt.strip()
-        if not prompt:
-            raise http_exception_cls(
-                status_code=400,
-                detail="prompt is required",
-            )
-
-        try:
-            harness_id = HarnessId(body.harness.strip().lower())
-        except ValueError as exc:
-            raise http_exception_cls(
-                status_code=400,
-                detail=f"unsupported harness '{body.harness}'",
-            ) from exc
-
-        permissions = body.permissions
-        spawn_sandbox: str | None = None
-        spawn_approval: str | None = None
-        unsafe_no_permissions = False
-        if permissions is None:
-            if not allow_unsafe_no_permissions:
-                raise http_exception_cls(
-                    status_code=400,
-                    detail=(
-                        "permissions block is required: provide "
-                        "permissions.sandbox and permissions.approval"
-                    ),
-                )
-            logger.warning(
-                "Handling /api/spawns request without permission metadata because "
-                "--allow-unsafe-no-permissions is enabled."
-            )
-            unsafe_no_permissions = True
-        else:
-            spawn_sandbox = permissions.sandbox.strip()
-            spawn_approval = permissions.approval.strip()
-            if not spawn_sandbox:
-                raise http_exception_cls(
-                    status_code=400,
-                    detail="permissions.sandbox is required",
-                )
-            if not spawn_approval:
-                raise http_exception_cls(
-                    status_code=400,
-                    detail="permissions.approval is required",
-                )
-
-        spawn_id = await reserve_spawn_id(
-            chat_id=str(uuid4()),
-            model=(body.model.strip() if body.model is not None else "") or "unknown",
-            agent=(body.agent.strip() if body.agent is not None else "") or "unknown",
-            harness=harness_id.value,
-            prompt=prompt,
-        )
-        config = ConnectionConfig(
-            spawn_id=spawn_id,
-            harness_id=harness_id,
-            prompt=prompt,
-            repo_root=project_paths.execution_cwd,
-            env_overrides={},
-        )
-        # I-2: route spec resolution through the factory rather than calling
-        # adapter.resolve_launch_spec() directly.
-        spawn_req = SpawnRequest(
-            prompt=prompt,
-            model=body.model.strip() if body.model and body.model.strip() else None,
-            harness=harness_id.value,
-            agent=body.agent.strip() if body.agent else None,
-            sandbox=spawn_sandbox,
-            approval=spawn_approval,
-        )
-        launch_runtime = LaunchRuntime(
-            argv_intent=LaunchArgvIntent.SPEC_ONLY,
-            unsafe_no_permissions=unsafe_no_permissions,
-            state_root=state_root.as_posix(),
-            project_paths_repo_root=project_paths.repo_root.as_posix(),
-            project_paths_execution_cwd=project_paths.execution_cwd.as_posix(),
-        )
-        launch_ctx = build_launch_context(
-            spawn_id=str(spawn_id),
-            request=spawn_req,
-            runtime=launch_runtime,
-            harness_registry=get_default_harness_registry(),
-        )
-
-        try:
-            connection = await spawn_manager.start_spawn(config, launch_ctx.spec)
-            await spawn_manager._start_heartbeat(spawn_id)  # pyright: ignore[reportPrivateUsage]
-        except Exception as exc:
-            lifecycle_service.finalize(
-                str(spawn_id),
-                "failed",
-                1,
-                origin="launch_failure",
-                error=str(exc),
-            )
-            raise http_exception_cls(
-                status_code=400,
-                detail=str(exc),
-            ) from exc
-        finalize_task = asyncio.create_task(_background_finalize(spawn_id))
-        background_finalize_tasks.add(finalize_task)
-        finalize_task.add_done_callback(background_finalize_tasks.discard)
-
-        return {
-            "spawn_id": str(config.spawn_id),
-            "harness": connection.harness_id.value,
-            "state": connection.state,
-            "capabilities": asdict(connection.capabilities),
-        }
-
-    async def list_spawns() -> list[dict[str, str]]:
-        spawns = spawn_manager.list_spawns()
-        return [{"spawn_id": str(spawn_id)} for spawn_id in spawns]
-
-    async def get_spawn(spawn_id: str) -> dict[str, object]:
-        typed_spawn_id = _validate_spawn_id(spawn_id)
-        connection = spawn_manager.get_connection(typed_spawn_id)
-        if connection is None:
-            raise http_exception_cls(
-                status_code=404,
-                detail="spawn not found",
-            )
-        return {
-            "spawn_id": spawn_id,
-            "harness": connection.harness_id.value,
-            "state": connection.state,
-        }
-
-    async def inject_message(
-        spawn_id: str,
-        body: InjectRequest,
-    ) -> dict[str, object]:
-        typed_spawn_id = _validate_spawn_id(spawn_id)
-        record = _require_spawn(typed_spawn_id)
-        _require_not_terminal(record)
-        _require_not_finalizing(record)
-        _require_active_manager(typed_spawn_id)
-
-        if body.interrupt:
-            result = await spawn_manager.interrupt(typed_spawn_id, source="rest")
-            if not result.success:
-                raise http_exception_cls(
-                    status_code=400,
-                    detail=result.error or "interrupt failed",
-                )
-            response: dict[str, object] = {"ok": True}
-            if result.inbound_seq is not None:
-                response["inbound_seq"] = result.inbound_seq
-            if result.noop:
-                response["noop"] = True
-            return response
-
-        text = (body.text or "").strip()
-        result = await spawn_manager.inject(typed_spawn_id, text, source="rest")
-        if not result.success:
-            raise http_exception_cls(
-                status_code=400,
-                detail=result.error or "inject failed",
-            )
-        response = {"ok": True}
-        if result.inbound_seq is not None:
-            response["inbound_seq"] = result.inbound_seq
-        return response
-
-    async def cancel_spawn(spawn_id: str) -> dict[str, object]:
-        typed_spawn_id = _validate_spawn_id(spawn_id)
-        record = _require_spawn(typed_spawn_id)
-        if _spawn_is_terminal(record.status):
-            raise http_exception_cls(
-                status_code=409,
-                detail=f"spawn already terminal: {record.status}",
-            )
-        canceller = SignalCanceller(state_root=state_root, manager=spawn_manager)
-        try:
-            outcome = await canceller.cancel(typed_spawn_id)
-        except ValueError as exc:
-            raise http_exception_cls(status_code=404, detail="spawn not found") from exc
-        if outcome.already_terminal:
-            raise http_exception_cls(
-                status_code=409,
-                detail=f"spawn already terminal: {outcome.status}",
-            )
-        if outcome.finalizing:
-            raise http_exception_cls(
-                status_code=503,
-                detail="spawn is finalizing",
-                headers={"Retry-After": "2"},
-            )
-        return {
-            "ok": True,
-            "status": outcome.status,
-            "origin": outcome.origin,
-        }
-
-    app.post("/api/spawns")(create_spawn)
-    app.get("/api/spawns")(list_spawns)
-    app.get("/api/spawns/{spawn_id}")(get_spawn)
-    app.post("/api/spawns/{spawn_id}/inject")(inject_message)
-    app.post("/api/spawns/{spawn_id}/cancel")(cancel_spawn)
-
+    # Import route registration functions
+    from meridian.lib.app.spawn_routes import (
+        HTTPExceptionCallable,
+        register_spawn_query_routes,
+        register_spawn_routes,
+        validate_spawn_id,
+    )
+    from meridian.lib.app.stream import register_stream_routes
+    from meridian.lib.app.work_routes import register_work_routes
     from meridian.lib.app.ws_endpoint import register_ws_routes
+    from meridian.lib.core.types import SpawnId
+
+    http_exception = cast("HTTPExceptionCallable", http_exception_cls)
+
+    # Register spawn routes
+    register_spawn_routes(
+        app_obj,
+        spawn_manager,
+        state_root=state_root,
+        project_paths=project_paths,
+        lifecycle_service=lifecycle_service,
+        spawn_id_lock=spawn_id_lock,
+        background_finalize_tasks=background_finalize_tasks,
+        allow_unsafe_no_permissions=allow_unsafe_no_permissions,
+        http_exception=http_exception,
+    )
+
+    # Register expanded spawn query routes (pagination, stats, events)
+    register_spawn_query_routes(
+        app_obj,
+        state_root=state_root,
+        http_exception=http_exception,
+    )
+
+    # Register SSE stream routes
+    register_stream_routes(
+        app_obj,
+        spawn_manager,
+        state_root=state_root,
+    )
+
+    # Register work routes (stub for now)
+    register_work_routes(
+        app_obj,
+        state_root=state_root,
+        repo_state_root=repo_state_root,
+        repo_root=project_paths.repo_root,
+        http_exception=http_exception,
+    )
+
+    # Register WebSocket routes
+    def _validate_spawn_id_wrapper(raw: str) -> SpawnId:
+        return validate_spawn_id(raw, http_exception)
 
     register_ws_routes(
         app_obj,
         spawn_manager,
-        validate_spawn_id=_validate_spawn_id,
+        validate_spawn_id=_validate_spawn_id_wrapper,
     )
 
     frontend_dist = Path(__file__).resolve().parents[4] / "frontend" / "dist"
@@ -487,4 +228,9 @@ def create_app(
     return app_obj
 
 
-__all__ = ["create_app"]
+__all__ = [
+    "InjectRequest",
+    "PermissionRequest",
+    "SpawnCreateRequest",
+    "create_app",
+]
