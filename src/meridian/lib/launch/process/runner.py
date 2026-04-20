@@ -12,6 +12,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
+from meridian.lib.core.lifecycle import SpawnLifecycleService
 from meridian.lib.core.spawn_lifecycle import (
     has_durable_report_completion,
     resolve_execution_terminal_state,
@@ -142,6 +143,7 @@ def run_harness_process(
     primary_started_epoch = 0.0
     primary_started_local_iso: str | None = None
     artifacts = LocalStore(root_dir=state_root / "artifacts")
+    lifecycle_service = SpawnLifecycleService(state_root)
 
     resume_chat_id = (
         preview_request.session.continue_chat_id
@@ -184,23 +186,24 @@ def run_harness_process(
                         (preview_request.session.requested_harness_session_id or "").strip()
                     )
                 )
-                primary_spawn_id = spawn_store.start_spawn(
-                    state_root,
-                    chat_id=chat_id,
-                    model=session_metadata.model,
-                    agent=session_metadata.agent,
-                    agent_path=session_metadata.agent_path or None,
-                    skills=session_metadata.skills,
-                    skill_paths=session_metadata.skill_paths,
-                    harness=session_metadata.harness,
-                    kind="primary",
-                    prompt=preview_request.prompt,
-                    harness_session_id=None if should_fork else resolved_harness_session_id,
-                    execution_cwd=str(execution_cwd),
-                    launch_mode=FOREGROUND_LAUNCH_MODE,
-                    work_id=attached_work_id,
-                    runner_pid=os.getpid(),
-                    status="queued",
+                primary_spawn_id = SpawnId(
+                    lifecycle_service.start(
+                        chat_id=chat_id,
+                        model=session_metadata.model,
+                        agent=session_metadata.agent,
+                        agent_path=session_metadata.agent_path or None,
+                        skills=session_metadata.skills,
+                        skill_paths=session_metadata.skill_paths,
+                        harness=session_metadata.harness,
+                        kind="primary",
+                        prompt=preview_request.prompt,
+                        harness_session_id=None if should_fork else resolved_harness_session_id,
+                        execution_cwd=str(execution_cwd),
+                        launch_mode=FOREGROUND_LAUNCH_MODE,
+                        work_id=attached_work_id,
+                        runner_pid=os.getpid(),
+                        status="queued",
+                    )
                 )
                 if should_fork:
                     source_session_id = (
@@ -272,8 +275,7 @@ def run_harness_process(
                     )
 
                 def _record_primary_started(child_pid: int) -> None:
-                    spawn_store.mark_spawn_running(
-                        state_root,
+                    lifecycle_service.mark_running(
                         primary_spawn_id,
                         launch_mode=FOREGROUND_LAUNCH_MODE,
                         worker_pid=child_pid,
@@ -287,8 +289,7 @@ def run_harness_process(
                     _record_primary_started,
                 )
                 with suppress(Exception):
-                    spawn_store.record_spawn_exited(
-                        state_root,
+                    lifecycle_service.record_exited(
                         primary_spawn_id,
                         exit_code=exit_code,
                     )
@@ -325,11 +326,10 @@ def run_harness_process(
                         if primary_started > 0.0
                         else None
                     )
-                    spawn_store.finalize_spawn(
-                        state_root,
+                    lifecycle_service.finalize(
                         primary_spawn_id,
-                        status=status,
-                        exit_code=exit_code,
+                        status,
+                        exit_code,
                         origin="launcher",
                         duration_secs=duration,
                     )
