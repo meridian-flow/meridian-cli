@@ -171,6 +171,9 @@ def generate_directory_tree(
                 key=lambda p: (not p.is_dir(), p.name.lower()),
             )
         except PermissionError:
+            if depth == 1:
+                # Top-level reference directory must fail loud.
+                raise
             return
 
         # Filter blocked entries
@@ -409,13 +412,6 @@ def _load_directory_reference(path: Path) -> ReferenceItem:
             path=path,
             body="",
             warning=str(e),
-        )
-    except PermissionError:
-        return ReferenceItem(
-            kind="directory",
-            path=path,
-            body="",
-            warning="Permission denied",
         )
 
 
