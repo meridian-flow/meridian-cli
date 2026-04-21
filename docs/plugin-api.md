@@ -19,12 +19,34 @@ print(api.__version__)  # "1.0.0"
 
 | Export | Purpose |
 | ------ | ------- |
-| `Hook` | Resolved hook record — fields like `name`, `event`, `builtin`, `command`, `options`, `remote` |
+| `Hook` | Resolved hook record — `name`, `event`, `builtin`, `command`, `options`, `remote`, `enabled`, `priority`, `failure_policy`, `require_serial`, `exclude` |
 | `HookContext` | Runtime context passed to a hook at execution time — spawn state, work item, event name |
-| `HookResult` | Return value from a hook execution |
-| `HookOutcome` | Enum: outcome of a hook run (`success`, `failure`, `skipped`) |
-| `HookEventName` | String literal type for valid event names (`spawn.start`, `spawn.finalized`, `work.start`, `work.done`) |
-| `FailurePolicy` | String literal type for failure policy values (`fail`, `warn`, `ignore`) |
+| `HookResult` | Result for one hook execution — `hook_name`, `event`, `outcome`, `success`, `skipped`, `skip_reason`, `error`, `exit_code`, `duration_ms`, `stdout`, `stderr` |
+| `HookOutcome` | `"success"` \| `"failure"` \| `"timeout"` \| `"skipped"` |
+| `HookEventName` | Valid event name literal — `spawn.created`, `spawn.running`, `spawn.start`, `spawn.finalized`, `work.start`, `work.started`, `work.done` |
+| `FailurePolicy` | `"fail"` \| `"warn"` \| `"ignore"` |
+
+### `HookContext` fields
+
+| Field | Type | Present for |
+| ----- | ---- | ----------- |
+| `event_name` | `HookEventName` | all events |
+| `event_id` | `UUID` | all events |
+| `timestamp` | `str` (ISO 8601) | all events |
+| `repo_root` | `str` | all events |
+| `state_root` | `str` | all events |
+| `schema_version` | `int` | all events |
+| `spawn_id` | `str \| None` | spawn events |
+| `spawn_status` | `str \| None` | `spawn.finalized` |
+| `spawn_agent` | `str \| None` | spawn events |
+| `spawn_model` | `str \| None` | spawn events |
+| `spawn_duration_secs` | `float \| None` | `spawn.finalized` |
+| `spawn_cost_usd` | `float \| None` | `spawn.finalized` |
+| `spawn_error` | `str \| None` | `spawn.finalized` (on failure) |
+| `work_id` | `str \| None` | work events |
+| `work_dir` | `str \| None` | work events |
+
+`HookContext.to_env()` returns a `dict[str, str]` of `MERIDIAN_HOOK_*` environment variables. Shell-command hooks receive these automatically. `HookContext.to_json()` returns the context as a JSON string (passed via stdin for stdin-transport hooks).
 
 ## State Helpers
 

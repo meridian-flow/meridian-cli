@@ -29,12 +29,17 @@ meridian hooks run git-autosync --event work.done
 
 ## Events
 
-| Event | Fires when |
-| ----- | ---------- |
-| `spawn.start` | A spawn begins (harness process launched) |
-| `spawn.finalized` | A spawn reaches a terminal state (`succeeded`, `failed`, or `cancelled`) |
-| `work.start` | A work item is switched to (becomes active) |
-| `work.done` | A work item is completed |
+| Event | Class | Fires when |
+| ----- | ----- | ---------- |
+| `spawn.created` | observe | A spawn is registered in the database |
+| `spawn.running` | observe | A spawn's harness process starts |
+| `spawn.start` | observe | Alias for `spawn.running` |
+| `spawn.finalized` | post | A spawn reaches a terminal state (`succeeded`, `failed`, or `cancelled`) |
+| `work.start` | observe | A work item is switched to (becomes active) |
+| `work.started` | observe | Alias for `work.start` |
+| `work.done` | post | A work item is completed |
+
+Event class affects default timeout and failure policy: `observe` events default to 30s / `warn`; `post` events default to 60s / `warn`.
 
 A single hook row can register for multiple events. When a builtin supplies default events and no `event` field is set, one hook registration is created per default event. Setting `event` explicitly overrides this and registers for only that one event.
 
@@ -103,7 +108,7 @@ remote = "git@github.com:team/docs.git"
 
 **Required:** `remote` — the Git remote URL of the repo to sync.
 
-**Default events:** `spawn.start`, `spawn.finalized`, `work.start`, `work.done`
+**Default events:** `spawn.start`, `spawn.finalized`, `work.started`, `work.done`
 
 ```toml
 [[hooks]]
