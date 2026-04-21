@@ -22,15 +22,26 @@ from meridian.lib.harness.projections.project_opencode_subprocess import (
     project_opencode_spec_to_cli_args,
 )
 from meridian.lib.launch.reference import ReferenceItem
-from meridian.lib.safety.permissions import PermissionConfig, TieredPermissionResolver
+from meridian.lib.safety.permissions import (
+    ApprovalMode,
+    PermissionConfig,
+    SandboxMode,
+    TieredPermissionResolver,
+)
 
 
-def _resolver(*, sandbox: str = "default", approval: str = "default") -> TieredPermissionResolver:
+def _resolver(
+    *,
+    sandbox: SandboxMode = "default",
+    approval: ApprovalMode = "default",
+) -> TieredPermissionResolver:
     return TieredPermissionResolver(config=PermissionConfig(sandbox=sandbox, approval=approval))
 
 
-def test_claude_resolve_launch_spec_normalizes_effort_and_maps_fields() -> None:
+def test_claude_resolve_launch_spec_normalizes_effort_and_maps_fields(tmp_path: Path) -> None:
     resolver = _resolver()
+    child_repo_root = tmp_path / "child-repo"
+    report_path = tmp_path / ".meridian" / "spawns" / "p123" / "report.md"
     run = SpawnParams(
         prompt="test prompt",
         model=ModelId("claude-sonnet-4-6"),
@@ -40,6 +51,8 @@ def test_claude_resolve_launch_spec_normalizes_effort_and_maps_fields() -> None:
         continue_harness_session_id="  claude-session  ",
         continue_fork=True,
         appended_system_prompt="system-prompt",
+        repo_root=child_repo_root.as_posix(),
+        report_output_path=report_path.as_posix(),
     )
 
     spec = ClaudeAdapter().resolve_launch_spec(run, resolver)
@@ -52,6 +65,7 @@ def test_claude_resolve_launch_spec_normalizes_effort_and_maps_fields() -> None:
     assert spec.appended_system_prompt == "system-prompt"
     assert spec.agents_payload == '{"agent":"payload"}'
     assert spec.agent_name == "coder"
+    assert spec.prompt_file_path == str(report_path.parent / "prompt.md")
     assert spec.permission_resolver.config == resolver.config
     assert spec.permission_resolver is resolver
 
@@ -286,7 +300,9 @@ def test_continue_fork_requires_continue_session_id(spec_cls: type[ResolvedLaunc
     errors = exc_info.value.errors()
     assert len(errors) == 1
     assert errors[0]["type"] == "value_error"
-    underlying = errors[0]["ctx"]["error"]
+    ctx = errors[0].get("ctx")
+    assert isinstance(ctx, dict)
+    underlying = ctx.get("error")
     assert isinstance(underlying, ValueError)
     assert str(underlying) == "continue_fork=True requires continue_session_id"
 

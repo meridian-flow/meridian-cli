@@ -272,9 +272,14 @@ class ClaudeAdapter(BaseHarnessAdapter[ClaudeLaunchSpec]):
                 "xhigh": "max",
             }.get(normalized_value, normalized_value)
         continue_session_id = (run.continue_harness_session_id or "").strip() or None
-        # Compute prompt file path from repo_root (spawn directory contains prompt.md)
+        # Prefer the spawn log directory (from report_output_path) for prompt.md.
+        # Keep repo_root fallback for compatibility with contexts that do not set
+        # report_output_path.
         prompt_file_path: str | None = None
-        if run.repo_root:
+        report_output_path = (run.report_output_path or "").strip()
+        if report_output_path:
+            prompt_file_path = str(Path(report_output_path).expanduser().parent / "prompt.md")
+        elif run.repo_root:
             prompt_file_path = str(Path(run.repo_root) / "prompt.md")
         return ClaudeLaunchSpec(
             model=str(run.model).strip() if run.model else None,
