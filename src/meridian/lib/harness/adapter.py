@@ -43,6 +43,7 @@ class HarnessCapabilities(BaseModel):
     supports_native_skills: bool = False
     supports_native_agents: bool = False
     supports_primary_launch: bool = False
+    # DEPRECATED: This field is ignored. Files are always inlined, directories as trees.
     reference_input_mode: Literal["inline", "paths"] = "paths"
 
 

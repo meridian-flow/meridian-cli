@@ -52,7 +52,7 @@ from .prompt import (
     compose_skill_injections,
     dedupe_skill_names,
 )
-from .reference import load_reference_files
+from .reference import load_reference_items
 from .request import (
     LaunchArgvIntent,
     LaunchCompositionSurface,
@@ -83,7 +83,7 @@ class ChildEnvContext:
     parent_depth: int
     work_id: str | None = None
     work_dir: Path | None = None
-    fs_dir: Path | None = None
+    kb_dir: Path | None = None
 
     @classmethod
     def from_environment(
@@ -112,7 +112,7 @@ class ChildEnvContext:
         work_dir = (
             resolve_work_scratch_dir(repo_state_root, work_id) if work_id is not None else None
         )
-        fs_dir = repo_state_paths.fs_dir
+        kb_dir = repo_state_paths.kb_dir
 
         return cls(
             # Keep launch semantics unchanged: runtime repo_root follows the
@@ -124,7 +124,7 @@ class ChildEnvContext:
             parent_depth=parent_depth,
             work_id=work_id,
             work_dir=work_dir,
-            fs_dir=fs_dir,
+            kb_dir=kb_dir,
         )
 
     def child_context(self) -> dict[str, str]:
@@ -136,7 +136,7 @@ class ChildEnvContext:
             parent_depth=self.parent_depth,
             work_id=self.work_id,
             work_dir=self.work_dir,
-            fs_dir=self.fs_dir,
+            kb_dir=self.kb_dir,
         )
         validate_child_env_keys(overrides)
         return overrides
@@ -332,7 +332,7 @@ def _resolve_surface_request(
         )
 
     route_warning = None
-    reference_mode = harness.capabilities.reference_input_mode
+    # reference_input_mode is deprecated - files always inline, directories as trees
     prompt_policy = harness.run_prompt_policy()
     resolved_context_from = request.context_from
     prompt = request.prompt
@@ -340,10 +340,9 @@ def _resolve_surface_request(
         runtime.composition_surface == LaunchCompositionSurface.SPAWN_PREPARE
         and not request.prompt_is_composed
     ):
-        loaded_references = load_reference_files(
+        loaded_references = load_reference_items(
             request.reference_files,
             base_dir=project_paths.repo_root,
-            include_content=reference_mode != "paths",
         )
         prior_output: str | None = None
         if request.context_from:
@@ -366,7 +365,6 @@ def _resolve_surface_request(
             else "",
             template_variables=request.template_vars,
             prior_output=prior_output,
-            reference_mode=reference_mode,
         )
 
     requested_harness_session_id = (

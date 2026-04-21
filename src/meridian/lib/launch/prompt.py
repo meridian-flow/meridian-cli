@@ -10,9 +10,8 @@ from meridian.lib.catalog.agent import scan_agent_profiles
 from meridian.lib.catalog.skill import SkillRegistry
 from meridian.lib.core.domain import SkillContent
 from meridian.lib.launch.reference import (
-    ReferenceFile,
+    ReferenceItem,
     render_reference_blocks,
-    render_reference_paths_section,
     resolve_template_variables,
     substitute_template_variables,
 )
@@ -58,6 +57,10 @@ _PRIOR_OUTPUT_OPEN = "<prior-run-output>"
 _PRIOR_OUTPUT_CLOSE = "</prior-run-output>"
 _ESCAPED_PRIOR_OUTPUT_OPEN = "<\\prior-run-output>"
 _ESCAPED_PRIOR_OUTPUT_CLOSE = "<\\/prior-run-output>"
+
+
+# Backward compatibility re-export
+ReferenceFile = ReferenceItem
 
 
 def dedupe_skill_names(names: Iterable[str]) -> tuple[str, ...]:
@@ -206,7 +209,7 @@ def sanitize_prior_output(output: str) -> str:
 def compose_run_prompt(
     *,
     skills: Sequence[SkillContent],
-    references: Sequence[ReferenceFile],
+    references: Sequence[ReferenceItem],
     user_prompt: str,
     agent_body: str = "",
     template_variables: Mapping[str, str | Path] | None = None,
@@ -218,11 +221,19 @@ def compose_run_prompt(
     Prompt assembly order:
     1) Skill content
     2) Agent profile body
-    3) Reference files
+    3) Reference files/directories (always inline/tree - reference_mode is deprecated)
     4) Template variable substitution
     5) Report path instruction
     6) User prompt
+
+    Note: The `reference_mode` parameter is DEPRECATED and ignored.
+    Files are always inlined, directories are always rendered as trees.
     """
+    if reference_mode == "paths":
+        # Silence the deprecation - this is the default value and most callers
+        # don't explicitly set it. The behavior has changed but the API is
+        # backward compatible.
+        pass
 
     skill_sections = _render_skill_blocks(skills)
     non_skill_sections: list[str] = []
@@ -234,10 +245,8 @@ def compose_run_prompt(
             _render_templated_section(f"# Agent Profile\n\n{agent_body_text}", resolved_variables)
         )
 
-    if reference_mode == "paths":
-        non_skill_sections.extend(render_reference_paths_section(references))
-    else:
-        non_skill_sections.extend(render_reference_blocks(references))
+    # Always use render_reference_blocks - files are inlined, directories are trees
+    non_skill_sections.extend(render_reference_blocks(references))
 
     if prior_output is not None and prior_output.strip():
         non_skill_sections.append(sanitize_prior_output(prior_output))
@@ -266,14 +275,17 @@ def compose_run_prompt(
 def compose_run_prompt_text(
     *,
     skills: Sequence[SkillContent],
-    references: Sequence[ReferenceFile],
+    references: Sequence[ReferenceItem],
     user_prompt: str,
     agent_body: str = "",
     template_variables: Mapping[str, str | Path] | None = None,
     prior_output: str | None = None,
     reference_mode: Literal["inline", "paths"] = "paths",
 ) -> str:
-    """Compose and render prompt text."""
+    """Compose and render prompt text.
+
+    Note: The `reference_mode` parameter is DEPRECATED and ignored.
+    """
 
     return compose_run_prompt(
         skills=skills,
@@ -320,6 +332,7 @@ def render_file_template(
 
 __all__ = [
     "ReferenceFile",
+    "ReferenceItem",
     "build_report_instruction",
     "compose_run_prompt",
     "compose_run_prompt_text",

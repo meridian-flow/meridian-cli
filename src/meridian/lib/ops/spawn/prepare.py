@@ -11,7 +11,7 @@ from meridian.lib.config.settings import MeridianConfig, load_config, resolve_pr
 from meridian.lib.core.context import RuntimeContext
 from meridian.lib.harness.registry import HarnessRegistry, get_default_harness_registry
 from meridian.lib.launch.context import build_launch_context
-from meridian.lib.launch.reference import load_reference_files, parse_template_assignments
+from meridian.lib.launch.reference import parse_template_assignments, validate_reference_paths
 from meridian.lib.launch.request import (
     ExecutionBudget,
     LaunchArgvIntent,
@@ -173,10 +173,9 @@ def build_create_payload(
             harness_registry=runtime_bundle.harness_registry,
         )
         state_root = resolve_state_root(runtime_view.repo_root)
-    loaded_references = load_reference_files(
+    validated_paths = validate_reference_paths(
         payload.files,
         base_dir=runtime_view.repo_root,
-        include_content=False,
     )
     parsed_template_vars = parse_template_assignments(payload.template_vars)
     timeout_secs = minutes_to_seconds(payload.timeout)
@@ -215,7 +214,7 @@ def build_create_payload(
             continue_source_ref=payload.session.continue_source_ref,
         ),
         context_from=payload.context_from,
-        reference_files=tuple(str(reference.path) for reference in loaded_references),
+        reference_files=tuple(str(p) for p in validated_paths),
         template_vars=parsed_template_vars,
         work_id_hint=payload.work.strip() or None,
         warning=preflight_warning,
