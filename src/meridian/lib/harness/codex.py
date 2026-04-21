@@ -326,7 +326,6 @@ class CodexAdapter(BaseHarnessAdapter[CodexLaunchSpec]):
             supports_session_fork=True,
             supports_native_skills=True,
             supports_primary_launch=True,
-            reference_input_mode="paths",
             supports_native_file_injection=False,
         )
 

@@ -338,7 +338,6 @@ def _resolve_surface_request(
         )
 
     route_warning = None
-    # reference_input_mode is deprecated - files always inline, directories as trees
     prompt_policy = harness.run_prompt_policy()
     resolved_context_from = request.context_from
     prompt = request.prompt
