@@ -4,6 +4,7 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **`-f` directory support**: `-f dir/` renders depth-3 tree in prompt (blocked dirs annotated, deterministic sort, cross-platform). Files always inline regardless of harness. Orchestrators pass context packages without enumerating every file.
 - **Hook system**: Event-driven hooks for lifecycle events (`spawn.created`, `spawn.running`, `spawn.finalized`, `work.started`, `work.done`). External hooks (subprocess) and built-in hooks (Python). CLI: `hooks list`, `hooks check`, `hooks run`.
 - **git-autosync**: Built-in hook for syncing git-backed contexts. Auto-registers when `source = "git"`. Interval throttling, fail-open semantics.
 - **App server Phase 1**: Sessions/SSE/Work facade endpoints. Multiplexed SSE stream for live updates.
@@ -14,6 +15,7 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `meridian context` command — returns context tuple (`work_id`, `repo_root`, `state_root`, `depth`). JSON when spawned or with `--json`; human-friendly text in TTY.
 
 ### Fixed
+- Top-level unreadable `-f` directory now raises `PermissionError` instead of silent empty tree.
 - Windows: `_fsync_directory` no-op on Windows (not supported).
 - Windows: `output.jsonl` capture enabled on Windows.
 - Windows: Guardrails platform dispatch for `.cmd`/`.ps1` scripts.
