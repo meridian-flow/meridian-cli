@@ -53,9 +53,33 @@ def resolve_launch_spec_stage(
     run_inputs: ResolvedRunInputs | SpawnParams,
     perms: PermissionResolver,
 ) -> ResolvedLaunchSpec:
-    """Stage-owned adapter callsite for `resolve_launch_spec`."""
+    """Stage-owned adapter callsite for `resolve_launch_spec`.
 
-    return adapter.resolve_launch_spec(to_spawn_params(run_inputs), perms)
+    Reference delivery flow (intentional split):
+    1. `build_launch_context()` loads `reference_items` into `ResolvedRunInputs`.
+    2. `to_spawn_params()` intentionally drops `reference_items` because most harnesses
+       never consume them.
+    3. This stage selectively re-attaches `reference_items` onto the resolved spec only
+       when the active adapter advertises native file injection support and the spec model
+       exposes a `reference_items` field.
+
+    This keeps generic `SpawnParams` stable while still making native-injection data
+    available to projections like OpenCode subprocess `--file`.
+    """
+
+    spec = adapter.resolve_launch_spec(to_spawn_params(run_inputs), perms)
+
+    # If harness supports native file injection and we have reference_items,
+    # update the spec with them (only for specs that have the field)
+    if (
+        isinstance(run_inputs, ResolvedRunInputs)
+        and run_inputs.reference_items
+        and adapter.capabilities.supports_native_file_injection
+        and hasattr(spec, "reference_items")
+    ):
+        spec = spec.model_copy(update={"reference_items": run_inputs.reference_items})
+
+    return spec
 
 
 def _projected_spec_to_run_inputs(

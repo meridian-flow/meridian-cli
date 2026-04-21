@@ -46,6 +46,9 @@ class HarnessCapabilities(BaseModel):
     # DEPRECATED: This field is ignored. Files are always inlined, directories as trees.
     reference_input_mode: Literal["inline", "paths"] = "paths"
 
+    # Whether native file injection is available (e.g., OpenCode --file)
+    supports_native_file_injection: bool = False
+
 
 class RunPromptPolicy(BaseModel):
     """Adapter-owned policy for composing one run prompt."""

@@ -1,6 +1,7 @@
 """Resolved launch spec tests for harness adapters."""
 
 import logging
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -20,6 +21,7 @@ from meridian.lib.harness.projections.project_opencode_subprocess import (
     HarnessCapabilityMismatch,
     project_opencode_spec_to_cli_args,
 )
+from meridian.lib.launch.reference import ReferenceItem
 from meridian.lib.safety.permissions import PermissionConfig, TieredPermissionResolver
 
 
@@ -206,6 +208,45 @@ def test_opencode_primary_projection_uses_prompt_flag_instead_of_project_positio
     )
 
     assert command == ["opencode", "--prompt", "prompt text"]
+
+
+def test_opencode_subprocess_projection_injects_only_valid_file_references() -> None:
+    spec = OpenCodeLaunchSpec(
+        prompt="test prompt",
+        permission_resolver=_resolver(),
+        reference_items=(
+            ReferenceItem(
+                kind="file",
+                path=Path("/repo/src/auth.py"),
+                body="print('ok')",
+            ),
+            ReferenceItem(
+                kind="directory",
+                path=Path("/repo/src"),
+                body="tree",
+            ),
+            ReferenceItem(
+                kind="file",
+                path=Path("/repo/src/binary.dat"),
+                body="",
+                warning="Binary file: 10KB",
+            ),
+            ReferenceItem(
+                kind="file",
+                path=Path("/repo/src/empty.py"),
+                body="",
+            ),
+        ),
+    )
+
+    command = project_opencode_spec_to_cli_args(spec, base_command=("opencode", "run"))
+
+    assert command.count("--file") == 1
+    assert "--file" in command
+    assert "/repo/src/auth.py" in command
+    assert "/repo/src/binary.dat" not in command
+    assert "/repo/src/empty.py" not in command
+    assert command[-2:] == ["--", "-"]
 
 
 @pytest.mark.parametrize(

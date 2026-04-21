@@ -22,7 +22,10 @@ from meridian.lib.core.domain import Spawn, SpawnStatus
 from meridian.lib.core.lifecycle import create_lifecycle_service
 from meridian.lib.core.sink import OutputSink
 from meridian.lib.core.types import HarnessId, ModelId, SpawnId
-from meridian.lib.launch.context import build_launch_context
+from meridian.lib.harness.projections.project_opencode_subprocess import (
+    extract_file_paths_for_native_injection,
+)
+from meridian.lib.launch.context import LaunchContext, build_launch_context
 from meridian.lib.launch.cwd import resolve_child_execution_cwd
 from meridian.lib.launch.fork import materialize_fork
 from meridian.lib.launch.request import (
@@ -64,6 +67,7 @@ _BACKGROUND_SUBMIT_MESSAGE = "Background spawn submitted."
 _BACKGROUND_STDOUT_FILENAME = "background-launcher.stdout.log"
 _BACKGROUND_STDERR_FILENAME = "background-launcher.stderr.log"
 _BG_WORKER_REQUEST_FILENAME = "bg-worker-request.json"
+_DELIVERY_MANIFEST_FILENAME = "delivery-manifest.json"
 _BACKGROUND_RUNTIME_ARTIFACTS = (
     _BACKGROUND_STDOUT_FILENAME,
     _BACKGROUND_STDERR_FILENAME,
@@ -342,6 +346,55 @@ def _write_params_json(
     atomic_write_text(prompt_path, request.prompt)
 
 
+def _reference_item_path_for_manifest(item: Any) -> str:
+    rendered = item.path.as_posix()
+    if item.kind == "directory" and not rendered.endswith("/"):
+        return f"{rendered}/"
+    return rendered
+
+
+def _build_delivery_manifest_payload(launch_context: LaunchContext) -> dict[str, Any] | None:
+    if not launch_context.harness.capabilities.supports_native_file_injection:
+        return None
+    if not hasattr(launch_context.spec, "reference_items"):
+        return None
+
+    reference_items = tuple(getattr(launch_context.spec, "reference_items", ()))
+    if not reference_items:
+        return None
+
+    native_file_paths = extract_file_paths_for_native_injection(reference_items)
+    if not native_file_paths:
+        return None
+
+    native_file_path_set = set(native_file_paths)
+    inlined_paths: list[str] = []
+    for item in launch_context.run_params.reference_items:
+        item_path = item.path.as_posix()
+        if item_path in native_file_path_set:
+            continue
+        inlined_paths.append(_reference_item_path_for_manifest(item))
+
+    return {
+        "prompt_file": "prompt.md",
+        "prompt_delivery_method": "stdin",
+        "files_delivered_natively": native_file_paths,
+        "files_inlined_in_prompt": inlined_paths,
+    }
+
+
+def _write_delivery_manifest_if_needed(
+    *,
+    log_dir: Path,
+    launch_context: LaunchContext,
+) -> None:
+    payload = _build_delivery_manifest_payload(launch_context)
+    if payload is None:
+        return
+    manifest_path = log_dir / _DELIVERY_MANIFEST_FILENAME
+    atomic_write_text(manifest_path, json.dumps(payload, indent=2) + "\n")
+
+
 def _persist_bg_worker_request(log_dir: Path, payload: BackgroundWorkerLaunchRequest) -> None:
     """Write background worker launch request to the spawn log directory."""
 
@@ -589,6 +642,10 @@ async def _execute_existing_spawn(
             harness_registry=runtime.harness_registry,
             plan_overrides=run_env_overrides,
             runtime_work_id=runtime_work_id,
+        )
+        _write_delivery_manifest_if_needed(
+            log_dir=resolve_spawn_log_dir(project_paths.repo_root, spawn.spawn_id),
+            launch_context=launch_context,
         )
         return await execute_with_streaming(
             spawn,
@@ -923,6 +980,10 @@ def execute_spawn_blocking(
             harness_registry=runtime.harness_registry,
             plan_overrides=run_env_overrides,
             runtime_work_id=runtime_work_id,
+        )
+        _write_delivery_manifest_if_needed(
+            log_dir=resolve_spawn_log_dir(project_paths.repo_root, spawn.spawn_id),
+            launch_context=launch_context,
         )
         exit_code = asyncio.run(
             execute_with_streaming(

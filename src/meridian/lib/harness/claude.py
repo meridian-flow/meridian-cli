@@ -247,6 +247,7 @@ class ClaudeAdapter(BaseHarnessAdapter[ClaudeLaunchSpec]):
             supports_native_skills=True,
             supports_native_agents=True,
             supports_primary_launch=True,
+            supports_native_file_injection=False,
         )
 
     def run_prompt_policy(self) -> RunPromptPolicy:
@@ -271,6 +272,10 @@ class ClaudeAdapter(BaseHarnessAdapter[ClaudeLaunchSpec]):
                 "xhigh": "max",
             }.get(normalized_value, normalized_value)
         continue_session_id = (run.continue_harness_session_id or "").strip() or None
+        # Compute prompt file path from repo_root (spawn directory contains prompt.md)
+        prompt_file_path: str | None = None
+        if run.repo_root:
+            prompt_file_path = str(Path(run.repo_root) / "prompt.md")
         return ClaudeLaunchSpec(
             model=str(run.model).strip() if run.model else None,
             effort=normalized_effort,
@@ -284,6 +289,7 @@ class ClaudeAdapter(BaseHarnessAdapter[ClaudeLaunchSpec]):
             appended_system_prompt=run.appended_system_prompt,
             agents_payload=run.adhoc_agent_payload.strip() or None,
             agent_name=run.agent,
+            prompt_file_path=prompt_file_path,
         )
 
     def preflight(
