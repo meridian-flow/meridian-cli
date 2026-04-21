@@ -3,11 +3,13 @@
 Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [SemVer](https://semver.org/). Versions `0.0.6` through `0.0.25` in git history only — changelog fell stale, resumed at `[Unreleased]`.
 ## [Unreleased]
 
+## [0.0.39] - 2026-04-21
+
 ### Added
 - **`-f` directory support**: `-f dir/` renders depth-3 tree in prompt (blocked dirs annotated, deterministic sort, cross-platform). Files always inline regardless of harness. Orchestrators pass context packages without enumerating every file.
 - **Hook system**: Event-driven hooks for lifecycle events (`spawn.created`, `spawn.running`, `spawn.finalized`, `work.started`, `work.done`). External hooks (subprocess) and built-in hooks (Python). CLI: `hooks list`, `hooks check`, `hooks run`.
 - **git-autosync**: Built-in hook for syncing git-backed contexts. Auto-registers when `source = "git"`. Interval throttling, fail-open semantics.
-- **App server Phase 1**: Sessions/SSE/Work facade endpoints. Multiplexed SSE stream for live updates.
+- **App server Phase 1-3**: Sessions/SSE/Work facade endpoints, Files mode, spawn archive, catalog endpoints, and thread inspector endpoints.
 - **`meridian.local.toml`**: Personal config overrides, gitignored. Precedence: local > project > user.
 - **Context backend**: Git-backed contexts via `[context.work]` and `[context.kb]` with `source = "git"` and `remote = "..."`. Paths resolve to `~/.meridian/git/<slug>/`. Lazy clone — bootstrap skips git-backed dirs, git-autosync handles cloning.
 - **Plugin API v1**: Stable contract at `meridian.plugin_api` for hooks/plugins. Exports: hook types, state helpers, git helpers, config helpers, file locking.
@@ -30,6 +32,10 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Windows: Path assertion normalized for cross-platform.
 - git-autosync event name: `work.start` → `work.started` to match actual lifecycle dispatch.
 - `source = "git"` without `remote`: warns and falls back to local instead of broken state.
+- App server path security hardened: resolved-root validation, traversal guards, Unicode path coverage, and delete/rename boundary checks.
+- Primary launch prompt materialization fixed for process projection path.
+- Spec-driven launch argv projection now handles typed harness fields.
+- Native reference delivery now carries `reference_items` through launch specs.
 
 ## [0.0.33] - 2026-04-17
 
