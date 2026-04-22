@@ -4,8 +4,17 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Changed
+- **Work items: directory is the work item.** Eliminated `work-items/` metadata index. Work item exists iff its directory exists in `work/` (active) or `archive/work/` (done). `__status.json` inside each dir holds mutable metadata. `meridian work list` scans the actual work directory — no separate index to drift. Auto-heals missing/malformed status files. Fixes #69, #70.
+- `work list --done` now paginated: shows last 10 by default, `-n N` for custom limit, `--all` for everything.
+- Archive/reopen crash-safe: archive moves dir first then writes metadata; reopen clears metadata first then moves. Crash leaves recoverable state.
+- No lock files for work operations — all ops are single atomic steps or idempotent. Eliminates `fcntl.flock` from work path (Windows first-class).
 - `.meridian/id` now committed to git — stable project identity across clones/worktrees. `ensure_gitignore()` migrates old `.gitignore` files automatically (strips `id` ignore, adds `!id` to required lines).
 - **Naming overhaul**: no "repo" or "state root" in first-class names. `repo_root` → `project_root`, `MERIDIAN_REPO_ROOT` → `MERIDIAN_PROJECT_DIR`, `MERIDIAN_STATE_ROOT` → `MERIDIAN_DATA_DIR`, `get_user_state_root` → `get_meridian_home`, `get_project_state_root` → `get_project_data_root`, `StatePaths` → `ProjectPaths`, `StateRootPaths` → `RuntimePaths`. Breaking rename — no backwards compat aliases.
+
+### Removed
+- `work-items/` directory, `work-items.flock`, `work-items.rename.intent.json` — all replaced by directory-as-work-item model.
+- `RuntimePaths.work_items_dir`, `work_items_flock`, `work_items_rename_intent` fields.
+- `WorkRenameIntent` model, `reconcile_work_store()` function, all `lock_file()` calls in work_store.
 
 ## [0.0.40-rc.1] - 2026-04-22
 
