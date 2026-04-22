@@ -33,18 +33,18 @@ def _state_root(tmp_path: Path) -> Path:
 
 
 def _reserve_chat_id_worker(state_root_str: str, queue: multiprocessing.Queue[str]) -> None:
-    state_root = Path(state_root_str)
-    queue.put(session_store.reserve_chat_id(state_root))
+    runtime_root = Path(state_root_str)
+    queue.put(session_store.reserve_chat_id(runtime_root))
 
 def _write_session_start(
     *,
-    state_root: Path,
+    runtime_root: Path,
     chat_id: str,
     session_instance_id: str,
     harness: str = "codex",
     kind: str = "spawn",
 ) -> None:
-    with (state_root / "sessions.jsonl").open("a", encoding="utf-8") as handle:
+    with (runtime_root / "sessions.jsonl").open("a", encoding="utf-8") as handle:
         handle.write(
             json.dumps(
                 {
@@ -66,14 +66,14 @@ def _write_session_start(
 
 
 def test_reserve_chat_id_is_safe_under_concurrency(tmp_path: Path) -> None:
-    state_root = _state_root(tmp_path)
+    runtime_root = _state_root(tmp_path)
 
     process_count = 8
     ctx, queue = _spawn_queue_or_skip()
     procs = [
         ctx.Process(
             target=_reserve_chat_id_worker,
-            args=(state_root.as_posix(), queue),
+            args=(runtime_root.as_posix(), queue),
         )
         for _ in range(process_count)
     ]
@@ -85,25 +85,25 @@ def test_reserve_chat_id_is_safe_under_concurrency(tmp_path: Path) -> None:
 
     allocated = sorted(queue.get(timeout=5) for _ in range(process_count))
     assert allocated == [f"c{idx}" for idx in range(1, process_count + 1)]
-    assert (state_root / "session-id-counter").read_text(encoding="utf-8") == f"{process_count}\n"
+    assert (runtime_root / "session-id-counter").read_text(encoding="utf-8") == f"{process_count}\n"
 
 
 def test_start_session_does_not_append_start_event_when_lock_acquire_fails(
     tmp_path: Path,
 ) -> None:
-    state_root = _state_root(tmp_path)
-    sessions_dir_as_file = state_root / "sessions"
+    runtime_root = _state_root(tmp_path)
+    sessions_dir_as_file = runtime_root / "sessions"
     sessions_dir_as_file.write_text("not-a-directory\n", encoding="utf-8")
 
     with pytest.raises(OSError):
         session_store.start_session(
-            state_root,
+            runtime_root,
             harness="codex",
             harness_session_id="thread-1",
             model="gpt-5.4",
         )
 
-    assert not (state_root / "sessions.jsonl").exists()
+    assert not (runtime_root / "sessions.jsonl").exists()
 
 
 @pytest.mark.parametrize(
@@ -174,19 +174,19 @@ def test_cleanup_stale_sessions_handles_generation_and_kind_rules(
     expect_lease_exists: bool,
     expected_stop_count: int,
 ) -> None:
-    state_root = _state_root(tmp_path)
+    runtime_root = _state_root(tmp_path)
     _write_session_start(
-        state_root=state_root,
+        runtime_root=runtime_root,
         chat_id=chat_id,
         session_instance_id=start_generation,
         harness=harness,
         kind=kind,
     )
 
-    lock_path = state_root / "sessions" / f"{chat_id}.lock"
+    lock_path = runtime_root / "sessions" / f"{chat_id}.lock"
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     lock_path.touch()
-    lease_path = state_root / "sessions" / f"{chat_id}.lease.json"
+    lease_path = runtime_root / "sessions" / f"{chat_id}.lease.json"
     lease_path.write_text(
         json.dumps(
             {
@@ -198,7 +198,7 @@ def test_cleanup_stale_sessions_handles_generation_and_kind_rules(
         encoding="utf-8",
     )
 
-    cleanup = session_store.cleanup_stale_sessions(state_root)
+    cleanup = session_store.cleanup_stale_sessions(runtime_root)
 
     assert cleanup.cleaned_ids == expected_cleaned
     assert cleanup.materialized_scopes == expected_materialized
@@ -207,7 +207,7 @@ def test_cleanup_stale_sessions_handles_generation_and_kind_rules(
 
     rows = [
         json.loads(line)
-        for line in (state_root / "sessions.jsonl").read_text(encoding="utf-8").splitlines()
+        for line in (runtime_root / "sessions.jsonl").read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
     stop_rows = [

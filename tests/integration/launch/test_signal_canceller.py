@@ -20,7 +20,7 @@ from meridian.lib.streaming.signal_canceller import SignalCanceller
 
 
 def _start_spawn(
-    state_root: Path,
+    runtime_root: Path,
     *,
     spawn_id: str,
     launch_mode: LaunchMode,
@@ -28,7 +28,7 @@ def _start_spawn(
 ) -> str:
     return str(
         spawn_store.start_spawn(
-            state_root,
+            runtime_root,
             chat_id="c1",
             model="gpt-5.4",
             agent="coder",
@@ -45,10 +45,10 @@ def _start_spawn(
 async def test_signal_canceller_returns_idempotent_outcome_for_terminal_spawn(
     tmp_path: Path,
 ) -> None:
-    state_root = resolve_runtime_paths(tmp_path).root_dir
-    spawn_id = _start_spawn(state_root, spawn_id="p1", launch_mode="foreground")
+    runtime_root = resolve_runtime_paths(tmp_path).root_dir
+    spawn_id = _start_spawn(runtime_root, spawn_id="p1", launch_mode="foreground")
     spawn_store.finalize_spawn(
-        state_root,
+        runtime_root,
         spawn_id,
         status="failed",
         exit_code=1,
@@ -56,7 +56,7 @@ async def test_signal_canceller_returns_idempotent_outcome_for_terminal_spawn(
         error="boom",
     )
 
-    outcome = await SignalCanceller(state_root=state_root).cancel(SpawnId(spawn_id))
+    outcome = await SignalCanceller(runtime_root=runtime_root).cancel(SpawnId(spawn_id))
 
     assert outcome.already_terminal is True
     assert outcome.status == "failed"
@@ -69,15 +69,15 @@ async def test_signal_canceller_finalizing_gate_skips_sigterm(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    state_root = resolve_runtime_paths(tmp_path).root_dir
-    spawn_id = _start_spawn(state_root, spawn_id="p1", launch_mode="foreground", runner_pid=4321)
-    assert spawn_store.mark_finalizing(state_root, spawn_id) is True
+    runtime_root = resolve_runtime_paths(tmp_path).root_dir
+    spawn_id = _start_spawn(runtime_root, spawn_id="p1", launch_mode="foreground", runner_pid=4321)
+    assert spawn_store.mark_finalizing(runtime_root, spawn_id) is True
 
     def _unexpected_kill(pid: int, sig: int) -> None:
         raise AssertionError(f"os.kill must not run for finalizing rows: pid={pid}, sig={sig}")
 
     monkeypatch.setattr(os, "kill", _unexpected_kill)
-    outcome = await SignalCanceller(state_root=state_root, grace_seconds=0.01).cancel(
+    outcome = await SignalCanceller(runtime_root=runtime_root, grace_seconds=0.01).cancel(
         SpawnId(spawn_id)
     )
 
@@ -90,8 +90,8 @@ async def test_signal_canceller_cli_lane_sends_sigterm_and_returns_terminal_row(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    state_root = resolve_runtime_paths(tmp_path).root_dir
-    spawn_id = _start_spawn(state_root, spawn_id="p1", launch_mode="foreground", runner_pid=7654)
+    runtime_root = resolve_runtime_paths(tmp_path).root_dir
+    spawn_id = _start_spawn(runtime_root, spawn_id="p1", launch_mode="foreground", runner_pid=7654)
 
     monkeypatch.setattr(
         "meridian.lib.streaming.signal_canceller.is_process_alive",
@@ -102,7 +102,7 @@ async def test_signal_canceller_cli_lane_sends_sigterm_and_returns_terminal_row(
     def _fake_kill(pid: int, sig: int) -> None:
         sent_signals.append((pid, sig))
         spawn_store.finalize_spawn(
-            state_root,
+            runtime_root,
             spawn_id,
             status="cancelled",
             exit_code=143,
@@ -111,7 +111,7 @@ async def test_signal_canceller_cli_lane_sends_sigterm_and_returns_terminal_row(
         )
 
     monkeypatch.setattr(os, "kill", _fake_kill)
-    outcome = await SignalCanceller(state_root=state_root).cancel(SpawnId(spawn_id))
+    outcome = await SignalCanceller(runtime_root=runtime_root).cancel(SpawnId(spawn_id))
 
     assert sent_signals == [(7654, signal.SIGTERM)]
     assert outcome.status == "cancelled"
@@ -124,8 +124,8 @@ async def test_signal_canceller_cli_lane_sends_sigterm_and_returns_terminal_row(
 async def test_signal_canceller_app_lane_uses_manager_stop_spawn(
     tmp_path: Path,
 ) -> None:
-    state_root = resolve_runtime_paths(tmp_path).root_dir
-    spawn_id = _start_spawn(state_root, spawn_id="p1", launch_mode="app", runner_pid=3456)
+    runtime_root = resolve_runtime_paths(tmp_path).root_dir
+    spawn_id = _start_spawn(runtime_root, spawn_id="p1", launch_mode="app", runner_pid=3456)
     calls: list[tuple[str, str, int, str | None]] = []
 
     class _FakeManager:
@@ -139,7 +139,7 @@ async def test_signal_canceller_app_lane_uses_manager_stop_spawn(
         ) -> None:
             calls.append((str(target_spawn_id), status, exit_code, error))
             spawn_store.finalize_spawn(
-                state_root,
+                runtime_root,
                 target_spawn_id,
                 status="cancelled",
                 exit_code=143,
@@ -148,7 +148,7 @@ async def test_signal_canceller_app_lane_uses_manager_stop_spawn(
             )
 
     outcome = await SignalCanceller(
-        state_root=state_root,
+        runtime_root=runtime_root,
         manager=cast("Any", _FakeManager()),
     ).cancel(SpawnId(spawn_id))
 
@@ -162,14 +162,14 @@ async def test_signal_canceller_cli_lane_finalizes_when_runner_pid_missing(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    state_root = resolve_runtime_paths(tmp_path).root_dir
-    spawn_id = _start_spawn(state_root, spawn_id="p1", launch_mode="foreground", runner_pid=None)
+    runtime_root = resolve_runtime_paths(tmp_path).root_dir
+    spawn_id = _start_spawn(runtime_root, spawn_id="p1", launch_mode="foreground", runner_pid=None)
 
     monkeypatch.setattr(
         "meridian.lib.streaming.signal_canceller.is_process_alive",
         lambda pid, created_after_epoch=None: False,
     )
-    outcome = await SignalCanceller(state_root=state_root).cancel(SpawnId(spawn_id))
+    outcome = await SignalCanceller(runtime_root=runtime_root).cancel(SpawnId(spawn_id))
 
     assert outcome.status == "cancelled"
     assert outcome.origin == "cancel"
@@ -229,13 +229,13 @@ async def _start_http_socket_server(
 async def test_signal_canceller_app_lane_cross_process_http_success(
     tmp_path: Path,
 ) -> None:
-    state_root = resolve_runtime_paths(tmp_path).root_dir
-    spawn_id = _start_spawn(state_root, spawn_id="p1", launch_mode="app")
-    socket_path = state_root / "app.sock"
+    runtime_root = resolve_runtime_paths(tmp_path).root_dir
+    spawn_id = _start_spawn(runtime_root, spawn_id="p1", launch_mode="app")
+    socket_path = runtime_root / "app.sock"
 
     def _finalize_spawn() -> None:
         spawn_store.finalize_spawn(
-            state_root,
+            runtime_root,
             spawn_id,
             status="cancelled",
             exit_code=143,
@@ -250,7 +250,7 @@ async def test_signal_canceller_app_lane_cross_process_http_success(
         on_request=_finalize_spawn,
     )
     try:
-        outcome = await SignalCanceller(state_root=state_root).cancel(SpawnId(spawn_id))
+        outcome = await SignalCanceller(runtime_root=runtime_root).cancel(SpawnId(spawn_id))
     finally:
         server.close()
         await server.wait_closed()
@@ -265,9 +265,9 @@ async def test_signal_canceller_app_lane_cross_process_http_success(
 async def test_signal_canceller_app_lane_cross_process_http_409_maps_already_terminal(
     tmp_path: Path,
 ) -> None:
-    state_root = resolve_runtime_paths(tmp_path).root_dir
-    spawn_id = _start_spawn(state_root, spawn_id="p1", launch_mode="app")
-    socket_path = state_root / "app.sock"
+    runtime_root = resolve_runtime_paths(tmp_path).root_dir
+    spawn_id = _start_spawn(runtime_root, spawn_id="p1", launch_mode="app")
+    socket_path = runtime_root / "app.sock"
 
     server = await _start_http_socket_server(
         socket_path,
@@ -275,7 +275,7 @@ async def test_signal_canceller_app_lane_cross_process_http_409_maps_already_ter
         body={"detail": "spawn already terminal: failed"},
     )
     try:
-        outcome = await SignalCanceller(state_root=state_root).cancel(SpawnId(spawn_id))
+        outcome = await SignalCanceller(runtime_root=runtime_root).cancel(SpawnId(spawn_id))
     finally:
         server.close()
         await server.wait_closed()
@@ -290,9 +290,9 @@ async def test_signal_canceller_app_lane_cross_process_http_409_maps_already_ter
 async def test_signal_canceller_app_lane_cross_process_http_503_maps_finalizing(
     tmp_path: Path,
 ) -> None:
-    state_root = resolve_runtime_paths(tmp_path).root_dir
-    spawn_id = _start_spawn(state_root, spawn_id="p1", launch_mode="app")
-    socket_path = state_root / "app.sock"
+    runtime_root = resolve_runtime_paths(tmp_path).root_dir
+    spawn_id = _start_spawn(runtime_root, spawn_id="p1", launch_mode="app")
+    socket_path = runtime_root / "app.sock"
 
     server = await _start_http_socket_server(
         socket_path,
@@ -300,7 +300,7 @@ async def test_signal_canceller_app_lane_cross_process_http_503_maps_finalizing(
         body={"detail": "spawn is finalizing"},
     )
     try:
-        outcome = await SignalCanceller(state_root=state_root).cancel(SpawnId(spawn_id))
+        outcome = await SignalCanceller(runtime_root=runtime_root).cancel(SpawnId(spawn_id))
     finally:
         server.close()
         await server.wait_closed()

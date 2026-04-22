@@ -55,9 +55,9 @@ class _StubHarnessExtractor(HarnessExtractor[ResolvedLaunchSpec]):
         spec: ResolvedLaunchSpec,
         launch_env: Mapping[str, str],
         child_cwd: Path,
-        state_root: Path,
+        runtime_root: Path,
     ) -> str | None:
-        _ = spec, launch_env, child_cwd, state_root
+        _ = spec, launch_env, child_cwd, runtime_root
         return self._fallback_session_id
 
     def extract_usage(self, artifacts: ArtifactStore, spawn_id: SpawnId) -> TokenUsage:
@@ -361,7 +361,7 @@ def test_streaming_extractor_prefers_live_connection_session_id() -> None:
         spec=spec,
         launch_env={},
         child_cwd=Path.cwd(),
-        state_root=Path.cwd(),
+        runtime_root=Path.cwd(),
     )
 
     assert extractor.extract_session_id(InMemoryStore(), SpawnId("p-live")) == "thread-live-123"
@@ -383,7 +383,7 @@ def test_streaming_extractor_falls_back_to_harness_owned_artifact_detection() ->
         spec=spec,
         launch_env={"CODEX_HOME": "/tmp/nonexistent"},
         child_cwd=Path.cwd(),
-        state_root=Path.cwd(),
+        runtime_root=Path.cwd(),
     )
 
     assert (

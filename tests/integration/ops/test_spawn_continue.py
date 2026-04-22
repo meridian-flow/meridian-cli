@@ -9,13 +9,13 @@ from meridian.lib.state.paths import resolve_project_runtime_root
 
 
 def _state_root(project_root: Path) -> Path:
-    state_root = resolve_project_runtime_root(project_root)
-    state_root.mkdir(parents=True, exist_ok=True)
-    return state_root
+    runtime_root = resolve_project_runtime_root(project_root)
+    runtime_root.mkdir(parents=True, exist_ok=True)
+    return runtime_root
 
 
 def _seed_spawn(
-    state_root: Path,
+    runtime_root: Path,
     *,
     spawn_id: str,
     harness_session_id: str | None,
@@ -23,7 +23,7 @@ def _seed_spawn(
     execution_cwd: str | None = None,
 ) -> None:
     spawn_store.start_spawn(
-        state_root,
+        runtime_root,
         spawn_id=spawn_id,
         chat_id="c-seed",
         model="gpt-5.3-codex",
@@ -42,8 +42,8 @@ def test_spawn_continue_errors_when_source_spawn_lacks_harness_session_id(
 ) -> None:
     project_root = tmp_path / "repo"
     project_root.mkdir()
-    state_root = _state_root(project_root)
-    _seed_spawn(state_root, spawn_id="p11", harness_session_id=None)
+    runtime_root = _state_root(project_root)
+    _seed_spawn(runtime_root, spawn_id="p11", harness_session_id=None)
 
     try:
         spawn_api.spawn_continue_sync(
@@ -65,9 +65,9 @@ def test_spawn_continue_passes_resume_details_in_session_dto_fields(
 ) -> None:
     project_root = tmp_path / "repo"
     project_root.mkdir()
-    state_root = _state_root(project_root)
+    runtime_root = _state_root(project_root)
     _seed_spawn(
-        state_root,
+        runtime_root,
         spawn_id="p21",
         harness_session_id="session-21",
         execution_cwd="/tmp/source-cwd",
@@ -119,8 +119,8 @@ def test_spawn_continue_respects_explicit_background_request(
 ) -> None:
     project_root = tmp_path / "repo"
     project_root.mkdir()
-    state_root = _state_root(project_root)
-    _seed_spawn(state_root, spawn_id="p22", harness_session_id="session-22")
+    runtime_root = _state_root(project_root)
+    _seed_spawn(runtime_root, spawn_id="p22", harness_session_id="session-22")
 
     captured_input: SpawnCreateInput | None = None
 
@@ -157,8 +157,8 @@ def test_spawn_continue_passes_explicit_harness_to_create_input(
 ) -> None:
     project_root = tmp_path / "repo"
     project_root.mkdir()
-    state_root = _state_root(project_root)
-    _seed_spawn(state_root, spawn_id="p23", harness_session_id="session-23")
+    runtime_root = _state_root(project_root)
+    _seed_spawn(runtime_root, spawn_id="p23", harness_session_id="session-23")
 
     captured_input: SpawnCreateInput | None = None
 
@@ -194,8 +194,8 @@ def test_spawn_continue_errors_on_explicit_harness_conflict(
 ) -> None:
     project_root = tmp_path / "repo"
     project_root.mkdir()
-    state_root = _state_root(project_root)
-    _seed_spawn(state_root, spawn_id="p24", harness_session_id="session-24")
+    runtime_root = _state_root(project_root)
+    _seed_spawn(runtime_root, spawn_id="p24", harness_session_id="session-24")
 
     with pytest.raises(ValueError) as exc_info:
         spawn_api.spawn_continue_sync(

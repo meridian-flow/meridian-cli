@@ -66,8 +66,8 @@ def test_child_env_context_from_environment_falls_back_to_session_lookup(
         _ = cls
         return ResolvedContext(depth=1, chat_id="chat-lookup")
 
-    def fake_get_session_active_work_id(state_root: Path, chat_id: str) -> str | None:
-        seen_lookup.append((state_root, chat_id))
+    def fake_get_session_active_work_id(runtime_root: Path, chat_id: str) -> str | None:
+        seen_lookup.append((runtime_root, chat_id))
         return "work-session"
 
     monkeypatch.setattr(ResolvedContext, "from_environment", classmethod(fake_from_environment))
@@ -102,8 +102,8 @@ def test_child_env_context_from_environment_ignores_session_lookup_failures(
         _ = cls
         return ResolvedContext(depth=2, chat_id="chat-lookup")
 
-    def raising_lookup(state_root: Path, chat_id: str) -> str | None:
-        _ = (state_root, chat_id)
+    def raising_lookup(runtime_root: Path, chat_id: str) -> str | None:
+        _ = (runtime_root, chat_id)
         raise RuntimeError("store unavailable")
 
     monkeypatch.setattr(ResolvedContext, "from_environment", classmethod(fake_from_environment))

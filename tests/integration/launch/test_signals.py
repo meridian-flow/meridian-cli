@@ -29,7 +29,7 @@ async def test_streaming_runner_signal_cancel_invokes_send_cancel_once(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    state_root = resolve_runtime_paths(tmp_path).root_dir
+    runtime_root = resolve_runtime_paths(tmp_path).root_dir
     run_streaming_spawn = importlib.import_module(
         "meridian.lib.launch.streaming_runner"
     ).run_streaming_spawn
@@ -140,7 +140,7 @@ async def test_streaming_runner_signal_cancel_invokes_send_cancel_once(
                 prompt="hello",
                 permission_resolver=TieredPermissionResolver(config=PermissionConfig()),
             ),
-            state_root=state_root,
+            runtime_root=runtime_root,
             project_root=tmp_path,
             spawn_id=SpawnId("p-signal"),
         ),

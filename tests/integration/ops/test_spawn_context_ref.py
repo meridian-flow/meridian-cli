@@ -37,9 +37,9 @@ def _write_minimal_mars_config(project_root: Path) -> None:
 
 
 def _seed_session(project_root: Path, chat_id: str) -> None:
-    state_root = resolve_project_runtime_root(project_root)
+    runtime_root = resolve_project_runtime_root(project_root)
     session_store.start_session(
-        state_root,
+        runtime_root,
         chat_id=chat_id,
         harness="codex",
         harness_session_id="thread-1",
@@ -47,7 +47,7 @@ def _seed_session(project_root: Path, chat_id: str) -> None:
         agent="coder",
         kind="primary",
     )
-    session_store.stop_session(state_root, chat_id)
+    session_store.stop_session(runtime_root, chat_id)
 
 
 def _seed_spawn(
@@ -60,10 +60,10 @@ def _seed_spawn(
     report_text: str | None = None,
     written_files: tuple[str, ...] = (),
 ) -> str:
-    state_root = resolve_project_runtime_root(project_root)
+    runtime_root = resolve_project_runtime_root(project_root)
     spawn_id = str(
         spawn_store.start_spawn(
-            state_root,
+            runtime_root,
             chat_id=chat_id,
             model="gpt-5.3-codex",
             agent="coder",
@@ -77,7 +77,7 @@ def _seed_spawn(
     if status not in {"queued", "running", "finalizing"}:
         exit_code = 0 if status == "succeeded" else 1
         spawn_store.finalize_spawn(
-            state_root,
+            runtime_root,
             spawn_id,
             status=status,
             exit_code=exit_code,
@@ -85,11 +85,11 @@ def _seed_spawn(
             error=None if status == "succeeded" else "failed",
         )
     if report_text is not None:
-        report_path = state_root / "spawns" / spawn_id / "report.md"
+        report_path = runtime_root / "spawns" / spawn_id / "report.md"
         report_path.parent.mkdir(parents=True, exist_ok=True)
         report_path.write_text(report_text, encoding="utf-8")
     if written_files:
-        artifact_store = LocalStore(root_dir=state_root / "artifacts")
+        artifact_store = LocalStore(root_dir=runtime_root / "artifacts")
         payload = (
             "{"
             + '"written_files":['

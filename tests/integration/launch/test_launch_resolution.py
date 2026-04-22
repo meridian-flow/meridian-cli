@@ -125,7 +125,7 @@ def test_workspace_roots_append_after_claude_preflight_projection(
         dry_run=True,
     )
 
-    state_root = tmp_path / ".meridian"
+    runtime_root = tmp_path / ".meridian"
     assert preview.run_params.extra_args == (
         "--user-tail",
         "1",
@@ -134,7 +134,7 @@ def test_workspace_roots_append_after_claude_preflight_projection(
         "--add-dir",
         shared_root.as_posix(),
         "--add-dir",
-        state_root.as_posix(),
+        runtime_root.as_posix(),
     )
 
 
@@ -185,10 +185,10 @@ def test_opencode_workspace_projection_handles_parent_env_suppression(
         assert OPENCODE_CONFIG_CONTENT_ENV not in preview.env_overrides
         assert "workspace_opencode_parent_env_suppressed" in warning_codes
     else:
-        state_root = tmp_path / ".meridian"
+        runtime_root = tmp_path / ".meridian"
         payload = json.loads(preview.env_overrides[OPENCODE_CONFIG_CONTENT_ENV])
         assert payload == {
-            "permission": {"external_directory": [shared_root.as_posix(), state_root.as_posix()]},
+            "permission": {"external_directory": [shared_root.as_posix(), runtime_root.as_posix()]},
         }
         assert "workspace_opencode_parent_env_suppressed" not in warning_codes
 

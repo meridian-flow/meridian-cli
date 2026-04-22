@@ -44,8 +44,8 @@ doc = json.loads(Path("/tmp/meridian-fork-source-create.json").read_text(encodin
 source_spawn_id = doc.get("spawn_id")
 assert source_spawn_id
 project_root = Path(os.environ["MERIDIAN_PROJECT_DIR"])
-state_root = resolve_runtime_paths(project_root).root_dir
-row = spawn_store.get_spawn(state_root, source_spawn_id)
+runtime_root = resolve_runtime_paths(project_root).root_dir
+row = spawn_store.get_spawn(runtime_root, source_spawn_id)
 assert row is not None
 assert row.chat_id
 assert row.harness_session_id
@@ -100,9 +100,9 @@ doc = json.loads(Path("/tmp/meridian-fork-1.json").read_text(encoding="utf-8"))
 new_spawn_id = doc.get("spawn_id")
 assert new_spawn_id and new_spawn_id != meta["source_spawn_id"]
 assert doc.get("forked_from") == meta["source_chat_id"]
-state_root = resolve_runtime_paths(Path(os.environ["MERIDIAN_PROJECT_DIR"])).root_dir
-source_row = spawn_store.get_spawn(state_root, meta["source_spawn_id"])
-new_row = spawn_store.get_spawn(state_root, new_spawn_id)
+runtime_root = resolve_runtime_paths(Path(os.environ["MERIDIAN_PROJECT_DIR"])).root_dir
+source_row = spawn_store.get_spawn(runtime_root, meta["source_spawn_id"])
+new_row = spawn_store.get_spawn(runtime_root, new_spawn_id)
 assert source_row is not None and new_row is not None
 assert new_row.chat_id and source_row.chat_id and new_row.chat_id != source_row.chat_id
 print("PASS: fork from spawn id created a distinct spawn/session")
@@ -278,8 +278,8 @@ from meridian.lib.state.paths import resolve_runtime_paths
 doc = json.loads(Path("/tmp/meridian-fork-9.json").read_text(encoding="utf-8"))
 spawn_id = doc.get("spawn_id")
 assert spawn_id
-state_root = resolve_runtime_paths(Path(os.environ["MERIDIAN_PROJECT_DIR"])).root_dir
-row = spawn_store.get_spawn(state_root, spawn_id)
+runtime_root = resolve_runtime_paths(Path(os.environ["MERIDIAN_PROJECT_DIR"])).root_dir
+row = spawn_store.get_spawn(runtime_root, spawn_id)
 assert row is not None
 assert row.work_id == "fork-smoke-alt-work"
 print("PASS: fork spawn attached to override work item")
@@ -327,9 +327,9 @@ seed_spawn_id = os.environ["SEED_SPAWN_ID"]
 fork_doc = json.loads(Path(f"/tmp/meridian-fork-10-{harness}-fork.json").read_text(encoding="utf-8"))
 fork_spawn_id = fork_doc.get("spawn_id")
 assert fork_spawn_id
-state_root = resolve_runtime_paths(Path(os.environ["MERIDIAN_PROJECT_DIR"])).root_dir
-seed_row = spawn_store.get_spawn(state_root, seed_spawn_id)
-fork_row = spawn_store.get_spawn(state_root, fork_spawn_id)
+runtime_root = resolve_runtime_paths(Path(os.environ["MERIDIAN_PROJECT_DIR"])).root_dir
+seed_row = spawn_store.get_spawn(runtime_root, seed_spawn_id)
+fork_row = spawn_store.get_spawn(runtime_root, fork_spawn_id)
 assert seed_row is not None and fork_row is not None
 assert seed_row.harness == harness
 assert fork_row.harness == harness
@@ -357,8 +357,8 @@ from meridian.lib.state.paths import resolve_runtime_paths
 
 meta = json.loads(Path("/tmp/meridian-fork-source-meta.json").read_text(encoding="utf-8"))
 before = json.loads(Path("/tmp/meridian-fork-source-row-before.json").read_text(encoding="utf-8"))
-state_root = resolve_runtime_paths(Path(os.environ["MERIDIAN_PROJECT_DIR"])).root_dir
-row = spawn_store.get_spawn(state_root, meta["source_spawn_id"])
+runtime_root = resolve_runtime_paths(Path(os.environ["MERIDIAN_PROJECT_DIR"])).root_dir
+row = spawn_store.get_spawn(runtime_root, meta["source_spawn_id"])
 assert row is not None
 after = {
     "chat_id": row.chat_id,
@@ -473,10 +473,10 @@ from pathlib import Path
 from meridian.lib.state import spawn_store
 from meridian.lib.state.paths import resolve_runtime_paths
 
-state_root = resolve_runtime_paths(Path(os.environ["MERIDIAN_PROJECT_DIR"])).root_dir
+runtime_root = resolve_runtime_paths(Path(os.environ["MERIDIAN_PROJECT_DIR"])).root_dir
 spawn_id = f"p{int(time.time())}"
 spawn_store.start_spawn(
-    state_root,
+    runtime_root,
     spawn_id=spawn_id,
     chat_id="c900001",
     model="gpt-5.4",
@@ -547,10 +547,10 @@ doc = json.loads(Path("/tmp/meridian-fork-18.json").read_text(encoding="utf-8"))
 fork_spawn_id = doc.get("spawn_id")
 assert fork_spawn_id
 assert doc.get("forked_from") == source_harness_id
-state_root = resolve_runtime_paths(Path(os.environ["MERIDIAN_PROJECT_DIR"])).root_dir
-row = spawn_store.get_spawn(state_root, fork_spawn_id)
+runtime_root = resolve_runtime_paths(Path(os.environ["MERIDIAN_PROJECT_DIR"])).root_dir
+row = spawn_store.get_spawn(runtime_root, fork_spawn_id)
 assert row is not None and row.chat_id
-records = session_store.get_session_records(state_root, {row.chat_id})
+records = session_store.get_session_records(runtime_root, {row.chat_id})
 assert records
 assert records[0].forked_from_chat_id is None
 print("PASS: raw harness fork worked without meridian chat lineage")

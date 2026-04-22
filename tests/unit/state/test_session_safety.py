@@ -51,8 +51,8 @@ def _can_acquire_lock_nonblocking_worker(
 def test_acquire_session_lock_retries_when_lock_file_is_replaced(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    state_root = _state_root(tmp_path)
-    lock_path = state_root / "sessions" / "c123.lock"
+    runtime_root = _state_root(tmp_path)
+    lock_path = runtime_root / "sessions" / "c123.lock"
     real_flock = session_store.fcntl.flock
     observed = {"lock_ex_calls": 0, "replaced": False}
 
@@ -68,7 +68,7 @@ def test_acquire_session_lock_retries_when_lock_file_is_replaced(
     monkeypatch.setattr(session_store.fcntl, "flock", _flock_with_unlink)
 
     chat_id = session_store.start_session(
-        state_root,
+        runtime_root,
         harness="codex",
         harness_session_id="thread-replaced",
         model="gpt-5.4",
@@ -89,13 +89,13 @@ def test_acquire_session_lock_retries_when_lock_file_is_replaced(
         assert proc.exitcode == 0
         assert queue.get(timeout=5) is False
     finally:
-        session_store.stop_session(state_root, chat_id)
+        session_store.stop_session(runtime_root, chat_id)
 
 
 def test_start_session_acquires_lifetime_lock_before_appending_start_event(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    state_root = _state_root(tmp_path)
+    runtime_root = _state_root(tmp_path)
     original_append_event = session_store.append_event
     observed = {"checked": False}
 
@@ -105,7 +105,7 @@ def test_start_session_acquires_lifetime_lock_before_appending_start_event(
             event = args[2]
         if isinstance(event, session_store.SessionStartEvent):
             ctx, queue = _spawn_queue_or_skip()
-            lock_path = state_root / "sessions" / f"{event.chat_id}.lock"
+            lock_path = runtime_root / "sessions" / f"{event.chat_id}.lock"
             proc = ctx.Process(
                 target=_can_acquire_lock_nonblocking_worker,
                 args=(lock_path.as_posix(), queue),
@@ -120,20 +120,20 @@ def test_start_session_acquires_lifetime_lock_before_appending_start_event(
     monkeypatch.setattr(session_store, "append_event", _append_event_with_lock_check)
 
     chat_id = session_store.start_session(
-        state_root,
+        runtime_root,
         harness="codex",
         harness_session_id="thread-ordered",
         model="gpt-5.4",
     )
     assert observed["checked"] is True
 
-    session_store.stop_session(state_root, chat_id)
+    session_store.stop_session(runtime_root, chat_id)
 
 
 def test_start_session_rolls_back_lock_and_event_on_append_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    state_root = _state_root(tmp_path)
+    runtime_root = _state_root(tmp_path)
     chat_id = "c99"
 
     def _raise_append_error(*_: object, **__: object) -> None:
@@ -143,22 +143,22 @@ def test_start_session_rolls_back_lock_and_event_on_append_failure(
 
     with pytest.raises(RuntimeError, match="append failed"):
         session_store.start_session(
-            state_root,
+            runtime_root,
             harness="codex",
             harness_session_id="thread-fail",
             model="gpt-5.4",
             chat_id=chat_id,
         )
 
-    assert not (state_root / "sessions.jsonl").exists()
-    assert not (state_root / "sessions" / f"{chat_id}.lease.json").exists()
+    assert not (runtime_root / "sessions.jsonl").exists()
+    assert not (runtime_root / "sessions" / f"{chat_id}.lease.json").exists()
     assert (
-        session_store._session_lock_key(state_root, chat_id)
+        session_store._session_lock_key(runtime_root, chat_id)
         not in session_store._SESSION_LOCK_HANDLES
     )
 
     ctx, queue = _spawn_queue_or_skip()
-    lock_path = state_root / "sessions" / f"{chat_id}.lock"
+    lock_path = runtime_root / "sessions" / f"{chat_id}.lock"
     proc = ctx.Process(
         target=_can_acquire_lock_nonblocking_worker,
         args=(lock_path.as_posix(), queue),
@@ -170,8 +170,8 @@ def test_start_session_rolls_back_lock_and_event_on_append_failure(
 
 
 def test_records_by_session_ignores_mismatched_generation_stop_and_update(tmp_path: Path) -> None:
-    state_root = _state_root(tmp_path)
-    with (state_root / "sessions.jsonl").open("a", encoding="utf-8") as handle:
+    runtime_root = _state_root(tmp_path)
+    with (runtime_root / "sessions.jsonl").open("a", encoding="utf-8") as handle:
         handle.write(
             json.dumps(
                 {
@@ -234,7 +234,7 @@ def test_records_by_session_ignores_mismatched_generation_stop_and_update(tmp_pa
             + "\n"
         )
 
-    record = session_store._records_by_session(state_root)["c10"]
+    record = session_store._records_by_session(runtime_root)["c10"]
     assert record.harness_session_id == "thread-2"
     assert record.harness_session_ids == ("thread-1", "thread-2")
     assert record.active_work_id == "work-1"

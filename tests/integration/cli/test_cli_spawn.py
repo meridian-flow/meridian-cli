@@ -171,11 +171,11 @@ def test_spawn_children_resolves_parent_reference_before_filtering(
 ) -> None:
     project_root = tmp_path / "repo"
     project_root.mkdir()
-    state_root = project_root / ".meridian"
+    runtime_root = project_root / ".meridian"
     seen: dict[str, object] = {}
 
     monkeypatch.setattr(spawn_cli, "resolve_project_root", lambda: project_root)
-    monkeypatch.setattr(spawn_cli, "resolve_runtime_root_for_read", lambda _root: state_root)
+    monkeypatch.setattr(spawn_cli, "resolve_runtime_root_for_read", lambda _root: runtime_root)
     monkeypatch.setattr(
         spawn_cli,
         "resolve_spawn_reference",

@@ -44,7 +44,7 @@ def test_opencode_extractor_falls_back_to_xdg_session_storage(
         spec=spec,
         launch_env={"XDG_DATA_HOME": xdg_data_home.as_posix()},
         child_cwd=empty_child_cwd,
-        state_root=empty_state_root,
+        runtime_root=empty_state_root,
     )
 
     assert detected == fake_session_id

@@ -13,14 +13,14 @@ from meridian.lib.state.paths import resolve_project_runtime_root
 
 
 def _state_root(project_root: Path) -> Path:
-    state_root = resolve_project_runtime_root(project_root)
-    state_root.mkdir(parents=True, exist_ok=True)
-    return state_root
+    runtime_root = resolve_project_runtime_root(project_root)
+    runtime_root.mkdir(parents=True, exist_ok=True)
+    return runtime_root
 
 
-def _seed_running_spawn(state_root: Path, spawn_id: str) -> None:
+def _seed_running_spawn(runtime_root: Path, spawn_id: str) -> None:
     spawn_store.start_spawn(
-        state_root,
+        runtime_root,
         spawn_id=spawn_id,
         chat_id="c1",
         model="gpt-5.3-codex",
@@ -36,17 +36,17 @@ def test_spawn_show_sync_renders_finalizing_status_and_orphan_finalization_hint(
 ) -> None:
     project_root = tmp_path / "repo"
     project_root.mkdir()
-    state_root = _state_root(project_root)
-    _seed_running_spawn(state_root, "p1")
+    runtime_root = _state_root(project_root)
+    _seed_running_spawn(runtime_root, "p1")
     spawn_store.record_spawn_exited(
-        state_root,
+        runtime_root,
         "p1",
         exit_code=143,
         exited_at="2026-04-12T14:00:00Z",
     )
-    assert spawn_store.mark_finalizing(state_root, "p1") is True
-    spawn_store.update_spawn(state_root, "p1", error="orphan_finalization")
-    heartbeat = state_root / "spawns" / "p1" / "heartbeat"
+    assert spawn_store.mark_finalizing(runtime_root, "p1") is True
+    spawn_store.update_spawn(runtime_root, "p1", error="orphan_finalization")
+    heartbeat = runtime_root / "spawns" / "p1" / "heartbeat"
     heartbeat.parent.mkdir(parents=True, exist_ok=True)
     heartbeat.touch(exist_ok=True)
 
@@ -72,10 +72,10 @@ def test_spawn_show_sync_renders_finalizing_status_and_orphan_finalization_hint(
 def test_spawn_list_sync_no_longer_renders_running_asterisk_suffix(tmp_path: Path) -> None:
     project_root = tmp_path / "repo"
     project_root.mkdir()
-    state_root = _state_root(project_root)
-    _seed_running_spawn(state_root, "p2")
+    runtime_root = _state_root(project_root)
+    _seed_running_spawn(runtime_root, "p2")
     spawn_store.record_spawn_exited(
-        state_root,
+        runtime_root,
         "p2",
         exit_code=0,
         exited_at="2026-04-12T14:00:00Z",

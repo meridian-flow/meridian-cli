@@ -17,7 +17,7 @@ from meridian.lib.state.paths import resolve_runtime_paths
 class FakeManager:
     def __init__(self, *, project_root: Path) -> None:
         self.project_root = project_root
-        self.state_root = resolve_runtime_paths(project_root).root_dir
+        self.runtime_root = resolve_runtime_paths(project_root).root_dir
 
     async def shutdown(self) -> None:
         return None

@@ -15,9 +15,9 @@ def _isolate_runtime_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _state_root(project_root: Path) -> Path:
-    state_root = resolve_project_runtime_root_for_write(project_root)
-    state_root.mkdir(parents=True, exist_ok=True)
-    return state_root
+    runtime_root = resolve_project_runtime_root_for_write(project_root)
+    runtime_root.mkdir(parents=True, exist_ok=True)
+    return runtime_root
 
 
 def test_spawn_create_dry_run_resolves_project_root_from_nested_cwd(
@@ -55,10 +55,10 @@ def test_spawn_create_dry_run_resolves_project_root_from_nested_cwd(
 def test_spawn_stats_includes_finalizing_bucket(tmp_path: Path) -> None:
     project_root = tmp_path / "repo"
     project_root.mkdir()
-    state_root = _state_root(project_root)
+    runtime_root = _state_root(project_root)
 
     running_id = spawn_store.start_spawn(
-        state_root,
+        runtime_root,
         chat_id="c1",
         model="gpt-5.4",
         agent="coder",
@@ -66,16 +66,16 @@ def test_spawn_stats_includes_finalizing_bucket(tmp_path: Path) -> None:
         prompt="running",
     )
     finalizing_id = spawn_store.start_spawn(
-        state_root,
+        runtime_root,
         chat_id="c2",
         model="gpt-5.4",
         agent="coder",
         harness="codex",
         prompt="finalizing",
     )
-    assert spawn_store.mark_finalizing(state_root, finalizing_id) is True
+    assert spawn_store.mark_finalizing(runtime_root, finalizing_id) is True
     succeeded_id = spawn_store.start_spawn(
-        state_root,
+        runtime_root,
         chat_id="c3",
         model="gpt-5.4",
         agent="coder",
@@ -83,7 +83,7 @@ def test_spawn_stats_includes_finalizing_bucket(tmp_path: Path) -> None:
         prompt="done",
     )
     spawn_store.finalize_spawn(
-        state_root,
+        runtime_root,
         succeeded_id,
         status="succeeded",
         exit_code=0,
@@ -109,10 +109,10 @@ def test_spawn_list_does_not_infer_running_star_from_exited_at(
 ) -> None:
     project_root = tmp_path / "repo"
     project_root.mkdir()
-    state_root = _state_root(project_root)
+    runtime_root = _state_root(project_root)
 
     spawn_id = spawn_store.start_spawn(
-        state_root,
+        runtime_root,
         chat_id="c1",
         model="gpt-5.4",
         agent="coder",
@@ -120,7 +120,7 @@ def test_spawn_list_does_not_infer_running_star_from_exited_at(
         prompt="hello",
     )
     spawn_store.record_spawn_exited(
-        state_root,
+        runtime_root,
         spawn_id,
         exit_code=143,
         exited_at="2026-04-13T10:00:00Z",

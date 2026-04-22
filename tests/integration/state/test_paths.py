@@ -51,10 +51,10 @@ def test_resolve_runtime_paths_does_not_expose_project_config_path(tmp_path: Pat
 
 
 def test_state_root_paths_resolves_hook_state_json(tmp_path: Path) -> None:
-    state_root = tmp_path / "state"
-    paths = RuntimePaths.from_root_dir(state_root)
+    runtime_root = tmp_path / "state"
+    paths = RuntimePaths.from_root_dir(runtime_root)
 
-    assert paths.hook_state_json == state_root / "hook-state.json"
+    assert paths.hook_state_json == runtime_root / "hook-state.json"
 
 
 def test_state_root_paths_override_meridian_dir_stays_root_local(
@@ -91,7 +91,7 @@ def test_state_root_paths_repo_meridian_uses_context_paths(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     project_root = tmp_path / "repo"
-    state_root = project_root / ".meridian"
+    runtime_root = project_root / ".meridian"
     user_state_root = tmp_path / "user-state"
     project_root.mkdir()
     user_state_root.mkdir()
@@ -113,7 +113,7 @@ def test_state_root_paths_repo_meridian_uses_context_paths(
         encoding="utf-8",
     )
 
-    paths = RuntimePaths.from_root_dir(state_root)
+    paths = RuntimePaths.from_root_dir(runtime_root)
 
     assert paths.work_dir == project_root / "ctx/work"
     assert paths.work_archive_dir == project_root / "ctx/archive/work"

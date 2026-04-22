@@ -16,8 +16,8 @@ from meridian.lib.state import session_store, spawn_store
 from meridian.lib.state.paths import resolve_project_runtime_root
 
 
-def _write_spawn_output(state_root: Path, spawn_id: str, *events: dict[str, object]) -> None:
-    output_path = state_root / "spawns" / spawn_id / "output.jsonl"
+def _write_spawn_output(runtime_root: Path, spawn_id: str, *events: dict[str, object]) -> None:
+    output_path = runtime_root / "spawns" / spawn_id / "output.jsonl"
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text("\n".join(json.dumps(event) for event in events) + "\n")
 
@@ -109,8 +109,8 @@ def test_session_log_resolves_opencode_storage_session_file(
 ) -> None:
     project_root = tmp_path / "repo"
     project_root.mkdir()
-    state_root = resolve_project_runtime_root(project_root)
-    state_root.mkdir(parents=True, exist_ok=True)
+    runtime_root = resolve_project_runtime_root(project_root)
+    runtime_root.mkdir(parents=True, exist_ok=True)
 
     xdg_data_home = tmp_path / "xdg-data"
     session_id = "ses_fixture_session_12345"
@@ -122,7 +122,7 @@ def test_session_log_resolves_opencode_storage_session_file(
     monkeypatch.setenv("XDG_DATA_HOME", xdg_data_home.as_posix())
 
     spawn_store.start_spawn(
-        state_root,
+        runtime_root,
         chat_id="c1",
         model="opencode-gpt-5.3-codex",
         agent="coder",
@@ -153,11 +153,11 @@ def test_resolve_target_chat_missing_harness_session_id_reports_unavailable_tran
 ) -> None:
     project_root = tmp_path / "repo"
     project_root.mkdir()
-    state_root = resolve_project_runtime_root(project_root)
-    state_root.mkdir(parents=True, exist_ok=True)
+    runtime_root = resolve_project_runtime_root(project_root)
+    runtime_root.mkdir(parents=True, exist_ok=True)
 
     chat_id = session_store.start_session(
-        state_root,
+        runtime_root,
         harness="codex",
         harness_session_id="",
         model="gpt-5.4",
@@ -169,14 +169,14 @@ def test_resolve_target_chat_missing_harness_session_id_reports_unavailable_tran
             resolve_target(
                 SessionLogInput(ref=chat_id),
                 project_root=project_root,
-                state_root=state_root,
+                runtime_root=runtime_root,
             )
         assert str(exc.value) == (
             "Session 'c1' exists but no transcript is available yet "
             "(no harness session id recorded)."
         )
     finally:
-        session_store.stop_session(state_root, chat_id)
+        session_store.stop_session(runtime_root, chat_id)
 
 
 def test_session_log_spawn_missing_harness_session_id_reads_live_output(
@@ -184,11 +184,11 @@ def test_session_log_spawn_missing_harness_session_id_reads_live_output(
 ) -> None:
     project_root = tmp_path / "repo"
     project_root.mkdir()
-    state_root = resolve_project_runtime_root(project_root)
-    state_root.mkdir(parents=True, exist_ok=True)
+    runtime_root = resolve_project_runtime_root(project_root)
+    runtime_root.mkdir(parents=True, exist_ok=True)
 
     spawn_store.start_spawn(
-        state_root,
+        runtime_root,
         spawn_id="p42",
         chat_id="c42",
         model="gpt-5.4",
@@ -198,7 +198,7 @@ def test_session_log_spawn_missing_harness_session_id_reads_live_output(
         harness_session_id="",
     )
     _write_spawn_output(
-        state_root,
+        runtime_root,
         "p42",
         {
             "event_type": "item/completed",
@@ -225,11 +225,11 @@ def test_session_log_chat_missing_harness_session_id_reads_primary_spawn_output(
 ) -> None:
     project_root = tmp_path / "repo"
     project_root.mkdir()
-    state_root = resolve_project_runtime_root(project_root)
-    state_root.mkdir(parents=True, exist_ok=True)
+    runtime_root = resolve_project_runtime_root(project_root)
+    runtime_root.mkdir(parents=True, exist_ok=True)
 
     chat_id = session_store.start_session(
-        state_root,
+        runtime_root,
         harness="codex",
         harness_session_id="",
         model="gpt-5.4",
@@ -237,7 +237,7 @@ def test_session_log_chat_missing_harness_session_id_reads_primary_spawn_output(
     )
     try:
         spawn_store.start_spawn(
-            state_root,
+            runtime_root,
             spawn_id="p42",
             chat_id=chat_id,
             model="gpt-5.4",
@@ -248,7 +248,7 @@ def test_session_log_chat_missing_harness_session_id_reads_primary_spawn_output(
             harness_session_id="",
         )
         _write_spawn_output(
-            state_root,
+            runtime_root,
             "p42",
             {
                 "event_type": "item/completed",
@@ -269,19 +269,19 @@ def test_session_log_chat_missing_harness_session_id_reads_primary_spawn_output(
             ("assistant", "primary live progress")
         ]
     finally:
-        session_store.stop_session(state_root, chat_id)
+        session_store.stop_session(runtime_root, chat_id)
 
 
 def test_resolve_target_chat_not_found_preserves_missing_chat_error(tmp_path: Path) -> None:
     project_root = tmp_path / "repo"
     project_root.mkdir()
-    state_root = resolve_project_runtime_root(project_root)
-    state_root.mkdir(parents=True, exist_ok=True)
+    runtime_root = resolve_project_runtime_root(project_root)
+    runtime_root.mkdir(parents=True, exist_ok=True)
 
     with pytest.raises(ValueError) as exc:
         resolve_target(
             SessionLogInput(ref="c999"),
             project_root=project_root,
-            state_root=state_root,
+            runtime_root=runtime_root,
         )
     assert str(exc.value) == "Chat 'c999' not found"

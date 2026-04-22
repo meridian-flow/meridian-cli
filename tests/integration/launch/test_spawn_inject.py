@@ -37,9 +37,9 @@ class _FakeWriter:
         return None
 
 
-def _create_running_spawn_layout_for_interrupt_path(state_root: Path, spawn_id: str) -> None:
+def _create_running_spawn_layout_for_interrupt_path(runtime_root: Path, spawn_id: str) -> None:
     spawn_store.start_spawn(
-        state_root,
+        runtime_root,
         chat_id="c1",
         model="gpt-5.4",
         agent="coder",
@@ -47,7 +47,7 @@ def _create_running_spawn_layout_for_interrupt_path(state_root: Path, spawn_id: 
         prompt="hello",
         spawn_id=spawn_id,
     )
-    spawn_dir = state_root / "spawns" / spawn_id
+    spawn_dir = runtime_root / "spawns" / spawn_id
     spawn_dir.mkdir(parents=True, exist_ok=True)
     if IS_WINDOWS:
         (spawn_dir / "control.port").write_text("12345", encoding="utf-8")
@@ -55,7 +55,7 @@ def _create_running_spawn_layout_for_interrupt_path(state_root: Path, spawn_id: 
         (spawn_dir / "control.sock").write_text("", encoding="utf-8")
 
 
-def _create_running_spawn_layout_for_validation_path(state_root: Path, spawn_id: str) -> None:
+def _create_running_spawn_layout_for_validation_path(runtime_root: Path, spawn_id: str) -> None:
     """Create spawn layout WITHOUT control endpoint.
 
     This tests that validation runs BEFORE endpoint discovery.
@@ -63,7 +63,7 @@ def _create_running_spawn_layout_for_validation_path(state_root: Path, spawn_id:
     If discovery comes first, we get "no control endpoint".
     """
     spawn_store.start_spawn(
-        state_root,
+        runtime_root,
         chat_id="c1",
         model="gpt-5.4",
         agent="coder",
@@ -71,7 +71,7 @@ def _create_running_spawn_layout_for_validation_path(state_root: Path, spawn_id:
         prompt="hello",
         spawn_id=spawn_id,
     )
-    spawn_dir = state_root / "spawns" / spawn_id
+    spawn_dir = runtime_root / "spawns" / spawn_id
     spawn_dir.mkdir(parents=True, exist_ok=True)
     # Intentionally DO NOT create control.sock or control.port.
     # This proves validation runs before discovery.
@@ -82,12 +82,12 @@ def test_inject_requires_message_or_interrupt(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    state_root = tmp_path / ".meridian"
-    state_root.mkdir(parents=True, exist_ok=True)
-    _create_running_spawn_layout_for_validation_path(state_root, "p1")
+    runtime_root = tmp_path / ".meridian"
+    runtime_root.mkdir(parents=True, exist_ok=True)
+    _create_running_spawn_layout_for_validation_path(runtime_root, "p1")
 
     monkeypatch.setattr(spawn_inject, "resolve_runtime_root_and_config", lambda _: (tmp_path, None))
-    monkeypatch.setattr(spawn_inject, "resolve_runtime_root", lambda _project_root: state_root)
+    monkeypatch.setattr(spawn_inject, "resolve_runtime_root", lambda _project_root: runtime_root)
 
     with pytest.raises(SystemExit) as exc_info:
         asyncio.run(spawn_inject.inject_message("p1", None, interrupt=False))
@@ -101,12 +101,12 @@ def test_interrupt_inject_allows_self_caller_and_sends_request(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    state_root = tmp_path / ".meridian"
-    state_root.mkdir(parents=True, exist_ok=True)
-    _create_running_spawn_layout_for_interrupt_path(state_root, "p1")
+    runtime_root = tmp_path / ".meridian"
+    runtime_root.mkdir(parents=True, exist_ok=True)
+    _create_running_spawn_layout_for_interrupt_path(runtime_root, "p1")
 
     monkeypatch.setattr(spawn_inject, "resolve_runtime_root_and_config", lambda _: (tmp_path, None))
-    monkeypatch.setattr(spawn_inject, "resolve_runtime_root", lambda _project_root: state_root)
+    monkeypatch.setattr(spawn_inject, "resolve_runtime_root", lambda _project_root: runtime_root)
 
     writer = _FakeWriter()
 

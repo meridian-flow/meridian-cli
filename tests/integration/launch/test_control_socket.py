@@ -10,8 +10,8 @@ from meridian.lib.streaming.types import InjectResult
 
 
 class _FakeManager:
-    def __init__(self, *, state_root: Path) -> None:
-        self.state_root = state_root
+    def __init__(self, *, runtime_root: Path) -> None:
+        self.runtime_root = runtime_root
         self.inject_calls: list[tuple[SpawnId, str, str]] = []
         self.interrupt_calls: list[tuple[SpawnId, str]] = []
 
@@ -45,7 +45,7 @@ class _FakeManager:
 
 @pytest.mark.asyncio
 async def test_interrupt_request_routes_to_manager(tmp_path: Path) -> None:
-    manager = _FakeManager(state_root=tmp_path / ".meridian")
+    manager = _FakeManager(runtime_root=tmp_path / ".meridian")
     server = ControlSocketServer(SpawnId("p1"), tmp_path / "control.sock", manager)
 
     result = await server._handle_request(b'{"type":"interrupt"}\n')
@@ -57,7 +57,7 @@ async def test_interrupt_request_routes_to_manager(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_user_message_request_requires_text(tmp_path: Path) -> None:
-    manager = _FakeManager(state_root=tmp_path / ".meridian")
+    manager = _FakeManager(runtime_root=tmp_path / ".meridian")
     server = ControlSocketServer(SpawnId("p1"), tmp_path / "control.sock", manager)
 
     result = await server._handle_request(b'{"type":"user_message"}\n')
@@ -69,7 +69,7 @@ async def test_user_message_request_requires_text(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_control_socket_rejects_unsupported_message_types(tmp_path: Path) -> None:
-    manager = _FakeManager(state_root=tmp_path / ".meridian")
+    manager = _FakeManager(runtime_root=tmp_path / ".meridian")
     server = ControlSocketServer(SpawnId("p1"), tmp_path / "control.sock", manager)
 
     result = await server._handle_request(b'{"type":"unknown"}\n')

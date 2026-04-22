@@ -17,13 +17,13 @@ def _python_command(script_path: Path) -> str:
     return subprocess.list2cmdline([sys.executable, str(script_path)])
 
 
-def _context(project_root: Path, state_root: Path) -> HookContext:
+def _context(project_root: Path, runtime_root: Path) -> HookContext:
     return HookContext(
         event_name="spawn.finalized",
         event_id=uuid4(),
         timestamp="2026-04-19T12:00:00+00:00",
         project_root=str(project_root),
-        runtime_root=str(state_root),
+        runtime_root=str(runtime_root),
         spawn_id="p123",
         spawn_status="success",
         spawn_agent="reviewer",
@@ -43,7 +43,7 @@ def _external_hook(command: str) -> Hook:
 def test_external_runner_sets_cwd_env_and_json_stdin(tmp_path: Path) -> None:
     project_root = tmp_path / "repo"
     project_root.mkdir()
-    state_root = tmp_path / "state"
+    runtime_root = tmp_path / "state"
 
     script = tmp_path / "echo_context.py"
     script.write_text(
@@ -63,7 +63,7 @@ def test_external_runner_sets_cwd_env_and_json_stdin(tmp_path: Path) -> None:
     )
 
     runner = ExternalHookRunner(project_root)
-    context = _context(project_root, state_root)
+    context = _context(project_root, runtime_root)
     hook = _external_hook(_python_command(script))
 
     result = runner.run(hook, context, timeout_secs=5)
@@ -77,7 +77,7 @@ def test_external_runner_sets_cwd_env_and_json_stdin(tmp_path: Path) -> None:
     assert lines[1] == "spawn.finalized"
     assert lines[2] == str(context.event_id)
     assert lines[3] == str(project_root.resolve())
-    assert lines[4] == str(state_root)
+    assert lines[4] == str(runtime_root)
     assert lines[5] == "p123"
     assert lines[6] == "spawn.finalized"
     assert lines[7] == "p123"
@@ -86,7 +86,7 @@ def test_external_runner_sets_cwd_env_and_json_stdin(tmp_path: Path) -> None:
 def test_external_runner_captures_nonzero_exit_and_1kb_tails(tmp_path: Path) -> None:
     project_root = tmp_path / "repo"
     project_root.mkdir()
-    state_root = tmp_path / "state"
+    runtime_root = tmp_path / "state"
 
     script = tmp_path / "emit_large_output.py"
     script.write_text(
@@ -100,7 +100,7 @@ def test_external_runner_captures_nonzero_exit_and_1kb_tails(tmp_path: Path) -> 
     runner = ExternalHookRunner(project_root)
     result = runner.run(
         _external_hook(_python_command(script)),
-        _context(project_root, state_root),
+        _context(project_root, runtime_root),
         timeout_secs=5,
     )
 
@@ -180,7 +180,7 @@ def test_external_runner_marks_timeout_and_terminates_process(tmp_path: Path) ->
 def test_external_runner_omits_null_context_variables(tmp_path: Path) -> None:
     project_root = tmp_path / "repo"
     project_root.mkdir()
-    state_root = tmp_path / "state"
+    runtime_root = tmp_path / "state"
 
     script = tmp_path / "check_missing_env.py"
     script.write_text(
@@ -194,7 +194,7 @@ def test_external_runner_omits_null_context_variables(tmp_path: Path) -> None:
     runner = ExternalHookRunner(project_root)
     result = runner.run(
         _external_hook(_python_command(script)),
-        _context(project_root, state_root),
+        _context(project_root, runtime_root),
         timeout_secs=5,
     )
 
@@ -278,7 +278,7 @@ def test_external_runner_short_circuits_when_hooks_disabled(
 ) -> None:
     project_root = tmp_path / "repo"
     project_root.mkdir()
-    state_root = tmp_path / "state"
+    runtime_root = tmp_path / "state"
     marker = tmp_path / "ran.txt"
 
     script = tmp_path / "should_not_run.py"
@@ -292,7 +292,7 @@ def test_external_runner_short_circuits_when_hooks_disabled(
     runner = ExternalHookRunner(project_root)
     result = runner.run(
         _external_hook(_python_command(script)),
-        _context(project_root, state_root),
+        _context(project_root, runtime_root),
         timeout_secs=5,
     )
 

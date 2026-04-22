@@ -122,14 +122,14 @@ def test_run_harness_process_fork_uses_new_chat_and_materialized_session(
         return (0, 111)
 
     def fake_start_session(
-        state_root: Path,
+        runtime_root: Path,
         harness: str,
         harness_session_id: str | None,
         model: str,
         chat_id: str | None = None,
         **kwargs: Any,
     ) -> str:
-        _ = (state_root, harness, model)
+        _ = (runtime_root, harness, model)
         captured["chat_id_arg"] = chat_id
         captured["start_harness_session_id"] = harness_session_id
         captured["forked_from_chat_id"] = kwargs.get("forked_from_chat_id")

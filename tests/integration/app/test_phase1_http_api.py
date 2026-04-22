@@ -19,7 +19,7 @@ from meridian.lib.state.paths import resolve_project_paths, resolve_runtime_path
 class FakeManager:
     def __init__(self, *, project_root: Path) -> None:
         self.project_root = project_root
-        self.state_root = resolve_runtime_paths(project_root).root_dir
+        self.runtime_root = resolve_runtime_paths(project_root).root_dir
 
     async def shutdown(self) -> None:
         return None
@@ -59,9 +59,9 @@ def _write_spawn(
     agent: str = "api-agent",
     harness: str = "codex",
 ) -> None:
-    state_root = _state_root(project_root)
+    runtime_root = _state_root(project_root)
     spawn_store.start_spawn(
-        state_root,
+        runtime_root,
         spawn_id=spawn_id,
         chat_id=f"chat-{spawn_id}",
         model="gpt-5.4",
@@ -75,7 +75,7 @@ def _write_spawn(
     )
     if status != "running":
         spawn_store.finalize_spawn(
-            state_root,
+            runtime_root,
             spawn_id,
             status,
             exit_code=0 if status == "succeeded" else 1,
@@ -84,7 +84,7 @@ def _write_spawn(
         )
         return
 
-    heartbeat_path = state_root / "spawns" / spawn_id / "heartbeat"
+    heartbeat_path = runtime_root / "spawns" / spawn_id / "heartbeat"
     heartbeat_path.parent.mkdir(parents=True, exist_ok=True)
     heartbeat_path.write_text("alive\n", encoding="utf-8")
 
@@ -193,10 +193,10 @@ def test_work_routes_resolve_static_active_path_and_filter_listing(
     app_client: tuple[TestClient, Path, object],
 ) -> None:
     client, project_root, _app = app_client
-    state_root = _state_root(project_root)
-    work_store.create_work_item(state_root, "feature-a", "A")
-    work_store.create_work_item(state_root, "feature-b", "B")
-    work_store.archive_work_item(state_root, "feature-b")
+    runtime_root = _state_root(project_root)
+    work_store.create_work_item(runtime_root, "feature-a", "A")
+    work_store.create_work_item(runtime_root, "feature-b", "B")
+    work_store.archive_work_item(runtime_root, "feature-b")
 
     response = client.get("/api/work", params={"status": "open", "limit": 10})
 
@@ -214,9 +214,9 @@ def test_active_work_roundtrip_persists_and_falls_back_after_archive(
     app_client: tuple[TestClient, Path, object],
 ) -> None:
     client, project_root, _app = app_client
-    state_root = _state_root(project_root)
-    work_store.create_work_item(state_root, "older-task", "older")
-    work_store.create_work_item(state_root, "newer-task", "newer")
+    runtime_root = _state_root(project_root)
+    work_store.create_work_item(runtime_root, "older-task", "older")
+    work_store.create_work_item(runtime_root, "newer-task", "newer")
 
     set_response = client.put("/api/work/active", json={"work_id": "older-task"})
 
@@ -225,7 +225,7 @@ def test_active_work_roundtrip_persists_and_falls_back_after_archive(
     assert _read_active_work_json(project_root) == {"work_id": "older-task"}
     assert client.get("/api/work/active").json() == {"work_id": "older-task"}
 
-    work_store.archive_work_item(state_root, "older-task")
+    work_store.archive_work_item(runtime_root, "older-task")
 
     fallback_response = client.get("/api/work/active")
 

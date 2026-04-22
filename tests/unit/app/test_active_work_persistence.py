@@ -55,7 +55,7 @@ def _register_routes(project_root: Path) -> tuple[_RouteApp, Callable[..., Any]]
     repo_state_root = project_root / ".meridian"
     register_work_routes(
         app,
-        state_root=repo_state_root,
+        runtime_root=repo_state_root,
         project_state_dir=repo_state_root,
         project_root=project_root,
         http_exception=HTTPException,

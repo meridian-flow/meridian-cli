@@ -31,34 +31,34 @@ def test_slugify_normalizes_and_truncates() -> None:
 
 
 def test_rename_work_item_rejects_invalid_name_collision_and_missing_source(tmp_path: Path) -> None:
-    state_root = _state_root(tmp_path)
+    runtime_root = _state_root(tmp_path)
 
-    create_work_item(state_root, "my feature")
-    create_work_item(state_root, "beta")
+    create_work_item(runtime_root, "my feature")
+    create_work_item(runtime_root, "beta")
 
     with pytest.raises(ValueError, match="Invalid work item name"):
-        rename_work_item(state_root, "my-feature", "Better Name")
+        rename_work_item(runtime_root, "my-feature", "Better Name")
 
     with pytest.raises(ValueError, match="already exists"):
-        rename_work_item(state_root, "my-feature", "beta")
+        rename_work_item(runtime_root, "my-feature", "beta")
 
     with pytest.raises(ValueError, match="not found"):
-        rename_work_item(state_root, "nonexistent", "new-name")
+        rename_work_item(runtime_root, "nonexistent", "new-name")
 
 
 def test_work_item_archive_and_reopen_preserves_metadata(tmp_path: Path) -> None:
-    state_root = _state_root(tmp_path)
+    runtime_root = _state_root(tmp_path)
 
-    item = create_work_item(state_root, "My feature")
+    item = create_work_item(runtime_root, "My feature")
 
-    assert get_work_item(state_root, item.name) is not None
-    active_dir = state_root / "work" / item.name
+    assert get_work_item(runtime_root, item.name) is not None
+    active_dir = runtime_root / "work" / item.name
     active_status = active_dir / "__status.json"
     assert active_status.exists()
     (active_dir / "notes.md").write_text("hello", encoding="utf-8")
 
-    archived = archive_work_item(state_root, item.name)
-    archived_dir = state_root / "archive" / "work" / item.name
+    archived = archive_work_item(runtime_root, item.name)
+    archived_dir = runtime_root / "archive" / "work" / item.name
     archived_status = archived_dir / "__status.json"
     assert archived.status == "done"
     assert archived.archived_at is not None
@@ -66,7 +66,7 @@ def test_work_item_archive_and_reopen_preserves_metadata(tmp_path: Path) -> None
     assert archived_status.exists()
     assert (archived_dir / "notes.md").read_text(encoding="utf-8") == "hello"
 
-    reopened = reopen_work_item(state_root, item.name)
+    reopened = reopen_work_item(runtime_root, item.name)
     assert reopened.status == "open"
     assert reopened.archived_at is None
     assert not archived_dir.exists()
@@ -77,10 +77,10 @@ def test_work_item_archive_and_reopen_preserves_metadata(tmp_path: Path) -> None
 def test_list_archived_work_items_repairs_interrupted_archive_status(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    state_root = _state_root(tmp_path)
-    paths = RuntimePaths.from_root_dir(state_root)
-    item = create_work_item(state_root, "My feature")
-    update_work_item(state_root, item.name, status="blocked")
+    runtime_root = _state_root(tmp_path)
+    paths = RuntimePaths.from_root_dir(runtime_root)
+    item = create_work_item(runtime_root, "My feature")
+    update_work_item(runtime_root, item.name, status="blocked")
 
     active_dir = paths.work_dir / item.name
     (active_dir / "notes.md").write_text("hello", encoding="utf-8")
@@ -98,7 +98,7 @@ def test_list_archived_work_items_repairs_interrupted_archive_status(
 
     monkeypatch.setattr(work_store_module, "atomic_write_text", crash_during_status_write)
     with pytest.raises(OSError, match="simulated crash after archive move"):
-        archive_work_item(state_root, item.name)
+        archive_work_item(runtime_root, item.name)
 
     archived_dir = paths.work_archive_dir / item.name
     assert archived_dir.exists()
@@ -107,12 +107,12 @@ def test_list_archived_work_items_repairs_interrupted_archive_status(
     assert stale_payload["status"] == "blocked"
     assert stale_payload["archived_at"] is None
 
-    repaired = list_archived_work_items(state_root, all_archived=True)
+    repaired = list_archived_work_items(runtime_root, all_archived=True)
     assert len(repaired) == 1
     assert repaired[0].status == "done"
     assert repaired[0].archived_at is not None
 
-    persisted = get_work_item(state_root, item.name)
+    persisted = get_work_item(runtime_root, item.name)
     assert persisted is not None
     assert persisted.status == "done"
     assert persisted.archived_at is not None
@@ -122,14 +122,14 @@ def test_archive_and_reopen_use_context_archive_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     project_root = tmp_path / "repo"
-    state_root = project_root / ".meridian"
+    runtime_root = project_root / ".meridian"
     user_state_root = tmp_path / "user-state"
     project_root.mkdir()
     user_state_root.mkdir()
     monkeypatch.setenv("MERIDIAN_HOME", user_state_root.as_posix())
     monkeypatch.delenv("MERIDIAN_CONFIG", raising=False)
     (project_root / ".git").write_text("gitdir: .git/worktrees/repo\n", encoding="utf-8")
-    state_root.mkdir(parents=True, exist_ok=True)
+    runtime_root.mkdir(parents=True, exist_ok=True)
     (project_root / "meridian.local.toml").write_text(
         "\n".join(
             [
@@ -145,27 +145,27 @@ def test_archive_and_reopen_use_context_archive_path(
         encoding="utf-8",
     )
 
-    item = create_work_item(state_root, "My feature")
+    item = create_work_item(runtime_root, "My feature")
     active_dir = project_root / "external" / "work" / item.name
     active_dir.mkdir(parents=True, exist_ok=True)
     (active_dir / "notes.md").write_text("hello", encoding="utf-8")
 
-    archive_work_item(state_root, item.name)
+    archive_work_item(runtime_root, item.name)
     archived_dir = project_root / "external" / "archive" / "work" / item.name
     assert not active_dir.exists()
     assert (archived_dir / "notes.md").read_text(encoding="utf-8") == "hello"
 
-    reopen_work_item(state_root, item.name)
+    reopen_work_item(runtime_root, item.name)
     assert not archived_dir.exists()
     assert (active_dir / "notes.md").read_text(encoding="utf-8") == "hello"
 
 
 def test_list_work_items_detects_manual_work_directory(tmp_path: Path) -> None:
-    state_root = _state_root(tmp_path)
-    manual_dir = state_root / "work" / "manual-item"
+    runtime_root = _state_root(tmp_path)
+    manual_dir = runtime_root / "work" / "manual-item"
     manual_dir.mkdir(parents=True, exist_ok=True)
 
-    items = list_work_items(state_root)
+    items = list_work_items(runtime_root)
 
     assert [item.name for item in items] == ["manual-item"]
     assert items[0].status == "open"
@@ -175,13 +175,13 @@ def test_list_work_items_detects_manual_work_directory(tmp_path: Path) -> None:
 
 
 def test_list_archived_work_items_honors_limit_and_all_archived(tmp_path: Path) -> None:
-    state_root = _state_root(tmp_path)
-    created = [create_work_item(state_root, f"done-item-{idx}") for idx in range(1, 4)]
+    runtime_root = _state_root(tmp_path)
+    created = [create_work_item(runtime_root, f"done-item-{idx}") for idx in range(1, 4)]
     for item in created:
-        archive_work_item(state_root, item.name)
+        archive_work_item(runtime_root, item.name)
 
-    limited = list_archived_work_items(state_root, limit=2)
-    all_items = list_archived_work_items(state_root, limit=2, all_archived=True)
+    limited = list_archived_work_items(runtime_root, limit=2)
+    all_items = list_archived_work_items(runtime_root, limit=2, all_archived=True)
 
     assert len(limited) == 2
     assert len(all_items) == 3
@@ -190,27 +190,27 @@ def test_list_archived_work_items_honors_limit_and_all_archived(tmp_path: Path) 
 
 
 def test_rename_work_item_keeps_archived_item_archived(tmp_path: Path) -> None:
-    state_root = _state_root(tmp_path)
-    paths = RuntimePaths.from_root_dir(state_root)
-    item = create_work_item(state_root, "rename-me")
-    archive_work_item(state_root, item.name)
+    runtime_root = _state_root(tmp_path)
+    paths = RuntimePaths.from_root_dir(runtime_root)
+    item = create_work_item(runtime_root, "rename-me")
+    archive_work_item(runtime_root, item.name)
 
-    renamed = rename_work_item(state_root, item.name, "renamed-archived")
+    renamed = rename_work_item(runtime_root, item.name, "renamed-archived")
 
     assert renamed.name == "renamed-archived"
     assert renamed.status == "done"
     assert renamed.archived_at is not None
     assert not (paths.work_archive_dir / item.name).exists()
     assert (paths.work_archive_dir / "renamed-archived").is_dir()
-    assert get_work_item(state_root, item.name) is None
-    loaded = get_work_item(state_root, "renamed-archived")
+    assert get_work_item(runtime_root, item.name) is None
+    loaded = get_work_item(runtime_root, "renamed-archived")
     assert loaded is not None
     assert loaded.status == "done"
 
 
 def test_update_work_item_rejects_done_status(tmp_path: Path) -> None:
-    state_root = _state_root(tmp_path)
-    item = create_work_item(state_root, "cannot-done-via-update")
+    runtime_root = _state_root(tmp_path)
+    item = create_work_item(runtime_root, "cannot-done-via-update")
 
     with pytest.raises(ValueError, match=r"'done' is reserved for archived work items\."):
-        update_work_item(state_root, item.name, status="done")
+        update_work_item(runtime_root, item.name, status="done")

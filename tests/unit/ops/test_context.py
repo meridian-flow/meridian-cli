@@ -213,13 +213,13 @@ def test_context_output_resolve_name_supports_catalog_paths() -> None:
 
 def test_work_current_sync_uses_resolved_context(monkeypatch: MonkeyPatch) -> None:
     project_root = Path("/repo")
-    state_root = Path("/runtime/state")
+    runtime_root = Path("/runtime/state")
 
     def fake_resolve_project_root() -> Path:
         return project_root
 
     def fake_resolve_runtime_root_for_read(_project_root: Path) -> Path:
-        return state_root
+        return runtime_root
 
     def fake_resolve_runtime_context(_repo: Path, _state: Path) -> ResolvedContext:
         return ResolvedContext(work_dir=Path("/repo/.meridian/work/current"))

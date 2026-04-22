@@ -36,13 +36,13 @@ class FakeManager:
     def __init__(
         self,
         *,
-        state_root: Path,
+        runtime_root: Path,
         project_root: Path,
         completion_ready: asyncio.Event,
         wait_calls: list[SpawnId],
         heartbeat_calls: list[SpawnId],
     ) -> None:
-        self.state_root = state_root
+        self.runtime_root = runtime_root
         self.project_root = project_root
         self._completion_ready = completion_ready
         self._wait_calls = wait_calls
@@ -81,8 +81,8 @@ class FakeManager:
         return None
 
 
-def _read_spawn_events(state_root: Path) -> list[dict[str, object]]:
-    events_path = state_root / "spawns.jsonl"
+def _read_spawn_events(runtime_root: Path) -> list[dict[str, object]]:
+    events_path = runtime_root / "spawns.jsonl"
     return [
         cast("dict[str, object]", json.loads(line))
         for line in events_path.read_text(encoding="utf-8").splitlines()
@@ -107,7 +107,7 @@ def _create_spawn_handler(
     allow_unsafe_no_permissions: bool = False,
 ) -> tuple[Callable[[server_module.SpawnCreateRequest], Any], FakeManager]:
     manager = FakeManager(
-        state_root=resolve_runtime_paths(tmp_path).root_dir,
+        runtime_root=resolve_runtime_paths(tmp_path).root_dir,
         project_root=tmp_path,
         completion_ready=completion_ready,
         wait_calls=wait_calls,
@@ -130,7 +130,7 @@ def _create_spawn_handler(
 async def test_app_server_create_spawn_background_finalizer_writes_finalize(
     tmp_path: Path,
 ) -> None:
-    state_root = resolve_runtime_paths(tmp_path).root_dir
+    runtime_root = resolve_runtime_paths(tmp_path).root_dir
     completion_ready = asyncio.Event()
     wait_calls: list[SpawnId] = []
     heartbeat_calls: list[SpawnId] = []
@@ -154,9 +154,9 @@ async def test_app_server_create_spawn_background_finalizer_writes_finalize(
     assert response["spawn_id"] == "p1"
 
     completion_ready.set()
-    await _wait_until(lambda: len(_read_spawn_events(state_root)) == 2)
+    await _wait_until(lambda: len(_read_spawn_events(runtime_root)) == 2)
 
-    events = _read_spawn_events(state_root)
+    events = _read_spawn_events(runtime_root)
     assert [event["event"] for event in events] == ["start", "finalize"]
     assert events[-1]["status"] == "succeeded"
     assert events[-1]["exit_code"] == 0
@@ -165,7 +165,7 @@ async def test_app_server_create_spawn_background_finalizer_writes_finalize(
     assert wait_calls == [SpawnId("p1")]
     assert heartbeat_calls == [SpawnId("p1")]
 
-    row = get_spawn(state_root, "p1")
+    row = get_spawn(runtime_root, "p1")
     assert row is not None
     assert row.status == "succeeded"
     assert row.exit_code == 0
@@ -222,7 +222,7 @@ async def test_app_server_start_spawn_failure_tags_launch_failure_origin(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    state_root = resolve_runtime_paths(tmp_path).root_dir
+    runtime_root = resolve_runtime_paths(tmp_path).root_dir
 
     async def _raising_start_spawn(
         self: FakeManager,
@@ -254,7 +254,7 @@ async def test_app_server_start_spawn_failure_tags_launch_failure_origin(
 
     assert exc_info.value.status_code == 400
     assert str(exc_info.value.detail) == "start failed"
-    events = _read_spawn_events(state_root)
+    events = _read_spawn_events(runtime_root)
     assert [event["event"] for event in events] == ["start", "finalize"]
     assert events[-1]["status"] == "failed"
     assert events[-1]["origin"] == "launch_failure"

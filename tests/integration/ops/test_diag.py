@@ -43,10 +43,10 @@ def _create_agent_skill_dirs(
 
 
 def _seed_active_spawn(project_root: Path) -> str:
-    state_root = resolve_project_runtime_root_for_write(project_root)
-    state_root.mkdir(parents=True, exist_ok=True)
+    runtime_root = resolve_project_runtime_root_for_write(project_root)
+    runtime_root.mkdir(parents=True, exist_ok=True)
     return spawn_store.start_spawn(
-        state_root,
+        runtime_root,
         chat_id="c1",
         model="gpt-5.4",
         agent="coder",

@@ -33,13 +33,13 @@ class FakeBackend(ContextBackend):
         self.session_lookup_calls: list[tuple[Path, str]] = []
         self.work_dir_calls: list[tuple[Path, str]] = []
 
-    def get_session_active_work_id(self, state_root: Path, chat_id: str) -> str | None:
-        self.session_lookup_calls.append((state_root, chat_id))
+    def get_session_active_work_id(self, runtime_root: Path, chat_id: str) -> str | None:
+        self.session_lookup_calls.append((runtime_root, chat_id))
         return self.session_active_work_id
 
-    def resolve_work_scratch_dir(self, state_root: Path, work_id: str) -> Path:
-        self.work_dir_calls.append((state_root, work_id))
-        return state_root / "work" / self.work_dir_suffix / work_id
+    def resolve_work_scratch_dir(self, runtime_root: Path, work_id: str) -> Path:
+        self.work_dir_calls.append((runtime_root, work_id))
+        return runtime_root / "work" / self.work_dir_suffix / work_id
 
 
 def _clear_meridian_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -70,11 +70,11 @@ def test_from_environment_prefers_explicit_work_id(monkeypatch: pytest.MonkeyPat
     """Explicit work override must win over MERIDIAN_WORK_ID in resolver precedence."""
     _clear_meridian_env(monkeypatch)
     project_root = Path("/repo")
-    state_root = Path("/runtime/state")
+    runtime_root = Path("/runtime/state")
     backend = FakeBackend()
 
     monkeypatch.setenv("MERIDIAN_PROJECT_DIR", project_root.as_posix())
-    monkeypatch.setenv("MERIDIAN_RUNTIME_DIR", state_root.as_posix())
+    monkeypatch.setenv("MERIDIAN_RUNTIME_DIR", runtime_root.as_posix())
     monkeypatch.setenv("MERIDIAN_WORK_ID", "work-from-env")
 
     resolved = ResolvedContext.from_environment(
@@ -110,18 +110,18 @@ def test_from_environment_falls_back_to_session_store(
 ) -> None:
     """Resolver must consult session active-work lookup only after env sources miss."""
     _clear_meridian_env(monkeypatch)
-    state_root = Path("/runtime/state")
+    runtime_root = Path("/runtime/state")
     backend = FakeBackend(session_active_work_id="active-work", work_dir_suffix="fallback")
 
-    monkeypatch.setenv("MERIDIAN_RUNTIME_DIR", state_root.as_posix())
+    monkeypatch.setenv("MERIDIAN_RUNTIME_DIR", runtime_root.as_posix())
     monkeypatch.setenv("MERIDIAN_CHAT_ID", "c42")
 
     resolved = ResolvedContext.from_environment(backend=backend)
 
     assert resolved.work_id == "active-work"
     assert resolved.work_dir == Path("/runtime/state/work/fallback/active-work")
-    assert backend.session_lookup_calls == [(state_root, "c42")]
-    assert backend.work_dir_calls == [(state_root, "active-work")]
+    assert backend.session_lookup_calls == [(runtime_root, "c42")]
+    assert backend.work_dir_calls == [(runtime_root, "active-work")]
 
 
 def test_child_env_overrides_output_format() -> None:
@@ -275,7 +275,7 @@ def test_from_environment_empty_state_root_treated_as_absent(
 
     resolved = ResolvedContext.from_environment(backend=backend)
 
-    # state_root is absent so the session lookup branch is never entered
+    # runtime_root is absent so the session lookup branch is never entered
     assert resolved.runtime_root is None
     assert resolved.work_id is None
     assert backend.session_lookup_calls == []
@@ -318,8 +318,8 @@ def test_from_environment_explicit_work_id_beats_session_lookup(
 ) -> None:
     """explicit_work_id must be used even when a session lookup would return something."""
     _clear_meridian_env(monkeypatch)
-    state_root = Path("/runtime/state")
-    monkeypatch.setenv("MERIDIAN_RUNTIME_DIR", state_root.as_posix())
+    runtime_root = Path("/runtime/state")
+    monkeypatch.setenv("MERIDIAN_RUNTIME_DIR", runtime_root.as_posix())
     monkeypatch.setenv("MERIDIAN_CHAT_ID", "c42")
     backend = FakeBackend(session_active_work_id="session-work")
 
@@ -395,7 +395,7 @@ def test_resolved_context_frozen_work_id() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Edge case 5: Work dir derivation when only state_root is available (no project_root)
+# Edge case 5: Work dir derivation when only runtime_root is available (no project_root)
 # ---------------------------------------------------------------------------
 
 
@@ -403,20 +403,20 @@ def test_work_dir_uses_state_root_directly_when_no_project_root(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """When only MERIDIAN_RUNTIME_DIR is set (no MERIDIAN_PROJECT_DIR),
-    work_dir must be resolved against state_root, not a derived repo state root."""
+    work_dir must be resolved against runtime_root, not a derived repo state root."""
     _clear_meridian_env(monkeypatch)
-    state_root = Path("/runtime/state")
+    runtime_root = Path("/runtime/state")
     backend = FakeBackend()
 
-    monkeypatch.setenv("MERIDIAN_RUNTIME_DIR", state_root.as_posix())
+    monkeypatch.setenv("MERIDIAN_RUNTIME_DIR", runtime_root.as_posix())
     monkeypatch.setenv("MERIDIAN_WORK_ID", "my-work")
 
     resolved = ResolvedContext.from_environment(backend=backend)
 
     assert resolved.project_root is None
-    assert resolved.runtime_root == state_root
+    assert resolved.runtime_root == runtime_root
     assert resolved.work_dir == Path("/runtime/state/work/resolved/my-work")
-    assert backend.work_dir_calls == [(state_root, "my-work")]
+    assert backend.work_dir_calls == [(runtime_root, "my-work")]
     # kb_dir requires project_root — must be None
     assert resolved.kb_dir is None
 
@@ -425,7 +425,7 @@ def test_work_dir_is_none_when_no_work_id_even_with_state_root(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """work_dir must stay None when work_id cannot be resolved,
-    even when state_root is populated."""
+    even when runtime_root is populated."""
     _clear_meridian_env(monkeypatch)
     monkeypatch.setenv("MERIDIAN_RUNTIME_DIR", "/runtime/state")
     # No MERIDIAN_WORK_ID and no MERIDIAN_CHAT_ID (so session lookup skipped)
@@ -496,7 +496,7 @@ def test_from_environment_large_valid_depth_preserved(
 
 
 # ---------------------------------------------------------------------------
-# Edge case: state_root present + empty chat_id → session lookup skipped
+# Edge case: runtime_root present + empty chat_id → session lookup skipped
 # ---------------------------------------------------------------------------
 
 
@@ -504,7 +504,7 @@ def test_from_environment_session_lookup_skipped_when_chat_id_empty(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Session lookup must be skipped when chat_id resolves to '' even if
-    state_root is populated.  The lookup branch guards on both state_root and
+    runtime_root is populated.  The lookup branch guards on both runtime_root and
     a non-empty chat_id — an empty MERIDIAN_CHAT_ID must prevent the call."""
     _clear_meridian_env(monkeypatch)
     monkeypatch.setenv("MERIDIAN_RUNTIME_DIR", "/runtime/state")

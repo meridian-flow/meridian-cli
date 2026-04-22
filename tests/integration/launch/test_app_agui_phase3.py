@@ -234,7 +234,7 @@ async def test_ws_route_rejects_non_local_origin_before_accept(
 async def test_inbound_loop_routes_interrupt(tmp_path: Path) -> None:
     class FakeManager:
         def __init__(self) -> None:
-            self.state_root = tmp_path
+            self.runtime_root = tmp_path
             self.interrupt_calls: list[tuple[SpawnId, str]] = []
 
         async def inject(self, spawn_id: SpawnId, message: str, source: str = "app_ws") -> object:

@@ -126,7 +126,7 @@ async def _execute_with_context(
     *,
     request: SpawnRequest,
     project_root: Path,
-    state_root: Path,
+    runtime_root: Path,
     artifacts: LocalStore,
     registry: HarnessRegistry,
     **kwargs: object,
@@ -136,7 +136,7 @@ async def _execute_with_context(
         request=request,
         runtime=LaunchRuntime(
             argv_intent=LaunchArgvIntent.SPEC_ONLY,
-            runtime_root=state_root.as_posix(),
+            runtime_root=runtime_root.as_posix(),
             project_paths_project_root=project_root.as_posix(),
             project_paths_execution_cwd=project_root.resolve().as_posix(),
         ),
@@ -147,7 +147,7 @@ async def _execute_with_context(
         request=request,
         launch_context=launch_context,
         project_root=project_root,
-        state_root=state_root,
+        runtime_root=runtime_root,
         artifacts=artifacts,
         **kwargs,
     )
@@ -158,7 +158,7 @@ async def test_execute_with_streaming_succeeds_after_report_watchdog_cleanup(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    state_root = resolve_project_runtime_root(tmp_path)
+    runtime_root = resolve_project_runtime_root(tmp_path)
     artifacts = LocalStore(root_dir=tmp_path / ".artifacts")
     registry = HarnessRegistry.with_defaults()
     fake_clock = FakeClock(start=1_000.0)
@@ -181,7 +181,7 @@ async def test_execute_with_streaming_succeeds_after_report_watchdog_cleanup(
         status="queued",
     )
     spawn_store.start_spawn(
-        state_root,
+        runtime_root,
         chat_id="test-chat-watchdog",
         model=str(run.model),
         agent="",
@@ -198,7 +198,7 @@ async def test_execute_with_streaming_succeeds_after_report_watchdog_cleanup(
             run,
             request=_build_request(),
             project_root=tmp_path,
-            state_root=state_root,
+            runtime_root=runtime_root,
             artifacts=artifacts,
             registry=registry,
             clock=fake_clock,
@@ -209,13 +209,13 @@ async def test_execute_with_streaming_succeeds_after_report_watchdog_cleanup(
     )
 
     assert exit_code == 0
-    row = spawn_store.get_spawn(state_root, run.spawn_id)
+    row = spawn_store.get_spawn(runtime_root, run.spawn_id)
     assert row is not None
     assert row.status == "succeeded"
     assert row.exit_code == 0
     assert row.error is None
     assert fake_heartbeat.touches
-    report = (state_root / "spawns" / str(run.spawn_id) / "report.md").read_text(
+    report = (runtime_root / "spawns" / str(run.spawn_id) / "report.md").read_text(
         encoding="utf-8"
     )
     assert "Watchdog fallback completed." in report

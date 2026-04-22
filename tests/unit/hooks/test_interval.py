@@ -30,46 +30,46 @@ def test_parse_interval_rejects_invalid_values(raw: str) -> None:
 
 
 def test_interval_tracker_uses_hook_state_path_from_state_root(tmp_path: Path) -> None:
-    state_root = tmp_path / "state"
-    tracker = IntervalTracker(state_root)
+    runtime_root = tmp_path / "state"
+    tracker = IntervalTracker(runtime_root)
 
     tracker.mark_run("notify")
 
-    expected = RuntimePaths.from_root_dir(state_root).hook_state_json
+    expected = RuntimePaths.from_root_dir(runtime_root).hook_state_json
     assert tracker.state_path == expected
     assert expected.exists()
 
 
 def test_interval_tracker_persists_and_reloads_last_success(tmp_path: Path) -> None:
-    state_root = tmp_path / "state"
-    first = IntervalTracker(state_root)
+    runtime_root = tmp_path / "state"
+    first = IntervalTracker(runtime_root)
 
     assert first.should_run("autosync", "10m") is True
     first.mark_run("autosync")
     assert first.should_run("autosync", "10m") is False
 
-    second = IntervalTracker(state_root)
+    second = IntervalTracker(runtime_root)
     assert second.should_run("autosync", "10m") is False
 
 
 def test_interval_tracker_runs_when_elapsed_interval_exceeds_last_success(tmp_path: Path) -> None:
-    state_root = tmp_path / "state"
-    state_path = RuntimePaths.from_root_dir(state_root).hook_state_json
+    runtime_root = tmp_path / "state"
+    state_path = RuntimePaths.from_root_dir(runtime_root).hook_state_json
     state_path.parent.mkdir(parents=True, exist_ok=True)
     old_run = (datetime.now(UTC) - timedelta(hours=2)).isoformat()
     state_path.write_text(json.dumps({"autosync": old_run}), encoding="utf-8")
 
-    tracker = IntervalTracker(state_root)
+    tracker = IntervalTracker(runtime_root)
     assert tracker.should_run("autosync", "1h") is True
 
 
 def test_interval_tracker_fails_open_when_state_file_is_corrupt(tmp_path: Path) -> None:
-    state_root = tmp_path / "state"
-    state_path = RuntimePaths.from_root_dir(state_root).hook_state_json
+    runtime_root = tmp_path / "state"
+    state_path = RuntimePaths.from_root_dir(runtime_root).hook_state_json
     state_path.parent.mkdir(parents=True, exist_ok=True)
     state_path.write_text("{not-json", encoding="utf-8")
 
-    tracker = IntervalTracker(state_root)
+    tracker = IntervalTracker(runtime_root)
     assert tracker.should_run("notify", "1m") is True
 
 
@@ -77,7 +77,7 @@ def test_interval_tracker_persists_with_atomic_write(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    state_root = tmp_path / "state"
+    runtime_root = tmp_path / "state"
     writes: list[tuple[Path, str]] = []
 
     def fake_atomic_write_text(path: Path, payload: str) -> None:
@@ -85,10 +85,10 @@ def test_interval_tracker_persists_with_atomic_write(
 
     monkeypatch.setattr("meridian.lib.hooks.interval.atomic_write_text", fake_atomic_write_text)
 
-    tracker = IntervalTracker(state_root)
+    tracker = IntervalTracker(runtime_root)
     tracker.mark_run("notify")
 
-    expected_path = RuntimePaths.from_root_dir(state_root).hook_state_json
+    expected_path = RuntimePaths.from_root_dir(runtime_root).hook_state_json
     assert len(writes) == 1
     assert writes[0][0] == expected_path
     payload = json.loads(writes[0][1])

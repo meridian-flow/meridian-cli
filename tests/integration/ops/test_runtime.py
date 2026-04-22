@@ -34,8 +34,8 @@ def test_spawn_bookkeeping_and_artifact_paths_share_override_root(
     override_root.parent.mkdir(parents=True)
     monkeypatch.setenv("MERIDIAN_RUNTIME_DIR", override_root.as_posix())
 
-    state_root = resolve_runtime_root(project_root)
+    runtime_root = resolve_runtime_root(project_root)
     log_dir = resolve_spawn_log_dir(project_root, "p1")
 
-    assert state_root == override_root
+    assert runtime_root == override_root
     assert log_dir == override_root / "spawns" / "p1"

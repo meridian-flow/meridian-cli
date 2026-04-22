@@ -9,13 +9,13 @@ from meridian.lib.state.paths import resolve_project_runtime_root
 
 
 def _state_root(project_root: Path) -> Path:
-    state_root = resolve_project_runtime_root(project_root)
-    state_root.mkdir(parents=True, exist_ok=True)
-    return state_root
+    runtime_root = resolve_project_runtime_root(project_root)
+    runtime_root.mkdir(parents=True, exist_ok=True)
+    return runtime_root
 
 
 def _seed_session(
-    state_root: Path,
+    runtime_root: Path,
     *,
     chat_id: str,
     harness_session_id: str,
@@ -25,7 +25,7 @@ def _seed_session(
     execution_cwd: str | None = None,
 ) -> str:
     resolved_chat_id = session_store.start_session(
-        state_root,
+        runtime_root,
         harness=harness,
         harness_session_id=harness_session_id,
         model="gpt-5.4",
@@ -35,15 +35,15 @@ def _seed_session(
         execution_cwd=execution_cwd,
     )
     if work_id is not None:
-        session_store.update_session_work_id(state_root, resolved_chat_id, work_id)
+        session_store.update_session_work_id(runtime_root, resolved_chat_id, work_id)
     for candidate in extra_harness_session_ids:
-        session_store.update_session_harness_id(state_root, resolved_chat_id, candidate)
-    session_store.stop_session(state_root, resolved_chat_id)
+        session_store.update_session_harness_id(runtime_root, resolved_chat_id, candidate)
+    session_store.stop_session(runtime_root, resolved_chat_id)
     return resolved_chat_id
 
 
 def _seed_spawn(
-    state_root: Path,
+    runtime_root: Path,
     *,
     spawn_id: str,
     chat_id: str,
@@ -54,7 +54,7 @@ def _seed_spawn(
     started_at: str | None = None,
 ) -> None:
     spawn_store.start_spawn(
-        state_root,
+        runtime_root,
         spawn_id=spawn_id,
         chat_id=chat_id,
         model="gpt-5.3-codex",
@@ -73,9 +73,9 @@ def _seed_spawn(
 def test_resolve_session_reference_uses_latest_chat_session_id(tmp_path: Path) -> None:
     project_root = tmp_path / "repo"
     project_root.mkdir()
-    state_root = _state_root(project_root)
+    runtime_root = _state_root(project_root)
     chat_id = _seed_session(
-        state_root,
+        runtime_root,
         chat_id="c41",
         harness_session_id="session-1",
         extra_harness_session_ids=("session-2", "session-3"),
@@ -98,8 +98,8 @@ def test_resolve_session_reference_uses_latest_chat_session_id(tmp_path: Path) -
 def test_resolve_session_reference_for_spawn_id_reads_spawn_metadata(tmp_path: Path) -> None:
     project_root = tmp_path / "repo"
     project_root.mkdir()
-    state_root = _state_root(project_root)
-    _seed_spawn(state_root, spawn_id="p7", chat_id="c7", harness_session_id="spawn-session-7")
+    runtime_root = _state_root(project_root)
+    _seed_spawn(runtime_root, spawn_id="p7", chat_id="c7", harness_session_id="spawn-session-7")
 
     resolved = resolve_session_reference(project_root, "p7")
 
@@ -117,10 +117,10 @@ def test_resolve_session_reference_for_spawn_id_reads_spawn_metadata(tmp_path: P
 def test_resolve_spawn_ref_prefers_direct_spawn_id_match(tmp_path: Path) -> None:
     project_root = tmp_path / "repo"
     project_root.mkdir()
-    state_root = _state_root(project_root)
-    _seed_spawn(state_root, spawn_id="p7", chat_id="c7", harness_session_id="spawn-session-7")
+    runtime_root = _state_root(project_root)
+    _seed_spawn(runtime_root, spawn_id="p7", chat_id="c7", harness_session_id="spawn-session-7")
 
-    resolved = reference.resolve_spawn_ref(state_root, "p7")
+    resolved = reference.resolve_spawn_ref(runtime_root, "p7")
 
     assert resolved is not None
     assert str(resolved) == "p7"
@@ -129,23 +129,23 @@ def test_resolve_spawn_ref_prefers_direct_spawn_id_match(tmp_path: Path) -> None
 def test_resolve_spawn_ref_uses_latest_chat_match_by_started_at(tmp_path: Path) -> None:
     project_root = tmp_path / "repo"
     project_root.mkdir()
-    state_root = _state_root(project_root)
+    runtime_root = _state_root(project_root)
     _seed_spawn(
-        state_root,
+        runtime_root,
         spawn_id="p3",
         chat_id="c213",
         harness_session_id="session-new",
         started_at="2026-01-02T00:00:00Z",
     )
     _seed_spawn(
-        state_root,
+        runtime_root,
         spawn_id="p9",
         chat_id="c213",
         harness_session_id="session-old",
         started_at="2026-01-01T00:00:00Z",
     )
 
-    resolved = reference.resolve_spawn_ref(state_root, "c213")
+    resolved = reference.resolve_spawn_ref(runtime_root, "c213")
 
     assert resolved is not None
     assert str(resolved) == "p3"
@@ -156,10 +156,10 @@ def test_resolve_session_reference_for_spawn_uses_execution_cwd_when_recorded(
 ) -> None:
     project_root = tmp_path / "repo"
     project_root.mkdir()
-    state_root = _state_root(project_root)
+    runtime_root = _state_root(project_root)
     execution_cwd = str(tmp_path / "custom-cwd")
     _seed_spawn(
-        state_root,
+        runtime_root,
         spawn_id="p9",
         chat_id="c9",
         harness_session_id="spawn-session-9",
@@ -176,9 +176,9 @@ def test_resolve_session_reference_for_legacy_claude_spawn_infers_log_dir(
 ) -> None:
     project_root = tmp_path / "repo"
     project_root.mkdir()
-    state_root = _state_root(project_root)
+    runtime_root = _state_root(project_root)
     _seed_spawn(
-        state_root,
+        runtime_root,
         spawn_id="p10",
         chat_id="c10",
         harness_session_id="claude-session-10",
@@ -197,8 +197,8 @@ def test_resolve_session_reference_for_legacy_claude_spawn_infers_log_dir(
 def test_resolve_session_reference_allows_spawn_without_harness_session_id(tmp_path: Path) -> None:
     project_root = tmp_path / "repo"
     project_root.mkdir()
-    state_root = _state_root(project_root)
-    _seed_spawn(state_root, spawn_id="p8", chat_id="c8", harness_session_id=None)
+    runtime_root = _state_root(project_root)
+    _seed_spawn(runtime_root, spawn_id="p8", chat_id="c8", harness_session_id=None)
 
     resolved = resolve_session_reference(project_root, "p8")
 
@@ -213,10 +213,10 @@ def test_resolve_session_reference_for_chat_uses_recorded_execution_cwd(
 ) -> None:
     project_root = tmp_path / "repo"
     project_root.mkdir()
-    state_root = _state_root(project_root)
+    runtime_root = _state_root(project_root)
     execution_cwd = str(tmp_path / "chat-cwd")
     chat_id = _seed_session(
-        state_root,
+        runtime_root,
         chat_id="c42",
         harness_session_id="session-42",
         work_id="w-chat",

@@ -46,8 +46,8 @@ class FailingHook:
 class StoreSnapshotHook:
     """Reads store state inside hook to prove dispatch happens post-write."""
 
-    def __init__(self, state_root: Path, repository: FakeSpawnRepository) -> None:
-        self._state_root = state_root
+    def __init__(self, runtime_root: Path, repository: FakeSpawnRepository) -> None:
+        self._state_root = runtime_root
         self._repository = repository
         self.snapshots: list[tuple[str, str | None, str | None]] = []
 
@@ -72,12 +72,12 @@ class StoreSnapshotHook:
 
 
 def _make_service(
-    state_root: Path,
+    runtime_root: Path,
     hooks: list[Any] | None = None,
     repository: FakeSpawnRepository | None = None,
 ) -> SpawnLifecycleService:
     repo = repository if repository is not None else FakeSpawnRepository()
-    return SpawnLifecycleService(state_root, hooks=hooks, repository=repo)
+    return SpawnLifecycleService(runtime_root, hooks=hooks, repository=repo)
 
 
 def _start_spawn(svc: SpawnLifecycleService, **overrides: Any) -> str:

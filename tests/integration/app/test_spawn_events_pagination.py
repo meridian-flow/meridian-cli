@@ -32,7 +32,7 @@ from meridian.lib.state.paths import resolve_runtime_paths
 class FakeManager:
     def __init__(self, *, project_root: Path) -> None:
         self.project_root = project_root
-        self.state_root = resolve_runtime_paths(project_root).root_dir
+        self.runtime_root = resolve_runtime_paths(project_root).root_dir
 
     async def shutdown(self) -> None:
         return None
@@ -60,9 +60,9 @@ def _state_root(project_root: Path) -> Path:
 
 def _register_spawn(project_root: Path, spawn_id: str, status: str = "succeeded") -> None:
     """Register a spawn record so the events endpoint recognises it."""
-    state_root = _state_root(project_root)
+    runtime_root = _state_root(project_root)
     spawn_store.start_spawn(
-        state_root,
+        runtime_root,
         spawn_id=spawn_id,
         chat_id=f"chat-{spawn_id}",
         model="test-model",
@@ -75,7 +75,7 @@ def _register_spawn(project_root: Path, spawn_id: str, status: str = "succeeded"
     )
     if status != "running":
         spawn_store.finalize_spawn(
-            state_root,
+            runtime_root,
             spawn_id,
             status,
             exit_code=0 if status == "succeeded" else 1,

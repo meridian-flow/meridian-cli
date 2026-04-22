@@ -34,7 +34,7 @@ print(api.__version__)  # "1.0.0"
 | `event_id` | `UUID` | all events |
 | `timestamp` | `str` (ISO 8601) | all events |
 | `project_root` | `str` | all events |
-| `state_root` | `str` | all events |
+| `runtime_root` | `str` | all events |
 | `schema_version` | `int` | all events |
 | `spawn_id` | `str \| None` | spawn events |
 | `spawn_status` | `str \| None` | `spawn.finalized` |
@@ -54,7 +54,7 @@ print(api.__version__)  # "1.0.0"
 from meridian.plugin_api import get_project_home, get_user_home
 
 # Resolve the per-machine state root for the current project
-state_root = get_project_home()
+runtime_root = get_project_home()
 
 # Resolve the user-level Meridian state root (~/.meridian or %LOCALAPPDATA%\meridian)
 user_root = get_user_home()

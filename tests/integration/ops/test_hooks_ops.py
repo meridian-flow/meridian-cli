@@ -118,12 +118,12 @@ def test_hooks_run_bypasses_interval_throttling(
     project_root = tmp_path / "repo"
     project_root.mkdir()
     (project_root / ".git").mkdir()
-    state_root = project_root / ".meridian"
+    runtime_root = project_root / ".meridian"
 
     user_config = tmp_path / "user-config.toml"
     user_config.write_text("", encoding="utf-8")
     monkeypatch.setenv("MERIDIAN_CONFIG", user_config.as_posix())
-    monkeypatch.setenv("MERIDIAN_RUNTIME_DIR", state_root.as_posix())
+    monkeypatch.setenv("MERIDIAN_RUNTIME_DIR", runtime_root.as_posix())
 
     marker = tmp_path / "manual-run-events.jsonl"
     recorder = tmp_path / "record_hook.py"
@@ -140,7 +140,7 @@ def test_hooks_run_bypasses_interval_throttling(
     )
 
     # Seed interval state to force throttling under normal dispatch.
-    IntervalTracker(state_root).mark_run("record-finalized")
+    IntervalTracker(runtime_root).mark_run("record-finalized")
 
     output = hooks_ops.hooks_run_sync(
         hooks_ops.HookRunInput(name="record-finalized", project_root=project_root.as_posix())
@@ -160,12 +160,12 @@ def test_hooks_run_accepts_event_override(
     project_root = tmp_path / "repo"
     project_root.mkdir()
     (project_root / ".git").mkdir()
-    state_root = project_root / ".meridian"
+    runtime_root = project_root / ".meridian"
 
     user_config = tmp_path / "user-config.toml"
     user_config.write_text("", encoding="utf-8")
     monkeypatch.setenv("MERIDIAN_CONFIG", user_config.as_posix())
-    monkeypatch.setenv("MERIDIAN_RUNTIME_DIR", state_root.as_posix())
+    monkeypatch.setenv("MERIDIAN_RUNTIME_DIR", runtime_root.as_posix())
 
     marker = tmp_path / "manual-event-override.jsonl"
     recorder = tmp_path / "record_hook.py"

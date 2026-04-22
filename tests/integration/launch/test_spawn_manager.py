@@ -39,8 +39,8 @@ def _build_spec() -> CodexLaunchSpec:
     )
 
 
-def _read_output_event_types(state_root: Path, spawn_id: SpawnId) -> list[str]:
-    output_path = state_root / "spawns" / str(spawn_id) / "output.jsonl"
+def _read_output_event_types(runtime_root: Path, spawn_id: SpawnId) -> list[str]:
+    output_path = runtime_root / "spawns" / str(spawn_id) / "output.jsonl"
     if not output_path.exists():
         return []
     events: list[str] = []
@@ -60,7 +60,7 @@ async def test_wait_for_completion_survives_cleanup_without_private_hooks(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     project_root = tmp_path
-    state_root = resolve_runtime_paths(project_root).root_dir
+    runtime_root = resolve_runtime_paths(project_root).root_dir
     cleanup_started = asyncio.Event()
     release_cleanup = asyncio.Event()
 
@@ -135,7 +135,7 @@ async def test_wait_for_completion_survives_cleanup_without_private_hooks(
     )
 
     spawn_id = start_spawn(
-        state_root,
+        runtime_root,
         chat_id="c1",
         model="gpt-5.3-codex",
         agent="coder",
@@ -145,7 +145,7 @@ async def test_wait_for_completion_survives_cleanup_without_private_hooks(
         launch_mode="foreground",
         status="running",
     )
-    manager = SpawnManager(state_root=state_root, project_root=project_root)
+    manager = SpawnManager(runtime_root=runtime_root, project_root=project_root)
     await manager.start_spawn(_build_config(spawn_id, project_root), _build_spec())
 
     try:
@@ -166,7 +166,7 @@ async def test_wait_for_completion_survives_cleanup_without_private_hooks(
             success=False,
             error=f"Spawn {spawn_id} is not active",
         )
-        assert "item.completed" in _read_output_event_types(state_root, spawn_id)
+        assert "item.completed" in _read_output_event_types(runtime_root, spawn_id)
 
         release_cleanup.set()
         await asyncio.sleep(0)

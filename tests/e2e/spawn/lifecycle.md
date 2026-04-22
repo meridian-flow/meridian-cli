@@ -203,10 +203,10 @@ from meridian.lib.state.spawn_store import (
     update_spawn,
 )
 
-state_root = Path(os.environ["MERIDIAN_RUNTIME_DIR"])
+runtime_root = Path(os.environ["MERIDIAN_RUNTIME_DIR"])
 spawn_id = str(
     start_spawn(
-        state_root,
+        runtime_root,
         chat_id="c-lifecycle",
         model="gpt-5.4",
         agent="smoke",
@@ -214,11 +214,11 @@ spawn_id = str(
         prompt="late update invariant smoke",
     )
 )
-finalize_spawn(state_root, spawn_id, status="succeeded", exit_code=0, origin="runner")
-mark_finalizing(state_root, spawn_id)
-update_spawn(state_root, spawn_id, desc="late update")
+finalize_spawn(runtime_root, spawn_id, status="succeeded", exit_code=0, origin="runner")
+mark_finalizing(runtime_root, spawn_id)
+update_spawn(runtime_root, spawn_id, desc="late update")
 
-row = get_spawn(state_root, spawn_id)
+row = get_spawn(runtime_root, spawn_id)
 assert row is not None
 assert row.status == "succeeded", f"terminal status downgraded: {row.status}"
 assert row.desc == "late update"
