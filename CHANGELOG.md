@@ -5,6 +5,7 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 - `.meridian/id` now committed to git — stable project identity across clones/worktrees. `ensure_gitignore()` migrates old `.gitignore` files automatically (strips `id` ignore, adds `!id` to required lines).
+- **Naming overhaul**: no "repo" or "state root" in first-class names. `repo_root` → `project_root`, `MERIDIAN_REPO_ROOT` → `MERIDIAN_PROJECT_DIR`, `MERIDIAN_STATE_ROOT` → `MERIDIAN_DATA_DIR`, `get_user_state_root` → `get_meridian_home`, `get_project_state_root` → `get_project_data_root`, `StatePaths` → `ProjectPaths`, `StateRootPaths` → `RuntimePaths`. Breaking rename — no backwards compat aliases.
 
 ## [0.0.40-rc.1] - 2026-04-22
 
