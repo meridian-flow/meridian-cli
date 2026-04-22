@@ -76,6 +76,11 @@ class ClaudeAGUIMapper:
                 if not isinstance(message, str):
                     message = str(message)
                 return [self.make_run_error(message)]
+            if event.event_type == "cancelled":
+                message = event.payload.get("error")
+                if not isinstance(message, str) or not message:
+                    message = "Cancelled"
+                return [make_run_error_event(message, is_cancelled=True)]
             if event.event_type == "stream_event":
                 self._saw_stream_event = True
                 return self._translate_stream_event(event.payload)

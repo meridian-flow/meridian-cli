@@ -64,6 +64,11 @@ class CodexAGUIMapper:
                 if not isinstance(message, str):
                     message = str(message)
                 return [self.make_run_error(message)]
+            if event.event_type == "cancelled":
+                message = event.payload.get("error")
+                if not isinstance(message, str) or not message:
+                    message = "Cancelled"
+                return [make_run_error_event(message, is_cancelled=True)]
             if event.event_type == "item/agentMessage":
                 return self._translate_agent_message(event.payload)
             if event.event_type == "item/agentMessage/delta":
