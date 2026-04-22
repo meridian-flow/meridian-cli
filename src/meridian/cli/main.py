@@ -86,6 +86,8 @@ class GlobalOptions(BaseModel):
     harness: str | None = None
     yes: bool = False
     no_input: bool = False
+    # Future cleanup: `output_explicit` may be removable now that
+    # `explicit_format` carries the resolved explicit output selection.
     output_explicit: bool = False
     force_human: bool = False
     passthrough_args: tuple[str, ...] = ()
@@ -183,6 +185,8 @@ def _resolve_command_path(argv: Sequence[str]) -> tuple[str | None, str | None]:
     Returns (group, subcommand) where either may be None.
     Special handling for spawn default routes which are not in the manifest.
     """
+    # Future cleanup: if command-specific output policy keeps expanding, move
+    # command-path resolution out of main.py into a dedicated routing helper.
     resolved_group = _bootstrap_first_positional_token_with_index(argv)
     if resolved_group is None:
         return None, None

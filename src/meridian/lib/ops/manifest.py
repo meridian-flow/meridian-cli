@@ -192,6 +192,8 @@ class OperationSpec(BaseModel, Generic[InputT, OutputT]):
     cli_group: str | None = None
     cli_name: str | None = None
     mcp_name: str | None = None
+    # Resolver fallback is text; explicit annotation is mainly needed for
+    # operations that should default to JSON in agent mode.
     agent_default_format: Literal["text", "json"] | None = None
     version: str = "1"
     sync_handler: Callable[[InputT], OutputT] | None = None
@@ -812,6 +814,8 @@ def get_operation(name: str) -> OperationSpec[Any, Any]:
 def get_operation_by_cli(group: str, name: str) -> OperationSpec[Any, Any] | None:
     """Look up an operation by CLI group and command name."""
 
+    # Future cleanup: if operation volume or lookup frequency increases,
+    # replace this scan with a precomputed (cli_group, cli_name) index.
     for spec in _OPERATIONS:
         if spec.cli_group == group and spec.cli_name == name:
             return spec
