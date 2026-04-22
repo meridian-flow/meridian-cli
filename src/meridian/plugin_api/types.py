@@ -54,7 +54,7 @@ class HookContext:
     event_id: UUID
     timestamp: str
     project_root: str
-    state_root: str
+    runtime_root: str
     schema_version: int = 1
 
     spawn_id: str | None = None
@@ -77,7 +77,7 @@ class HookContext:
             "MERIDIAN_HOOK_TIMESTAMP": self.timestamp,
             "MERIDIAN_HOOK_SCHEMA_VERSION": str(self.schema_version),
             "MERIDIAN_PROJECT_DIR": self.project_root,
-            "MERIDIAN_PROJECT_ROOT": self.state_root,
+            "MERIDIAN_RUNTIME_DIR": self.runtime_root,
             "MERIDIAN_SPAWN_ID": self.spawn_id,
             "MERIDIAN_SPAWN_STATUS": self.spawn_status,
             "MERIDIAN_SPAWN_AGENT": self.spawn_agent,
@@ -103,7 +103,7 @@ class HookContext:
             "event_id": str(self.event_id),
             "timestamp": self.timestamp,
             "project_root": self.project_root,
-            "state_root": self.state_root,
+            "runtime_root": self.runtime_root,
             "spawn": {
                 "id": self.spawn_id,
                 "status": self.spawn_status,

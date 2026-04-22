@@ -53,7 +53,7 @@ def test_spawn_request_round_trip_json_with_all_fields() -> None:
         debug=True,
         harness_command_override="codex --foo",
         report_output_path="/tmp/report.md",
-        state_root="/tmp/state",
+        runtime_root="/tmp/state",
         project_paths_project_root="/tmp/repo",
         project_paths_execution_cwd="/tmp/repo",
     )

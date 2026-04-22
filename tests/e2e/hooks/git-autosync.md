@@ -70,7 +70,7 @@ context = HookContext(
     event_id=uuid4(),
     timestamp="2026-04-20T00:00:00+00:00",
     project_root=str(work),
-    state_root=str(work / ".meridian"),
+    runtime_root=str(work / ".meridian"),
     work_id="w1",
     work_dir=str(work),
 )
@@ -117,7 +117,7 @@ context = HookContext(
     event_id=uuid4(),
     timestamp="2026-04-20T00:00:00+00:00",
     project_root=str(work),
-    state_root=str(work / ".meridian"),
+    runtime_root=str(work / ".meridian"),
     work_id="w2",
     work_dir=str(work),
 )
@@ -171,7 +171,7 @@ context = HookContext(
     event_id=uuid4(),
     timestamp="2026-04-20T00:00:00+00:00",
     project_root=str(work),
-    state_root=str(work / ".meridian"),
+    runtime_root=str(work / ".meridian"),
     work_id="w3",
     work_dir=str(work),
 )
@@ -216,7 +216,7 @@ context = HookContext(
     event_id=uuid4(),
     timestamp="2026-04-20T00:00:00+00:00",
     project_root=str(work),
-    state_root=str(work / ".meridian"),
+    runtime_root=str(work / ".meridian"),
     work_id="w4",
     work_dir=str(work),
 )
@@ -279,7 +279,7 @@ context = HookContext(
     event_id=uuid4(),
     timestamp="2026-04-20T00:00:00+00:00",
     project_root=str(work),
-    state_root=str(work / ".meridian"),
+    runtime_root=str(work / ".meridian"),
     work_id="w5",
     work_dir=str(work),
 )

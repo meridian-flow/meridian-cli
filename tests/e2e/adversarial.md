@@ -10,7 +10,7 @@ export SMOKE_REPO="$(mktemp -d /tmp/meridian-adversarial.XXXXXX)"
 git -C "$SMOKE_REPO" init --quiet
 for var in $(env | awk -F= '/^MERIDIAN_/ {print $1}'); do unset "$var"; done
 export MERIDIAN_PROJECT_DIR="$SMOKE_REPO"
-export MERIDIAN_PROJECT_ROOT="$SMOKE_REPO/.meridian"
+export MERIDIAN_RUNTIME_DIR="$SMOKE_REPO/.meridian"
 mkdir -p "$SMOKE_REPO/.agents/agents"
 cat > "$SMOKE_REPO/.agents/agents/reviewer.md" <<'EOF'
 # Reviewer
@@ -62,7 +62,7 @@ fi
 
 ```bash
 uv run meridian --help >/dev/null && \
-printf '{bad json\n' > "$MERIDIAN_PROJECT_ROOT/spawns.jsonl" && \
+printf '{bad json\n' > "$MERIDIAN_RUNTIME_DIR/spawns.jsonl" && \
 if timeout 10 uv run meridian --json spawn list >/tmp/meridian-adv-corrupt.out 2>&1; then
   if grep -q 'Traceback' /tmp/meridian-adv-corrupt.out; then
     echo "FAIL: corrupt state crashed noisily"

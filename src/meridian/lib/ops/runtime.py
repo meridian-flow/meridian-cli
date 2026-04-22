@@ -14,9 +14,9 @@ from meridian.lib.core.context import RuntimeContext
 from meridian.lib.core.sink import NullSink, OutputSink
 from meridian.lib.state.artifact_store import LocalStore
 from meridian.lib.state.paths import (
+    resolve_project_paths,
     resolve_project_runtime_root_for_write,
     resolve_project_runtime_root_or_none,
-    resolve_repo_paths,
 )
 from meridian.lib.state.user_paths import (
     get_or_create_project_uuid,
@@ -49,7 +49,7 @@ class OperationRuntime(BaseModel):
 @dataclass(frozen=True)
 class ResolvedRoots:
     project_root: Path
-    repo_state_root: Path
+    project_state_dir: Path
     runtime_root: Path
 
 
@@ -139,7 +139,7 @@ def resolve_runtime_root_for_read(project_root: Path) -> Path:
     state has data, prefer repo-local state as a compatibility fallback.
     """
 
-    project_state_dir = resolve_repo_paths(project_root).root_dir
+    project_state_dir = resolve_project_paths(project_root).root_dir
     runtime_root = resolve_project_runtime_root_or_none(project_root)
     if runtime_root is None:
         return project_state_dir
@@ -162,25 +162,25 @@ def resolve_runtime_root_for_read(project_root: Path) -> Path:
 def get_project_uuid(project_root: Path) -> str:
     """Get/create project UUID, returns UUID string."""
 
-    return get_or_create_project_uuid(resolve_repo_paths(project_root).root_dir)
+    return get_or_create_project_uuid(resolve_project_paths(project_root).root_dir)
 
 
 def resolve_roots(project_root: str | None) -> ResolvedRoots:
     resolved_project_root, _ = resolve_runtime_root_and_config(project_root)
-    project_state_dir = resolve_repo_paths(resolved_project_root).root_dir
+    project_state_dir = resolve_project_paths(resolved_project_root).root_dir
     return ResolvedRoots(
         project_root=resolved_project_root,
-        repo_state_root=project_state_dir,
+        project_state_dir=project_state_dir,
         runtime_root=resolve_runtime_root(resolved_project_root),
     )
 
 
 def resolve_roots_for_read(project_root: str | None) -> ResolvedRoots:
     resolved_project_root, _ = resolve_runtime_root_and_config_for_read(project_root)
-    project_state_dir = resolve_repo_paths(resolved_project_root).root_dir
+    project_state_dir = resolve_project_paths(resolved_project_root).root_dir
     return ResolvedRoots(
         project_root=resolved_project_root,
-        repo_state_root=project_state_dir,
+        project_state_dir=project_state_dir,
         runtime_root=resolve_runtime_root_for_read(resolved_project_root),
     )
 

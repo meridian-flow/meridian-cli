@@ -30,7 +30,7 @@ from meridian.lib.launch.launch_types import (
     summarize_composition_warnings,
 )
 from meridian.lib.state.paths import (
-    resolve_repo_paths,
+    resolve_project_paths,
     resolve_spawn_log_dir,
     resolve_work_scratch_dir,
 )
@@ -86,7 +86,7 @@ class ChildEnvContext:
 
     parent_spawn_id: str | None
     project_root: Path
-    state_root: Path
+    runtime_root: Path
     parent_chat_id: str | None
     parent_depth: int
     work_id: str | None = None
@@ -98,7 +98,7 @@ class ChildEnvContext:
         cls,
         *,
         project_paths: ProjectConfigPaths,
-        state_root: Path,
+        runtime_root: Path,
     ) -> ChildEnvContext:
         parent_ctx = ResolvedContext.from_environment()
         parent_spawn_id = str(parent_ctx.spawn_id) if parent_ctx.spawn_id else None
@@ -106,19 +106,19 @@ class ChildEnvContext:
         parent_depth = parent_ctx.depth
 
         work_id = os.getenv("MERIDIAN_WORK_ID", "").strip() or None
-        resolved_state_root = state_root.resolve()
+        resolved_runtime_root = runtime_root.resolve()
         if work_id is None and parent_chat_id:
-            # Keep launch semantics: runtime state_root decides active work lookup.
+            # Keep launch semantics: runtime_root decides active work lookup.
             try:
-                work_id = get_session_active_work_id(resolved_state_root, parent_chat_id)
+                work_id = get_session_active_work_id(resolved_runtime_root, parent_chat_id)
             except Exception:
                 work_id = None
 
         resolved_project_root = project_paths.execution_cwd.resolve()
-        repo_paths = resolve_repo_paths(resolved_project_root)
-        repo_state_root = repo_paths.root_dir
+        repo_paths = resolve_project_paths(resolved_project_root)
+        project_state_dir = repo_paths.root_dir
         work_dir = (
-            resolve_work_scratch_dir(repo_state_root, work_id) if work_id is not None else None
+            resolve_work_scratch_dir(project_state_dir, work_id) if work_id is not None else None
         )
         kb_dir = repo_paths.kb_dir
 
@@ -127,7 +127,7 @@ class ChildEnvContext:
             # execution cwd used by the child process.
             parent_spawn_id=parent_spawn_id,
             project_root=resolved_project_root,
-            state_root=resolved_state_root,
+            runtime_root=resolved_runtime_root,
             parent_chat_id=parent_chat_id,
             parent_depth=parent_depth,
             work_id=work_id,
@@ -139,7 +139,7 @@ class ChildEnvContext:
         overrides = build_child_env_overrides(
             parent_spawn_id=self.parent_spawn_id,
             project_root=self.project_root,
-            state_root=self.state_root,
+            runtime_root=self.runtime_root,
             parent_chat_id=self.parent_chat_id,
             parent_depth=self.parent_depth,
             work_id=self.work_id,
@@ -156,7 +156,7 @@ class LaunchContext:
     runtime: LaunchRuntime
     project_root: Path
     execution_cwd: Path
-    state_root: Path
+    runtime_root: Path
     work_id: str | None
     argv: tuple[str, ...]
     run_params: ResolvedRunInputs
@@ -613,7 +613,7 @@ def build_launch_context(
     )
     workspace_snapshot = resolve_workspace_snapshot_for_launch(project_paths.project_root)
     workspace_roots = get_projectable_roots(workspace_snapshot)
-    runtime_root = Path(runtime.state_root).expanduser().resolve()
+    runtime_root = Path(runtime.runtime_root).expanduser().resolve()
     resolved_request = request
     composition_warnings: tuple[CompositionWarning, ...] = ()
     projected_content: ProjectedContent | None = None
@@ -754,7 +754,7 @@ def build_launch_context(
 
     runtime_ctx = ChildEnvContext.from_environment(
         project_paths=project_paths,
-        state_root=runtime_root,
+        runtime_root=runtime_root,
     )
     effective_work_id = (runtime_work_id or resolved_request.work_id_hint or "").strip() or None
     merged_overrides = merge_env_overrides(
@@ -784,7 +784,7 @@ def build_launch_context(
         runtime=runtime,
         project_root=project_paths.project_root,
         execution_cwd=execution_cwd,
-        state_root=runtime_root,
+        runtime_root=runtime_root,
         work_id=effective_work_id,
         argv=argv,
         run_params=run_params,

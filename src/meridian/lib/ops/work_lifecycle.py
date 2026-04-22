@@ -30,8 +30,8 @@ _NESTED_WORK_WARNING = (
 logger = structlog.get_logger(__name__)
 
 
-def _require_work_item(repo_state_root: Path, work_id: str) -> work_store.WorkItem:
-    item = work_store.get_work_item(repo_state_root, work_id)
+def _require_work_item(project_state_dir: Path, work_id: str) -> work_store.WorkItem:
+    item = work_store.get_work_item(project_state_dir, work_id)
     if item is None:
         raise ValueError(f"Work item '{work_id}' not found")
     return item
@@ -72,7 +72,7 @@ def _dispatch_work_hook_event(
     event_name: Literal["work.started", "work.done"],
     project_root: Path,
     state_root: Path,
-    repo_state_root: Path,
+    project_state_dir: Path,
     work_id: str,
 ) -> None:
     dispatcher = get_hook_dispatcher(project_root, state_root)
@@ -88,9 +88,9 @@ def _dispatch_work_hook_event(
                 event_id=generate_lifecycle_event_id(work_id, event_name, 0),
                 timestamp=datetime.now(tz=UTC).isoformat(),
                 project_root=str(project_root),
-                state_root=str(state_root),
+                runtime_root=str(state_root),
                 work_id=work_id,
-                work_dir=str(work_store.work_scratch_dir(repo_state_root, work_id)),
+                work_dir=str(work_store.work_scratch_dir(project_state_dir, work_id)),
             )
         )
     except Exception:
@@ -270,7 +270,7 @@ def work_start_sync(
     warning = _work_warning(ctx)
     roots = resolve_roots(payload.project_root)
     project_root = roots.project_root
-    repo_state_root = roots.repo_state_root
+    project_state_dir = roots.project_state_dir
     runtime_state_root = roots.runtime_root
     chat_id = resolve_chat_id(payload_chat_id=payload.chat_id, ctx=runtime_context(ctx))
     requested_description = payload.description.strip()
@@ -278,7 +278,7 @@ def work_start_sync(
     if not normalized_work_id:
         raise ValueError("Work item label must contain at least one letter or number.")
 
-    existing = work_store.get_work_item(repo_state_root, normalized_work_id)
+    existing = work_store.get_work_item(project_state_dir, normalized_work_id)
     created = False
     if existing is not None:
         if existing.status == "done":
@@ -288,14 +288,14 @@ def work_start_sync(
             )
         item = existing
     else:
-        item = work_store.create_work_item(repo_state_root, payload.label, requested_description)
+        item = work_store.create_work_item(project_state_dir, payload.label, requested_description)
         created = True
     set_session_work_attachment(runtime_state_root, chat_id=chat_id, work_id=item.name)
     _dispatch_work_hook_event(
         event_name="work.started",
         project_root=project_root,
         state_root=runtime_state_root,
-        repo_state_root=repo_state_root,
+        project_state_dir=project_state_dir,
         work_id=item.name,
     )
     return WorkStartOutput(
@@ -303,7 +303,7 @@ def work_start_sync(
         status=item.status,
         description=item.description,
         created_at=item.created_at,
-        work_dir=work_dir_display(project_root, repo_state_root, item.name),
+        work_dir=work_dir_display(project_root, project_state_dir, item.name),
         created=created,
         warning=warning,
     )
@@ -317,15 +317,15 @@ def work_update_sync(
     if payload.status is None and payload.description is None:
         raise ValueError("Nothing to update. Pass --status and/or --description.")
     roots = resolve_roots(payload.project_root)
-    repo_state_root = roots.repo_state_root
+    project_state_dir = roots.project_state_dir
     runtime_state_root = roots.runtime_root
-    current = _require_work_item(repo_state_root, payload.work_id)
+    current = _require_work_item(project_state_dir, payload.work_id)
     if payload.status == "done":
         attachment_warning = _active_work_attachment_warning(runtime_state_root, payload.work_id)
-        item = work_store.archive_work_item(repo_state_root, payload.work_id)
+        item = work_store.archive_work_item(project_state_dir, payload.work_id)
         if payload.description is not None:
             item = work_store.update_work_item(
-                repo_state_root,
+                project_state_dir,
                 payload.work_id,
                 description=payload.description,
             )
@@ -333,7 +333,7 @@ def work_update_sync(
             event_name="work.done",
             project_root=roots.project_root,
             state_root=runtime_state_root,
-            repo_state_root=repo_state_root,
+            project_state_dir=project_state_dir,
             work_id=item.name,
         )
         return WorkUpdateOutput(
@@ -347,7 +347,7 @@ def work_update_sync(
             f"Use `meridian work reopen {payload.work_id}` first."
         )
     item = work_store.update_work_item(
-        repo_state_root,
+        project_state_dir,
         payload.work_id,
         status=payload.status,
         description=payload.description,
@@ -361,15 +361,15 @@ def work_done_sync(
 ) -> WorkUpdateOutput:
     nested_warning = _work_warning(ctx)
     roots = resolve_roots(payload.project_root)
-    repo_state_root = roots.repo_state_root
+    project_state_dir = roots.project_state_dir
     runtime_state_root = roots.runtime_root
     attachment_warning = _active_work_attachment_warning(runtime_state_root, payload.work_id)
-    item = work_store.archive_work_item(repo_state_root, payload.work_id)
+    item = work_store.archive_work_item(project_state_dir, payload.work_id)
     _dispatch_work_hook_event(
         event_name="work.done",
         project_root=roots.project_root,
         state_root=runtime_state_root,
-        repo_state_root=repo_state_root,
+        project_state_dir=project_state_dir,
         work_id=item.name,
     )
     return WorkUpdateOutput(
@@ -385,10 +385,10 @@ def work_delete_sync(
 ) -> WorkDeleteOutput:
     nested_warning = _work_warning(ctx)
     roots = resolve_roots(payload.project_root)
-    repo_state_root = roots.repo_state_root
+    project_state_dir = roots.project_state_dir
     try:
         item, had_artifacts = work_store.delete_work_item(
-            repo_state_root,
+            project_state_dir,
             payload.work_id,
             force=payload.force,
         )
@@ -414,8 +414,8 @@ def work_reopen_sync(
     ctx: RuntimeContext | None = None,
 ) -> WorkReopenOutput:
     warning = _work_warning(ctx)
-    repo_state_root = resolve_roots(payload.project_root).repo_state_root
-    item = work_store.reopen_work_item(repo_state_root, payload.work_id)
+    project_state_dir = resolve_roots(payload.project_root).project_state_dir
+    item = work_store.reopen_work_item(project_state_dir, payload.work_id)
     return WorkReopenOutput(name=item.name, status=item.status, warning=warning)
 
 
@@ -425,9 +425,9 @@ def work_switch_sync(
 ) -> WorkSwitchOutput:
     warning = _work_warning(ctx)
     roots = resolve_roots(payload.project_root)
-    repo_state_root = roots.repo_state_root
+    project_state_dir = roots.project_state_dir
     runtime_state_root = roots.runtime_root
-    item = _require_work_item(repo_state_root, payload.work_id)
+    item = _require_work_item(project_state_dir, payload.work_id)
     chat_id = resolve_chat_id(payload_chat_id=payload.chat_id, ctx=runtime_context(ctx))
     updated = set_session_work_attachment(runtime_state_root, chat_id=chat_id, work_id=item.name)
     message = (
@@ -444,11 +444,11 @@ def work_rename_sync(
 ) -> WorkRenameOutput:
     warning = _work_warning(ctx)
     roots = resolve_roots(payload.project_root)
-    repo_state_root = roots.repo_state_root
+    project_state_dir = roots.project_state_dir
     runtime_state_root = roots.runtime_root
     old_name = payload.work_id
-    _require_work_item(repo_state_root, old_name)
-    item = work_store.rename_work_item(repo_state_root, old_name, payload.new_name)
+    _require_work_item(project_state_dir, old_name)
+    item = work_store.rename_work_item(project_state_dir, old_name, payload.new_name)
 
     for spawn in spawn_store.list_spawns(runtime_state_root, filters={"work_id": old_name}):
         if spawn.kind == "child":

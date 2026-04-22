@@ -13,7 +13,7 @@ export SMOKE_REPO="$(mktemp -d /tmp/meridian-skill-inject.XXXXXX)"
 git -C "$SMOKE_REPO" init --quiet
 for var in $(env | awk -F= '/^MERIDIAN_/ {print $1}'); do unset "$var"; done
 export MERIDIAN_PROJECT_DIR="$SMOKE_REPO"
-export MERIDIAN_PROJECT_ROOT="$SMOKE_REPO/.meridian"
+export MERIDIAN_RUNTIME_DIR="$SMOKE_REPO/.meridian"
 mkdir -p \
   "$SMOKE_REPO/.agents/agents" \
   "$SMOKE_REPO/.agents/skills/meridian-orchestrate" \

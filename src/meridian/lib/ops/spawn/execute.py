@@ -39,7 +39,7 @@ from meridian.lib.platform import IS_WINDOWS
 from meridian.lib.state import spawn_store
 from meridian.lib.state.atomic import atomic_write_text
 from meridian.lib.state.paths import (
-    resolve_repo_paths,
+    resolve_project_paths,
     resolve_spawn_log_dir,
     resolve_work_scratch_dir,
 )
@@ -180,7 +180,7 @@ def _spawn_background_worker_env(
     work_dir: Path | None = None
     if normalized_work_id:
         work_dir = resolve_work_scratch_dir(
-            resolve_repo_paths(project_root).root_dir,
+            resolve_project_paths(project_root).root_dir,
             normalized_work_id,
         )
 
@@ -190,7 +190,7 @@ def _spawn_background_worker_env(
     child_env = build_child_env_overrides(
         parent_spawn_id=None,  # inherited from os.environ
         project_root=None,
-        state_root=None,
+        runtime_root=None,
         parent_chat_id=None,
         parent_depth=parent_depth,
         work_id=normalized_work_id,
@@ -249,7 +249,7 @@ def _init_spawn(
 ) -> _SpawnContext:
     resolved_context = runtime_context(ctx)
     project_paths = resolve_project_config_paths(project_root=runtime.project_root)
-    repo_state_root = resolve_repo_paths(project_paths.project_root).root_dir
+    repo_state_root = resolve_project_paths(project_paths.project_root).root_dir
     state_root = resolve_runtime_root(project_paths.project_root)
     resolved_work_id = _resolve_work_id(
         payload=payload,
@@ -576,7 +576,7 @@ async def _execute_existing_spawn(
         launch_runtime = runtime_request.model_copy(
             update={
                 "argv_intent": LaunchArgvIntent.SPEC_ONLY,
-                "state_root": state_root.as_posix(),
+                "runtime_root": state_root.as_posix(),
                 "project_paths_project_root": project_paths.project_root.as_posix(),
                 "project_paths_execution_cwd": resolved_execution_cwd,
             }
@@ -682,7 +682,7 @@ def execute_spawn_background(
         launch_runtime = LaunchRuntime(
             argv_intent=LaunchArgvIntent.SPEC_ONLY,
             debug=payload.debug,
-            state_root=context.state_root.as_posix(),
+            runtime_root=context.state_root.as_posix(),
             project_paths_project_root=project_paths.project_root.as_posix(),
             project_paths_execution_cwd=execution_cwd_str,
         )
@@ -916,7 +916,7 @@ def execute_spawn_blocking(
             argv_intent=LaunchArgvIntent.SPEC_ONLY,
             debug=payload.debug,
             harness_command_override=os.getenv("MERIDIAN_HARNESS_COMMAND", "").strip() or None,
-            state_root=context.state_root.as_posix(),
+            runtime_root=context.state_root.as_posix(),
             project_paths_project_root=project_paths.project_root.as_posix(),
             project_paths_execution_cwd=project_paths.execution_cwd.as_posix(),
         )

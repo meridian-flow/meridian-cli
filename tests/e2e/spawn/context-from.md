@@ -10,7 +10,7 @@ export SMOKE_REPO="$(mktemp -d /tmp/meridian-from.XXXXXX)"
 git -C "$SMOKE_REPO" init --quiet
 for var in $(env | awk -F= '/^MERIDIAN_/ {print $1}'); do unset "$var"; done
 export MERIDIAN_PROJECT_DIR="$SMOKE_REPO"
-export MERIDIAN_PROJECT_ROOT="$SMOKE_REPO/.meridian"
+export MERIDIAN_RUNTIME_DIR="$SMOKE_REPO/.meridian"
 
 # Create a minimal agent for dry-run
 mkdir -p "$SMOKE_REPO/.agents/agents"
@@ -37,9 +37,9 @@ Seed a spawn with a report, then dry-run a second spawn referencing it.
 SEED_ID=$(uv run python -c "
 from pathlib import Path
 from meridian.lib.state import spawn_store
-from meridian.lib.state.paths import resolve_state_paths
+from meridian.lib.state.paths import resolve_runtime_paths
 repo = Path('$SMOKE_REPO')
-sp = resolve_state_paths(repo)
+sp = resolve_runtime_paths(repo)
 sid = spawn_store.start_spawn(sp.root_dir, chat_id='c1', model='gpt', agent='coder', harness='codex', kind='child', prompt='seed', desc='Phase 1')
 spawn_store.finalize_spawn(sp.root_dir, str(sid), status='succeeded', exit_code=0, origin='runner')
 rp = sp.root_dir / 'spawns' / str(sid) / 'report.md'
@@ -75,9 +75,9 @@ Reference a session ID instead of a spawn ID. Should resolve to the primary spaw
 PRIMARY_ID=$(uv run python -c "
 from pathlib import Path
 from meridian.lib.state import spawn_store
-from meridian.lib.state.paths import resolve_state_paths
+from meridian.lib.state.paths import resolve_runtime_paths
 repo = Path('$SMOKE_REPO')
-sp = resolve_state_paths(repo)
+sp = resolve_runtime_paths(repo)
 sid = spawn_store.start_spawn(sp.root_dir, chat_id='c1', model='gpt', agent='coder', harness='codex', kind='primary', prompt='primary', desc='Primary')
 print(sid)
 ")
@@ -85,9 +85,9 @@ print(sid)
 uv run python -c "
 from pathlib import Path
 from meridian.lib.state import spawn_store
-from meridian.lib.state.paths import resolve_state_paths
+from meridian.lib.state.paths import resolve_runtime_paths
 repo = Path('$SMOKE_REPO')
-sp = resolve_state_paths(repo)
+sp = resolve_runtime_paths(repo)
 sid = spawn_store.start_spawn(sp.root_dir, chat_id='c1', model='gpt', agent='coder', harness='codex', kind='child', prompt='fail', desc='Failed attempt')
 spawn_store.finalize_spawn(
     sp.root_dir,
@@ -102,9 +102,9 @@ spawn_store.finalize_spawn(
 uv run python -c "
 from pathlib import Path
 from meridian.lib.state import spawn_store
-from meridian.lib.state.paths import resolve_state_paths
+from meridian.lib.state.paths import resolve_runtime_paths
 repo = Path('$SMOKE_REPO')
-sp = resolve_state_paths(repo)
+sp = resolve_runtime_paths(repo)
 sid = spawn_store.start_spawn(sp.root_dir, chat_id='c1', model='gpt', agent='coder', harness='codex', kind='child', prompt='seed', desc='Succeeded child')
 spawn_store.finalize_spawn(sp.root_dir, str(sid), status='succeeded', exit_code=0, origin='runner')
 rp = sp.root_dir / 'spawns' / str(sid) / 'report.md'
@@ -139,9 +139,9 @@ Pass two spawn references. Both context blocks should appear.
 SEED2_ID=$(uv run python -c "
 from pathlib import Path
 from meridian.lib.state import spawn_store
-from meridian.lib.state.paths import resolve_state_paths
+from meridian.lib.state.paths import resolve_runtime_paths
 repo = Path('$SMOKE_REPO')
-sp = resolve_state_paths(repo)
+sp = resolve_runtime_paths(repo)
 sid = spawn_store.start_spawn(sp.root_dir, chat_id='c2', model='gpt', agent='coder', harness='codex', kind='child', prompt='seed2', desc='Phase 2')
 spawn_store.finalize_spawn(sp.root_dir, str(sid), status='succeeded', exit_code=0, origin='runner')
 rp = sp.root_dir / 'spawns' / str(sid) / 'report.md'
@@ -172,9 +172,9 @@ Spawn has no report file. Should render "No report available." gracefully.
 NO_REPORT_ID=$(uv run python -c "
 from pathlib import Path
 from meridian.lib.state import spawn_store
-from meridian.lib.state.paths import resolve_state_paths
+from meridian.lib.state.paths import resolve_runtime_paths
 repo = Path('$SMOKE_REPO')
-sp = resolve_state_paths(repo)
+sp = resolve_runtime_paths(repo)
 sid = spawn_store.start_spawn(sp.root_dir, chat_id='c3', model='gpt', agent='coder', harness='codex', kind='child', prompt='no-report', desc='No report spawn')
 spawn_store.finalize_spawn(sp.root_dir, str(sid), status='succeeded', exit_code=0, origin='runner')
 print(sid)
@@ -216,6 +216,6 @@ test $RC -ne 0 && grep -qi "not found" /tmp/meridian-from-invalid.err && \
 
 ```bash
 rm -rf "$SMOKE_REPO" /tmp/meridian-from-*.json /tmp/meridian-from-*.err
-unset MERIDIAN_PROJECT_DIR MERIDIAN_PROJECT_ROOT SMOKE_REPO
+unset MERIDIAN_PROJECT_DIR MERIDIAN_RUNTIME_DIR SMOKE_REPO
 echo "PASS: cleanup complete"
 ```

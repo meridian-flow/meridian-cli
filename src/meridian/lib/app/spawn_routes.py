@@ -375,7 +375,7 @@ def register_spawn_routes(
         launch_runtime = LaunchRuntime(
             argv_intent=LaunchArgvIntent.SPEC_ONLY,
             unsafe_no_permissions=unsafe_no_permissions,
-            state_root=state_root.as_posix(),
+            runtime_root=state_root.as_posix(),
             project_paths_project_root=project_paths.project_root.as_posix(),
             project_paths_execution_cwd=project_paths.execution_cwd.as_posix(),
         )

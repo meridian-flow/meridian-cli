@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.core.resolved_context import ResolvedContext
 from meridian.lib.core.types import SpawnId
-from meridian.lib.state.paths import resolve_repo_paths, resolve_work_scratch_dir
+from meridian.lib.state.paths import resolve_project_paths, resolve_work_scratch_dir
 
 
 class RuntimeContext(BaseModel):
@@ -16,7 +16,7 @@ class RuntimeContext(BaseModel):
     spawn_id: SpawnId | None = None
     depth: int = 0
     project_root: Path | None = None
-    state_root: Path | None = None
+    runtime_root: Path | None = None
     chat_id: str = ""
     work_id: str | None = None
 
@@ -29,7 +29,7 @@ class RuntimeContext(BaseModel):
             spawn_id=resolved.spawn_id,
             depth=resolved.depth,
             project_root=resolved.project_root,
-            state_root=resolved.state_root,
+            runtime_root=resolved.runtime_root,
             chat_id=resolved.chat_id,
             work_id=resolved.work_id,
         )
@@ -42,20 +42,20 @@ class RuntimeContext(BaseModel):
             overrides["MERIDIAN_SPAWN_ID"] = str(self.spawn_id)
         if self.project_root is not None:
             overrides["MERIDIAN_PROJECT_DIR"] = self.project_root.as_posix()
-        if self.state_root is not None:
-            overrides["MERIDIAN_PROJECT_ROOT"] = self.state_root.as_posix()
+        if self.runtime_root is not None:
+            overrides["MERIDIAN_RUNTIME_DIR"] = self.runtime_root.as_posix()
         if self.chat_id:
             overrides["MERIDIAN_CHAT_ID"] = self.chat_id
         if self.work_id:
             overrides["MERIDIAN_WORK_ID"] = self.work_id
             if self.project_root is not None:
                 overrides["MERIDIAN_WORK_DIR"] = resolve_work_scratch_dir(
-                    resolve_repo_paths(self.project_root).root_dir,
+                    resolve_project_paths(self.project_root).root_dir,
                     self.work_id,
                 ).as_posix()
-            elif self.state_root is not None:
+            elif self.runtime_root is not None:
                 overrides["MERIDIAN_WORK_DIR"] = resolve_work_scratch_dir(
-                    self.state_root,
+                    self.runtime_root,
                     self.work_id,
                 ).as_posix()
         return overrides

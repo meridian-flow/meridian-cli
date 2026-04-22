@@ -103,12 +103,12 @@ def _resolved_context_env_defaults(project_root: Path, state_root: Path) -> Iter
     """Provide repo/state env defaults so `ResolvedContext` can resolve fully."""
 
     original_project_root = os.environ.get("MERIDIAN_PROJECT_DIR")
-    original_state_root = os.environ.get("MERIDIAN_PROJECT_ROOT")
+    original_state_root = os.environ.get("MERIDIAN_RUNTIME_DIR")
 
     if not (original_project_root or "").strip():
         os.environ["MERIDIAN_PROJECT_DIR"] = project_root.as_posix()
     if not (original_state_root or "").strip():
-        os.environ["MERIDIAN_PROJECT_ROOT"] = state_root.as_posix()
+        os.environ["MERIDIAN_RUNTIME_DIR"] = state_root.as_posix()
 
     try:
         yield
@@ -119,9 +119,9 @@ def _resolved_context_env_defaults(project_root: Path, state_root: Path) -> Iter
             os.environ["MERIDIAN_PROJECT_DIR"] = original_project_root
 
         if original_state_root is None:
-            os.environ.pop("MERIDIAN_PROJECT_ROOT", None)
+            os.environ.pop("MERIDIAN_RUNTIME_DIR", None)
         else:
-            os.environ["MERIDIAN_PROJECT_ROOT"] = original_state_root
+            os.environ["MERIDIAN_RUNTIME_DIR"] = original_state_root
 
 
 def _resolve_runtime_context(project_root: Path, state_root: Path) -> ResolvedContext:

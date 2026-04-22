@@ -14,7 +14,7 @@ from meridian.lib.app import server as server_module
 from meridian.lib.core.types import HarnessId, SpawnId
 from meridian.lib.harness.connections.base import ConnectionCapabilities, ConnectionConfig
 from meridian.lib.harness.launch_spec import ResolvedLaunchSpec
-from meridian.lib.state.paths import resolve_state_paths
+from meridian.lib.state.paths import resolve_runtime_paths
 from meridian.lib.state.spawn_store import get_spawn
 from meridian.lib.streaming.spawn_manager import DrainOutcome
 
@@ -107,7 +107,7 @@ def _create_spawn_handler(
     allow_unsafe_no_permissions: bool = False,
 ) -> tuple[Callable[[server_module.SpawnCreateRequest], Any], FakeManager]:
     manager = FakeManager(
-        state_root=resolve_state_paths(tmp_path).root_dir,
+        state_root=resolve_runtime_paths(tmp_path).root_dir,
         project_root=tmp_path,
         completion_ready=completion_ready,
         wait_calls=wait_calls,
@@ -130,7 +130,7 @@ def _create_spawn_handler(
 async def test_app_server_create_spawn_background_finalizer_writes_finalize(
     tmp_path: Path,
 ) -> None:
-    state_root = resolve_state_paths(tmp_path).root_dir
+    state_root = resolve_runtime_paths(tmp_path).root_dir
     completion_ready = asyncio.Event()
     wait_calls: list[SpawnId] = []
     heartbeat_calls: list[SpawnId] = []
@@ -222,7 +222,7 @@ async def test_app_server_start_spawn_failure_tags_launch_failure_origin(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    state_root = resolve_state_paths(tmp_path).root_dir
+    state_root = resolve_runtime_paths(tmp_path).root_dir
 
     async def _raising_start_spawn(
         self: FakeManager,

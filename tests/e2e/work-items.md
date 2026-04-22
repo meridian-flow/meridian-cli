@@ -10,26 +10,26 @@ export SMOKE_REPO="$(mktemp -d /tmp/meridian-work-items.XXXXXX)"
 git -C "$SMOKE_REPO" init --quiet
 for var in $(env | awk -F= '/^MERIDIAN_/ {print $1}'); do unset "$var"; done
 export MERIDIAN_PROJECT_DIR="$SMOKE_REPO"
-export MERIDIAN_PROJECT_ROOT="$SMOKE_REPO/.meridian"
+export MERIDIAN_RUNTIME_DIR="$SMOKE_REPO/.meridian"
 cd "$REPO_ROOT"
 ```
 
 ## 1. Migration From Legacy `work-items/*.json`
 
 ```bash
-mkdir -p "$MERIDIAN_PROJECT_ROOT/work-items"
-echo '{"name":"legacy-item","status":"open","description":"test","created_at":"2026-01-01T00:00:00Z"}' > "$MERIDIAN_PROJECT_ROOT/work-items/legacy-item.json"
-mkdir -p "$MERIDIAN_PROJECT_ROOT/work/legacy-item"
+mkdir -p "$MERIDIAN_RUNTIME_DIR/work-items"
+echo '{"name":"legacy-item","status":"open","description":"test","created_at":"2026-01-01T00:00:00Z"}' > "$MERIDIAN_RUNTIME_DIR/work-items/legacy-item.json"
+mkdir -p "$MERIDIAN_RUNTIME_DIR/work/legacy-item"
 
 uv run meridian work list
 
-ls "$MERIDIAN_PROJECT_ROOT/work/legacy-item/__status.json"
+ls "$MERIDIAN_RUNTIME_DIR/work/legacy-item/__status.json"
 ```
 
 ## 2. Manually Created Work Dir Becomes Visible
 
 ```bash
-mkdir -p "$MERIDIAN_PROJECT_ROOT/work/manual-item"
+mkdir -p "$MERIDIAN_RUNTIME_DIR/work/manual-item"
 uv run meridian work list
 ```
 
@@ -37,10 +37,10 @@ uv run meridian work list
 
 ```bash
 uv run meridian work start crash-test
-touch "$MERIDIAN_PROJECT_ROOT/work/crash-test/notes.md"
+touch "$MERIDIAN_RUNTIME_DIR/work/crash-test/notes.md"
 
-mkdir -p "$MERIDIAN_PROJECT_ROOT/archive/work"
-mv "$MERIDIAN_PROJECT_ROOT/work/crash-test" "$MERIDIAN_PROJECT_ROOT/archive/work/"
+mkdir -p "$MERIDIAN_RUNTIME_DIR/archive/work"
+mv "$MERIDIAN_RUNTIME_DIR/work/crash-test" "$MERIDIAN_RUNTIME_DIR/archive/work/"
 
 uv run meridian work list --done
 ```
@@ -62,7 +62,7 @@ uv run meridian work start empty-item
 uv run meridian work delete empty-item
 
 uv run meridian work start artifact-item
-touch "$MERIDIAN_PROJECT_ROOT/work/artifact-item/notes.md"
+touch "$MERIDIAN_RUNTIME_DIR/work/artifact-item/notes.md"
 uv run meridian work delete artifact-item
 uv run meridian work delete artifact-item --force
 ```

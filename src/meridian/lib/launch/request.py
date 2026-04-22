@@ -131,7 +131,7 @@ class LaunchRuntime(BaseModel):
     debug: bool = False
     harness_command_override: str | None = None
     report_output_path: str | None = None
-    state_root: str
+    runtime_root: str
     project_paths_project_root: str
     project_paths_execution_cwd: str
 

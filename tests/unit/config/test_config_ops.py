@@ -15,7 +15,7 @@ from meridian.lib.ops.config import (
 
 @pytest.fixture(autouse=True)
 def _isolate_config_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.delenv("MERIDIAN_PROJECT_ROOT", raising=False)
+    monkeypatch.delenv("MERIDIAN_RUNTIME_DIR", raising=False)
     monkeypatch.delenv("MERIDIAN_PROJECT_DIR", raising=False)
     monkeypatch.delenv("MERIDIAN_CONFIG", raising=False)
     monkeypatch.delenv("MERIDIAN_DEFAULT_HARNESS", raising=False)

@@ -39,7 +39,7 @@ def _context(work_dir: Path) -> HookContext:
         event_id=uuid4(),
         timestamp="2026-04-20T00:00:00+00:00",
         project_root=str(work_dir),
-        state_root=str(work_dir / ".meridian"),
+        runtime_root=str(work_dir / ".meridian"),
         work_id="w123",
         work_dir=str(work_dir),
     )

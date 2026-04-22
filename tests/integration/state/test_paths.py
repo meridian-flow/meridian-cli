@@ -7,10 +7,10 @@ from meridian.lib.state.paths import (
     RuntimePaths,
     ensure_gitignore,
     load_context_config,
-    resolve_repo_paths,
-    resolve_repo_paths_for_write,
-    resolve_repo_paths_from_context,
-    resolve_state_paths,
+    resolve_project_paths,
+    resolve_project_paths_for_write,
+    resolve_project_paths_from_context,
+    resolve_runtime_paths,
 )
 
 
@@ -41,11 +41,11 @@ def test_ensure_gitignore_drops_legacy_config_exception(tmp_path: Path) -> None:
     assert "!archive/" in updated
 
 
-def test_resolve_state_paths_does_not_expose_project_config_path(tmp_path: Path) -> None:
+def test_resolve_runtime_paths_does_not_expose_project_config_path(tmp_path: Path) -> None:
     project_root = tmp_path / "repo"
     project_root.mkdir()
 
-    paths = resolve_state_paths(project_root)
+    paths = resolve_runtime_paths(project_root)
 
     assert not hasattr(paths, "config_path")
 
@@ -133,7 +133,7 @@ def test_resolve_project_paths_from_context_uses_custom_paths(tmp_path: Path) ->
         }
     )
 
-    paths = resolve_repo_paths_from_context(project_root, context_config=config)
+    paths = resolve_project_paths_from_context(project_root, context_config=config)
 
     assert paths.root_dir == project_root / ".meridian"
     assert paths.id_file == project_root / ".meridian" / "id"
@@ -157,7 +157,7 @@ def test_resolve_project_paths_from_context_falls_back_when_project_placeholder_
         }
     )
 
-    paths = resolve_repo_paths_from_context(project_root, context_config=config)
+    paths = resolve_project_paths_from_context(project_root, context_config=config)
 
     assert paths.root_dir == project_root / ".meridian"
     assert paths.work_dir == project_root / ".meridian" / "work"
@@ -186,7 +186,7 @@ def test_resolve_project_paths_for_write_initializes_project_placeholder_paths(
         encoding="utf-8",
     )
 
-    paths = resolve_repo_paths_for_write(project_root)
+    paths = resolve_project_paths_for_write(project_root)
     project_uuid = (project_root / ".meridian" / "id").read_text(encoding="utf-8").strip()
 
     assert project_uuid
@@ -243,7 +243,7 @@ def test_resolve_project_paths_merges_context_config_precedence(
         encoding="utf-8",
     )
 
-    paths = resolve_repo_paths(project_root)
+    paths = resolve_project_paths(project_root)
 
     assert paths.work_dir == project_root / "local/work"
     assert paths.work_archive_dir == project_root / "project/archive/work"
@@ -291,7 +291,7 @@ def test_load_context_config_uses_meridian_config_env_override(
     monkeypatch.setenv("MERIDIAN_CONFIG", env_user_config.as_posix())
 
     context_config = load_context_config(project_root)
-    resolved_paths = resolve_repo_paths(project_root)
+    resolved_paths = resolve_project_paths(project_root)
 
     assert context_config is not None
     assert context_config.work.path == "env/work"

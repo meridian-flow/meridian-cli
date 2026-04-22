@@ -90,7 +90,7 @@ def test_spawn_lifecycle_dispatches_spawn_hooks_with_expected_context(
     assert created["spawn"]["model"] == "gpt-5.4"
     assert created["work"]["id"] == "hook-work"
     assert created["project_root"] == project_root.resolve().as_posix()
-    assert created["state_root"] == state_root.resolve().as_posix()
+    assert created["runtime_root"] == state_root.resolve().as_posix()
 
     finalized = by_event["spawn.finalized"]
     assert finalized["spawn"]["id"] == spawn_id

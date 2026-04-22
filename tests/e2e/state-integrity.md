@@ -10,7 +10,7 @@ export SMOKE_REPO="$(mktemp -d /tmp/meridian-state.XXXXXX)"
 git -C "$SMOKE_REPO" init --quiet
 for var in $(env | awk -F= '/^MERIDIAN_/ {print $1}'); do unset "$var"; done
 export MERIDIAN_PROJECT_DIR="$SMOKE_REPO"
-export MERIDIAN_PROJECT_ROOT="$SMOKE_REPO/.meridian"
+export MERIDIAN_RUNTIME_DIR="$SMOKE_REPO/.meridian"
 cd "$REPO_ROOT"
 uv run meridian --help >/dev/null && echo "PASS: base state fixture created" || echo "FAIL: state fixture setup failed"
 ```
@@ -18,9 +18,9 @@ uv run meridian --help >/dev/null && echo "PASS: base state fixture created" || 
 ### STATE-1. Core `.meridian/` structure exists [CRITICAL]
 
 ```bash
-test -d "$MERIDIAN_PROJECT_ROOT/fs" && \
-test -d "$MERIDIAN_PROJECT_ROOT/spawns" && \
-test -f "$MERIDIAN_PROJECT_ROOT/.gitignore" && \
+test -d "$MERIDIAN_RUNTIME_DIR/fs" && \
+test -d "$MERIDIAN_RUNTIME_DIR/spawns" && \
+test -f "$MERIDIAN_RUNTIME_DIR/.gitignore" && \
 echo "PASS: core state directories exist" || echo "FAIL: core state directories are incomplete"
 ```
 
@@ -29,7 +29,7 @@ echo "PASS: core state directories exist" || echo "FAIL: core state directories 
 ```bash
 uv run python - <<'PY'
 import json, os, sys
-path = os.path.join(os.environ["MERIDIAN_PROJECT_ROOT"], "spawns.jsonl")
+path = os.path.join(os.environ["MERIDIAN_RUNTIME_DIR"], "spawns.jsonl")
 if not os.path.exists(path):
     print("PASS: no spawns.jsonl yet; run lifecycle smoke to populate it")
 else:
@@ -49,7 +49,7 @@ PY
 ```bash
 uv run python - <<'PY'
 import json, os
-path = os.path.join(os.environ["MERIDIAN_PROJECT_ROOT"], "sessions.jsonl")
+path = os.path.join(os.environ["MERIDIAN_RUNTIME_DIR"], "sessions.jsonl")
 if not os.path.exists(path):
     print("PASS: sessions.jsonl has not been created yet")
 else:
@@ -66,7 +66,7 @@ PY
 ```bash
 uv run python - <<'PY'
 import fcntl, glob, os
-root = os.environ["MERIDIAN_PROJECT_ROOT"]
+root = os.environ["MERIDIAN_RUNTIME_DIR"]
 locks = glob.glob(os.path.join(root, "*.lock"))
 if not locks:
     print("PASS: no lock files are present")
@@ -82,7 +82,7 @@ PY
 ### STATE-5. No stale flock sidecars remain after setup [NICE-TO-HAVE]
 
 ```bash
-if find "$MERIDIAN_PROJECT_ROOT" -name '*.flock' -print | grep -q .; then
+if find "$MERIDIAN_RUNTIME_DIR" -name '*.flock' -print | grep -q .; then
   echo "FAIL: stale .flock files remain"
 else
   echo "PASS: no stale .flock sidecars remain"
@@ -95,7 +95,7 @@ fi
 uv run python - <<'PY'
 import json, os, pathlib, subprocess, time
 
-root = pathlib.Path(os.environ["MERIDIAN_PROJECT_ROOT"])
+root = pathlib.Path(os.environ["MERIDIAN_RUNTIME_DIR"])
 spawns_jsonl = root / "spawns.jsonl"
 spawn_id = "p-orphan-heartbeat-smoke"
 
@@ -157,7 +157,7 @@ uv run python - <<'PY'
 import json, os, pathlib, subprocess, uuid
 from meridian.lib.state.spawn_store import start_spawn
 
-root = pathlib.Path(os.environ["MERIDIAN_PROJECT_ROOT"])
+root = pathlib.Path(os.environ["MERIDIAN_RUNTIME_DIR"])
 spawn_id = f"p-origin-cancel-{uuid.uuid4().hex[:8]}"
 start_spawn(
     root,
@@ -202,7 +202,7 @@ PY
 uv run python - <<'PY'
 import json, os, pathlib
 
-root = pathlib.Path(os.environ["MERIDIAN_PROJECT_ROOT"])
+root = pathlib.Path(os.environ["MERIDIAN_RUNTIME_DIR"])
 spawns_jsonl = root / "spawns.jsonl"
 if not spawns_jsonl.exists():
     raise AssertionError("spawns.jsonl missing")
@@ -233,7 +233,7 @@ PY
 uv run python - <<'PY'
 import json, os, pathlib, subprocess, time
 
-root = pathlib.Path(os.environ["MERIDIAN_PROJECT_ROOT"])
+root = pathlib.Path(os.environ["MERIDIAN_RUNTIME_DIR"])
 spawns_jsonl = root / "spawns.jsonl"
 spawn_id = "p-orphan-finalizing-stale-smoke"
 
@@ -294,7 +294,7 @@ PY
 uv run python - <<'PY'
 import json, os, pathlib, subprocess, time
 
-root = pathlib.Path(os.environ["MERIDIAN_PROJECT_ROOT"])
+root = pathlib.Path(os.environ["MERIDIAN_RUNTIME_DIR"])
 spawns_jsonl = root / "spawns.jsonl"
 spawn_id = "p-orphan-finalizing-fresh-smoke"
 

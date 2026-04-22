@@ -14,7 +14,7 @@ import pytest
 from meridian.lib.core.types import SpawnId
 from meridian.lib.platform import IS_WINDOWS
 from meridian.lib.state import spawn_store
-from meridian.lib.state.paths import resolve_state_paths
+from meridian.lib.state.paths import resolve_runtime_paths
 from meridian.lib.state.spawn_store import LaunchMode
 from meridian.lib.streaming.signal_canceller import SignalCanceller
 
@@ -45,7 +45,7 @@ def _start_spawn(
 async def test_signal_canceller_returns_idempotent_outcome_for_terminal_spawn(
     tmp_path: Path,
 ) -> None:
-    state_root = resolve_state_paths(tmp_path).root_dir
+    state_root = resolve_runtime_paths(tmp_path).root_dir
     spawn_id = _start_spawn(state_root, spawn_id="p1", launch_mode="foreground")
     spawn_store.finalize_spawn(
         state_root,
@@ -69,7 +69,7 @@ async def test_signal_canceller_finalizing_gate_skips_sigterm(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    state_root = resolve_state_paths(tmp_path).root_dir
+    state_root = resolve_runtime_paths(tmp_path).root_dir
     spawn_id = _start_spawn(state_root, spawn_id="p1", launch_mode="foreground", runner_pid=4321)
     assert spawn_store.mark_finalizing(state_root, spawn_id) is True
 
@@ -90,7 +90,7 @@ async def test_signal_canceller_cli_lane_sends_sigterm_and_returns_terminal_row(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    state_root = resolve_state_paths(tmp_path).root_dir
+    state_root = resolve_runtime_paths(tmp_path).root_dir
     spawn_id = _start_spawn(state_root, spawn_id="p1", launch_mode="foreground", runner_pid=7654)
 
     monkeypatch.setattr(
@@ -124,7 +124,7 @@ async def test_signal_canceller_cli_lane_sends_sigterm_and_returns_terminal_row(
 async def test_signal_canceller_app_lane_uses_manager_stop_spawn(
     tmp_path: Path,
 ) -> None:
-    state_root = resolve_state_paths(tmp_path).root_dir
+    state_root = resolve_runtime_paths(tmp_path).root_dir
     spawn_id = _start_spawn(state_root, spawn_id="p1", launch_mode="app", runner_pid=3456)
     calls: list[tuple[str, str, int, str | None]] = []
 
@@ -162,7 +162,7 @@ async def test_signal_canceller_cli_lane_finalizes_when_runner_pid_missing(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    state_root = resolve_state_paths(tmp_path).root_dir
+    state_root = resolve_runtime_paths(tmp_path).root_dir
     spawn_id = _start_spawn(state_root, spawn_id="p1", launch_mode="foreground", runner_pid=None)
 
     monkeypatch.setattr(
@@ -229,7 +229,7 @@ async def _start_http_socket_server(
 async def test_signal_canceller_app_lane_cross_process_http_success(
     tmp_path: Path,
 ) -> None:
-    state_root = resolve_state_paths(tmp_path).root_dir
+    state_root = resolve_runtime_paths(tmp_path).root_dir
     spawn_id = _start_spawn(state_root, spawn_id="p1", launch_mode="app")
     socket_path = state_root / "app.sock"
 
@@ -265,7 +265,7 @@ async def test_signal_canceller_app_lane_cross_process_http_success(
 async def test_signal_canceller_app_lane_cross_process_http_409_maps_already_terminal(
     tmp_path: Path,
 ) -> None:
-    state_root = resolve_state_paths(tmp_path).root_dir
+    state_root = resolve_runtime_paths(tmp_path).root_dir
     spawn_id = _start_spawn(state_root, spawn_id="p1", launch_mode="app")
     socket_path = state_root / "app.sock"
 
@@ -290,7 +290,7 @@ async def test_signal_canceller_app_lane_cross_process_http_409_maps_already_ter
 async def test_signal_canceller_app_lane_cross_process_http_503_maps_finalizing(
     tmp_path: Path,
 ) -> None:
-    state_root = resolve_state_paths(tmp_path).root_dir
+    state_root = resolve_runtime_paths(tmp_path).root_dir
     spawn_id = _start_spawn(state_root, spawn_id="p1", launch_mode="app")
     socket_path = state_root / "app.sock"
 

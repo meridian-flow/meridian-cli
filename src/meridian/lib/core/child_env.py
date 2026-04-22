@@ -15,7 +15,7 @@ ALLOWED_CHILD_ENV_KEYS: frozenset[str] = frozenset(
     {
         "MERIDIAN_SPAWN_ID",
         "MERIDIAN_PROJECT_DIR",
-        "MERIDIAN_PROJECT_ROOT",
+        "MERIDIAN_RUNTIME_DIR",
         "MERIDIAN_DEPTH",
         "MERIDIAN_CHAT_ID",
         "MERIDIAN_WORK_ID",
@@ -41,7 +41,7 @@ def build_child_env_overrides(
     *,
     parent_spawn_id: str | None,
     project_root: Path | None,
-    state_root: Path | None,
+    runtime_root: Path | None,
     parent_chat_id: str | None,
     parent_depth: int,
     work_id: str | None = None,
@@ -61,8 +61,8 @@ def build_child_env_overrides(
         Parent spawn ID string, or ``None`` to omit ``MERIDIAN_SPAWN_ID``.
     project_root:
         Repo root path, or ``None`` to omit ``MERIDIAN_PROJECT_DIR``.
-    state_root:
-        State root path, or ``None`` to omit ``MERIDIAN_PROJECT_ROOT``.
+    runtime_root:
+        Runtime root path, or ``None`` to omit ``MERIDIAN_RUNTIME_DIR``.
     parent_chat_id:
         Parent chat ID string, or ``None``/empty to omit ``MERIDIAN_CHAT_ID``.
     parent_depth:
@@ -96,7 +96,7 @@ def build_child_env_overrides(
         spawn_id=SpawnId(parent_spawn_id) if parent_spawn_id else None,
         depth=parent_depth,
         project_root=project_root,
-        state_root=state_root,
+        runtime_root=runtime_root,
         chat_id=parent_chat_id or "",
         work_id=work_id,
         work_dir=work_dir,

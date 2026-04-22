@@ -116,7 +116,7 @@ Spawned harness processes inherit Meridian runtime context such as:
 - `MERIDIAN_PARENT_SPAWN_ID`
 - `MERIDIAN_DEPTH`
 - `MERIDIAN_PROJECT_DIR`
-- `MERIDIAN_PROJECT_ROOT`
+- `MERIDIAN_RUNTIME_DIR`
 
 Trusted harness launches broadly inherit the parent environment in addition to
 that Meridian context. Meridian does not provide a general secret-isolation

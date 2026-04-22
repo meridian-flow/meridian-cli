@@ -66,7 +66,7 @@ def test_build_produces_depth_always() -> None:
     result = build_child_env_overrides(
         parent_spawn_id=None,
         project_root=None,
-        state_root=None,
+        runtime_root=None,
         parent_chat_id=None,
         parent_depth=0,
     )
@@ -78,7 +78,7 @@ def test_build_increments_depth_by_default() -> None:
     result = build_child_env_overrides(
         parent_spawn_id=None,
         project_root=None,
-        state_root=None,
+        runtime_root=None,
         parent_chat_id=None,
         parent_depth=3,
     )
@@ -90,7 +90,7 @@ def test_build_no_increment_keeps_depth() -> None:
     result = build_child_env_overrides(
         parent_spawn_id=None,
         project_root=None,
-        state_root=None,
+        runtime_root=None,
         parent_chat_id=None,
         parent_depth=2,
         increment_depth=False,
@@ -103,7 +103,7 @@ def test_build_omits_none_fields() -> None:
     result = build_child_env_overrides(
         parent_spawn_id=None,
         project_root=None,
-        state_root=None,
+        runtime_root=None,
         parent_chat_id=None,
         parent_depth=0,
         work_id=None,
@@ -111,7 +111,7 @@ def test_build_omits_none_fields() -> None:
         kb_dir=None,
     )
     assert "MERIDIAN_PROJECT_DIR" not in result
-    assert "MERIDIAN_PROJECT_ROOT" not in result
+    assert "MERIDIAN_RUNTIME_DIR" not in result
     assert "MERIDIAN_CHAT_ID" not in result
     assert "MERIDIAN_WORK_ID" not in result
     assert "MERIDIAN_WORK_DIR" not in result
@@ -129,7 +129,7 @@ def test_build_full_overrides() -> None:
     result = build_child_env_overrides(
         parent_spawn_id=None,
         project_root=repo,
-        state_root=state,
+        runtime_root=state,
         parent_chat_id="c99",
         parent_depth=1,
         work_id="w1",
@@ -140,7 +140,7 @@ def test_build_full_overrides() -> None:
     assert result == {
         "MERIDIAN_DEPTH": "2",
         "MERIDIAN_PROJECT_DIR": "/repo",
-        "MERIDIAN_PROJECT_ROOT": "/runtime/state",
+        "MERIDIAN_RUNTIME_DIR": "/runtime/state",
         "MERIDIAN_CHAT_ID": "c99",
         "MERIDIAN_WORK_ID": "w1",
         "MERIDIAN_WORK_DIR": "/repo/.meridian/work/w1",
@@ -154,7 +154,7 @@ def test_build_result_keys_are_subset_of_allowed() -> None:
     result = build_child_env_overrides(
         parent_spawn_id=None,
         project_root=Path("/r"),
-        state_root=Path("/s"),
+        runtime_root=Path("/s"),
         parent_chat_id="c1",
         parent_depth=0,
         work_id="wid",
@@ -181,7 +181,7 @@ def test_integration_matches_resolved_context_child_env_overrides() -> None:
     ctx = ResolvedContext(
         depth=2,
         project_root=repo,
-        state_root=state,
+        runtime_root=state,
         chat_id="c7",
         work_id="w42",
         work_dir=work_dir,
@@ -192,7 +192,7 @@ def test_integration_matches_resolved_context_child_env_overrides() -> None:
     result = build_child_env_overrides(
         parent_spawn_id=None,
         project_root=repo,
-        state_root=state,
+        runtime_root=state,
         parent_chat_id="c7",
         parent_depth=2,
         work_id="w42",
@@ -208,7 +208,7 @@ def test_integration_increment_depth_false_matches_resolved_context() -> None:
     ctx = ResolvedContext(
         depth=5,
         project_root=Path("/r"),
-        state_root=Path("/s"),
+        runtime_root=Path("/s"),
         chat_id="c5",
     )
     expected = ctx.child_env_overrides(increment_depth=False)
@@ -216,7 +216,7 @@ def test_integration_increment_depth_false_matches_resolved_context() -> None:
     result = build_child_env_overrides(
         parent_spawn_id=None,
         project_root=Path("/r"),
-        state_root=Path("/s"),
+        runtime_root=Path("/s"),
         parent_chat_id="c5",
         parent_depth=5,
         increment_depth=False,
@@ -235,7 +235,7 @@ def test_build_no_increment_at_depth_zero_stays_zero() -> None:
     result = build_child_env_overrides(
         parent_spawn_id=None,
         project_root=None,
-        state_root=None,
+        runtime_root=None,
         parent_chat_id=None,
         parent_depth=0,
         increment_depth=False,
@@ -248,7 +248,7 @@ def test_build_no_increment_preserves_large_depth() -> None:
     result = build_child_env_overrides(
         parent_spawn_id=None,
         project_root=None,
-        state_root=None,
+        runtime_root=None,
         parent_chat_id=None,
         parent_depth=99,
         increment_depth=False,
@@ -294,7 +294,7 @@ def test_build_empty_string_chat_id_is_omitted() -> None:
     result = build_child_env_overrides(
         parent_spawn_id=None,
         project_root=None,
-        state_root=None,
+        runtime_root=None,
         parent_chat_id="",
         parent_depth=1,
     )
@@ -306,7 +306,7 @@ def test_build_none_chat_id_is_omitted() -> None:
     result = build_child_env_overrides(
         parent_spawn_id=None,
         project_root=None,
-        state_root=None,
+        runtime_root=None,
         parent_chat_id=None,
         parent_depth=1,
     )
@@ -324,7 +324,7 @@ def test_build_depth_is_always_numeric_string() -> None:
         result = build_child_env_overrides(
             parent_spawn_id=None,
             project_root=None,
-            state_root=None,
+            runtime_root=None,
             parent_chat_id=None,
             parent_depth=depth,
         )

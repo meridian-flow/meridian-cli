@@ -89,7 +89,7 @@ async def streaming_serve(
     )
     launch_runtime = LaunchRuntime(
         argv_intent=LaunchArgvIntent.SPEC_ONLY,
-        state_root=state_root.as_posix(),
+        runtime_root=state_root.as_posix(),
         project_paths_project_root=project_root.as_posix(),
         project_paths_execution_cwd=project_root.as_posix(),
     )

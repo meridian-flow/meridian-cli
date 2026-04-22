@@ -19,11 +19,11 @@ from meridian.lib.state import session_store
 class ContextBackend(Protocol):
     """Backend interface for the authoritative context resolution workflow."""
 
-    def get_session_active_work_id(self, state_root: Path, chat_id: str) -> str | None:
+    def get_session_active_work_id(self, runtime_root: Path, chat_id: str) -> str | None:
         """Look up the active work ID for a session."""
         ...
 
-    def resolve_work_scratch_dir(self, state_root: Path, work_id: str) -> Path:
+    def resolve_work_scratch_dir(self, runtime_root: Path, work_id: str) -> Path:
         """Resolve the scratch directory for a work item."""
         ...
 
@@ -31,11 +31,11 @@ class ContextBackend(Protocol):
 class LocalFilesystemBackend:
     """Default context backend backed by local state modules."""
 
-    def get_session_active_work_id(self, state_root: Path, chat_id: str) -> str | None:
-        return session_store.get_session_active_work_id(state_root, chat_id)
+    def get_session_active_work_id(self, runtime_root: Path, chat_id: str) -> str | None:
+        return session_store.get_session_active_work_id(runtime_root, chat_id)
 
-    def resolve_work_scratch_dir(self, state_root: Path, work_id: str) -> Path:
-        return state_paths.resolve_work_scratch_dir(state_root, work_id)
+    def resolve_work_scratch_dir(self, runtime_root: Path, work_id: str) -> Path:
+        return state_paths.resolve_work_scratch_dir(runtime_root, work_id)
 
 
 @dataclass(frozen=True)
@@ -45,7 +45,7 @@ class ResolvedContext:
     spawn_id: SpawnId | None = None
     depth: int = 0
     project_root: Path | None = None
-    state_root: Path | None = None
+    runtime_root: Path | None = None
     chat_id: str = ""
     work_id: str | None = None
     work_dir: Path | None = None
@@ -69,7 +69,7 @@ class ResolvedContext:
         spawn_id_raw = os.getenv("MERIDIAN_SPAWN_ID", "").strip()
         depth_raw = os.getenv("MERIDIAN_DEPTH", "0").strip()
         project_root_raw = os.getenv("MERIDIAN_PROJECT_DIR", "").strip()
-        state_root_raw = os.getenv("MERIDIAN_PROJECT_ROOT", "").strip()
+        runtime_root_raw = os.getenv("MERIDIAN_RUNTIME_DIR", "").strip()
         chat_id_raw = os.getenv("MERIDIAN_CHAT_ID", "").strip()
         work_id_raw = os.getenv("MERIDIAN_WORK_ID", "").strip()
         explicit_work_id_raw = (explicit_work_id or "").strip()
@@ -79,7 +79,7 @@ class ResolvedContext:
             depth = max(0, int(depth_raw))
 
         project_root = Path(project_root_raw) if project_root_raw else None
-        state_root = Path(state_root_raw) if state_root_raw else None
+        runtime_root = Path(runtime_root_raw) if runtime_root_raw else None
 
         # Authoritative work-ID precedence:
         # explicit override > MERIDIAN_WORK_ID > session active work lookup.
@@ -88,11 +88,11 @@ class ResolvedContext:
             work_id = explicit_work_id_raw
         elif work_id_raw:
             work_id = work_id_raw
-        elif state_root is not None and chat_id_raw:
-            work_id = backend_impl.get_session_active_work_id(state_root, chat_id_raw)
+        elif runtime_root is not None and chat_id_raw:
+            work_id = backend_impl.get_session_active_work_id(runtime_root, chat_id_raw)
 
         project_paths = (
-            state_paths.resolve_repo_paths_from_context(
+            state_paths.resolve_project_paths_from_context(
                 project_root,
                 context_config=context_config,
             )
@@ -105,8 +105,8 @@ class ResolvedContext:
             # Repo-scoped state paths take precedence when project_root is known.
             if project_paths is not None:
                 work_dir = project_paths.work_dir / work_id
-            elif state_root is not None:
-                work_dir = backend_impl.resolve_work_scratch_dir(state_root, work_id)
+            elif runtime_root is not None:
+                work_dir = backend_impl.resolve_work_scratch_dir(runtime_root, work_id)
 
         kb_dir = project_paths.kb_dir if project_paths is not None else None
 
@@ -125,7 +125,7 @@ class ResolvedContext:
             spawn_id=SpawnId(spawn_id_raw) if spawn_id_raw else None,
             depth=depth,
             project_root=project_root,
-            state_root=state_root,
+            runtime_root=runtime_root,
             chat_id=chat_id_raw,
             work_id=work_id,
             work_dir=work_dir,
@@ -142,8 +142,8 @@ class ResolvedContext:
             overrides["MERIDIAN_SPAWN_ID"] = str(self.spawn_id)
         if self.project_root is not None:
             overrides["MERIDIAN_PROJECT_DIR"] = self.project_root.as_posix()
-        if self.state_root is not None:
-            overrides["MERIDIAN_PROJECT_ROOT"] = self.state_root.as_posix()
+        if self.runtime_root is not None:
+            overrides["MERIDIAN_RUNTIME_DIR"] = self.runtime_root.as_posix()
         if self.chat_id:
             overrides["MERIDIAN_CHAT_ID"] = self.chat_id
         if self.work_id:

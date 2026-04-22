@@ -89,7 +89,7 @@ def test_run_harness_process_fork_uses_new_chat_and_materialized_session(
             argv_intent=LaunchArgvIntent.REQUIRED,
             composition_surface=LaunchCompositionSurface.PRIMARY,
             config_snapshot=config.model_dump(mode="json", exclude_none=True),
-            state_root=(tmp_path / ".meridian").as_posix(),
+            runtime_root=(tmp_path / ".meridian").as_posix(),
             project_paths_project_root=project_root.as_posix(),
             project_paths_execution_cwd=project_root.as_posix(),
         ),
@@ -164,7 +164,7 @@ def test_run_harness_process_fork_uses_new_chat_and_materialized_session(
     assert outcome.chat_id == "c999"
     events = [
         json.loads(line)
-        for line in (launch_context.state_root / "spawns.jsonl")
+        for line in (launch_context.runtime_root / "spawns.jsonl")
         .read_text(encoding="utf-8")
         .splitlines()
         if line.strip()
@@ -196,7 +196,7 @@ def test_run_harness_process_writes_prompt_file_before_primary_launch(
             argv_intent=LaunchArgvIntent.REQUIRED,
             composition_surface=LaunchCompositionSurface.PRIMARY,
             config_snapshot=config.model_dump(mode="json", exclude_none=True),
-            state_root=(tmp_path / ".meridian").as_posix(),
+            runtime_root=(tmp_path / ".meridian").as_posix(),
             project_paths_project_root=project_root.as_posix(),
             project_paths_execution_cwd=project_root.as_posix(),
         ),
@@ -312,7 +312,7 @@ def test_run_harness_process_writes_inline_primary_projection_manifest(
                 argv_intent=LaunchArgvIntent.REQUIRED,
                 composition_surface=LaunchCompositionSurface.PRIMARY,
                 config_snapshot=config.model_dump(mode="json", exclude_none=True),
-                state_root=(project_root / ".meridian").as_posix(),
+                runtime_root=(project_root / ".meridian").as_posix(),
                 project_paths_project_root=project_root.as_posix(),
                 project_paths_execution_cwd=project_root.as_posix(),
             ),

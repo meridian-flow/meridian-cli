@@ -121,7 +121,7 @@ def run_harness_process(
 
     project_root = launch_context.project_root
     execution_cwd = launch_context.execution_cwd
-    state_root = launch_context.state_root
+    state_root = launch_context.runtime_root
     preview_context = launch_context
     command = preview_context.argv
     spawn_request = preview_context.request

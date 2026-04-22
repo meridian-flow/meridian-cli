@@ -8,7 +8,7 @@ from meridian.lib.state.paths import resolve_spawn_log_dir
 
 @pytest.fixture(autouse=True)
 def _clear_state_root_override(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("MERIDIAN_PROJECT_ROOT", raising=False)
+    monkeypatch.delenv("MERIDIAN_RUNTIME_DIR", raising=False)
 
 
 def test_resolve_state_root_honors_state_root_override(
@@ -19,7 +19,7 @@ def test_resolve_state_root_honors_state_root_override(
     override_root = tmp_path / "override-state" / ".meridian"
     project_root.mkdir()
     override_root.parent.mkdir(parents=True)
-    monkeypatch.setenv("MERIDIAN_PROJECT_ROOT", override_root.as_posix())
+    monkeypatch.setenv("MERIDIAN_RUNTIME_DIR", override_root.as_posix())
 
     assert resolve_runtime_root(project_root) == override_root
 
@@ -32,7 +32,7 @@ def test_spawn_bookkeeping_and_artifact_paths_share_override_root(
     override_root = tmp_path / "override-state" / ".meridian"
     project_root.mkdir()
     override_root.parent.mkdir(parents=True)
-    monkeypatch.setenv("MERIDIAN_PROJECT_ROOT", override_root.as_posix())
+    monkeypatch.setenv("MERIDIAN_RUNTIME_DIR", override_root.as_posix())
 
     state_root = resolve_runtime_root(project_root)
     log_dir = resolve_spawn_log_dir(project_root, "p1")

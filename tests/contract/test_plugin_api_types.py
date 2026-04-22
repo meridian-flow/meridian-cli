@@ -38,7 +38,7 @@ def test_hook_context_to_env_and_json() -> None:
         event_id=event_id,
         timestamp="2026-04-20T12:00:00+00:00",
         project_root="/repo",
-        state_root="/repo/.meridian",
+        runtime_root="/repo/.meridian",
         spawn_id="p123",
         spawn_status="success",
         spawn_agent="coder",

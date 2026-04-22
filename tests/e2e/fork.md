@@ -10,7 +10,7 @@ export SMOKE_REPO="$(mktemp -d /tmp/meridian-fork.XXXXXX)"
 git -C "$SMOKE_REPO" init --quiet
 for var in $(env | awk -F= '/^MERIDIAN_/ {print $1}'); do unset "$var"; done
 export MERIDIAN_PROJECT_DIR="$SMOKE_REPO"
-export MERIDIAN_PROJECT_ROOT="$SMOKE_REPO/.meridian"
+export MERIDIAN_RUNTIME_DIR="$SMOKE_REPO/.meridian"
 mkdir -p "$SMOKE_REPO/.agents/agents"
 cat > "$SMOKE_REPO/.agents/agents/reviewer.md" <<'EOF'
 # Reviewer
@@ -38,13 +38,13 @@ import json
 import os
 from pathlib import Path
 from meridian.lib.state import spawn_store
-from meridian.lib.state.paths import resolve_state_paths
+from meridian.lib.state.paths import resolve_runtime_paths
 
 doc = json.loads(Path("/tmp/meridian-fork-source-create.json").read_text(encoding="utf-8"))
 source_spawn_id = doc.get("spawn_id")
 assert source_spawn_id
 project_root = Path(os.environ["MERIDIAN_PROJECT_DIR"])
-state_root = resolve_state_paths(project_root).root_dir
+state_root = resolve_runtime_paths(project_root).root_dir
 row = spawn_store.get_spawn(state_root, source_spawn_id)
 assert row is not None
 assert row.chat_id
@@ -93,14 +93,14 @@ import json
 import os
 from pathlib import Path
 from meridian.lib.state import spawn_store
-from meridian.lib.state.paths import resolve_state_paths
+from meridian.lib.state.paths import resolve_runtime_paths
 
 meta = json.loads(Path("/tmp/meridian-fork-source-meta.json").read_text(encoding="utf-8"))
 doc = json.loads(Path("/tmp/meridian-fork-1.json").read_text(encoding="utf-8"))
 new_spawn_id = doc.get("spawn_id")
 assert new_spawn_id and new_spawn_id != meta["source_spawn_id"]
 assert doc.get("forked_from") == meta["source_chat_id"]
-state_root = resolve_state_paths(Path(os.environ["MERIDIAN_PROJECT_DIR"])).root_dir
+state_root = resolve_runtime_paths(Path(os.environ["MERIDIAN_PROJECT_DIR"])).root_dir
 source_row = spawn_store.get_spawn(state_root, meta["source_spawn_id"])
 new_row = spawn_store.get_spawn(state_root, new_spawn_id)
 assert source_row is not None and new_row is not None
@@ -273,12 +273,12 @@ import json
 import os
 from pathlib import Path
 from meridian.lib.state import spawn_store
-from meridian.lib.state.paths import resolve_state_paths
+from meridian.lib.state.paths import resolve_runtime_paths
 
 doc = json.loads(Path("/tmp/meridian-fork-9.json").read_text(encoding="utf-8"))
 spawn_id = doc.get("spawn_id")
 assert spawn_id
-state_root = resolve_state_paths(Path(os.environ["MERIDIAN_PROJECT_DIR"])).root_dir
+state_root = resolve_runtime_paths(Path(os.environ["MERIDIAN_PROJECT_DIR"])).root_dir
 row = spawn_store.get_spawn(state_root, spawn_id)
 assert row is not None
 assert row.work_id == "fork-smoke-alt-work"
@@ -320,14 +320,14 @@ import json
 import os
 from pathlib import Path
 from meridian.lib.state import spawn_store
-from meridian.lib.state.paths import resolve_state_paths
+from meridian.lib.state.paths import resolve_runtime_paths
 
 harness = os.environ["HARNESS"]
 seed_spawn_id = os.environ["SEED_SPAWN_ID"]
 fork_doc = json.loads(Path(f"/tmp/meridian-fork-10-{harness}-fork.json").read_text(encoding="utf-8"))
 fork_spawn_id = fork_doc.get("spawn_id")
 assert fork_spawn_id
-state_root = resolve_state_paths(Path(os.environ["MERIDIAN_PROJECT_DIR"])).root_dir
+state_root = resolve_runtime_paths(Path(os.environ["MERIDIAN_PROJECT_DIR"])).root_dir
 seed_row = spawn_store.get_spawn(state_root, seed_spawn_id)
 fork_row = spawn_store.get_spawn(state_root, fork_spawn_id)
 assert seed_row is not None and fork_row is not None
@@ -353,11 +353,11 @@ import json
 import os
 from pathlib import Path
 from meridian.lib.state import spawn_store
-from meridian.lib.state.paths import resolve_state_paths
+from meridian.lib.state.paths import resolve_runtime_paths
 
 meta = json.loads(Path("/tmp/meridian-fork-source-meta.json").read_text(encoding="utf-8"))
 before = json.loads(Path("/tmp/meridian-fork-source-row-before.json").read_text(encoding="utf-8"))
-state_root = resolve_state_paths(Path(os.environ["MERIDIAN_PROJECT_DIR"])).root_dir
+state_root = resolve_runtime_paths(Path(os.environ["MERIDIAN_PROJECT_DIR"])).root_dir
 row = spawn_store.get_spawn(state_root, meta["source_spawn_id"])
 assert row is not None
 after = {
@@ -471,9 +471,9 @@ import os
 import time
 from pathlib import Path
 from meridian.lib.state import spawn_store
-from meridian.lib.state.paths import resolve_state_paths
+from meridian.lib.state.paths import resolve_runtime_paths
 
-state_root = resolve_state_paths(Path(os.environ["MERIDIAN_PROJECT_DIR"])).root_dir
+state_root = resolve_runtime_paths(Path(os.environ["MERIDIAN_PROJECT_DIR"])).root_dir
 spawn_id = f"p{int(time.time())}"
 spawn_store.start_spawn(
     state_root,
@@ -540,14 +540,14 @@ import json
 import os
 from pathlib import Path
 from meridian.lib.state import session_store, spawn_store
-from meridian.lib.state.paths import resolve_state_paths
+from meridian.lib.state.paths import resolve_runtime_paths
 
 source_harness_id = json.loads(Path("/tmp/meridian-fork-source-meta.json").read_text(encoding="utf-8"))["source_harness_session_id"]
 doc = json.loads(Path("/tmp/meridian-fork-18.json").read_text(encoding="utf-8"))
 fork_spawn_id = doc.get("spawn_id")
 assert fork_spawn_id
 assert doc.get("forked_from") == source_harness_id
-state_root = resolve_state_paths(Path(os.environ["MERIDIAN_PROJECT_DIR"])).root_dir
+state_root = resolve_runtime_paths(Path(os.environ["MERIDIAN_PROJECT_DIR"])).root_dir
 row = spawn_store.get_spawn(state_root, fork_spawn_id)
 assert row is not None and row.chat_id
 records = session_store.get_session_records(state_root, {row.chat_id})

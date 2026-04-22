@@ -182,7 +182,7 @@ Available fakes in `tests/support/fakes.py`: `FakeClock`, `FakeHeartbeat`, `Fake
 **Shape:**
 ```python
 def test_spawn_creates_artifacts(tmp_path, monkeypatch):
-    monkeypatch.setenv("MERIDIAN_PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setenv("MERIDIAN_RUNTIME_DIR", str(tmp_path))
     start_spawn("p1", agent="test")
     assert (tmp_path / "spawns" / "p1").exists()
 ```

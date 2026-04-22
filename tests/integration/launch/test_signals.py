@@ -20,7 +20,7 @@ from meridian.lib.launch.signals import (
     signal_to_exit_code,
 )
 from meridian.lib.safety.permissions import PermissionConfig, TieredPermissionResolver
-from meridian.lib.state.paths import resolve_state_paths
+from meridian.lib.state.paths import resolve_runtime_paths
 from meridian.lib.streaming import spawn_manager as spawn_manager_module
 
 
@@ -29,7 +29,7 @@ async def test_streaming_runner_signal_cancel_invokes_send_cancel_once(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    state_root = resolve_state_paths(tmp_path).root_dir
+    state_root = resolve_runtime_paths(tmp_path).root_dir
     run_streaming_spawn = importlib.import_module(
         "meridian.lib.launch.streaming_runner"
     ).run_streaming_spawn

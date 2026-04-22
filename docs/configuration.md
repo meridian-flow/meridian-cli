@@ -134,7 +134,7 @@ autocompact_pct = 70
 
 ### File Location
 
-`<state-root-parent>/workspace.local.toml` — defaults to the repo root. Follows `MERIDIAN_PROJECT_ROOT` if overridden.
+`<state-root-parent>/workspace.local.toml` — defaults to the repo root. Follows `MERIDIAN_RUNTIME_DIR` if overridden.
 
 ### Schema
 
@@ -324,7 +324,7 @@ Use `meridian models config init/show/get/set/reset` to manage this file from th
 | `MERIDIAN_PROJECT_DIR` | Force repo root resolution |
 | `MERIDIAN_CONFIG` | User config overlay path |
 | `MERIDIAN_HOME` | Override user state root (default `~/.meridian/` on Unix/macOS, `%LOCALAPPDATA%\meridian\` on Windows) |
-| `MERIDIAN_PROJECT_ROOT` | Override the runtime state root. Absolute path = use as-is; relative path = resolve relative to repo root. Repo-owned paths (`fs/`, `work/`, `work-archive/`) always stay in `.meridian/` regardless of this setting. |
+| `MERIDIAN_RUNTIME_DIR` | Override the runtime state root. Absolute path = use as-is; relative path = resolve relative to repo root. Repo-owned paths (`fs/`, `work/`, `work-archive/`) always stay in `.meridian/` regardless of this setting. |
 | `MERIDIAN_FS_DIR` | Resolved shared filesystem path for the current repo state root |
 | `MERIDIAN_WORK_ID` | Active attached work item slug, when one exists |
 | `MERIDIAN_WORK_DIR` | Scratch/docs directory for the active work item, when one exists |

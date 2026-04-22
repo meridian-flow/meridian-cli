@@ -32,7 +32,7 @@ def test_launch_context_child_env_roundtrips_through_resolved_context(
         runtime=LaunchRuntime(
             argv_intent=LaunchArgvIntent.REQUIRED,
             report_output_path=(tmp_path / "report.md").as_posix(),
-            state_root=(tmp_path / ".meridian").as_posix(),
+            runtime_root=(tmp_path / ".meridian").as_posix(),
             project_paths_project_root=tmp_path.as_posix(),
             project_paths_execution_cwd=tmp_path.as_posix(),
         ),
@@ -47,7 +47,7 @@ def test_launch_context_child_env_roundtrips_through_resolved_context(
 
     assert child_context.depth == 3
     assert child_context.project_root == tmp_path
-    assert child_context.state_root == tmp_path / ".meridian"
+    assert child_context.runtime_root == tmp_path / ".meridian"
     assert child_context.chat_id == "chat-parent"
     assert child_context.work_id == "work-parent"
     assert child_context.work_dir == tmp_path / ".meridian" / "work" / "work-parent"

@@ -135,8 +135,8 @@ def _associated_with_work_item(
     return (spawn.work_id or "").strip() == work_id
 
 
-def work_dir_display(project_root: Path, repo_state_root: Path, work_id: str) -> str:
-    return _display_path(project_root, work_store.work_scratch_dir(repo_state_root, work_id))
+def work_dir_display(project_root: Path, project_state_dir: Path, work_id: str) -> str:
+    return _display_path(project_root, work_store.work_scratch_dir(project_state_dir, work_id))
 
 
 class WorkDashboardItem(BaseModel):
@@ -388,9 +388,9 @@ def work_dashboard_sync(
 ) -> WorkDashboardOutput:
     _ = ctx
     roots = resolve_roots_for_read(payload.project_root)
-    repo_state_root = roots.repo_state_root
+    project_state_dir = roots.project_state_dir
     runtime_state_root = roots.runtime_root
-    items_by_name = {item.name: item for item in work_store.list_work_items(repo_state_root)}
+    items_by_name = {item.name: item for item in work_store.list_work_items(project_state_dir)}
     active_session_work_ids = _active_session_work_ids(runtime_state_root)
     grouped: dict[str, list[WorkDashboardSpawn]] = {}
     ungrouped: list[WorkDashboardSpawn] = []
@@ -439,15 +439,15 @@ def work_list_sync(
     ctx: RuntimeContext | None = None,
 ) -> WorkListOutput:
     _ = ctx
-    repo_state_root = resolve_roots_for_read(payload.project_root).repo_state_root
+    project_state_dir = resolve_roots_for_read(payload.project_root).project_state_dir
     if payload.done_only:
         items = work_store.list_archived_work_items(
-            repo_state_root,
+            project_state_dir,
             limit=payload.limit,
             all_archived=payload.all_archived,
         )
     else:
-        items = work_store.list_work_items(repo_state_root)
+        items = work_store.list_work_items(project_state_dir)
     return WorkListOutput(
         items=tuple(
             WorkListItem(
@@ -468,12 +468,12 @@ def work_show_sync(
     _ = ctx
     roots = resolve_roots_for_read(payload.project_root)
     project_root = roots.project_root
-    repo_state_root = roots.repo_state_root
+    project_state_dir = roots.project_state_dir
     runtime_state_root = roots.runtime_root
 
     from meridian.lib.state.reaper import reconcile_spawns
 
-    item = work_store.get_work_item(repo_state_root, payload.work_id)
+    item = work_store.get_work_item(project_state_dir, payload.work_id)
     if item is None:
         raise ValueError(f"Work item '{payload.work_id}' not found")
 
@@ -496,7 +496,7 @@ def work_show_sync(
         status=item.status,
         description=item.description,
         created_at=item.created_at,
-        work_dir=work_dir_display(project_root, repo_state_root, item.name),
+        work_dir=work_dir_display(project_root, project_state_dir, item.name),
         spawns=tuple(associated_spawns),
         sessions=_work_sessions_for_work_id(runtime_state_root, item.name, include_all=False),
     )
@@ -507,7 +507,7 @@ def work_sessions_sync(
     ctx: RuntimeContext | None = None,
 ) -> WorkSessionsOutput:
     roots = resolve_roots_for_read(payload.project_root)
-    repo_state_root = roots.repo_state_root
+    project_state_dir = roots.project_state_dir
     runtime_state_root = roots.runtime_root
     resolved_work_id = _resolve_work_id(
         payload_work_id=payload.work_id,
@@ -515,7 +515,7 @@ def work_sessions_sync(
         ctx=ctx,
     )
 
-    item = work_store.get_work_item(repo_state_root, resolved_work_id)
+    item = work_store.get_work_item(project_state_dir, resolved_work_id)
     if item is None:
         raise ValueError(f"Work item '{resolved_work_id}' not found")
 

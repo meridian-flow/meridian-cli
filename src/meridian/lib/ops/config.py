@@ -34,8 +34,8 @@ from meridian.lib.state.paths import (
     RuntimePaths,
     ensure_gitignore,
     load_context_config,
+    resolve_project_paths_for_write,
     resolve_project_runtime_root_for_write,
-    resolve_repo_paths_for_write,
 )
 
 _SECTION_ORDER: tuple[str, ...] = ("defaults", "timeouts", "harness", "primary", "output")
@@ -751,7 +751,7 @@ def ensure_runtime_state_bootstrap_sync(project_root: Path) -> None:
     """
     context_config = load_context_config(project_root)
 
-    repo_state = resolve_repo_paths_for_write(project_root)
+    repo_state = resolve_project_paths_for_write(project_root)
     auto_migrate_contexts(repo_state.root_dir)
 
     # Always create the root .meridian directory

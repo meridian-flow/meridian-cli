@@ -10,7 +10,7 @@ export SMOKE_REPO="$(mktemp -d /tmp/meridian-lifecycle.XXXXXX)"
 git -C "$SMOKE_REPO" init --quiet
 for var in $(env | awk -F= '/^MERIDIAN_/ {print $1}'); do unset "$var"; done
 export MERIDIAN_PROJECT_DIR="$SMOKE_REPO"
-export MERIDIAN_PROJECT_ROOT="$SMOKE_REPO/.meridian"
+export MERIDIAN_RUNTIME_DIR="$SMOKE_REPO/.meridian"
 mkdir -p "$SMOKE_REPO/.agents/agents"
 cat > "$SMOKE_REPO/.agents/agents/reviewer.md" <<'EOF'
 # Reviewer
@@ -76,7 +76,7 @@ print(doc.get("spawn_id") or doc.get("id"))
 PY
 )" && \
 uv run meridian spawn report show "$SPAWN_ID" > /tmp/meridian-lifecycle-report-show.txt && \
-test -s "$MERIDIAN_PROJECT_ROOT/spawns/$SPAWN_ID/report.md" && \
+test -s "$MERIDIAN_RUNTIME_DIR/spawns/$SPAWN_ID/report.md" && \
 test -s /tmp/meridian-lifecycle-report-show.txt && \
 echo "PASS: auto-extracted report was persisted and report show returned content" || echo "FAIL: report.md missing or report show empty"
 ```
@@ -96,7 +96,7 @@ echo "PASS: spawn stats returned aggregate counts" || echo "FAIL: spawn stats ou
 uv run python - <<'PY'
 import json, os, pathlib, subprocess
 
-root = pathlib.Path(os.environ["MERIDIAN_PROJECT_ROOT"])
+root = pathlib.Path(os.environ["MERIDIAN_RUNTIME_DIR"])
 spawns_jsonl = root / "spawns.jsonl"
 spawn_id = "p-depth-gate-smoke"
 
@@ -152,7 +152,7 @@ PY
 uv run python - <<'PY'
 import json, os, pathlib
 
-root = pathlib.Path(os.environ["MERIDIAN_PROJECT_ROOT"])
+root = pathlib.Path(os.environ["MERIDIAN_RUNTIME_DIR"])
 spawns_jsonl = root / "spawns.jsonl"
 spawn_id = "p-finalizing-filter-smoke"
 
@@ -203,7 +203,7 @@ from meridian.lib.state.spawn_store import (
     update_spawn,
 )
 
-state_root = Path(os.environ["MERIDIAN_PROJECT_ROOT"])
+state_root = Path(os.environ["MERIDIAN_RUNTIME_DIR"])
 spawn_id = str(
     start_spawn(
         state_root,

@@ -23,7 +23,7 @@ def _context(project_root: Path, state_root: Path) -> HookContext:
         event_id=uuid4(),
         timestamp="2026-04-19T12:00:00+00:00",
         project_root=str(project_root),
-        state_root=str(state_root),
+        runtime_root=str(state_root),
         spawn_id="p123",
         spawn_status="success",
         spawn_agent="reviewer",
@@ -55,7 +55,7 @@ def test_external_runner_sets_cwd_env_and_json_stdin(tmp_path: Path) -> None:
         "print(os.environ['MERIDIAN_HOOK_EVENT'])\n"
         "print(os.environ['MERIDIAN_HOOK_EVENT_ID'])\n"
         "print(os.environ['MERIDIAN_PROJECT_DIR'])\n"
-        "print(os.environ['MERIDIAN_PROJECT_ROOT'])\n"
+        "print(os.environ['MERIDIAN_RUNTIME_DIR'])\n"
         "print(os.environ['MERIDIAN_SPAWN_ID'])\n"
         "print(payload['event_name'])\n"
         "print(payload['spawn']['id'])\n",

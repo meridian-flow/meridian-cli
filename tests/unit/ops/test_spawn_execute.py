@@ -35,7 +35,7 @@ def _make_launch_context(
 ) -> LaunchContext:
     request = SpawnRequest(prompt=run_inputs.prompt, model="gpt-5.4", harness="opencode")
     runtime = LaunchRuntime(
-        state_root=(tmp_path / ".meridian").as_posix(),
+        runtime_root=(tmp_path / ".meridian").as_posix(),
         project_paths_project_root=tmp_path.as_posix(),
         project_paths_execution_cwd=tmp_path.as_posix(),
     )
@@ -44,7 +44,7 @@ def _make_launch_context(
         runtime=runtime,
         project_root=tmp_path,
         execution_cwd=tmp_path,
-        state_root=tmp_path / ".meridian",
+        runtime_root=tmp_path / ".meridian",
         work_id=None,
         argv=("opencode", "run", "-"),
         run_params=run_inputs,

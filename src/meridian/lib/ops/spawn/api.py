@@ -21,7 +21,7 @@ from meridian.lib.ops.runtime import (
 )
 from meridian.lib.ops.work_attachment import ensure_explicit_work_item
 from meridian.lib.state import spawn_store
-from meridian.lib.state.paths import resolve_repo_paths
+from meridian.lib.state.paths import resolve_project_paths
 from meridian.lib.streaming.signal_canceller import CancelOutcome, SignalCanceller
 from meridian.lib.utils.time import minutes_to_seconds
 
@@ -121,7 +121,7 @@ def spawn_create_sync(
     payload = payload.model_copy(update={"project_root": resolved_root.as_posix()})
     payload, preflight_warning = validate_create_input(payload)
     if payload.dry_run and payload.work.strip():
-        repo_state_root = resolve_repo_paths(resolved_root).root_dir
+        repo_state_root = resolve_project_paths(resolved_root).root_dir
         resolved_work_id = ensure_explicit_work_item(repo_state_root, payload.work)
         payload = payload.model_copy(update={"work": resolved_work_id})
 

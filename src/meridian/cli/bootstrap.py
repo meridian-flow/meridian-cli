@@ -308,10 +308,10 @@ def maybe_bootstrap_runtime_state(argv: Sequence[str], *, agent_mode: bool) -> N
         from meridian.lib.config.settings import resolve_project_root
         from meridian.lib.context import auto_migrate_contexts
         from meridian.lib.ops.config import ensure_runtime_state_bootstrap_sync
-        from meridian.lib.state.paths import resolve_repo_paths
+        from meridian.lib.state.paths import resolve_project_paths
 
         project_root = resolve_project_root()
-        auto_migrate_contexts(resolve_repo_paths(project_root).root_dir)
+        auto_migrate_contexts(resolve_project_paths(project_root).root_dir)
         if not should_startup_bootstrap(argv):
             return
         ensure_runtime_state_bootstrap_sync(project_root)

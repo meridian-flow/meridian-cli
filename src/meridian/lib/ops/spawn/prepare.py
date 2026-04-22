@@ -228,7 +228,7 @@ def build_create_payload(
             composition_surface=LaunchCompositionSurface.SPAWN_PREPARE,
             config_snapshot=runtime_view.config.model_dump(mode="json", exclude_none=True),
             report_output_path=_DRY_RUN_REPORT_PATH,
-            state_root=state_root.as_posix(),
+            runtime_root=state_root.as_posix(),
             project_paths_project_root=runtime_view.project_root.as_posix(),
             project_paths_execution_cwd=runtime_view.project_root.as_posix(),
         ),

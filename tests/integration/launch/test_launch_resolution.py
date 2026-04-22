@@ -117,7 +117,7 @@ def test_workspace_roots_append_after_claude_preflight_projection(
         ),
         runtime=LaunchRuntime(
             argv_intent=LaunchArgvIntent.REQUIRED,
-            state_root=(tmp_path / ".meridian").as_posix(),
+            runtime_root=(tmp_path / ".meridian").as_posix(),
             project_paths_project_root=tmp_path.as_posix(),
             project_paths_execution_cwd=tmp_path.as_posix(),
         ),
@@ -172,7 +172,7 @@ def test_opencode_workspace_projection_handles_parent_env_suppression(
         ),
         runtime=LaunchRuntime(
             argv_intent=LaunchArgvIntent.REQUIRED,
-            state_root=(tmp_path / ".meridian").as_posix(),
+            runtime_root=(tmp_path / ".meridian").as_posix(),
             project_paths_project_root=tmp_path.as_posix(),
             project_paths_execution_cwd=tmp_path.as_posix(),
         ),
@@ -215,7 +215,7 @@ def test_spawn_prepare_opencode_uses_native_file_injection_and_keeps_inline_fall
         runtime=LaunchRuntime(
             argv_intent=LaunchArgvIntent.REQUIRED,
             composition_surface=LaunchCompositionSurface.SPAWN_PREPARE,
-            state_root=(tmp_path / ".meridian").as_posix(),
+            runtime_root=(tmp_path / ".meridian").as_posix(),
             project_paths_project_root=tmp_path.as_posix(),
             project_paths_execution_cwd=tmp_path.as_posix(),
         ),

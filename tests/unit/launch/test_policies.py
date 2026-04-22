@@ -78,7 +78,7 @@ def test_build_launch_context_surfaces_warning_channel_without_agent_metadata_si
         ),
         runtime=LaunchRuntime(
             argv_intent=LaunchArgvIntent.REQUIRED,
-            state_root=(tmp_path / ".meridian").as_posix(),
+            runtime_root=(tmp_path / ".meridian").as_posix(),
             project_paths_project_root=tmp_path.as_posix(),
             project_paths_execution_cwd=tmp_path.as_posix(),
         ),

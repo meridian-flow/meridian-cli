@@ -11,7 +11,7 @@ export SMOKE_REPO="$(mktemp -d /tmp/meridian-workspace.XXXXXX)"
 git -C "$SMOKE_REPO" init --quiet
 for var in $(env | awk -F= '/^MERIDIAN_/ {print $1}'); do unset "$var"; done
 export MERIDIAN_PROJECT_DIR="$SMOKE_REPO"
-export MERIDIAN_PROJECT_ROOT="$SMOKE_REPO/.meridian"
+export MERIDIAN_RUNTIME_DIR="$SMOKE_REPO/.meridian"
 cd "$REPO_ROOT"
 test -d "$SMOKE_REPO/.git" && echo "PASS: workspace smoke repo ready" || echo "FAIL: setup failed"
 ```

@@ -27,7 +27,7 @@ def test_resolve_runtime_context_delegates_to_resolved_context(
     monkeypatch: MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("MERIDIAN_PROJECT_DIR", raising=False)
-    monkeypatch.delenv("MERIDIAN_PROJECT_ROOT", raising=False)
+    monkeypatch.delenv("MERIDIAN_RUNTIME_DIR", raising=False)
 
     seen_env: list[tuple[str | None, str | None]] = []
     expected = ResolvedContext(depth=7, work_id="w7", work_dir=Path("/repo/.meridian/work/w7"))
@@ -37,7 +37,7 @@ def test_resolve_runtime_context_delegates_to_resolved_context(
         seen_env.append(
             (
                 os.environ.get("MERIDIAN_PROJECT_DIR"),
-                os.environ.get("MERIDIAN_PROJECT_ROOT"),
+                os.environ.get("MERIDIAN_RUNTIME_DIR"),
             )
         )
         return expected
@@ -49,7 +49,7 @@ def test_resolve_runtime_context_delegates_to_resolved_context(
     assert resolved is expected
     assert seen_env == [("/repo", "/runtime/state")]
     assert os.environ.get("MERIDIAN_PROJECT_DIR") is None
-    assert os.environ.get("MERIDIAN_PROJECT_ROOT") is None
+    assert os.environ.get("MERIDIAN_RUNTIME_DIR") is None
 
 
 def test_context_sync_returns_catalog_fields_from_context_resolution(
@@ -244,4 +244,4 @@ def test_ops_context_env_parsing_is_limited_to_repo_and_state_defaults() -> None
     source = source_path.read_text(encoding="utf-8")
     meridian_keys = set(re.findall(r"MERIDIAN_[A-Z_]+", source))
 
-    assert meridian_keys == {"MERIDIAN_PROJECT_DIR", "MERIDIAN_PROJECT_ROOT"}
+    assert meridian_keys == {"MERIDIAN_PROJECT_DIR", "MERIDIAN_RUNTIME_DIR"}

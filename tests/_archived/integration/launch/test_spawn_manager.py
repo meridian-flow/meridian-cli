@@ -21,7 +21,7 @@ from meridian.lib.harness.ids import TransportId
 from meridian.lib.harness.launch_spec import CodexLaunchSpec, ResolvedLaunchSpec
 from meridian.lib.safety.permissions import UnsafeNoOpPermissionResolver
 from meridian.lib.state import paths
-from meridian.lib.state.paths import resolve_state_paths
+from meridian.lib.state.paths import resolve_runtime_paths
 from meridian.lib.state.spawn_store import finalize_spawn, get_spawn, start_spawn
 from meridian.lib.streaming import spawn_manager as spawn_manager_module
 from meridian.lib.streaming.heartbeat import heartbeat_loop
@@ -90,7 +90,7 @@ async def _start_recording_manager(
     user_message_started: asyncio.Event | None = None,
 ) -> tuple[SpawnManager, Path, str, object]:
     project_root = tmp_path
-    state_root = resolve_state_paths(project_root).root_dir
+    state_root = resolve_runtime_paths(project_root).root_dir
 
     class FakeControlSocketServer:
         def __init__(self, spawn_id: str, socket_path: Path, manager: SpawnManager) -> None:
@@ -348,7 +348,7 @@ async def test_spawn_manager_on_result_callback_runs_before_lock_is_released(
 @pytest.mark.asyncio
 async def test_spawn_manager_inject_rejects_when_spawn_is_not_active(tmp_path: Path) -> None:
     project_root = tmp_path
-    state_root = resolve_state_paths(project_root).root_dir
+    state_root = resolve_runtime_paths(project_root).root_dir
     spawn_id = start_spawn(
         state_root,
         chat_id="c1",
@@ -430,7 +430,7 @@ async def test_spawn_manager_interrupt_returns_noop_when_codex_has_no_turn(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     project_root = tmp_path
-    state_root = resolve_state_paths(project_root).root_dir
+    state_root = resolve_runtime_paths(project_root).root_dir
     send_interrupt_calls = 0
 
     class FakeControlSocketServer:
@@ -541,7 +541,7 @@ async def test_spawn_manager_missing_terminal_event_defaults_to_failed_completio
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     project_root = tmp_path
-    state_root = resolve_state_paths(project_root).root_dir
+    state_root = resolve_runtime_paths(project_root).root_dir
     release_completion = asyncio.Event()
     stop_called = asyncio.Event()
 
@@ -671,7 +671,7 @@ async def test_spawn_manager_wait_for_completion_after_missing_terminal_event_cl
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     project_root = tmp_path
-    state_root = resolve_state_paths(project_root).root_dir
+    state_root = resolve_runtime_paths(project_root).root_dir
     cleanup_finished = asyncio.Event()
 
     class FakeControlSocketServer:
@@ -778,7 +778,7 @@ async def test_spawn_manager_stop_spawn_returns_cancelled_outcome_without_finali
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     project_root = tmp_path
-    state_root = resolve_state_paths(project_root).root_dir
+    state_root = resolve_runtime_paths(project_root).root_dir
 
     class FakeControlSocketServer:
         def __init__(self, spawn_id: str, socket_path: Path, manager: SpawnManager) -> None:
@@ -892,7 +892,7 @@ async def test_spawn_manager_stop_spawn_cancel_emits_single_terminal_cancelled_e
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     project_root = tmp_path
-    state_root = resolve_state_paths(project_root).root_dir
+    state_root = resolve_runtime_paths(project_root).root_dir
 
     class FakeControlSocketServer:
         def __init__(self, spawn_id: str, socket_path: Path, manager: SpawnManager) -> None:
@@ -1005,7 +1005,7 @@ async def test_spawn_manager_cancel_vs_completion_race_emits_both_events_and_fir
     expected_terminal: str,
 ) -> None:
     project_root = tmp_path
-    state_root = resolve_state_paths(project_root).root_dir
+    state_root = resolve_runtime_paths(project_root).root_dir
     release_completion = asyncio.Event()
     cleanup_started = asyncio.Event()
     release_cleanup = asyncio.Event()
@@ -1149,7 +1149,7 @@ async def test_spawn_manager_stop_spawn_race_uses_missing_terminal_outcome_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     project_root = tmp_path
-    state_root = resolve_state_paths(project_root).root_dir
+    state_root = resolve_runtime_paths(project_root).root_dir
     cleanup_started = asyncio.Event()
     release_cleanup = asyncio.Event()
 
@@ -1262,7 +1262,7 @@ async def test_spawn_manager_stop_spawn_race_uses_missing_terminal_outcome_once(
 @pytest.mark.asyncio
 async def test_spawn_manager_dispatch_rejects_base_spec_for_claude(tmp_path: Path) -> None:
     project_root = tmp_path
-    state_root = resolve_state_paths(project_root).root_dir
+    state_root = resolve_runtime_paths(project_root).root_dir
     manager = SpawnManager(state_root=state_root, project_root=project_root)
 
     config = ConnectionConfig(
@@ -1286,7 +1286,7 @@ async def test_spawn_manager_dispatch_raises_keyerror_when_streaming_transport_m
     tmp_path: Path,
 ) -> None:
     project_root = tmp_path
-    state_root = resolve_state_paths(project_root).root_dir
+    state_root = resolve_runtime_paths(project_root).root_dir
     manager = SpawnManager(state_root=state_root, project_root=project_root)
 
     config = ConnectionConfig(

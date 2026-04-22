@@ -10,7 +10,7 @@ from meridian.lib.state.paths import resolve_project_runtime_root_for_write
 
 @pytest.fixture(autouse=True)
 def _isolate_runtime_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("MERIDIAN_PROJECT_ROOT", raising=False)
+    monkeypatch.delenv("MERIDIAN_RUNTIME_DIR", raising=False)
     monkeypatch.setenv("MERIDIAN_DEPTH", "1")
 
 

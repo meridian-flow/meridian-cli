@@ -15,7 +15,7 @@ from meridian.lib.harness.connections.base import (
 )
 from meridian.lib.harness.launch_spec import CodexLaunchSpec, ResolvedLaunchSpec
 from meridian.lib.safety.permissions import UnsafeNoOpPermissionResolver
-from meridian.lib.state.paths import resolve_state_paths
+from meridian.lib.state.paths import resolve_runtime_paths
 from meridian.lib.state.spawn_store import start_spawn
 from meridian.lib.streaming import spawn_manager as spawn_manager_module
 from meridian.lib.streaming.spawn_manager import SpawnManager
@@ -60,7 +60,7 @@ async def test_wait_for_completion_survives_cleanup_without_private_hooks(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     project_root = tmp_path
-    state_root = resolve_state_paths(project_root).root_dir
+    state_root = resolve_runtime_paths(project_root).root_dir
     cleanup_started = asyncio.Event()
     release_cleanup = asyncio.Event()
 

@@ -292,7 +292,7 @@ def _manual_context(
         event_id=uuid4(),
         timestamp=datetime.now(UTC).isoformat(),
         project_root=project_root.as_posix(),
-        state_root=state_root.as_posix(),
+        runtime_root=state_root.as_posix(),
         spawn_id="manual",
         spawn_status=spawn_status,
         spawn_agent=spawn_agent,

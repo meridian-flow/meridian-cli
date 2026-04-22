@@ -36,7 +36,7 @@ def _context(work_dir: str | None = "/tmp/work") -> HookContext:
         event_id=uuid4(),
         timestamp="2026-04-20T00:00:00+00:00",
         project_root="/repo",
-        state_root="/repo/.meridian",
+        runtime_root="/repo/.meridian",
         work_id="w123",
         work_dir=work_dir,
     )

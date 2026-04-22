@@ -36,13 +36,13 @@ def test_child_env_context_from_environment_uses_resolved_context_parent_fields(
 
     resolved = ChildEnvContext.from_environment(
         project_paths=project_paths,
-        state_root=runtime_state_root,
+        runtime_root=runtime_state_root,
     )
 
     assert resolved == ChildEnvContext(
         parent_spawn_id=None,
         project_root=project_paths.execution_cwd.resolve(),
-        state_root=runtime_state_root.resolve(),
+        runtime_root=runtime_state_root.resolve(),
         parent_chat_id="parent-chat",
         parent_depth=3,
         work_id="work-explicit",
@@ -78,7 +78,7 @@ def test_child_env_context_from_environment_falls_back_to_session_lookup(
 
     resolved = ChildEnvContext.from_environment(
         project_paths=project_paths,
-        state_root=runtime_state_root,
+        runtime_root=runtime_state_root,
     )
 
     assert seen_lookup == [(runtime_state_root.resolve(), "chat-lookup")]
@@ -114,7 +114,7 @@ def test_child_env_context_from_environment_ignores_session_lookup_failures(
 
     resolved = ChildEnvContext.from_environment(
         project_paths=project_paths,
-        state_root=runtime_state_root,
+        runtime_root=runtime_state_root,
     )
 
     assert resolved.work_id is None
@@ -129,7 +129,7 @@ def test_child_env_context_child_context_routes_through_contract_helpers(
     ctx = ChildEnvContext(
         parent_spawn_id=None,
         project_root=tmp_path / "repo",
-        state_root=tmp_path / "runtime-state",
+        runtime_root=tmp_path / "runtime-state",
         parent_chat_id="chat-parent",
         parent_depth=5,
         work_id="work-55",
@@ -139,7 +139,7 @@ def test_child_env_context_child_context_routes_through_contract_helpers(
     expected = {
         "MERIDIAN_DEPTH": "6",
         "MERIDIAN_PROJECT_DIR": ctx.project_root.as_posix(),
-        "MERIDIAN_PROJECT_ROOT": ctx.state_root.as_posix(),
+        "MERIDIAN_RUNTIME_DIR": ctx.runtime_root.as_posix(),
         "MERIDIAN_CHAT_ID": "chat-parent",
         "MERIDIAN_WORK_ID": "work-55",
         "MERIDIAN_WORK_DIR": ctx.work_dir.as_posix(),
@@ -152,7 +152,7 @@ def test_child_env_context_child_context_routes_through_contract_helpers(
         assert kwargs == {
             "parent_spawn_id": None,
             "project_root": ctx.project_root,
-            "state_root": ctx.state_root,
+            "runtime_root": ctx.runtime_root,
             "parent_chat_id": "chat-parent",
             "parent_depth": 5,
             "work_id": "work-55",

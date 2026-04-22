@@ -11,7 +11,7 @@ from meridian.lib.launch.workspace import ensure_workspace_valid_for_launch
 
 @pytest.fixture(autouse=True)
 def _clear_state_root_override(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("MERIDIAN_PROJECT_ROOT", raising=False)
+    monkeypatch.delenv("MERIDIAN_RUNTIME_DIR", raising=False)
 
 
 def _repo(tmp_path: Path) -> Path:
@@ -116,7 +116,7 @@ def test_workspace_snapshot_uses_state_root_parent_override(
     override_root.parent.mkdir(parents=True)
     workspace_path = override_root.parent / "workspace.local.toml"
     (override_root.parent / "shared-root").mkdir()
-    monkeypatch.setenv("MERIDIAN_PROJECT_ROOT", override_root.as_posix())
+    monkeypatch.setenv("MERIDIAN_RUNTIME_DIR", override_root.as_posix())
     workspace_path.write_text(
         "[[context-roots]]\n"
         'path = "./shared-root"\n',

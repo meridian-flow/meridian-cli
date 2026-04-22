@@ -12,7 +12,7 @@ from meridian.lib.config.project_paths import (
 
 @pytest.fixture(autouse=True)
 def _clear_state_root_override(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("MERIDIAN_PROJECT_ROOT", raising=False)
+    monkeypatch.delenv("MERIDIAN_RUNTIME_DIR", raising=False)
 
 
 def test_project_paths_is_frozen(tmp_path: Path) -> None:
@@ -68,7 +68,7 @@ def test_project_paths_workspace_local_toml_uses_state_root_parent_override(
     override_root = tmp_path / "custom-state" / ".meridian"
     project_root.mkdir()
     override_root.parent.mkdir(parents=True)
-    monkeypatch.setenv("MERIDIAN_PROJECT_ROOT", override_root.as_posix())
+    monkeypatch.setenv("MERIDIAN_RUNTIME_DIR", override_root.as_posix())
 
     paths = resolve_project_config_paths(project_root=project_root)
 

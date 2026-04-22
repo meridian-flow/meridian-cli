@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from meridian.lib.state import spawn_store
-from meridian.lib.state.paths import resolve_state_paths
+from meridian.lib.state.paths import resolve_runtime_paths
 from meridian.lib.state.reaper import (
     ArtifactSnapshot,
     FinalizeFailed,
@@ -26,7 +26,7 @@ def _recent_started_at() -> str:
 
 
 def _state_root(tmp_path: Path) -> Path:
-    state_root = resolve_state_paths(tmp_path).root_dir
+    state_root = resolve_runtime_paths(tmp_path).root_dir
     state_root.mkdir(parents=True, exist_ok=True)
     return state_root
 
