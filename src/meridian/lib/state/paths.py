@@ -53,8 +53,6 @@ _DEPRECATED_GITIGNORE_LINES = (
     "!fs/**",
     "!work-archive/",
     "!work-archive/**",
-    "!work-items/",
-    "!work-items/**",
     "!agents.toml",
     "!agents.lock",
     "!config.toml",
@@ -71,8 +69,7 @@ class RuntimePaths(BaseModel):
     """Resolved runtime paths for one Meridian state root.
 
     This object models runtime state roots (spawn/session indexes and per-spawn
-    artifacts). Legacy work-item path fields are still present for transitional
-    callers and will be removed when all work-store callers move to repo paths.
+    artifacts).
     """
 
     model_config = ConfigDict(frozen=True)
@@ -89,9 +86,6 @@ class RuntimePaths(BaseModel):
     kb_dir: Path
     work_dir: Path
     work_archive_dir: Path
-    work_items_dir: Path
-    work_items_flock: Path
-    work_items_rename_intent: Path
     spawns_dir: Path
 
     @classmethod
@@ -127,9 +121,6 @@ class RuntimePaths(BaseModel):
                 if resolved_project_paths is not None
                 else root_dir / "archive" / "work"
             ),
-            work_items_dir=root_dir / "work-items",
-            work_items_flock=root_dir / "work-items.flock",
-            work_items_rename_intent=root_dir / "work-items.rename.intent.json",
             spawns_dir=root_dir / "spawns",
         )
 

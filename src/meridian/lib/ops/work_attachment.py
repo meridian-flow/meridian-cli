@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from meridian.lib.state import session_store, work_store
-from meridian.lib.state.paths import resolve_work_scratch_dir
 
 
 def session_exists(state_root: Path, chat_id: str) -> bool:
@@ -31,6 +30,4 @@ def set_session_work_attachment(
 def ensure_explicit_work_item(state_root: Path, work_id: str) -> str:
     """Create-or-attach an explicitly named work item and return its slug."""
 
-    normalized = work_store.ensure_work_item_metadata(state_root, work_id).name
-    resolve_work_scratch_dir(state_root, normalized).mkdir(parents=True, exist_ok=True)
-    return normalized
+    return work_store.ensure_work_item_metadata(state_root, work_id).name

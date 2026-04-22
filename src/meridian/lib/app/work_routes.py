@@ -179,14 +179,19 @@ def register_work_routes(
         limit: int = Query(default=20, ge=1, le=100, description="Page size"),
     ) -> CursorEnvelope[WorkProjection]:
         """List work items with optional status filter."""
-        items = work_store.list_work_items(repo_state_root)
-
-        # Apply status filter
-        if status:
-            items = [item for item in items if item.status == status.strip()]
-
-        # Sort by created_at desc
-        items.sort(key=lambda x: x.created_at, reverse=True)
+        status_filter = (status or "").strip()
+        if status_filter == "done":
+            items = work_store.list_archived_work_items(
+                repo_state_root,
+                limit=limit,
+                all_archived=False,
+            )
+        else:
+            items = work_store.list_work_items(repo_state_root)
+            if status_filter:
+                items = [item for item in items if item.status == status_filter]
+            # Active listing uses newest-created first.
+            items.sort(key=lambda x: x.created_at, reverse=True)
 
         # For now, simple pagination without cursor (can enhance later)
         page = items[:limit]
@@ -286,14 +291,12 @@ def register_work_routes(
 
         # Fallback: most recently created non-done work item.
         items = work_store.list_work_items(repo_state_root)
-        active_items = [item for item in items if item.status != "done"]
-
-        if not active_items:
+        if not items:
             return {"work_id": None}
 
         # Sort by created_at desc and return most recent
-        active_items.sort(key=lambda x: x.created_at, reverse=True)
-        fallback_work_id = active_items[0].name
+        items.sort(key=lambda x: x.created_at, reverse=True)
+        fallback_work_id = items[0].name
         _write_active_work_state(repo_state_root, fallback_work_id)
         return {"work_id": fallback_work_id}
 

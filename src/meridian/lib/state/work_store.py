@@ -248,7 +248,7 @@ def _read_legacy_metadata(metadata_path: Path) -> tuple[str, str, str | None]:
 
 def _migrate_legacy_work_items(state_root: Path) -> None:
     paths = RuntimePaths.from_root_dir(state_root)
-    legacy_dir = paths.work_items_dir
+    legacy_dir = state_root / "work-items"
     if not legacy_dir.is_dir():
         return
 

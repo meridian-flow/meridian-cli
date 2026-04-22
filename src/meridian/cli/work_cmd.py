@@ -81,8 +81,27 @@ def _work_list(
         bool,
         Parameter(name="--done", help="Show only done/archived items."),
     ] = False,
+    limit: Annotated[
+        int,
+        Parameter(
+            name=["-n", "--limit"],
+            help="Maximum archived items to show with --done.",
+        ),
+    ] = 10,
+    all_archived: Annotated[
+        bool,
+        Parameter(name="--all", help="Show all archived items with --done."),
+    ] = False,
 ) -> None:
-    emit(work_list_sync(WorkListInput(done_only=done)))
+    emit(
+        work_list_sync(
+            WorkListInput(
+                done_only=done,
+                limit=limit,
+                all_archived=all_archived,
+            )
+        )
+    )
 
 
 def _work_show(

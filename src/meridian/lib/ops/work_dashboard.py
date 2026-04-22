@@ -202,6 +202,8 @@ class WorkListInput(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     done_only: bool = False
+    limit: int = 10
+    all_archived: bool = False
     project_root: str | None = None
 
 
@@ -438,11 +440,14 @@ def work_list_sync(
 ) -> WorkListOutput:
     _ = ctx
     repo_state_root = resolve_roots_for_read(payload.project_root).repo_state_root
-    items = work_store.list_work_items(repo_state_root)
     if payload.done_only:
-        items = [item for item in items if item.status == "done"]
+        items = work_store.list_archived_work_items(
+            repo_state_root,
+            limit=payload.limit,
+            all_archived=payload.all_archived,
+        )
     else:
-        items = [item for item in items if item.status != "done"]
+        items = work_store.list_work_items(repo_state_root)
     return WorkListOutput(
         items=tuple(
             WorkListItem(
