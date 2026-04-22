@@ -14,12 +14,12 @@ from meridian.lib.state.artifact_store import (
     make_artifact_key,
 )
 from meridian.lib.state.paths import (
-    RepoStatePaths,
+    ProjectPaths,
     RuntimePaths,
     ensure_gitignore,
     resolve_fs_dir,
     resolve_kb_dir,
-    resolve_repo_paths,
+    resolve_project_paths,
     resolve_spawn_log_dir,
     resolve_state_paths,
     resolve_work_scratch_dir,
@@ -44,7 +44,7 @@ __all__ = [
     "LifecycleEvent",
     "LifecycleHook",
     "LocalStore",
-    "RepoStatePaths",
+    "ProjectPaths",
     "RuntimePaths",
     "SpawnLifecycleService",
     "SpawnRecord",
@@ -56,7 +56,7 @@ __all__ = [
     "next_spawn_id",
     "resolve_fs_dir",
     "resolve_kb_dir",
-    "resolve_repo_paths",
+    "resolve_project_paths",
     "resolve_spawn_log_dir",
     "resolve_state_paths",
     "resolve_work_scratch_dir",
@@ -64,3 +64,7 @@ __all__ = [
     "spawn_stats",
     "start_spawn",
 ]
+
+# Transitional aliases for callers still on pre-rename symbols.
+RepoStatePaths = ProjectPaths
+resolve_repo_paths = resolve_project_paths

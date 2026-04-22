@@ -11,8 +11,8 @@ from meridian.lib.platform.locking import lock_file
 from meridian.lib.state.atomic import atomic_write_text
 
 
-def get_user_home() -> Path:
-    """Return the user-level state root directory.
+def get_meridian_home() -> Path:
+    """Return the user-level Meridian data directory.
 
     Resolution order:
     1. MERIDIAN_HOME env var if set
@@ -81,15 +81,17 @@ def get_or_create_project_uuid(meridian_dir: Path) -> str:
         return project_uuid
 
 
-def get_project_home(project_uuid: str) -> Path:
-    """Return the user-level project state directory.
+def get_project_data_root(project_uuid: str) -> Path:
+    """Return the user-level project data directory.
 
-    Returns: get_user_home() / "projects" / project_uuid
+    Returns: get_meridian_home() / "projects" / project_uuid
     """
 
-    return get_user_home() / "projects" / project_uuid
+    return get_meridian_home() / "projects" / project_uuid
 
 
 # Transitional aliases for callers still on pre-rename symbols.
-get_user_state_root = get_user_home
-get_project_state_root = get_project_home
+get_user_home = get_meridian_home
+get_project_home = get_project_data_root
+get_user_state_root = get_meridian_home
+get_project_state_root = get_project_data_root

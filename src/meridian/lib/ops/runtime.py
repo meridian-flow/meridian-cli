@@ -14,9 +14,9 @@ from meridian.lib.core.context import RuntimeContext
 from meridian.lib.core.sink import NullSink, OutputSink
 from meridian.lib.state.artifact_store import LocalStore
 from meridian.lib.state.paths import (
+    resolve_project_paths,
     resolve_project_runtime_root_for_write,
     resolve_project_runtime_root_or_none,
-    resolve_repo_paths,
 )
 from meridian.lib.state.user_paths import (
     get_or_create_project_uuid,
@@ -145,7 +145,7 @@ def resolve_runtime_root_for_read(repo_root: Path) -> Path:
     state has data, prefer repo-local state as a compatibility fallback.
     """
 
-    repo_state_dir = resolve_repo_paths(repo_root).root_dir
+    repo_state_dir = resolve_project_paths(repo_root).root_dir
     runtime_root = resolve_project_runtime_root_or_none(repo_root)
     if runtime_root is None:
         return repo_state_dir
@@ -168,12 +168,12 @@ def resolve_runtime_root_for_read(repo_root: Path) -> Path:
 def get_project_uuid(repo_root: Path) -> str:
     """Get/create project UUID, returns UUID string."""
 
-    return get_or_create_project_uuid(resolve_repo_paths(repo_root).root_dir)
+    return get_or_create_project_uuid(resolve_project_paths(repo_root).root_dir)
 
 
 def resolve_roots(repo_root: str | None) -> ResolvedRoots:
     resolved_repo_root, _ = resolve_runtime_root_and_config(repo_root)
-    repo_state_dir = resolve_repo_paths(resolved_repo_root).root_dir
+    repo_state_dir = resolve_project_paths(resolved_repo_root).root_dir
     return ResolvedRoots(
         repo_root=resolved_repo_root,
         repo_state_root=repo_state_dir,
@@ -183,7 +183,7 @@ def resolve_roots(repo_root: str | None) -> ResolvedRoots:
 
 def resolve_roots_for_read(repo_root: str | None) -> ResolvedRoots:
     resolved_repo_root, _ = resolve_runtime_root_and_config_for_read(repo_root)
-    repo_state_dir = resolve_repo_paths(resolved_repo_root).root_dir
+    repo_state_dir = resolve_project_paths(resolved_repo_root).root_dir
     return ResolvedRoots(
         repo_root=resolved_repo_root,
         repo_state_root=repo_state_dir,
