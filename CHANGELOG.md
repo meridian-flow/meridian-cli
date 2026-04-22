@@ -3,6 +3,11 @@
 Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [SemVer](https://semver.org/). Versions `0.0.6` through `0.0.25` in git history only — changelog fell stale, resumed at `[Unreleased]`.
 ## [Unreleased]
 
+## [0.0.41] - 2026-04-22
+
+### Fixed
+- Claude spawn-prepare now projects loaded skills, agent inventory, and report instructions into `system-prompt`/`append-system-prompt` for fresh and continued sessions; system prompt no longer report-only.
+
 ## [0.0.40] - 2026-04-22
 
 ### Changed

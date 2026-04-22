@@ -504,6 +504,25 @@ def _resolve_surface_request(
                         f"Harness '{harness.id}' does not support session fork; resuming in-place."
                     )
 
+    if (
+        spawn_composed_content is not None
+        and harness.id == HarnessId.CLAUDE
+    ):
+        # Claude spawn-prepare routes system content via append-system-prompt.
+        # Project skill and agent-inventory context there for fresh and resumed runs.
+        spawn_composed_content = ComposedLaunchContent(
+            skill_injection=compose_skill_injections(resolved_skills.loaded_skills) or "",
+            agent_profile_body=spawn_composed_content.agent_profile_body,
+            report_instruction=spawn_composed_content.report_instruction,
+            inventory_prompt=(
+                build_primary_inventory_prompt(project_root=project_paths.project_root) or ""
+            ),
+            passthrough_system_fragments=spawn_composed_content.passthrough_system_fragments,
+            user_task_prompt=spawn_composed_content.user_task_prompt,
+            reference_items=spawn_composed_content.reference_items,
+            prior_output=spawn_composed_content.prior_output,
+        )
+
     final_prompt = prompt
     final_passthrough_args = request.extra_args
     appended_system_prompt: str | None = None

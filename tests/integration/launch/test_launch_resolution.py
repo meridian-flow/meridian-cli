@@ -14,6 +14,7 @@ from meridian.lib.launch.request import (
     LaunchArgvIntent,
     LaunchCompositionSurface,
     LaunchRuntime,
+    SessionRequest,
     SpawnRequest,
 )
 from meridian.lib.launch.types import LaunchRequest
@@ -321,3 +322,127 @@ def test_spawn_prepare_opencode_uses_native_file_injection_and_keeps_inline_fall
     }
     assert f"# Reference: {file_ref.as_posix()}" not in preview.resolved_request.prompt
     assert f"# Reference: {dir_ref.as_posix()}/" in preview.resolved_request.prompt
+
+
+def test_spawn_prepare_claude_projects_skills_inventory_and_report_to_system_prompt(
+    tmp_path: Path,
+) -> None:
+    _write_minimal_mars_config(tmp_path)
+    write_skill(
+        tmp_path,
+        "verification",
+        body="Use verification checklist.",
+        description="Verification helper",
+    )
+    write_agent(
+        tmp_path,
+        name="dev-orchestrator",
+        model="claude-sonnet-4-5",
+        skills=("verification",),
+    )
+    write_agent(tmp_path, name="reviewer", model="gpt-5.4")
+    file_ref = tmp_path / "README.md"
+    file_ref.write_text("# project\n", encoding="utf-8")
+
+    preview = build_launch_context(
+        spawn_id="dry-run-claude-spawn-prepare",
+        request=SpawnRequest(
+            prompt="complete the task",
+            prompt_is_composed=False,
+            model="claude-sonnet-4-5",
+            harness="claude",
+            agent="dev-orchestrator",
+            reference_files=(file_ref.as_posix(),),
+        ),
+        runtime=LaunchRuntime(
+            argv_intent=LaunchArgvIntent.REQUIRED,
+            composition_surface=LaunchCompositionSurface.SPAWN_PREPARE,
+            runtime_root=(tmp_path / ".meridian").as_posix(),
+            project_paths_project_root=tmp_path.as_posix(),
+            project_paths_execution_cwd=tmp_path.as_posix(),
+        ),
+        harness_registry=get_default_harness_registry(),
+        dry_run=True,
+    )
+
+    assert preview.projected_content is not None
+    projected = preview.projected_content
+
+    assert preview.resolved_request.skill_paths
+    skill_path = preview.resolved_request.skill_paths[0]
+
+    assert f"# Skill: {skill_path}" in projected.system_prompt
+    assert "Use verification checklist." in projected.system_prompt
+    assert "# Meridian Agents" in projected.system_prompt
+    assert "AGENTS" in projected.system_prompt
+    assert "- dev-orchestrator" in projected.system_prompt
+    assert "- reviewer" in projected.system_prompt
+    assert "# Report" in projected.system_prompt
+    assert "final assistant message must be the run report" in projected.system_prompt
+
+    assert "complete the task" in projected.user_turn_content
+    assert f"# Reference: {file_ref.as_posix()}" in projected.user_turn_content
+    assert "# Skill:" not in projected.user_turn_content
+    assert "# Meridian Agents" not in projected.user_turn_content
+
+    assert preview.run_params.prompt == projected.user_turn_content
+    assert "# Skill:" not in preview.run_params.prompt
+    assert "# Meridian Agents" not in preview.run_params.prompt
+
+
+def test_spawn_prepare_claude_continue_session_keeps_skills_in_system_prompt(
+    tmp_path: Path,
+) -> None:
+    _write_minimal_mars_config(tmp_path)
+    write_skill(
+        tmp_path,
+        "verification",
+        body="Use verification checklist.",
+        description="Verification helper",
+    )
+    write_agent(
+        tmp_path,
+        name="dev-orchestrator",
+        model="claude-sonnet-4-5",
+        skills=("verification",),
+    )
+    write_agent(tmp_path, name="reviewer", model="gpt-5.4")
+
+    harness_session_id = "claude-session-123"
+    preview = build_launch_context(
+        spawn_id="dry-run-claude-spawn-prepare-continue",
+        request=SpawnRequest(
+            prompt="continue the task",
+            prompt_is_composed=False,
+            model="claude-sonnet-4-5",
+            harness="claude",
+            agent="dev-orchestrator",
+            session=SessionRequest(
+                requested_harness_session_id=harness_session_id,
+                continue_harness="claude",
+                continue_fork=True,
+            ),
+        ),
+        runtime=LaunchRuntime(
+            argv_intent=LaunchArgvIntent.REQUIRED,
+            composition_surface=LaunchCompositionSurface.SPAWN_PREPARE,
+            runtime_root=(tmp_path / ".meridian").as_posix(),
+            project_paths_project_root=tmp_path.as_posix(),
+            project_paths_execution_cwd=tmp_path.as_posix(),
+        ),
+        harness_registry=get_default_harness_registry(),
+        dry_run=True,
+    )
+
+    assert preview.projected_content is not None
+    projected = preview.projected_content
+
+    assert preview.run_params.continue_harness_session_id == harness_session_id
+    assert preview.run_params.continue_fork is True
+    assert "Use verification checklist." in projected.system_prompt
+    assert "# Meridian Agents" in projected.system_prompt
+    assert "# Report" in projected.system_prompt
+
+    assert "continue the task" in projected.user_turn_content
+    assert "# Skill:" not in projected.user_turn_content
+    assert "# Meridian Agents" not in projected.user_turn_content
