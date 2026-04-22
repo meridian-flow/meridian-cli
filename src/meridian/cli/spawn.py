@@ -64,13 +64,6 @@ def _spawn_create_exit_code(result: SpawnActionOutput) -> int:
     return 1
 
 
-def _truncate_cell(value: str, *, max_chars: int) -> str:
-    compact = " ".join(value.split()).strip()
-    if len(compact) <= max_chars:
-        return compact
-    return f"{compact[: max_chars - 3].rstrip()}..."
-
-
 def _desc_or_prompt_summary(desc: str | None, prompt: str | None) -> str | None:
     normalized_desc = (desc or "").strip()
     if normalized_desc:
@@ -559,28 +552,7 @@ def _spawn_children(
         )
         for row in children
     )
-    output = SpawnListOutput(spawns=entries)
-
-    if get_global_options().output.format == "json":
-        emit(output)
-        return
-
-    if not entries:
-        emit("(no children)")
-        return
-
-    from meridian.cli.format_helpers import tabular
-
-    rows = [["spawn", "status", "agent", "desc", "model", "duration"]]
-    for entry in entries:
-        agent_cell = entry.agent or "-"
-        desc_cell = entry.desc or "-"
-        model_cell = _truncate_cell(entry.model, max_chars=18) if entry.model else "-"
-        duration_cell = f"{entry.duration_secs:.1f}s" if entry.duration_secs is not None else "-"
-        rows.append(
-            [entry.spawn_id, entry.status, agent_cell, desc_cell, model_cell, duration_cell]
-        )
-    emit(tabular(rows))
+    emit(SpawnListOutput(spawns=entries, text_view="children"))
 
 
 def _spawn_show(

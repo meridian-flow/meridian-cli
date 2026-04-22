@@ -1,5 +1,6 @@
 import importlib
 import io
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -239,14 +240,15 @@ def test_spawn_children_includes_agent_and_desc_in_output(
         lambda: SimpleNamespace(output=SimpleNamespace(format="text")),
     )
 
-    emitted: list[str] = []
+    emitted: list[SpawnListOutput] = []
     spawn_cli._spawn_children(emitted.append, "p100")
 
     assert len(emitted) == 1
-    assert "agent" in emitted[0]
-    assert "desc" in emitted[0]
-    assert "coder" in emitted[0]
-    assert "summarize these long launch semantics" in emitted[0]
+    rendered = emitted[0].format_text()
+    assert "agent" in rendered
+    assert "desc" in rendered
+    assert "coder" in rendered
+    assert "summarize these long launch semantics" in rendered
 
 
 def test_spawn_children_json_includes_agent_and_desc(
@@ -289,6 +291,48 @@ def test_spawn_children_json_includes_agent_and_desc(
     payload = emitted[0].model_dump()
     assert payload["spawns"][0]["agent"] == "reviewer"
     assert payload["spawns"][0]["desc"] == "quick desc"
+
+
+def test_spawn_children_agent_mode_uses_children_text_view(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("MERIDIAN_DEPTH", "1")
+    project_root = tmp_path / "repo"
+    project_root.mkdir()
+    runtime_root = project_root / ".meridian"
+    rows = [
+        SimpleNamespace(
+            id="p101",
+            status="succeeded",
+            model="gpt-5.4",
+            agent="reviewer",
+            desc="review child",
+            prompt="ignored because desc exists",
+            duration_secs=0.7,
+            total_cost_usd=0.01,
+        )
+    ]
+
+    monkeypatch.setattr(spawn_cli, "resolve_project_root", lambda: project_root)
+    monkeypatch.setattr(spawn_cli, "resolve_runtime_root_for_read", lambda _root: runtime_root)
+    monkeypatch.setattr(spawn_cli, "resolve_spawn_reference", lambda _root, ref: ref)
+    monkeypatch.setattr(spawn_cli.spawn_store, "list_spawns", lambda _root, filters=None: rows)
+    monkeypatch.setattr(
+        "meridian.lib.state.reaper.reconcile_spawns",
+        lambda _state_root, spawns: spawns,
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli_main.main(["spawn", "children", "p100"])
+
+    assert exc_info.value.code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert "agent" in payload["text"]
+    assert "desc" in payload["text"]
+    assert "reviewer" in payload["text"]
+    assert "review child" in payload["text"]
 
 
 def _capture_filters_and_return_empty(

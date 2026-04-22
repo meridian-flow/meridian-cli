@@ -294,6 +294,7 @@ class SpawnListOutput(BaseModel):
     spawns: tuple[SpawnListEntry, ...]
     total_count: int | None = None
     truncated: bool = False
+    text_view: str = "list"
 
     @model_serializer(mode="plain")
     def _serialize(self) -> dict[str, object]:
@@ -319,11 +320,29 @@ class SpawnListOutput(BaseModel):
     def format_text(self, ctx: FormatContext | None = None) -> str:
         """Columnar list of spawns for text output mode."""
         if not self.spawns:
+            if self.text_view == "children":
+                return "(no children)"
             return "(no spawns)"
         from meridian.cli.format_helpers import tabular
 
-        rows = [["spawn", "status", "model", "duration"]]
-        rows.extend(entry.as_row() for entry in self.spawns)
+        if self.text_view == "children":
+            rows = [["spawn", "status", "agent", "desc", "model", "duration"]]
+            for entry in self.spawns:
+                rows.append(
+                    [
+                        entry.spawn_id,
+                        entry.status,
+                        entry.agent or "-",
+                        entry.desc or "-",
+                        _truncate_cell(entry.model, max_chars=18) if entry.model else "-",
+                        f"{entry.duration_secs:.1f}s"
+                        if entry.duration_secs is not None
+                        else "-",
+                    ]
+                )
+        else:
+            rows = [["spawn", "status", "model", "duration"]]
+            rows.extend(entry.as_row() for entry in self.spawns)
         result = tabular(rows)
         if self.truncated and self.total_count is not None:
             result += (
