@@ -64,6 +64,26 @@ def _spawn_create_exit_code(result: SpawnActionOutput) -> int:
     return 1
 
 
+def _truncate_cell(value: str, *, max_chars: int) -> str:
+    compact = " ".join(value.split()).strip()
+    if len(compact) <= max_chars:
+        return compact
+    return f"{compact[: max_chars - 3].rstrip()}..."
+
+
+def _desc_or_prompt_summary(desc: str | None, prompt: str | None) -> str | None:
+    normalized_desc = (desc or "").strip()
+    if normalized_desc:
+        return normalized_desc
+    normalized_prompt = (prompt or "").strip()
+    if not normalized_prompt:
+        return None
+    compact_prompt = " ".join(normalized_prompt.split()).strip()
+    if len(compact_prompt) <= 50:
+        return compact_prompt
+    return f"{compact_prompt[:47].rstrip()}..."
+
+
 def _read_prompt_from_stdin(*, explicit_prompt_file_stdin: bool, allow_empty: bool = False) -> str:
     if sys.stdin.isatty():
         if explicit_prompt_file_stdin:
@@ -527,20 +547,40 @@ def _spawn_children(
             )
         )
     )
-    emit(
-        SpawnListOutput(
-            spawns=tuple(
-                SpawnListEntry(
-                    spawn_id=row.id,
-                    status=row.status,
-                    model=row.model or "",
-                    duration_secs=row.duration_secs,
-                    cost_usd=row.total_cost_usd,
-                )
-                for row in children
-            ),
+    entries = tuple(
+        SpawnListEntry(
+            spawn_id=row.id,
+            status=row.status,
+            model=row.model or "",
+            agent=row.agent or None,
+            desc=_desc_or_prompt_summary(row.desc, row.prompt),
+            duration_secs=row.duration_secs,
+            cost_usd=row.total_cost_usd,
         )
+        for row in children
     )
+    output = SpawnListOutput(spawns=entries)
+
+    if get_global_options().output.format == "json":
+        emit(output)
+        return
+
+    if not entries:
+        emit("(no children)")
+        return
+
+    from meridian.cli.format_helpers import tabular
+
+    rows = [["spawn", "status", "agent", "desc", "model", "duration"]]
+    for entry in entries:
+        agent_cell = entry.agent or "-"
+        desc_cell = entry.desc or "-"
+        model_cell = _truncate_cell(entry.model, max_chars=18) if entry.model else "-"
+        duration_cell = f"{entry.duration_secs:.1f}s" if entry.duration_secs is not None else "-"
+        rows.append(
+            [entry.spawn_id, entry.status, agent_cell, desc_cell, model_cell, duration_cell]
+        )
+    emit(tabular(rows))
 
 
 def _spawn_show(

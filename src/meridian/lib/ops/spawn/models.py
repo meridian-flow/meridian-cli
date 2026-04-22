@@ -273,6 +273,8 @@ class SpawnListEntry(BaseModel):
     status: str
     status_display: str | None = None
     model: str
+    agent: str | None = None
+    desc: str | None = None
     duration_secs: float | None
     cost_usd: float | None
 
@@ -300,6 +302,8 @@ class SpawnListOutput(BaseModel):
                 {
                     "spawn_id": entry.spawn_id,
                     "status": entry.status,
+                    "agent": entry.agent,
+                    "desc": entry.desc,
                     "model": entry.model,
                     "duration_secs": entry.duration_secs,
                     "cost_usd": entry.cost_usd,

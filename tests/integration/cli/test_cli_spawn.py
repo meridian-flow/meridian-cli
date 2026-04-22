@@ -1,5 +1,6 @@
 import importlib
 import io
+from types import SimpleNamespace
 
 import pytest
 
@@ -190,6 +191,11 @@ def test_spawn_children_resolves_parent_reference_before_filtering(
         "meridian.lib.state.reaper.reconcile_spawns",
         lambda _state_root, spawns: spawns,
     )
+    monkeypatch.setattr(
+        spawn_cli,
+        "get_global_options",
+        lambda: SimpleNamespace(output=SimpleNamespace(format="json")),
+    )
 
     emitted: list[SpawnListOutput] = []
     spawn_cli._spawn_children(emitted.append, "c213")
@@ -197,6 +203,92 @@ def test_spawn_children_resolves_parent_reference_before_filtering(
     assert seen["filters"] == {"parent_id": "p77"}
     assert len(emitted) == 1
     assert emitted[0].spawns == ()
+
+
+def test_spawn_children_includes_agent_and_desc_in_output(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    project_root = tmp_path / "repo"
+    project_root.mkdir()
+    runtime_root = project_root / ".meridian"
+    rows = [
+        SimpleNamespace(
+            id="p101",
+            status="succeeded",
+            model="gpt-5.4",
+            agent="coder",
+            desc=None,
+            prompt="summarize these long launch semantics for output table",
+            duration_secs=1.2,
+            total_cost_usd=0.02,
+        )
+    ]
+
+    monkeypatch.setattr(spawn_cli, "resolve_project_root", lambda: project_root)
+    monkeypatch.setattr(spawn_cli, "resolve_runtime_root_for_read", lambda _root: runtime_root)
+    monkeypatch.setattr(spawn_cli, "resolve_spawn_reference", lambda _root, ref: ref)
+    monkeypatch.setattr(spawn_cli.spawn_store, "list_spawns", lambda _root, filters=None: rows)
+    monkeypatch.setattr(
+        "meridian.lib.state.reaper.reconcile_spawns",
+        lambda _state_root, spawns: spawns,
+    )
+    monkeypatch.setattr(
+        spawn_cli,
+        "get_global_options",
+        lambda: SimpleNamespace(output=SimpleNamespace(format="text")),
+    )
+
+    emitted: list[str] = []
+    spawn_cli._spawn_children(emitted.append, "p100")
+
+    assert len(emitted) == 1
+    assert "agent" in emitted[0]
+    assert "desc" in emitted[0]
+    assert "coder" in emitted[0]
+    assert "summarize these long launch semantics" in emitted[0]
+
+
+def test_spawn_children_json_includes_agent_and_desc(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    project_root = tmp_path / "repo"
+    project_root.mkdir()
+    runtime_root = project_root / ".meridian"
+    rows = [
+        SimpleNamespace(
+            id="p101",
+            status="succeeded",
+            model="gpt-5.4",
+            agent="reviewer",
+            desc="quick desc",
+            prompt="ignored because desc exists",
+            duration_secs=0.7,
+            total_cost_usd=0.01,
+        )
+    ]
+
+    monkeypatch.setattr(spawn_cli, "resolve_project_root", lambda: project_root)
+    monkeypatch.setattr(spawn_cli, "resolve_runtime_root_for_read", lambda _root: runtime_root)
+    monkeypatch.setattr(spawn_cli, "resolve_spawn_reference", lambda _root, ref: ref)
+    monkeypatch.setattr(spawn_cli.spawn_store, "list_spawns", lambda _root, filters=None: rows)
+    monkeypatch.setattr(
+        "meridian.lib.state.reaper.reconcile_spawns",
+        lambda _state_root, spawns: spawns,
+    )
+    monkeypatch.setattr(
+        spawn_cli,
+        "get_global_options",
+        lambda: SimpleNamespace(output=SimpleNamespace(format="json")),
+    )
+
+    emitted: list[SpawnListOutput] = []
+    spawn_cli._spawn_children(emitted.append, "p100")
+
+    payload = emitted[0].model_dump()
+    assert payload["spawns"][0]["agent"] == "reviewer"
+    assert payload["spawns"][0]["desc"] == "quick desc"
 
 
 def _capture_filters_and_return_empty(

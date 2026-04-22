@@ -48,6 +48,7 @@ def test_child_env_context_from_environment_uses_resolved_context_parent_fields(
         work_id="work-explicit",
         work_dir=(project_paths.execution_cwd / ".meridian" / "work" / "work-explicit").resolve(),
         kb_dir=(project_paths.execution_cwd / ".meridian" / "kb").resolve(),
+        context_dirs=(),
     )
 
 
@@ -135,6 +136,7 @@ def test_child_env_context_child_context_routes_through_contract_helpers(
         work_id="work-55",
         work_dir=tmp_path / "repo/.meridian/work/work-55",
         kb_dir=tmp_path / "repo/.meridian/kb",
+        context_dirs=(("docs", tmp_path / "repo/.meridian/docs"),),
     )
     expected = {
         "MERIDIAN_DEPTH": "6",
@@ -151,6 +153,7 @@ def test_child_env_context_child_context_routes_through_contract_helpers(
     def fake_build_child_env_overrides(**kwargs: object) -> dict[str, str]:
         assert kwargs == {
             "parent_spawn_id": None,
+            "child_spawn_id": None,
             "project_root": ctx.project_root,
             "runtime_root": ctx.runtime_root,
             "parent_chat_id": "chat-parent",
@@ -158,6 +161,7 @@ def test_child_env_context_child_context_routes_through_contract_helpers(
             "work_id": "work-55",
             "work_dir": ctx.work_dir,
             "kb_dir": ctx.kb_dir,
+            "context_dirs": (("docs", tmp_path / "repo/.meridian/docs"),),
         }
         return dict(expected)
 
@@ -177,3 +181,36 @@ def test_child_env_context_child_context_routes_through_contract_helpers(
 
     assert result == expected
     assert seen == [expected]
+
+
+def test_child_env_context_passes_child_spawn_id_through(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    ctx = ChildEnvContext(
+        parent_spawn_id="p-parent",
+        project_root=tmp_path / "repo",
+        runtime_root=tmp_path / "runtime-state",
+        parent_chat_id=None,
+        parent_depth=1,
+    )
+
+    seen_kwargs: dict[str, object] = {}
+
+    def fake_build_child_env_overrides(**kwargs: object) -> dict[str, str]:
+        seen_kwargs.update(kwargs)
+        return {
+            "MERIDIAN_DEPTH": "2",
+            "MERIDIAN_SPAWN_ID": "p2",
+            "MERIDIAN_PARENT_SPAWN_ID": "p-parent",
+        }
+
+    monkeypatch.setattr(
+        "meridian.lib.launch.context.build_child_env_overrides",
+        fake_build_child_env_overrides,
+    )
+
+    result = ctx.child_context(child_spawn_id="p2")
+
+    assert result["MERIDIAN_SPAWN_ID"] == "p2"
+    assert seen_kwargs["child_spawn_id"] == "p2"

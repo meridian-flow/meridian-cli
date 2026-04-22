@@ -162,6 +162,7 @@ def test_build_launch_context_projects_runtime_child_env_paths(
     )
 
     assert runtime_ctx.env_overrides["MERIDIAN_DEPTH"] == "3"
+    assert runtime_ctx.env_overrides["MERIDIAN_SPAWN_ID"] == "p-child-env"
     assert runtime_ctx.env_overrides["MERIDIAN_CHAT_ID"] == "c-parent"
     assert runtime_ctx.env_overrides["MERIDIAN_PROJECT_DIR"] == tmp_path.as_posix()
     assert runtime_ctx.env_overrides["MERIDIAN_RUNTIME_DIR"] == (
@@ -178,3 +179,25 @@ def test_build_launch_context_projects_runtime_child_env_paths(
         tmp_path / ".meridian" / "kb"
     ).as_posix()
     assert set(runtime_ctx.env_overrides) <= ALLOWED_CHILD_ENV_KEYS
+
+
+def test_build_launch_context_emits_child_spawn_id(
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.delenv("MERIDIAN_HARNESS_COMMAND", raising=False)
+    monkeypatch.setenv("MERIDIAN_SPAWN_ID", "p-parent")
+    monkeypatch.setenv("MERIDIAN_DEPTH", "1")
+    request = _build_spawn_request()
+    runtime = _build_launch_runtime(tmp_path=tmp_path)
+
+    runtime_ctx = build_launch_context(
+        spawn_id="p-child",
+        request=request,
+        runtime=runtime,
+        harness_registry=get_default_harness_registry(),
+        dry_run=True,
+    )
+
+    assert runtime_ctx.env_overrides["MERIDIAN_SPAWN_ID"] == "p-child"
+    assert runtime_ctx.env_overrides["MERIDIAN_PARENT_SPAWN_ID"] == "p-parent"

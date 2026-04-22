@@ -4,6 +4,7 @@ This module defines the canonical ``MERIDIAN_*`` key surface that callers may
 propagate into child processes.
 """
 
+import re
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from meridian.lib.core.types import SpawnId
 ALLOWED_CHILD_ENV_KEYS: frozenset[str] = frozenset(
     {
         "MERIDIAN_SPAWN_ID",
+        "MERIDIAN_PARENT_SPAWN_ID",
         "MERIDIAN_PROJECT_DIR",
         "MERIDIAN_RUNTIME_DIR",
         "MERIDIAN_DEPTH",
@@ -25,6 +27,8 @@ ALLOWED_CHILD_ENV_KEYS: frozenset[str] = frozenset(
     }
 )
 
+_CONTEXT_DIR_PATTERN = re.compile(r"^MERIDIAN_CONTEXT_[A-Z][A-Z0-9_]*_DIR$")
+
 
 def validate_child_env_keys(overrides: Mapping[str, str]) -> None:
     """Raise if overrides contain unexpected MERIDIAN_* keys.
@@ -33,8 +37,13 @@ def validate_child_env_keys(overrides: Mapping[str, str]) -> None:
     :data:`ALLOWED_CHILD_ENV_KEYS`.
     """
     for key in overrides:
-        if key.startswith("MERIDIAN_") and key not in ALLOWED_CHILD_ENV_KEYS:
-            raise RuntimeError(f"Unexpected MERIDIAN_* key in child env: {key}")
+        if not key.startswith("MERIDIAN_"):
+            continue
+        if key in ALLOWED_CHILD_ENV_KEYS:
+            continue
+        if _CONTEXT_DIR_PATTERN.match(key):
+            continue
+        raise RuntimeError(f"Unexpected MERIDIAN_* key in child env: {key}")
 
 
 def build_child_env_overrides(
@@ -44,10 +53,12 @@ def build_child_env_overrides(
     runtime_root: Path | None,
     parent_chat_id: str | None,
     parent_depth: int,
+    child_spawn_id: str | None = None,
     work_id: str | None = None,
     work_dir: Path | None = None,
     kb_dir: Path | None = None,
     fs_dir: Path | None = None,
+    context_dirs: tuple[tuple[str, Path], ...] = (),
     increment_depth: bool = True,
 ) -> dict[str, str]:
     """Build ``MERIDIAN_*`` child env overrides from resolved context fields.
@@ -70,6 +81,9 @@ def build_child_env_overrides(
         (the default) the child gets ``parent_depth + 1``; pass
         ``increment_depth=False`` to keep the depth unchanged (needed for
         background workers that run at the same depth as their launcher).
+    child_spawn_id:
+        Spawn ID to assign to the child via ``MERIDIAN_SPAWN_ID``. When
+        omitted, ``parent_spawn_id`` is reused for compatibility.
     work_id:
         Work item ID, or ``None`` to omit ``MERIDIAN_WORK_ID``.
     work_dir:
@@ -101,8 +115,12 @@ def build_child_env_overrides(
         work_id=work_id,
         work_dir=work_dir,
         kb_dir=resolved_kb_dir,
+        context_dirs=context_dirs,
     )
-    return ctx.child_env_overrides(increment_depth=increment_depth)
+    return ctx.child_env_overrides(
+        increment_depth=increment_depth,
+        child_spawn_id=child_spawn_id,
+    )
 
 
 __all__ = [

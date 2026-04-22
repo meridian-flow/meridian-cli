@@ -92,6 +92,7 @@ class ChildEnvContext:
     work_id: str | None = None
     work_dir: Path | None = None
     kb_dir: Path | None = None
+    context_dirs: tuple[tuple[str, Path], ...] = ()
 
     @classmethod
     def from_environment(
@@ -133,11 +134,13 @@ class ChildEnvContext:
             work_id=work_id,
             work_dir=work_dir,
             kb_dir=kb_dir,
+            context_dirs=parent_ctx.context_dirs,
         )
 
-    def child_context(self) -> dict[str, str]:
+    def child_context(self, *, child_spawn_id: str | None = None) -> dict[str, str]:
         overrides = build_child_env_overrides(
             parent_spawn_id=self.parent_spawn_id,
+            child_spawn_id=child_spawn_id,
             project_root=self.project_root,
             runtime_root=self.runtime_root,
             parent_chat_id=self.parent_chat_id,
@@ -145,6 +148,7 @@ class ChildEnvContext:
             work_id=self.work_id,
             work_dir=self.work_dir,
             kb_dir=self.kb_dir,
+            context_dirs=self.context_dirs,
         )
         validate_child_env_keys(overrides)
         return overrides
@@ -759,7 +763,7 @@ def build_launch_context(
     effective_work_id = (runtime_work_id or resolved_request.work_id_hint or "").strip() or None
     merged_overrides = merge_env_overrides(
         plan_overrides=plan_overrides or {},
-        runtime_overrides=runtime_ctx.child_context(),
+        runtime_overrides=runtime_ctx.child_context(child_spawn_id=spawn_id),
         preflight_overrides=preflight.extra_env,
     )
     merged_overrides.update(workspace_projection.env_overrides)

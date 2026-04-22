@@ -38,6 +38,14 @@ def test_validate_accepts_empty_mapping() -> None:
     validate_child_env_keys({})
 
 
+def test_validate_accepts_parent_spawn_id() -> None:
+    validate_child_env_keys({"MERIDIAN_PARENT_SPAWN_ID": "p1"})
+
+
+def test_validate_accepts_context_dir_keys() -> None:
+    validate_child_env_keys({"MERIDIAN_CONTEXT_DOCS_DIR": "/contexts/docs"})
+
+
 def test_validate_rejects_unexpected_meridian_key() -> None:
     """An unknown MERIDIAN_* key must raise RuntimeError."""
     overrides = {"MERIDIAN_UNKNOWN_CUSTOM": "value"}
@@ -54,6 +62,16 @@ def test_validate_rejects_unexpected_key_mixed_with_allowed() -> None:
     }
     with pytest.raises(RuntimeError, match="MERIDIAN_NOVEL_KEY"):
         validate_child_env_keys(overrides)
+
+
+def test_validate_rejects_context_dir_near_misses() -> None:
+    for key in (
+        "MERIDIAN_CONTEXT_DOCS",
+        "MERIDIAN_CONTEXT__DIR",
+        "MERIDIAN_CONTEXT_DOCS_DIR_EXTRA",
+    ):
+        with pytest.raises(RuntimeError, match=key):
+            validate_child_env_keys({key: "/bad"})
 
 
 # ---------------------------------------------------------------------------
@@ -149,6 +167,33 @@ def test_build_full_overrides() -> None:
     }
 
 
+def test_build_with_child_spawn_id() -> None:
+    result = build_child_env_overrides(
+        parent_spawn_id="p-parent",
+        child_spawn_id="p-child",
+        project_root=None,
+        runtime_root=None,
+        parent_chat_id=None,
+        parent_depth=1,
+    )
+
+    assert result["MERIDIAN_SPAWN_ID"] == "p-child"
+    assert result["MERIDIAN_PARENT_SPAWN_ID"] == "p-parent"
+
+
+def test_build_with_context_dirs() -> None:
+    result = build_child_env_overrides(
+        parent_spawn_id=None,
+        project_root=None,
+        runtime_root=None,
+        parent_chat_id=None,
+        parent_depth=0,
+        context_dirs=(("docs", Path("/contexts/docs")),),
+    )
+
+    assert result["MERIDIAN_CONTEXT_DOCS_DIR"] == "/contexts/docs"
+
+
 def test_build_result_keys_are_subset_of_allowed() -> None:
     """All keys produced by build_child_env_overrides must be in ALLOWED_CHILD_ENV_KEYS."""
     result = build_child_env_overrides(
@@ -191,6 +236,7 @@ def test_integration_matches_resolved_context_child_env_overrides() -> None:
 
     result = build_child_env_overrides(
         parent_spawn_id=None,
+        child_spawn_id=None,
         project_root=repo,
         runtime_root=state,
         parent_chat_id="c7",
@@ -198,6 +244,7 @@ def test_integration_matches_resolved_context_child_env_overrides() -> None:
         work_id="w42",
         work_dir=work_dir,
         kb_dir=kb_dir,
+        context_dirs=(),
     )
 
     assert result == expected

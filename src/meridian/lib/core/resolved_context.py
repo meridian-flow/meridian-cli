@@ -43,6 +43,7 @@ class ResolvedContext:
     """Canonical immutable runtime context resolved from ``MERIDIAN_*`` inputs."""
 
     spawn_id: SpawnId | None = None
+    parent_spawn_id: SpawnId | None = None
     depth: int = 0
     project_root: Path | None = None
     runtime_root: Path | None = None
@@ -67,6 +68,7 @@ class ResolvedContext:
         backend_impl = backend or LocalFilesystemBackend()
 
         spawn_id_raw = os.getenv("MERIDIAN_SPAWN_ID", "").strip()
+        parent_spawn_id_raw = os.getenv("MERIDIAN_PARENT_SPAWN_ID", "").strip()
         depth_raw = os.getenv("MERIDIAN_DEPTH", "0").strip()
         project_root_raw = os.getenv("MERIDIAN_PROJECT_DIR", "").strip()
         runtime_root_raw = os.getenv("MERIDIAN_RUNTIME_DIR", "").strip()
@@ -123,6 +125,7 @@ class ResolvedContext:
 
         return cls(
             spawn_id=SpawnId(spawn_id_raw) if spawn_id_raw else None,
+            parent_spawn_id=SpawnId(parent_spawn_id_raw) if parent_spawn_id_raw else None,
             depth=depth,
             project_root=project_root,
             runtime_root=runtime_root,
@@ -133,13 +136,19 @@ class ResolvedContext:
             context_dirs=context_dirs,
         )
 
-    def child_env_overrides(self, *, increment_depth: bool = True) -> dict[str, str]:
+    def child_env_overrides(
+        self, *, increment_depth: bool = True, child_spawn_id: str | None = None
+    ) -> dict[str, str]:
         """Produce `MERIDIAN_*` env overrides for child processes."""
 
         next_depth = self.depth + 1 if increment_depth else self.depth
         overrides: dict[str, str] = {"MERIDIAN_DEPTH": str(next_depth)}
-        if self.spawn_id is not None:
+        if child_spawn_id is not None:
+            overrides["MERIDIAN_SPAWN_ID"] = child_spawn_id
+        elif self.spawn_id is not None:
             overrides["MERIDIAN_SPAWN_ID"] = str(self.spawn_id)
+        if self.spawn_id is not None:
+            overrides["MERIDIAN_PARENT_SPAWN_ID"] = str(self.spawn_id)
         if self.project_root is not None:
             overrides["MERIDIAN_PROJECT_DIR"] = self.project_root.as_posix()
         if self.runtime_root is not None:

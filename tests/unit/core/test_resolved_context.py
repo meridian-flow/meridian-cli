@@ -10,6 +10,7 @@ from meridian.lib.core.resolved_context import ContextBackend, ResolvedContext
 
 _MERIDIAN_ENV_KEYS = (
     "MERIDIAN_SPAWN_ID",
+    "MERIDIAN_PARENT_SPAWN_ID",
     "MERIDIAN_DEPTH",
     "MERIDIAN_PROJECT_DIR",
     "MERIDIAN_RUNTIME_DIR",
@@ -55,6 +56,7 @@ def test_from_environment_without_env_vars(monkeypatch: pytest.MonkeyPatch) -> N
     resolved = ResolvedContext.from_environment(backend=backend)
 
     assert resolved.spawn_id is None
+    assert resolved.parent_spawn_id is None
     assert resolved.depth == 0
     assert resolved.project_root is None
     assert resolved.runtime_root is None
@@ -149,6 +151,43 @@ def test_child_env_overrides_output_format() -> None:
         "MERIDIAN_FS_DIR": "/repo/.meridian/kb",
     }
     assert resolved.child_env_overrides(increment_depth=False)["MERIDIAN_DEPTH"] == "2"
+
+
+def test_from_environment_reads_parent_spawn_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    _clear_meridian_env(monkeypatch)
+    monkeypatch.setenv("MERIDIAN_PARENT_SPAWN_ID", "p-parent")
+
+    resolved = ResolvedContext.from_environment(backend=FakeBackend())
+
+    assert resolved.parent_spawn_id == "p-parent"
+
+
+def test_child_env_overrides_emits_child_spawn_id() -> None:
+    from meridian.lib.core.types import SpawnId
+
+    resolved = ResolvedContext(spawn_id=SpawnId("p-parent"), depth=2)
+
+    overrides = resolved.child_env_overrides(child_spawn_id="p-child")
+
+    assert overrides["MERIDIAN_SPAWN_ID"] == "p-child"
+
+
+def test_child_env_overrides_emits_parent_spawn_id() -> None:
+    from meridian.lib.core.types import SpawnId
+
+    resolved = ResolvedContext(spawn_id=SpawnId("p-parent"), depth=2)
+
+    overrides = resolved.child_env_overrides()
+
+    assert overrides["MERIDIAN_PARENT_SPAWN_ID"] == "p-parent"
+
+
+def test_child_env_overrides_omits_parent_spawn_id_at_depth_0() -> None:
+    resolved = ResolvedContext(depth=0)
+
+    overrides = resolved.child_env_overrides()
+
+    assert "MERIDIAN_PARENT_SPAWN_ID" not in overrides
 
 
 def test_resolved_context_is_frozen() -> None:
