@@ -11,6 +11,9 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `.meridian/id` now committed to git — stable project identity across clones/worktrees. `ensure_gitignore()` migrates old `.gitignore` files automatically (strips `id` ignore, adds `!id` to required lines).
 - **Naming overhaul**: no "repo" or "state root" anywhere. `repo_root` → `project_root`, `state_root` → `runtime_root`, `MERIDIAN_REPO_ROOT` → `MERIDIAN_PROJECT_DIR`, `MERIDIAN_STATE_ROOT` → `MERIDIAN_RUNTIME_DIR`, `get_user_state_root` → `get_meridian_home`, `get_project_state_root` → `get_project_data_root`, `StatePaths` → `ProjectPaths`, `StateRootPaths` → `RuntimePaths`, `RepoStatePaths` → `ProjectPaths`, `.state_root` field → `.runtime_root`. Breaking rename — no backwards compat aliases.
 
+### Fixed
+- Background spawns use `--project-root` for worker launch. No stale `--repo-root` crash after rename.
+
 ### Removed
 - `work-items/` directory, `work-items.flock`, `work-items.rename.intent.json` — all replaced by directory-as-work-item model.
 - `RuntimePaths.work_items_dir`, `work_items_flock`, `work_items_rename_intent` fields.

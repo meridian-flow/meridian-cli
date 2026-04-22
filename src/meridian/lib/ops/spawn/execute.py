@@ -617,7 +617,7 @@ def _build_background_worker_command(
         "meridian.lib.ops.spawn.execute",
         "--spawn-id",
         spawn_id,
-        "--repo-root",
+        "--project-root",
         project_paths.project_root.as_posix(),
     )
 
@@ -998,7 +998,7 @@ def execute_spawn_blocking(
 def _build_background_worker_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m meridian.lib.ops.spawn.execute")
     parser.add_argument("--spawn-id", required=True)
-    parser.add_argument("--repo-root", required=True)
+    parser.add_argument("--project-root", required=True)
     return parser
 
 
