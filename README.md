@@ -2,6 +2,8 @@
 
 Orchestrate AI coding agents across Claude Code, Codex, and OpenCode. Each model runs through its native harness — meridian coordinates between them.
 
+> **Early development.** Meridian is not stable. Expect breaking changes in any release. If you need a stable workflow, this project is not ready for you yet.
+
 ## Why
 
 Claude Code is the best way to run Claude. Codex CLI is the best way to run GPT. Each provider's harness is optimized for their models — sandboxing, tool use, context handling, everything.
@@ -121,6 +123,10 @@ uv run pyright
 ```
 
 See [DEVELOPMENT.md](DEVELOPMENT.md) for full dev setup.
+
+## Contributing
+
+This project is not accepting external contributions at this time. The maintainer is keeping it closed to outside contributions until the codebase is stable enough to support them well. Bug reports and feedback are welcome as GitHub issues.
 
 ## License
 
