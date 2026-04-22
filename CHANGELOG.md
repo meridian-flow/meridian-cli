@@ -5,6 +5,7 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 - Launch artifacts now emit `references.json` when references exist, with per-item routing (`inline`, `native-injection`, `omitted`) and native flag detail.
+- Smoke coverage now checks Claude primary, Codex inline, and OpenCode native-reference launch artifacts via `uv run meridian`.
 
 ### Changed
 - Launch artifacts now write from one shared projection path. Primary uses adapter `ProjectedContent` as authority for `system-prompt.md`, `starting-prompt.md`, and `projection-manifest.json`.
