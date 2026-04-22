@@ -34,7 +34,7 @@ def run_app(
 
     use_tcp = IS_WINDOWS or port is not None
     if use_tcp:
-        resolved_port = port if port is not None else 8420
+        resolved_port = port if port is not None else 7676
         port_file = runtime_root / "app.port"
         port_file.parent.mkdir(parents=True, exist_ok=True)
         port_file.write_text(f"{resolved_port}\n", encoding="utf-8")
@@ -55,7 +55,7 @@ def run_app(
     else:
         print(
             "Browser access requires an HTTP->UDS proxy (for example: "
-            f"socat TCP-LISTEN:8420,reuseaddr,fork UNIX-CONNECT:{resolved_socket_path})"
+            f"socat TCP-LISTEN:7676,reuseaddr,fork UNIX-CONNECT:{resolved_socket_path})"
         )
     uvicorn_module.run(app, uds=str(resolved_socket_path), log_level="info")
 

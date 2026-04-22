@@ -68,3 +68,54 @@ and the new tag.
 ```bash
 uv run meridian --help
 ```
+
+## App Server + Frontend
+
+The app is a FastAPI backend serving a Vite/React frontend.
+
+### Backend only
+
+```bash
+uv run meridian app --port 7676
+# Serves API at http://localhost:7676
+# Also serves frontend/dist/ at / if built
+```
+
+### Frontend dev (hot reload)
+
+```bash
+# Terminal 1: backend
+uv run meridian app --port 7676
+
+# Terminal 2: Vite dev server
+cd frontend && pnpm dev
+# http://localhost:5173 — proxies /api and /ws to :7676
+```
+
+For remote access (working from a remote machine):
+
+```bash
+cd frontend && pnpm dev --host 0.0.0.0
+# http://<remote-ip>:5173
+```
+
+### Production build
+
+```bash
+cd frontend && pnpm build   # builds to frontend/dist/
+uv run meridian app --port 7676
+# Frontend served at http://localhost:7676
+```
+
+### Storybook (component playground)
+
+```bash
+cd frontend && pnpm storybook
+# http://localhost:6006 (already binds 0.0.0.0 for remote access)
+```
+
+### Frontend setup (first time)
+
+```bash
+cd frontend && pnpm install
+```

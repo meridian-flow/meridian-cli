@@ -11,9 +11,10 @@ export default defineConfig({
     },
   },
   server: {
+    allowedHosts: true,
     proxy: {
-      "/api": "http://localhost:8420",
-      "/ws": { target: "ws://localhost:8420", ws: true },
+      "/api": "http://localhost:7676",
+      "/ws": { target: "ws://localhost:7676", ws: true },
     },
   },
   build: {

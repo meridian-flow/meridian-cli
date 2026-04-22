@@ -45,7 +45,7 @@ def register_misc_commands(
             Parameter(
                 name="--port",
                 help=(
-                    "TCP port for the app server (default on Windows: 8420). "
+                    "TCP port for the app server (default: 7676). "
                     "Enables TCP binding instead of Unix socket."
                 ),
             ),
