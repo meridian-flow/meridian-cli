@@ -322,13 +322,11 @@ def work_update_sync(
     current = _require_work_item(project_state_dir, payload.work_id)
     if payload.status == "done":
         attachment_warning = _active_work_attachment_warning(runtime_state_root, payload.work_id)
-        item = work_store.archive_work_item(project_state_dir, payload.work_id)
-        if payload.description is not None:
-            item = work_store.update_work_item(
-                project_state_dir,
-                payload.work_id,
-                description=payload.description,
-            )
+        item = work_store.archive_work_item(
+            project_state_dir,
+            payload.work_id,
+            description=payload.description,
+        )
         _dispatch_work_hook_event(
             event_name="work.done",
             project_root=roots.project_root,
@@ -386,27 +384,17 @@ def work_delete_sync(
     nested_warning = _work_warning(ctx)
     roots = resolve_roots(payload.project_root)
     project_state_dir = roots.project_state_dir
-    try:
-        item, had_artifacts = work_store.delete_work_item(
-            project_state_dir,
-            payload.work_id,
-            force=payload.force,
-        )
-        return WorkDeleteOutput(
-            name=item.name,
-            had_artifacts=had_artifacts,
-            deleted=True,
-            warning=nested_warning or "",
-        )
-    except ValueError as exc:
-        if "has artifacts" in str(exc):
-            return WorkDeleteOutput(
-                name=payload.work_id,
-                had_artifacts=True,
-                deleted=False,
-                warning=nested_warning or "",
-            )
-        raise
+    item, had_artifacts = work_store.delete_work_item(
+        project_state_dir,
+        payload.work_id,
+        force=payload.force,
+    )
+    return WorkDeleteOutput(
+        name=item.name,
+        had_artifacts=had_artifacts,
+        deleted=True,
+        warning=nested_warning or "",
+    )
 
 
 def work_reopen_sync(

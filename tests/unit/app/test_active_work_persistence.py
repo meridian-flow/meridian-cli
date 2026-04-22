@@ -126,6 +126,7 @@ async def test_get_active_work_falls_back_to_latest_open_item_and_persists_it(
             "2026-04-20T12:00:00Z",
             "2026-04-20T12:05:00Z",
             "2026-04-20T12:10:00Z",
+            "2026-04-20T12:15:00Z",
         ]
     )
     monkeypatch.setattr(work_store, "utc_now_iso", lambda: next(timestamps))

@@ -135,12 +135,15 @@ def _read_or_initialize_status(
 
     archived_value = raw.get("archived_at")
     if archived:
+        reopen_interrupted = archived_value is None and payload["status"] == "open"
         if isinstance(archived_value, str) and archived_value:
             payload["archived_at"] = archived_value
+        elif reopen_interrupted:
+            payload["archived_at"] = None
         else:
             payload["archived_at"] = _dir_mtime_iso(work_dir)
             changed = True
-        if payload["status"] != "done":
+        if not reopen_interrupted and payload["status"] != "done":
             payload["status"] = "done"
             changed = True
     else:
@@ -199,6 +202,12 @@ def _ensure_not_both_locations(
         raise ValueError(
             f"Work item '{work_id}' exists in both active and archive directories."
         )
+
+
+def _list_work_item_dirs(root_dir: Path) -> list[Path]:
+    if not root_dir.is_dir():
+        return []
+    return [child for child in root_dir.iterdir() if child.is_dir()]
 
 
 def _status_payload(
@@ -286,7 +295,7 @@ def _migrate_legacy_work_items(state_root: Path) -> None:
 
         if archived_exists and not _status_path(archived).exists():
             created_at = legacy_created_at or _dir_mtime_iso(archived)
-            archived_at = _dir_mtime_iso(archived)
+            archived_at = _format_ts(metadata_path.stat().st_mtime)
             atomic_write_text(
                 _status_path(archived),
                 _serialize_status(
@@ -407,13 +416,18 @@ def list_work_items(state_root: Path) -> list[WorkItem]:
 
     _migrate_legacy_work_items(state_root)
     paths = RuntimePaths.from_root_dir(state_root)
-    if not paths.work_dir.is_dir():
+    active_dirs = _list_work_item_dirs(paths.work_dir)
+    if not active_dirs:
         return []
+    archived_names = {child.name for child in _list_work_item_dirs(paths.work_archive_dir)}
 
     items: list[WorkItem] = []
-    for child in paths.work_dir.iterdir():
-        if child.is_dir():
-            items.append(_work_item_from_dir(child, archived=False))
+    for child in active_dirs:
+        if child.name in archived_names:
+            raise ValueError(
+                f"Work item '{child.name}' exists in both active and archive directories."
+            )
+        items.append(_work_item_from_dir(child, archived=False))
     return sorted(items, key=lambda item: (item.created_at, item.name))
 
 
@@ -427,16 +441,21 @@ def list_archived_work_items(
 
     _migrate_legacy_work_items(state_root)
     paths = RuntimePaths.from_root_dir(state_root)
-    if not paths.work_archive_dir.is_dir():
+    archived_dirs = _list_work_item_dirs(paths.work_archive_dir)
+    if not archived_dirs:
         return []
 
     if limit < 0:
         raise ValueError("limit must be non-negative.")
+    active_names = {child.name for child in _list_work_item_dirs(paths.work_dir)}
 
     items: list[WorkItem] = []
-    for child in paths.work_archive_dir.iterdir():
-        if child.is_dir():
-            items.append(_work_item_from_dir(child, archived=True))
+    for child in archived_dirs:
+        if child.name in active_names:
+            raise ValueError(
+                f"Work item '{child.name}' exists in both active and archive directories."
+            )
+        items.append(_work_item_from_dir(child, archived=True))
 
     items.sort(
         key=lambda item: (
@@ -497,7 +516,12 @@ def update_work_item(
     return updated
 
 
-def archive_work_item(state_root: Path, work_id: str) -> WorkItem:
+def archive_work_item(
+    state_root: Path,
+    work_id: str,
+    *,
+    description: str | None = None,
+) -> WorkItem:
     """Archive active work by moving directory first, then setting done status."""
 
     _migrate_legacy_work_items(state_root)
@@ -516,9 +540,10 @@ def archive_work_item(state_root: Path, work_id: str) -> WorkItem:
 
     current = _work_item_from_dir(destination, archived=True)
     archived_at = utc_now_iso()
+    archived_description = current.description if description is None else description
     archived_item = WorkItem(
         name=current.name,
-        description=current.description,
+        description=archived_description,
         status="done",
         created_at=current.created_at,
         archived_at=archived_at,
