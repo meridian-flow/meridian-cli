@@ -7,6 +7,9 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Agent mode output defaults now per command: control-plane -> JSON, read/browse -> text.
 - JSON mode no hidden JSONL `AgentSink` envelope; command JSON writes direct.
 
+### Fixed
+- Git-backed context roots now project to harness launches as `--add-dir`, so Claude/Codex can read work/kb files under context clones without extra prompts.
+
 ## [0.0.40-rc.2] - 2026-04-22
 
 ### Changed
