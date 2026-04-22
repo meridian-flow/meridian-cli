@@ -1,15 +1,14 @@
-"""Test CWD isolation logic for claude child spawns."""
+"""Test child CWD resolution for managed spawns."""
 
 from pathlib import Path
 
 import pytest
 
-from meridian.lib.core.types import HarnessId, SpawnId
+from meridian.lib.core.types import HarnessId
 from meridian.lib.launch.cwd import resolve_child_execution_cwd
-from meridian.lib.state.paths import resolve_spawn_log_dir
 
 
-def test_claude_harness_flips_to_log_dir_under_claudecode(
+def test_claude_harness_returns_project_root_under_claudecode(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -20,7 +19,7 @@ def test_claude_harness_flips_to_log_dir_under_claudecode(
         harness_id=HarnessId.CLAUDE.value,
     )
 
-    assert resolved == resolve_spawn_log_dir(tmp_path, SpawnId("r1"))
+    assert resolved == tmp_path
 
 
 def test_non_claude_harness_keeps_project_cwd_under_claudecode(

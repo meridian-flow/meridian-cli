@@ -54,7 +54,11 @@ from .composition import ComposedLaunchContent, ProjectedContent
 from .cwd import resolve_child_execution_cwd
 from .env import build_env_plan, inherit_child_env
 from .env import merge_env_overrides as _merge_env_overrides
-from .permissions import resolve_permission_pipeline
+from .permissions import (
+    CLAUDE_NATIVE_DELEGATION_TOOLS,
+    resolve_nested_claude_permission_request,
+    resolve_permission_pipeline,
+)
 from .policies import resolve_policies
 from .prompt import (
     build_agent_inventory_prompt,
@@ -133,10 +137,9 @@ class ChildEnvContext:
         kb_dir = repo_paths.kb_dir
 
         return cls(
-            # Keep MERIDIAN_PROJECT_DIR anchored to the repo/config root. The
-            # harness process may run from a spawn artifact directory for
-            # Claude-in-Claude isolation, but nested meridian commands still
-            # need repo-local profiles, skills, and config.
+            # Keep MERIDIAN_PROJECT_DIR anchored to the project/config root so
+            # nested meridian commands resolve repo-local profiles, skills,
+            # and config from the same place as the parent launch.
             parent_spawn_id=parent_spawn_id,
             project_root=resolved_project_root,
             runtime_root=resolved_runtime_root,
@@ -188,6 +191,18 @@ class LaunchContext:
     is_bypass: bool = False
     # I-13: adapter input transformations surface here instead of silently mutating.
     warnings: tuple[CompositionWarning, ...] = ()
+
+
+@dataclass(frozen=True)
+class _SurfaceResolution:
+    request: SpawnRequest
+    harness: SubprocessHarness
+    seed_harness_session_id: str | None
+    composition_warnings: tuple[CompositionWarning, ...]
+    loaded_references: tuple[ReferenceItem, ...]
+    profile_tools_for_deny_optout: tuple[str, ...]
+    has_profile_for_deny_optout: bool
+    projected_content: ProjectedContent | None
 
 
 def merge_env_overrides(
@@ -364,14 +379,7 @@ def _resolve_surface_request(
     project_paths: ProjectConfigPaths,
     harness_registry: HarnessRegistry,
     dry_run: bool,
-) -> tuple[
-    SpawnRequest,
-    SubprocessHarness,
-    str | None,
-    tuple[CompositionWarning, ...],
-    tuple[ReferenceItem, ...],
-    ProjectedContent | None,
-]:
+) -> _SurfaceResolution:
     config = (
         MeridianConfig.model_validate(runtime.config_snapshot)
         if runtime.config_snapshot
@@ -396,6 +404,7 @@ def _resolve_surface_request(
         skills_readonly=dry_run,
     )
     profile = policies.profile
+    has_profile = profile is not None
     resolved = policies.resolved_overrides
     harness = policies.adapter
     resolved_skills = policies.resolved_skills
@@ -622,6 +631,7 @@ def _resolve_surface_request(
         agent_metadata["appended_system_prompt"] = appended_system_prompt
     if user_turn_content:
         agent_metadata["user_turn_content"] = user_turn_content
+    profile_tools_for_deny_optout = profile.tools if profile is not None else ()
 
     resolved_request = request.model_copy(
         update={
@@ -653,13 +663,15 @@ def _resolve_surface_request(
             "skill_paths": resolve_skill_paths(resolved_skills.loaded_skills),
         }
     )
-    return (
-        resolved_request,
-        harness,
-        seed_harness_session_id,
-        composition_warnings,
-        loaded_references,
-        projected_content,
+    return _SurfaceResolution(
+        request=resolved_request,
+        harness=harness,
+        seed_harness_session_id=seed_harness_session_id,
+        composition_warnings=composition_warnings,
+        loaded_references=loaded_references,
+        profile_tools_for_deny_optout=profile_tools_for_deny_optout,
+        has_profile_for_deny_optout=has_profile,
+        projected_content=projected_content,
     )
 
 
@@ -686,23 +698,26 @@ def build_launch_context(
     runtime_root = Path(runtime.runtime_root).expanduser().resolve()
     resolved_request = request
     composition_warnings: tuple[CompositionWarning, ...] = ()
+    profile_tools_for_deny_optout: tuple[str, ...] = ()
+    has_profile_for_deny_optout = False
     projected_content: ProjectedContent | None = None
     seed_harness_session_id = (request.session.requested_harness_session_id or "").strip() or None
     if runtime.composition_surface != LaunchCompositionSurface.DIRECT:
-        (
-            resolved_request,
-            harness,
-            seed_harness_session_id,
-            composition_warnings,
-            loaded_references,
-            projected_content,
-        ) = _resolve_surface_request(
+        surface = _resolve_surface_request(
             request=request,
             runtime=runtime,
             project_paths=project_paths,
             harness_registry=harness_registry,
             dry_run=dry_run,
         )
+        resolved_request = surface.request
+        harness = surface.harness
+        seed_harness_session_id = surface.seed_harness_session_id
+        composition_warnings = surface.composition_warnings
+        loaded_references = surface.loaded_references
+        profile_tools_for_deny_optout = surface.profile_tools_for_deny_optout
+        has_profile_for_deny_optout = surface.has_profile_for_deny_optout
+        projected_content = surface.projected_content
     else:
         harness_id = _resolve_harness_id(request=request, runtime=runtime)
         harness = harness_registry.get_subprocess_harness(harness_id)
@@ -717,6 +732,8 @@ def build_launch_context(
             resolved_request.reference_files,
             base_dir=project_paths.project_root,
         )
+        profile_tools_for_deny_optout = ()
+        has_profile_for_deny_optout = False
 
     report_output_path = _resolve_report_output_path(
         runtime=runtime,
@@ -729,10 +746,6 @@ def build_launch_context(
         spawn_id=spawn_id,
         harness_id=harness.id.value,
     )
-    # Preview/dry-run callers need composed data without filesystem side-effects.
-    if child_cwd != execution_cwd and not dry_run:
-        child_cwd.mkdir(parents=True, exist_ok=True)
-
     try:
         preflight = harness.preflight(
             execution_cwd=execution_cwd,
@@ -798,6 +811,28 @@ def build_launch_context(
         reference_items=loaded_references,
         user_turn_content=user_turn_content,
     )
+
+    if (
+        runtime.composition_surface == LaunchCompositionSurface.SPAWN_PREPARE
+        and harness.id == HarnessId.CLAUDE
+        and CLAUDE_NATIVE_DELEGATION_TOOLS
+    ):
+        allowed_tools, disallowed_tools = resolve_nested_claude_permission_request(
+            allowed_tools=resolved_request.allowed_tools,
+            disallowed_tools=resolved_request.disallowed_tools,
+            profile_allowed_tools=profile_tools_for_deny_optout,
+            has_profile=has_profile_for_deny_optout,
+        )
+        if (
+            allowed_tools != resolved_request.allowed_tools
+            or disallowed_tools != resolved_request.disallowed_tools
+        ):
+            resolved_request = resolved_request.model_copy(
+                update={
+                    "allowed_tools": allowed_tools,
+                    "disallowed_tools": disallowed_tools,
+                }
+            )
 
     permission_config, perms = resolve_permission_pipeline(
         sandbox=resolved_request.sandbox,
