@@ -3,12 +3,18 @@
 Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [SemVer](https://semver.org/). Versions `0.0.6` through `0.0.25` in git history only — changelog fell stale, resumed at `[Unreleased]`.
 ## [Unreleased]
 
+## [0.0.40] - 2026-04-22
+
 ### Changed
+- App chat UI migrated from frontend-v2.
+- Thread activity internals now named around spawn activity and stream control.
 - Agent mode output defaults now per command: control-plane -> JSON, read/browse -> text.
 - JSON mode no hidden JSONL `AgentSink` envelope; command JSON writes direct.
 
 ### Fixed
 - Git-backed context roots now project to harness launches as `--add-dir`, so Claude/Codex can read work/kb files under context clones without extra prompts.
+- App streaming clears when harness emits `STEP_FINISHED`.
+- Cancelled AG-UI events now emit `RUN_ERROR` with `isCancelled`.
 
 ## [0.0.40-rc.2] - 2026-04-22
 

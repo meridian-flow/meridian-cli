@@ -74,7 +74,10 @@ class OpenCodeAGUIMapper:
                 message = event.payload.get("error")
                 if not isinstance(message, str) or not message:
                     message = "Cancelled"
-                return [*self._close_open_messages(), make_run_error_event(message, is_cancelled=True)]
+                return [
+                    *self._close_open_messages(),
+                    make_run_error_event(message, is_cancelled=True),
+                ]
             if event.event_type == "agent_message_chunk":
                 return self._close_reasoning_message() + self._translate_agent_message_chunk(
                     event.payload
