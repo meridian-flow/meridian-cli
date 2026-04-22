@@ -324,7 +324,7 @@ def test_spawn_prepare_opencode_uses_native_file_injection_and_keeps_inline_fall
     }
     assert f"# Reference: {file_ref.as_posix()}" not in preview.resolved_request.prompt
     assert f"# Reference: {dir_ref.as_posix()}/" in preview.resolved_request.prompt
-    assert "# Meridian Agents" not in preview.resolved_request.prompt
+    assert "# Meridian Agents" in preview.resolved_request.prompt
 
 
 @pytest.mark.parametrize(
@@ -334,7 +334,7 @@ def test_spawn_prepare_opencode_uses_native_file_injection_and_keeps_inline_fall
         ("opencode", "opencode-gpt-5.3-codex"),
     ],
 )
-def test_spawn_prepare_non_claude_does_not_include_agent_inventory_by_default(
+def test_spawn_prepare_non_claude_includes_agent_inventory_inline(
     tmp_path: Path,
     harness: str,
     model: str,
@@ -363,8 +363,11 @@ def test_spawn_prepare_non_claude_does_not_include_agent_inventory_by_default(
     )
 
     assert preview.projected_content is not None
-    assert "# Meridian Agents" not in preview.projected_content.user_turn_content
-    assert "# Meridian Agents" not in preview.resolved_request.prompt
+    assert "# Meridian Agents" in preview.projected_content.user_turn_content
+    assert "AGENTS" in preview.projected_content.user_turn_content
+    assert "- dev-orchestrator" in preview.projected_content.user_turn_content
+    assert "- reviewer" in preview.projected_content.user_turn_content
+    assert "# Meridian Agents" in preview.resolved_request.prompt
 
 
 def test_spawn_prepare_claude_projects_skills_inventory_and_report_to_system_prompt(
