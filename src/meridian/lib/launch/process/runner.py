@@ -286,23 +286,26 @@ def run_harness_process(
                     else str(harness_adapter.id)
                 )
                 has_system_prompt = bool(appended_system_prompt)
-                has_user_turn_content = bool(user_turn_content)
-                
-                # Phase 3A: Update manifest to reflect proper Claude channel separation
-                projection_manifest = {
-                    "harness": harness_id_value,
-                    "surface": "primary",
-                    "channels": {
+
+                if harness_adapter.id == HarnessId.CLAUDE:
+                    manifest_channels = {
                         "system_instruction": (
                             "append-system-prompt" if has_system_prompt else "none"
                         ),
-                        "user_task_prompt": (
-                            "user-turn" if has_user_turn_content else "inline"
-                        ),
-                        "task_context": (
-                            "user-turn" if has_user_turn_content else "inline"
-                        ),
-                    },
+                        "user_task_prompt": "user-turn",
+                        "task_context": "user-turn",
+                    }
+                else:
+                    manifest_channels = {
+                        "system_instruction": "inline",
+                        "user_task_prompt": "inline",
+                        "task_context": "inline",
+                    }
+
+                projection_manifest = {
+                    "harness": harness_id_value,
+                    "surface": "primary",
+                    "channels": manifest_channels,
                 }
                 atomic_write_text(
                     log_dir / "projection-manifest.json",

@@ -29,6 +29,14 @@ from meridian.lib.launch.request import (
 from meridian.lib.launch.types import SessionMode
 
 
+def _write_minimal_mars_config(repo_root: Path) -> None:
+    (repo_root / "mars.toml").write_text(
+        "[settings]\n"
+        'targets = [".agents"]\n',
+        encoding="utf-8",
+    )
+
+
 def test_subprocess_launcher_captures_output_log(tmp_path: Path) -> None:
     output_log_path = tmp_path / "output.jsonl"
     launched = SubprocessProcessLauncher().launch(
@@ -58,11 +66,7 @@ def test_run_harness_process_fork_uses_new_chat_and_materialized_session(
 ) -> None:
     monkeypatch.delenv("MERIDIAN_CHAT_ID", raising=False)
     repo_root = tmp_path
-    (repo_root / "mars.toml").write_text(
-        "[settings]\n"
-        'targets = [".agents"]\n',
-        encoding="utf-8",
-    )
+    _write_minimal_mars_config(repo_root)
     harness_registry = get_default_harness_registry()
     config = load_config(repo_root)
     codex_adapter = harness_registry.get_subprocess_harness(HarnessId.CODEX)
@@ -176,11 +180,7 @@ def test_run_harness_process_writes_prompt_file_before_primary_launch(
 ) -> None:
     monkeypatch.delenv("MERIDIAN_CHAT_ID", raising=False)
     repo_root = tmp_path
-    (repo_root / "mars.toml").write_text(
-        "[settings]\n"
-        'targets = [".agents"]\n',
-        encoding="utf-8",
-    )
+    _write_minimal_mars_config(repo_root)
     harness_registry = get_default_harness_registry()
     config = load_config(repo_root)
     launch_context = build_launch_context(
@@ -204,7 +204,7 @@ def test_run_harness_process_writes_prompt_file_before_primary_launch(
         dry_run=True,
     )
 
-    captured: dict[str, str | bool | None] = {}
+    captured: dict[str, object] = {}
 
     def fake_run_primary_process_with_capture(**kwargs: object) -> tuple[int, int]:
         command = tuple(kwargs["command"])
@@ -221,6 +221,7 @@ def test_run_harness_process_writes_prompt_file_before_primary_launch(
             prompt_file_path.resolve()
             == Path(kwargs["output_log_path"]).with_name("system-prompt.md").resolve()
         )
+        captured["log_dir"] = Path(kwargs["output_log_path"]).parent
         started = kwargs.get("on_child_started")
         assert callable(started)
         started(222)
@@ -249,4 +250,100 @@ def test_run_harness_process_writes_prompt_file_before_primary_launch(
     command = captured.get("command")
     assert command is not None
     assert "primary prompt" in command[-1]  # Positional arg is last
+    log_dir = captured["log_dir"]
+    assert isinstance(log_dir, Path)
+    starting_prompt = (log_dir / "starting-prompt.md").read_text(encoding="utf-8")
+    assert "primary prompt" in starting_prompt
+    assert "passthrough system prompt" not in starting_prompt
+    assert not (log_dir / "prompt.md").exists()
+    assert json.loads((log_dir / "projection-manifest.json").read_text(encoding="utf-8")) == {
+        "harness": "claude",
+        "surface": "primary",
+        "channels": {
+            "system_instruction": "append-system-prompt",
+            "user_task_prompt": "user-turn",
+            "task_context": "user-turn",
+        },
+    }
     assert outcome.exit_code == 0
+
+
+def test_run_harness_process_writes_inline_primary_projection_manifest(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.delenv("MERIDIAN_CHAT_ID", raising=False)
+
+    def fake_launcher_for(captured: dict[str, Path]):
+        def fake_run_primary_process_with_capture(**kwargs: object) -> tuple[int, int]:
+            captured["log_dir"] = Path(kwargs["output_log_path"]).parent
+            started = kwargs.get("on_child_started")
+            assert callable(started)
+            started(333)
+            return (0, 333)
+
+        return fake_run_primary_process_with_capture
+
+    cases = (
+        (HarnessId.CODEX, "gpt-5.4"),
+        (HarnessId.OPENCODE, "opencode-gpt-5.3-codex"),
+    )
+
+    for harness_id, model in cases:
+        repo_root = tmp_path / harness_id.value
+        repo_root.mkdir()
+        _write_minimal_mars_config(repo_root)
+        harness_registry = get_default_harness_registry()
+        config = load_config(repo_root)
+        launch_context = build_launch_context(
+            spawn_id=f"dry-run-primary-{harness_id.value}",
+            request=SpawnRequest(
+                prompt=f"{harness_id.value} primary prompt",
+                prompt_is_composed=False,
+                model=model,
+                harness=harness_id.value,
+                extra_args=(
+                    f"--append-system-prompt={harness_id.value} passthrough system prompt",
+                ),
+            ),
+            runtime=LaunchRuntime(
+                argv_intent=LaunchArgvIntent.REQUIRED,
+                composition_surface=LaunchCompositionSurface.PRIMARY,
+                config_snapshot=config.model_dump(mode="json", exclude_none=True),
+                state_root=(repo_root / ".meridian").as_posix(),
+                project_paths_repo_root=repo_root.as_posix(),
+                project_paths_execution_cwd=repo_root.as_posix(),
+            ),
+            harness_registry=harness_registry,
+            dry_run=True,
+        )
+        adapter = harness_registry.get_subprocess_harness(harness_id)
+        monkeypatch.setattr(adapter, "observe_session_id", lambda **kwargs: None)
+
+        captured: dict[str, Path] = {}
+        monkeypatch.setattr(
+            process,
+            "_run_primary_process_with_capture",
+            fake_launcher_for(captured),
+        )
+        monkeypatch.setattr(process, "stop_session", lambda *args, **kwargs: None)
+        monkeypatch.setattr(process, "update_session_harness_id", lambda *args, **kwargs: None)
+
+        outcome = process.run_harness_process(launch_context, harness_registry)
+
+        log_dir = captured["log_dir"]
+        assert not (log_dir / "system-prompt.md").exists()
+        assert not (log_dir / "prompt.md").exists()
+        starting_prompt = (log_dir / "starting-prompt.md").read_text(encoding="utf-8")
+        assert f"{harness_id.value} passthrough system prompt" in starting_prompt
+        assert f"{harness_id.value} primary prompt" in starting_prompt
+        assert json.loads((log_dir / "projection-manifest.json").read_text(encoding="utf-8")) == {
+            "harness": harness_id.value,
+            "surface": "primary",
+            "channels": {
+                "system_instruction": "inline",
+                "user_task_prompt": "inline",
+                "task_context": "inline",
+            },
+        }
+        assert outcome.exit_code == 0
