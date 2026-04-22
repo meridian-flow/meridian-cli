@@ -9,7 +9,11 @@ from meridian.lib.core.types import ModelId, SpawnId
 from meridian.lib.harness.launch_spec import OpenCodeLaunchSpec
 from meridian.lib.harness.opencode import OpenCodeAdapter
 from meridian.lib.launch.artifact_io import write_projection_artifacts
-from meridian.lib.launch.composition import ProjectedContent, ProjectionChannels
+from meridian.lib.launch.composition import (
+    ProjectedContent,
+    ProjectionChannels,
+    ReferenceRouting,
+)
 from meridian.lib.launch.context import LaunchContext
 from meridian.lib.launch.reference import ReferenceItem
 from meridian.lib.launch.request import LaunchRuntime, SpawnRequest
@@ -56,7 +60,7 @@ def _make_launch_context(
     )
 
 
-def test_write_projection_artifacts_writes_spawn_references_json(tmp_path: Path) -> None:
+def test_write_projection_artifacts_uses_projected_content_for_spawn(tmp_path: Path) -> None:
     file_ref = ReferenceItem(
         kind="file",
         path=tmp_path / "src" / "auth.py",
@@ -83,9 +87,30 @@ def test_write_projection_artifacts_writes_spawn_references_json(tmp_path: Path)
     spec = OpenCodeLaunchSpec(
         prompt="do thing",
         permission_resolver=_resolver(),
-        reference_items=reference_items,
     )
-    launch_context = _make_launch_context(tmp_path=tmp_path, spec=spec, run_inputs=run_inputs)
+    projected = ProjectedContent(
+        system_prompt="",
+        user_turn_content="projected spawn",
+        reference_routing=(
+            ReferenceRouting(
+                path=file_ref.path.as_posix(),
+                type="file",
+                routing="native-injection",
+                native_flag=f"--file {file_ref.path.as_posix()}",
+            ),
+        ),
+        channels=ProjectionChannels(
+            system_instruction="inline",
+            user_task_prompt="inline",
+            task_context="native-injection",
+        ),
+    )
+    launch_context = _make_launch_context(
+        tmp_path=tmp_path,
+        spec=spec,
+        run_inputs=run_inputs,
+        projected=projected,
+    )
     log_dir = tmp_path / "spawn"
     log_dir.mkdir(parents=True)
 
@@ -99,18 +124,6 @@ def test_write_projection_artifacts_writes_spawn_references_json(tmp_path: Path)
             "type": "file",
             "routing": "native-injection",
             "native_flag": f"--file {file_ref.path.as_posix()}",
-        },
-        {
-            "path": directory_ref.path.as_posix(),
-            "type": "directory",
-            "routing": "inline",
-            "native_flag": None,
-        },
-        {
-            "path": warning_file_ref.path.as_posix(),
-            "type": "file",
-            "routing": "inline",
-            "native_flag": None,
         },
     ]
     assert json.loads((log_dir / "projection-manifest.json").read_text(encoding="utf-8")) == {

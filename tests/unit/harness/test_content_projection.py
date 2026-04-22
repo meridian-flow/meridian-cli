@@ -8,6 +8,7 @@ from meridian.lib.harness.launch_spec import ClaudeLaunchSpec
 from meridian.lib.harness.opencode import OpenCodeAdapter
 from meridian.lib.harness.projections.project_claude import project_claude_spec_to_cli_args
 from meridian.lib.launch.composition import ComposedLaunchContent
+from meridian.lib.launch.reference import ReferenceItem
 from meridian.lib.safety.permissions import PermissionConfig, TieredPermissionResolver
 
 
@@ -19,7 +20,13 @@ def _content() -> ComposedLaunchContent:
         inventory_prompt="SYSTEM: agent inventory",
         passthrough_system_fragments=("SYSTEM: passthrough fragment",),
         user_task_prompt="USER: task prompt",
-        reference_blocks=("CONTEXT: reference file",),
+        reference_items=(
+            ReferenceItem(
+                kind="file",
+                path=Path("/repo/ref.txt"),
+                body="CONTEXT: reference file",
+            ),
+        ),
         prior_output="CONTEXT: prior output",
     )
 
@@ -70,7 +77,14 @@ def test_codex_project_content_keeps_required_inline_ordering() -> None:
     projected = CodexAdapter().project_content(_content())
 
     assert projected.system_prompt == ""
-    assert projected.reference_routing == ()
+    assert [route.to_dict() for route in projected.reference_routing] == [
+        {
+            "path": "/repo/ref.txt",
+            "type": "file",
+            "routing": "inline",
+            "native_flag": None,
+        }
+    ]
     assert projected.channel_manifest() == {
         "system_instruction": "inline",
         "user_task_prompt": "inline",
@@ -95,11 +109,18 @@ def test_opencode_project_content_includes_profile_body_as_system_instruction() 
     projected = OpenCodeAdapter().project_content(_content())
 
     assert projected.system_prompt == ""
-    assert projected.reference_routing == ()
+    assert [route.to_dict() for route in projected.reference_routing] == [
+        {
+            "path": "/repo/ref.txt",
+            "type": "file",
+            "routing": "native-injection",
+            "native_flag": "--file /repo/ref.txt",
+        }
+    ]
     assert projected.channel_manifest() == {
         "system_instruction": "inline",
         "user_task_prompt": "inline",
-        "task_context": "inline",
+        "task_context": "native-injection",
     }
     _assert_ordered(
         projected.user_turn_content,
@@ -110,10 +131,10 @@ def test_opencode_project_content_includes_profile_body_as_system_instruction() 
             "SYSTEM: report instruction",
             "SYSTEM: passthrough fragment",
             "USER: task prompt",
-            "CONTEXT: reference file",
             "CONTEXT: prior output",
         ),
     )
+    assert "CONTEXT: reference file" not in projected.user_turn_content
 
 
 def test_claude_cli_projection_uses_system_prompt_file_and_positional_user_turn(

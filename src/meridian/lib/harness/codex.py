@@ -41,11 +41,13 @@ from meridian.lib.launch.composition import (
     ComposedLaunchContent,
     ProjectedContent,
     ProjectionChannels,
+    ReferenceRouting,
 )
 from meridian.lib.launch.constants import (
     BASE_COMMAND_CODEX_SUBPROCESS,
     PRIMARY_BASE_COMMAND_CODEX,
 )
+from meridian.lib.launch.reference import render_reference_blocks
 from meridian.lib.platform import get_home_path
 from meridian.lib.safety.permissions import PermissionConfig
 
@@ -374,6 +376,19 @@ class CodexAdapter(BaseHarnessAdapter[CodexLaunchSpec]):
         
         Ordering: SYSTEM_INSTRUCTION -> USER_TASK_PROMPT -> TASK_CONTEXT
         """
+        reference_routing = tuple(
+            ReferenceRouting(
+                path=item.path.as_posix(),
+                type=item.kind,
+                routing=(
+                    "omitted"
+                    if item.kind == "file" and not item.body.strip() and not item.warning
+                    else "inline"
+                ),
+                native_flag=None,
+            )
+            for item in content.reference_items
+        )
         # Build inline prompt: SYSTEM_INSTRUCTION blocks first
         system_blocks = [
             content.skill_injection,
@@ -388,7 +403,16 @@ class CodexAdapter(BaseHarnessAdapter[CodexLaunchSpec]):
         user_task = content.user_task_prompt.strip()
         
         # Then TASK_CONTEXT
-        context_blocks = [*content.reference_blocks, content.prior_output]
+        inline_reference_items = tuple(
+            item
+            for item, route in zip(
+                content.reference_items,
+                reference_routing,
+                strict=False,
+            )
+            if route.routing == "inline"
+        )
+        context_blocks = [*render_reference_blocks(inline_reference_items), content.prior_output]
         context_text = "\n\n".join(b.strip() for b in context_blocks if b.strip())
         
         user_blocks = [system_text, user_task, context_text]
@@ -397,7 +421,7 @@ class CodexAdapter(BaseHarnessAdapter[CodexLaunchSpec]):
         return ProjectedContent(
             system_prompt="",  # Codex has no system-prompt channel
             user_turn_content=user_turn,
-            reference_routing=(),  # Codex does not support native file injection
+            reference_routing=reference_routing,
             channels=ProjectionChannels(
                 system_instruction="inline",
                 user_task_prompt="inline",

@@ -43,6 +43,7 @@ from meridian.lib.launch.constants import (
     PRIMARY_BASE_COMMAND_CLAUDE,
 )
 from meridian.lib.launch.launch_types import PreflightResult
+from meridian.lib.launch.reference import render_reference_blocks
 from meridian.lib.platform import get_home_path
 from meridian.lib.safety.permissions import PermissionConfig
 
@@ -439,24 +440,34 @@ class ClaudeAdapter(BaseHarnessAdapter[ClaudeLaunchSpec]):
         system_prompt = "\n\n".join(b.strip() for b in system_blocks if b.strip())
         
         # Build user turn: TASK_CONTEXT + USER_TASK_PROMPT
+        reference_routing = tuple(
+            ReferenceRouting(
+                path=item.path.as_posix(),
+                type=item.kind,
+                routing=(
+                    "omitted"
+                    if item.kind == "file" and not item.body.strip() and not item.warning
+                    else "inline"
+                ),
+                native_flag=None,
+            )
+            for item in content.reference_items
+        )
+        inline_reference_items = tuple(
+            item
+            for item, route in zip(
+                content.reference_items,
+                reference_routing,
+                strict=False,
+            )
+            if route.routing == "inline"
+        )
         user_blocks = [
-            *content.reference_blocks,
+            *render_reference_blocks(inline_reference_items),
             content.prior_output,
             content.user_task_prompt,
         ]
         user_turn = "\n\n".join(b.strip() for b in user_blocks if b.strip())
-        
-        # Claude does not support native file injection
-        reference_routing = tuple(
-            ReferenceRouting(
-                path=ref.strip(),
-                type="file",
-                routing="inline",
-                native_flag=None,
-            )
-            for ref in content.reference_blocks
-            if ref.strip()
-        )
         
         return ProjectedContent(
             system_prompt=system_prompt,

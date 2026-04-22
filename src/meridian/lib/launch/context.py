@@ -49,11 +49,18 @@ from .permissions import resolve_permission_pipeline
 from .policies import resolve_policies
 from .prompt import (
     build_primary_inventory_prompt,
-    compose_run_prompt_text,
+    build_report_instruction,
     compose_skill_injections,
     dedupe_skill_names,
+    sanitize_prior_output,
+    strip_stale_report_paths,
 )
-from .reference import ReferenceItem, load_reference_items
+from .reference import (
+    ReferenceItem,
+    load_reference_items,
+    resolve_template_variables,
+    substitute_template_variables,
+)
 from .request import (
     LaunchArgvIntent,
     LaunchCompositionSurface,
@@ -345,6 +352,7 @@ def _resolve_surface_request(
     resolved_context_from = request.context_from
     prompt = request.prompt
     loaded_references: tuple[ReferenceItem, ...] = ()
+    spawn_composed_content: ComposedLaunchContent | None = None
     if (
         runtime.composition_surface == LaunchCompositionSurface.SPAWN_PREPARE
         and not request.prompt_is_composed
@@ -353,13 +361,6 @@ def _resolve_surface_request(
             request.reference_files,
             base_dir=project_paths.repo_root,
         )
-        references_for_prompt = loaded_references
-        if harness.capabilities.supports_native_file_injection and loaded_references:
-            references_for_prompt = tuple(
-                item
-                for item in loaded_references
-                if not (item.kind == "file" and item.body.strip() and not item.warning)
-            )
         prior_output: str | None = None
         if request.context_from:
             from meridian.lib.ops.spawn.context_ref import (
@@ -375,15 +376,44 @@ def _resolve_surface_request(
                 resolved_context_ref_value(ref) for ref in resolved_context_refs
             )
             prior_output = render_context_refs(resolved_context_refs)
-        prompt = compose_run_prompt_text(
-            skills=resolved_skills.loaded_skills if prompt_policy.include_skills else (),
-            references=references_for_prompt,
-            user_prompt=request.prompt,
-            agent_body=(profile.body.strip() if profile is not None else "")
-            if prompt_policy.include_agent_body
-            else "",
-            template_variables=request.template_vars,
-            prior_output=prior_output,
+
+        resolved_template_variables = resolve_template_variables(request.template_vars)
+        cleaned_user_prompt = substitute_template_variables(
+            strip_stale_report_paths(request.prompt),
+            resolved_template_variables,
+        )
+        prompt = cleaned_user_prompt
+
+        skill_injection = ""
+        if prompt_policy.include_skills:
+            skill_blocks = [
+                f"# Skill: {skill.name}\n\n{skill.content.strip()}"
+                for skill in resolved_skills.loaded_skills
+                if skill.content.strip()
+            ]
+            skill_injection = "\n\n".join(skill_blocks)
+
+        agent_profile_body = ""
+        if prompt_policy.include_agent_body and profile is not None and profile.body.strip():
+            rendered_agent_body = substitute_template_variables(
+                profile.body.strip(),
+                resolved_template_variables,
+            )
+            agent_profile_body = f"# Agent Profile\n\n{rendered_agent_body}"
+
+        spawn_composed_content = ComposedLaunchContent(
+            skill_injection=skill_injection,
+            agent_profile_body=agent_profile_body,
+            report_instruction=build_report_instruction(),
+            inventory_prompt="",
+            passthrough_system_fragments=(),
+            user_task_prompt=cleaned_user_prompt,
+            reference_items=loaded_references,
+            prior_output=(
+                sanitize_prior_output(prior_output)
+                if prior_output is not None and prior_output.strip()
+                else ""
+            ),
         )
 
     requested_harness_session_id = (
@@ -453,32 +483,24 @@ def _resolve_surface_request(
             )
             final_passthrough_args = passthrough_args
             skill_injection = compose_skill_injections(resolved_skills.loaded_skills) or ""
-            
-            # Phase 3A: Build ComposedLaunchContent and use project_content()
-            # for proper semantic channel separation (spec S-2a)
             agent_profile_body = ""
-            # Agent profile body is SYSTEM_INSTRUCTION when not delivered via native agents
-            # (Codex handling: profile body goes inline in project_content())
             if (
                 profile is not None
                 and profile.body.strip()
                 and not harness.capabilities.supports_native_agents
             ):
                 agent_profile_body = profile.body.strip()
-            
+
             composed = ComposedLaunchContent(
-                # SYSTEM_INSTRUCTION blocks
                 skill_injection=skill_injection,
                 agent_profile_body=agent_profile_body,
-                report_instruction="",  # No report instruction for primary launch
+                report_instruction="",
                 inventory_prompt=inventory_prompt or "",
                 passthrough_system_fragments=tuple(
                     frag.strip() for frag in passthrough_prompt_fragments if frag.strip()
                 ),
-                # USER_TASK_PROMPT
                 user_task_prompt=request.prompt,
-                # TASK_CONTEXT (no references/prior for primary; spawn-only)
-                reference_blocks=(),
+                reference_items=(),
                 prior_output="",
             )
 
@@ -493,6 +515,14 @@ def _resolve_surface_request(
                 final_prompt = projected.user_turn_content
         elif inventory_prompt:
             final_prompt = "\n\n".join((final_prompt, inventory_prompt))
+    elif spawn_composed_content is not None:
+        projected = harness.project_content(spawn_composed_content)
+        projected_content = projected
+        if projected.system_prompt.strip():
+            appended_system_prompt = projected.system_prompt
+        if projected.user_turn_content.strip():
+            user_turn_content = projected.user_turn_content
+            final_prompt = projected.user_turn_content
     elif prompt_policy.skill_injection_mode == "append-system-prompt":
         appended_system_prompt = compose_skill_injections(resolved_skills.loaded_skills) or None
 

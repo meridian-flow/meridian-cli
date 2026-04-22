@@ -11,7 +11,10 @@ See spec S-1 for category definitions.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
+
+if TYPE_CHECKING:
+    from meridian.lib.launch.reference import ReferenceItem
 
 
 @dataclass(frozen=True)
@@ -57,8 +60,8 @@ class ProjectionChannels:
 class ComposedLaunchContent:
     """Semantic content blocks before harness channel projection.
 
-    All fields are strings or tuples of strings.
-    Harness adapters decide how to combine them.
+    Fields are semantic blocks plus structured references.
+    Harness adapters decide how to combine and route them.
 
     There are three semantic categories (see spec S-1):
       SYSTEM_INSTRUCTION — controls agent behavior
@@ -91,8 +94,8 @@ class ComposedLaunchContent:
     """Raw user request, template-substituted."""
 
     # TASK_CONTEXT blocks
-    reference_blocks: tuple[str, ...]
-    """Rendered reference file/dir content."""
+    reference_items: tuple[ReferenceItem, ...]
+    """Structured reference files/dirs for adapter-owned routing and rendering."""
 
     prior_output: str
     """Sanitized prior-run output."""

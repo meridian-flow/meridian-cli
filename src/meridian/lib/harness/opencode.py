@@ -36,11 +36,13 @@ from meridian.lib.launch.composition import (
     ComposedLaunchContent,
     ProjectedContent,
     ProjectionChannels,
+    ReferenceRouting,
 )
 from meridian.lib.launch.constants import (
     BASE_COMMAND_OPENCODE_SUBPROCESS,
     PRIMARY_BASE_COMMAND_OPENCODE,
 )
+from meridian.lib.launch.reference import render_reference_blocks
 from meridian.lib.platform import get_home_path
 from meridian.lib.safety.permissions import PermissionConfig
 
@@ -272,6 +274,27 @@ class OpenCodeAdapter(BaseHarnessAdapter[OpenCodeLaunchSpec]):
         
         OpenCode supports --file injection for reference files.
         """
+        reference_routing = tuple(
+            ReferenceRouting(
+                path=item.path.as_posix(),
+                type=item.kind,
+                routing=(
+                    "native-injection"
+                    if item.kind == "file" and item.body.strip() and not item.warning
+                    else (
+                        "omitted"
+                        if item.kind == "file" and not item.body.strip() and not item.warning
+                        else "inline"
+                    )
+                ),
+                native_flag=(
+                    f"--file {item.path.as_posix()}"
+                    if item.kind == "file" and item.body.strip() and not item.warning
+                    else None
+                ),
+            )
+            for item in content.reference_items
+        )
         # Build inline prompt: SYSTEM_INSTRUCTION blocks first
         system_blocks = [
             content.skill_injection,
@@ -282,22 +305,32 @@ class OpenCodeAdapter(BaseHarnessAdapter[OpenCodeLaunchSpec]):
         ]
         system_text = "\n\n".join(b.strip() for b in system_blocks if b.strip())
         
-        # Spawn reference routing is executed from concrete ReferenceItem data.
-        # Primary projection still uses inline context blocks only.
-        context_blocks = [*content.reference_blocks, content.prior_output]
+        inline_reference_items = tuple(
+            item
+            for item, route in zip(
+                content.reference_items,
+                reference_routing,
+                strict=False,
+            )
+            if route.routing == "inline"
+        )
+        context_blocks = [*render_reference_blocks(inline_reference_items), content.prior_output]
         context_text = "\n\n".join(b.strip() for b in context_blocks if b.strip())
         
         user_blocks = [system_text, content.user_task_prompt, context_text]
         user_turn = "\n\n".join(b.strip() for b in user_blocks if b.strip())
+        has_native_injection = any(
+            route.routing == "native-injection" for route in reference_routing
+        )
         
         return ProjectedContent(
             system_prompt="",  # OpenCode has no system-prompt channel
             user_turn_content=user_turn,
-            reference_routing=(),
+            reference_routing=reference_routing,
             channels=ProjectionChannels(
                 system_instruction="inline",
                 user_task_prompt="inline",
-                task_context="inline",
+                task_context="native-injection" if has_native_injection else "inline",
             ),
         )
 

@@ -225,5 +225,25 @@ def test_spawn_prepare_opencode_uses_native_file_injection_and_keeps_inline_fall
 
     assert "--file" in preview.argv
     assert file_ref.as_posix() in preview.argv
+    assert preview.projected_content is not None
+    assert [route.to_dict() for route in preview.projected_content.reference_routing] == [
+        {
+            "path": file_ref.as_posix(),
+            "type": "file",
+            "routing": "native-injection",
+            "native_flag": f"--file {file_ref.as_posix()}",
+        },
+        {
+            "path": dir_ref.as_posix(),
+            "type": "directory",
+            "routing": "inline",
+            "native_flag": None,
+        },
+    ]
+    assert preview.projected_content.channel_manifest() == {
+        "system_instruction": "inline",
+        "user_task_prompt": "inline",
+        "task_context": "native-injection",
+    }
     assert f"# Reference: {file_ref.as_posix()}" not in preview.resolved_request.prompt
     assert f"# Reference: {dir_ref.as_posix()}/" in preview.resolved_request.prompt

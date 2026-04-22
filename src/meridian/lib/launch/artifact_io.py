@@ -32,7 +32,7 @@ def read_artifact_text(artifacts: ArtifactStore, spawn_id: SpawnId, name: str) -
 
 def _resolve_reference_routing(launch_context: LaunchContext) -> tuple[ReferenceRouting, ...]:
     projected = launch_context.projected_content
-    if projected is not None and projected.reference_routing:
+    if projected is not None:
         return projected.reference_routing
 
     reference_items = launch_context.run_params.reference_items

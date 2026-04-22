@@ -16,6 +16,7 @@ from meridian.lib.launch.composition import (
     ComposedLaunchContent,
     ProjectedContent,
     ProjectionChannels,
+    ReferenceRouting,
 )
 from meridian.lib.launch.launch_types import (
     PermissionResolver,
@@ -23,6 +24,7 @@ from meridian.lib.launch.launch_types import (
     ResolvedLaunchSpec,
     SpecT,
 )
+from meridian.lib.launch.reference import render_reference_blocks
 from meridian.lib.safety.permissions import PermissionConfig
 
 AdapterSpecT = TypeVar("AdapterSpecT", bound=ResolvedLaunchSpec, covariant=True)
@@ -352,6 +354,19 @@ class BaseHarnessAdapter(Generic[SpecT], ABC):
         Concrete adapters (Claude, Codex, OpenCode) should override for
         harness-specific channel routing.
         """
+        reference_routing = tuple(
+            ReferenceRouting(
+                path=item.path.as_posix(),
+                type=item.kind,
+                routing=(
+                    "omitted"
+                    if item.kind == "file" and not item.body.strip() and not item.warning
+                    else "inline"
+                ),
+                native_flag=None,
+            )
+            for item in content.reference_items
+        )
         # Default: flatten everything inline (no separate system-prompt channel)
         system_blocks = [
             content.skill_injection,
@@ -362,7 +377,20 @@ class BaseHarnessAdapter(Generic[SpecT], ABC):
         ]
         system_text = "\n\n".join(b.strip() for b in system_blocks if b.strip())
         
-        context_blocks = [*content.reference_blocks, content.prior_output]
+        context_blocks = [
+            *render_reference_blocks(
+                tuple(
+                    item
+                    for item, route in zip(
+                        content.reference_items,
+                        reference_routing,
+                        strict=False,
+                    )
+                    if route.routing == "inline"
+                )
+            ),
+            content.prior_output,
+        ]
         context_text = "\n\n".join(b.strip() for b in context_blocks if b.strip())
         
         user_blocks = [system_text, content.user_task_prompt, context_text]
@@ -371,7 +399,7 @@ class BaseHarnessAdapter(Generic[SpecT], ABC):
         return ProjectedContent(
             system_prompt="",  # Default: no separate system-prompt channel
             user_turn_content=user_turn,
-            reference_routing=(),  # Default: no native file injection
+            reference_routing=reference_routing,
             channels=ProjectionChannels(
                 system_instruction="inline",
                 user_task_prompt="inline",
