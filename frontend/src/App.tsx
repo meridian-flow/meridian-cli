@@ -7,6 +7,7 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import { SpawnHeader } from "@/features/spawn-selector/SpawnHeader"
 import { SpawnSelector } from "@/features/spawn-selector/SpawnSelector"
 import { Composer } from "@/features/threads/composer/Composer"
+import type { StreamController } from "@/features/threads/transport-types"
 import { StreamingIndicator } from "@/features/threads/components/StreamingIndicator"
 import { SpawnActivityView } from "@/features/threads/components/SpawnActivityView"
 import { useThreadStreaming } from "@/hooks/use-thread-streaming"
@@ -62,6 +63,15 @@ function App() {
   const composerDisabled = useMemo(() => {
     return !spawnId || connectionStatus !== "connected" || Boolean(state.error)
   }, [spawnId, connectionStatus, state.error])
+
+  const streamController: StreamController | null = useMemo(() => {
+    if (!channel.current) return null
+    return {
+      sendMessage: (text: string) => channel.current?.sendMessage(text) ?? false,
+      interrupt: () => channel.current?.interrupt() ?? false,
+      cancel,
+    }
+  }, [cancel, channel])
 
   useEffect(() => {
     if (!spawnId) {
@@ -170,11 +180,10 @@ function App() {
               {state.isStreaming ? <StreamingIndicator /> : null}
 
               <Composer
-                channel={channel}
+                controller={streamController}
                 capabilities={capabilities}
                 isStreaming={Boolean(state.isStreaming)}
                 disabled={composerDisabled}
-                onCancel={cancel}
               />
             </div>
           )}

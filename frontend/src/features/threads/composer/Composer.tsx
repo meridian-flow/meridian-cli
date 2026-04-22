@@ -4,7 +4,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type RefObject,
 } from "react"
 import { AlertTriangle, Pause, Send, Square, Zap } from "lucide-react"
 
@@ -15,14 +14,14 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import type { SpawnChannel, ConnectionCapabilities } from "@/lib/ws"
+import type { ConnectionCapabilities } from "@/lib/ws"
+import type { StreamController } from "../transport-types"
 
 interface ComposerProps {
-  channel: RefObject<SpawnChannel | null>
+  controller: StreamController | null
   capabilities: ConnectionCapabilities | null
   isStreaming: boolean
   disabled: boolean
-  onCancel: () => void
 }
 
 function getSendTooltip(
@@ -45,11 +44,10 @@ function getSendTooltip(
 }
 
 export function Composer({
-  channel,
+  controller,
   capabilities,
   isStreaming,
   disabled,
-  onCancel,
 }: ComposerProps) {
   const [value, setValue] = useState("")
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
@@ -95,14 +93,14 @@ export function Composer({
     }
 
     const nextText = value.trim()
-    const sent = channel.current?.sendMessage(nextText) ?? false
+    const sent = controller?.sendMessage(nextText) ?? false
 
     if (!sent) {
       return
     }
 
     setValue("")
-  }, [canSend, channel, value])
+  }, [canSend, controller, value])
 
   return (
     <div className="rounded-lg border border-border bg-card px-3 py-3">
@@ -133,12 +131,12 @@ export function Composer({
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={() => channel.current?.interrupt()}
+                  onClick={() => controller?.interrupt()}
                 >
                   <Pause className="size-3.5" />
                   Interrupt
                 </Button>
-                <Button type="button" variant="destructive" size="sm" onClick={onCancel}>
+                <Button type="button" variant="destructive" size="sm" onClick={() => controller?.cancel()}>
                   <Square className="size-3.5" />
                   Cancel
                 </Button>

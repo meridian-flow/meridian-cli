@@ -20,6 +20,7 @@ export type {
   BackendTurn,
   BackendTurnBlock,
   PaginatedTurnsResponse,
+  StreamController,
   ThreadStoreInterface,
   ThreadStoreState,
 } from "./transport-types"
