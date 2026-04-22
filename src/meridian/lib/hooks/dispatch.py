@@ -58,7 +58,7 @@ class HookDispatcher(LifecycleHook):
     def __init__(
         self,
         project_root: Path,
-        state_root: Path,
+        runtime_root: Path,
         *,
         registry: _HookRegistryLike | None = None,
         interval_tracker: _IntervalTrackerLike | None = None,
@@ -66,9 +66,9 @@ class HookDispatcher(LifecycleHook):
         builtin_hooks: Mapping[str, BuiltinHook] | None = None,
     ) -> None:
         self._project_root = project_root.expanduser().resolve()
-        self._state_root = state_root.expanduser().resolve()
+        self._runtime_root = runtime_root.expanduser().resolve()
         self._registry = registry or HookRegistry(self._project_root)
-        self._interval_tracker = interval_tracker or IntervalTracker(self._state_root)
+        self._interval_tracker = interval_tracker or IntervalTracker(self._runtime_root)
         self._external_runner = external_runner or ExternalHookRunner(self._project_root)
         self._builtin_hooks = builtin_hooks or BUILTIN_HOOKS
 
@@ -298,7 +298,7 @@ class HookDispatcher(LifecycleHook):
             event_id=event.event_id,
             timestamp=event.timestamp.isoformat(),
             project_root=str(self._project_root),
-            runtime_root=str(self._state_root),
+            runtime_root=str(self._runtime_root),
             spawn_id=event.spawn_id,
             spawn_status=_normalize_spawn_status(event.status),
             spawn_agent=event.agent,

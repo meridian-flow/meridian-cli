@@ -70,9 +70,9 @@ def _started_at_epoch(started_at: str | None) -> float | None:
     return parsed.timestamp()
 
 
-def _read_completion_report(state_root: Path, spawn_id: str) -> str | None:
+def _read_completion_report(runtime_root: Path, spawn_id: str) -> str | None:
     """Read report.md for durable completion check."""
-    report_path = state_root / "spawns" / spawn_id / "report.md"
+    report_path = runtime_root / "spawns" / spawn_id / "report.md"
     if not report_path.is_file():
         return None
     try:
@@ -90,10 +90,10 @@ def _artifact_mtime_epoch(path: Path) -> float | None:
 
 
 def _recent_runner_activity(
-    state_root: Path, spawn_id: str, now: float
+    runtime_root: Path, spawn_id: str, now: float
 ) -> tuple[float | None, str | None]:
     """Return the freshest activity timestamp and the artifact that proved recency."""
-    spawn_dir = state_root / "spawns" / spawn_id
+    spawn_dir = runtime_root / "spawns" / spawn_id
     latest_activity_epoch: float | None = None
     for artifact_name in _ACTIVITY_ARTIFACTS:
         mtime_epoch = _artifact_mtime_epoch(spawn_dir / artifact_name)
@@ -107,17 +107,17 @@ def _recent_runner_activity(
 
 
 def _collect_artifact_snapshot(
-    state_root: Path,
+    runtime_root: Path,
     record: SpawnRecord,
     now: float,
 ) -> ArtifactSnapshot:
     started_epoch = _started_at_epoch(record.started_at)
     last_activity_epoch, recent_activity_artifact = _recent_runner_activity(
-        state_root,
+        runtime_root,
         record.id,
         now,
     )
-    report_text = _read_completion_report(state_root, record.id)
+    report_text = _read_completion_report(runtime_root, record.id)
     runner_pid_alive = False
     if (
         record.status != "finalizing"
@@ -180,10 +180,10 @@ def decide_reconciliation(
 
 
 def _finalize_and_log(
-    state_root: Path, record: SpawnRecord, *, status: SpawnStatus, exit_code: int,
+    runtime_root: Path, record: SpawnRecord, *, status: SpawnStatus, exit_code: int,
     error: str | None, reason: str, snapshot: ArtifactSnapshot, now: float
 ) -> SpawnRecord:
-    if not create_lifecycle_service(state_root.parent, state_root).finalize(
+    if not create_lifecycle_service(runtime_root.parent, runtime_root).finalize(
         record.id,
         status,
         exit_code,
@@ -210,10 +210,10 @@ def _finalize_and_log(
 
 
 def _finalize_failed(
-    state_root: Path, record: SpawnRecord, error: str, snapshot: ArtifactSnapshot, now: float
+    runtime_root: Path, record: SpawnRecord, error: str, snapshot: ArtifactSnapshot, now: float
 ) -> SpawnRecord:
     return _finalize_and_log(
-        state_root,
+        runtime_root,
         record,
         status="failed",
         exit_code=1,
@@ -225,14 +225,14 @@ def _finalize_failed(
 
 
 def _finalize_completed_report(
-    state_root: Path, record: SpawnRecord, snapshot: ArtifactSnapshot, now: float
+    runtime_root: Path, record: SpawnRecord, snapshot: ArtifactSnapshot, now: float
 ) -> SpawnRecord:
     status, exit_code, error = resolve_reconciled_terminal_state(
         durable_report_completion=True,
         fallback_error="harness_completed",
     )
     return _finalize_and_log(
-        state_root,
+        runtime_root,
         record,
         status=status,
         exit_code=exit_code,
@@ -247,7 +247,7 @@ def _in_startup_grace(started_epoch: float | None, now: float) -> bool:
     return started_epoch is not None and now - started_epoch < _STARTUP_GRACE_SECS
 
 
-def reconcile_active_spawn(state_root: Path, record: SpawnRecord) -> SpawnRecord:
+def reconcile_active_spawn(runtime_root: Path, record: SpawnRecord) -> SpawnRecord:
     """Reconcile one active spawn. Is the responsible process alive?"""
     if int(os.getenv("MERIDIAN_DEPTH", "0")) > 0:
         return record
@@ -255,18 +255,22 @@ def reconcile_active_spawn(state_root: Path, record: SpawnRecord) -> SpawnRecord
         return record
 
     now = time.time()
-    snapshot = _collect_artifact_snapshot(state_root, record, now)
+    snapshot = _collect_artifact_snapshot(runtime_root, record, now)
     decision = decide_reconciliation(record, snapshot, now)
     if isinstance(decision, Skip):
         return record
     if isinstance(decision, FinalizeSucceededFromReport):
-        return _finalize_completed_report(state_root, record, snapshot, now)
-    return _finalize_failed(state_root, record, decision.error, snapshot, now)
+        return _finalize_completed_report(runtime_root, record, snapshot, now)
+    return _finalize_failed(runtime_root, record, decision.error, snapshot, now)
 
 
-def reconcile_spawns(state_root: Path, spawns: list[SpawnRecord]) -> list[SpawnRecord]:
+def reconcile_spawns(runtime_root: Path, spawns: list[SpawnRecord]) -> list[SpawnRecord]:
     """Batch reconciliation. Only touches active spawns."""
     return [
-        reconcile_active_spawn(state_root, spawn) if is_active_spawn_status(spawn.status) else spawn
+        (
+            reconcile_active_spawn(runtime_root, spawn)
+            if is_active_spawn_status(spawn.status)
+            else spawn
+        )
         for spawn in spawns
     ]

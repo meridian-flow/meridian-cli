@@ -60,13 +60,13 @@ def _next_spawn_id_from_events(events: list[SpawnEvent]) -> SpawnId:
 
 
 def next_spawn_id(
-    state_root: Path,
+    runtime_root: Path,
     *,
     repository: SpawnRepository | None = None,
 ) -> SpawnId:
     """Return the next spawn ID (`p1`, `p2`, ...) for a state root."""
 
-    paths = RuntimePaths.from_root_dir(state_root)
+    paths = RuntimePaths.from_root_dir(runtime_root)
     resolved_repository = _resolve_repository(paths, repository=repository)
     with lock_file(paths.spawns_flock):
         return _next_spawn_id_from_events(resolved_repository.read_events())
@@ -245,7 +245,7 @@ def _parse_event(payload: dict[str, Any]) -> SpawnEvent | None:
 
 
 def start_spawn(
-    state_root: Path,
+    runtime_root: Path,
     *,
     chat_id: str,
     parent_id: str | None = None,
@@ -273,7 +273,7 @@ def start_spawn(
     """Append a spawn start event under `spawns.jsonl.flock` and return the spawn ID."""
 
     resolved_clock = clock or RealClock()
-    paths = RuntimePaths.from_root_dir(state_root)
+    paths = RuntimePaths.from_root_dir(runtime_root)
     resolved_repository = _resolve_repository(
         paths,
         repository=repository,
@@ -313,7 +313,7 @@ def start_spawn(
 
 
 def update_spawn(
-    state_root: Path,
+    runtime_root: Path,
     spawn_id: SpawnId | str,
     *,
     launch_mode: LaunchMode | None = None,
@@ -328,7 +328,7 @@ def update_spawn(
 ) -> None:
     """Append a metadata update event under `spawns.jsonl.flock`."""
 
-    paths = RuntimePaths.from_root_dir(state_root)
+    paths = RuntimePaths.from_root_dir(runtime_root)
     resolved_repository = _resolve_repository(paths, repository=repository)
     event = SpawnUpdateEvent(
         id=str(spawn_id),
@@ -345,7 +345,7 @@ def update_spawn(
 
 
 def record_spawn_exited(
-    state_root: Path,
+    runtime_root: Path,
     spawn_id: SpawnId | str,
     *,
     exit_code: int,
@@ -356,7 +356,7 @@ def record_spawn_exited(
     """Append an exited event — the harness process has exited."""
 
     resolved_clock = clock or RealClock()
-    paths = RuntimePaths.from_root_dir(state_root)
+    paths = RuntimePaths.from_root_dir(runtime_root)
     resolved_repository = _resolve_repository(
         paths,
         repository=repository,
@@ -370,7 +370,7 @@ def record_spawn_exited(
 
 
 def finalize_spawn(
-    state_root: Path,
+    runtime_root: Path,
     spawn_id: SpawnId | str,
     status: SpawnStatus,
     exit_code: int,
@@ -395,7 +395,7 @@ def finalize_spawn(
     or does not exist.
     """
     resolved_clock = clock or RealClock()
-    paths = RuntimePaths.from_root_dir(state_root)
+    paths = RuntimePaths.from_root_dir(runtime_root)
     resolved_repository = _resolve_repository(
         paths,
         repository=repository,
@@ -438,14 +438,14 @@ def finalize_spawn(
 
 
 def mark_finalizing(
-    state_root: Path,
+    runtime_root: Path,
     spawn_id: SpawnId | str,
     *,
     repository: SpawnRepository | None = None,
 ) -> bool:
     """CAS transition `running -> finalizing` under the spawn-store flock."""
 
-    paths = RuntimePaths.from_root_dir(state_root)
+    paths = RuntimePaths.from_root_dir(runtime_root)
     resolved_repository = _resolve_repository(paths, repository=repository)
     with lock_file(paths.spawns_flock):
         records = reduce_events(resolved_repository.read_events())
@@ -459,7 +459,7 @@ def mark_finalizing(
 
 
 def mark_spawn_running(
-    state_root: Path,
+    runtime_root: Path,
     spawn_id: SpawnId | str,
     *,
     launch_mode: LaunchMode | None = None,
@@ -467,7 +467,7 @@ def mark_spawn_running(
     runner_pid: int | None = None,
     repository: SpawnRepository | None = None,
 ) -> None:
-    paths = RuntimePaths.from_root_dir(state_root)
+    paths = RuntimePaths.from_root_dir(runtime_root)
     resolved_repository = _resolve_repository(paths, repository=repository)
     with lock_file(paths.spawns_flock):
         records = reduce_events(resolved_repository.read_events())
@@ -491,14 +491,14 @@ def _spawn_sort_key(spawn: SpawnRecord) -> tuple[int, str]:
 
 
 def list_spawns(
-    state_root: Path,
+    runtime_root: Path,
     filters: Mapping[str, Any] | None = None,
     *,
     repository: SpawnRepository | None = None,
 ) -> list[SpawnRecord]:
     """List derived spawn records with optional equality filters."""
 
-    paths = RuntimePaths.from_root_dir(state_root)
+    paths = RuntimePaths.from_root_dir(runtime_root)
     resolved_repository = _resolve_repository(paths, repository=repository)
     spawns = list(reduce_events(resolved_repository.read_events()).values())
 
@@ -523,7 +523,7 @@ def list_spawns(
 
 
 def get_spawn(
-    state_root: Path,
+    runtime_root: Path,
     spawn_id: SpawnId | str,
     *,
     repository: SpawnRepository | None = None,
@@ -531,20 +531,20 @@ def get_spawn(
     """Return one spawn by ID."""
 
     wanted = str(spawn_id)
-    for spawn in list_spawns(state_root, repository=repository):
+    for spawn in list_spawns(runtime_root, repository=repository):
         if spawn.id == wanted:
             return spawn
     return None
 
 
 def spawn_stats(
-    state_root: Path,
+    runtime_root: Path,
     *,
     repository: SpawnRepository | None = None,
 ) -> dict[str, Any]:
     """Aggregate high-level spawn stats from JSONL-derived records."""
 
-    spawns = list_spawns(state_root, repository=repository)
+    spawns = list_spawns(runtime_root, repository=repository)
     by_status: dict[str, int] = {}
     by_model: dict[str, int] = {}
     total_duration_secs = 0.0

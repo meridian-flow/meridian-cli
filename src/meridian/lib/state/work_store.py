@@ -255,9 +255,9 @@ def _read_legacy_metadata(metadata_path: Path) -> tuple[str, str, str | None]:
     )
 
 
-def _migrate_legacy_work_items(state_root: Path) -> None:
-    paths = RuntimePaths.from_root_dir(state_root)
-    legacy_dir = state_root / "work-items"
+def _migrate_legacy_work_items(runtime_root: Path) -> None:
+    paths = RuntimePaths.from_root_dir(runtime_root)
+    legacy_dir = runtime_root / "work-items"
     if not legacy_dir.is_dir():
         return
 
@@ -309,11 +309,11 @@ def _migrate_legacy_work_items(state_root: Path) -> None:
             )
 
 
-def create_work_item(state_root: Path, label: str, description: str = "") -> WorkItem:
+def create_work_item(runtime_root: Path, label: str, description: str = "") -> WorkItem:
     """Create a new active work item directory with ``__status.json`` metadata."""
 
-    _migrate_legacy_work_items(state_root)
-    paths = RuntimePaths.from_root_dir(state_root)
+    _migrate_legacy_work_items(runtime_root)
+    paths = RuntimePaths.from_root_dir(runtime_root)
     slug = slugify(label)
     if not slug:
         raise ValueError("Work item label must contain at least one letter or number.")
@@ -342,7 +342,7 @@ def create_work_item(state_root: Path, label: str, description: str = "") -> Wor
 
 
 def ensure_work_item_metadata(
-    state_root: Path,
+    runtime_root: Path,
     work_id: str,
     *,
     description: str = "",
@@ -354,8 +354,8 @@ def ensure_work_item_metadata(
     if status == "done":
         raise ValueError("'done' is reserved for archived work items.")
 
-    _migrate_legacy_work_items(state_root)
-    paths = RuntimePaths.from_root_dir(state_root)
+    _migrate_legacy_work_items(runtime_root)
+    paths = RuntimePaths.from_root_dir(runtime_root)
     active_dir, archived_dir = _locate_dirs(paths, normalized)
     _ensure_not_both_locations(normalized, active_dir, archived_dir)
 
@@ -383,11 +383,11 @@ def ensure_work_item_metadata(
     )
 
 
-def get_work_item(state_root: Path, work_id: str) -> WorkItem | None:
+def get_work_item(runtime_root: Path, work_id: str) -> WorkItem | None:
     """Load one work item from active or archived directories."""
 
-    _migrate_legacy_work_items(state_root)
-    paths = RuntimePaths.from_root_dir(state_root)
+    _migrate_legacy_work_items(runtime_root)
+    paths = RuntimePaths.from_root_dir(runtime_root)
     active_dir, archived_dir = _locate_dirs(paths, work_id)
     _ensure_not_both_locations(work_id, active_dir, archived_dir)
     if active_dir is not None:
@@ -397,11 +397,11 @@ def get_work_item(state_root: Path, work_id: str) -> WorkItem | None:
     return None
 
 
-def work_scratch_dir(state_root: Path, work_id: str) -> Path:
+def work_scratch_dir(runtime_root: Path, work_id: str) -> Path:
     """Return current active/archive work directory if present, otherwise active path."""
 
-    _migrate_legacy_work_items(state_root)
-    paths = RuntimePaths.from_root_dir(state_root)
+    _migrate_legacy_work_items(runtime_root)
+    paths = RuntimePaths.from_root_dir(runtime_root)
     active_dir, archived_dir = _locate_dirs(paths, work_id)
     _ensure_not_both_locations(work_id, active_dir, archived_dir)
     if active_dir is not None:
@@ -411,11 +411,11 @@ def work_scratch_dir(state_root: Path, work_id: str) -> Path:
     return _active_dir(paths, work_id)
 
 
-def list_work_items(state_root: Path) -> list[WorkItem]:
+def list_work_items(runtime_root: Path) -> list[WorkItem]:
     """Return active work items sorted by (created_at, name)."""
 
-    _migrate_legacy_work_items(state_root)
-    paths = RuntimePaths.from_root_dir(state_root)
+    _migrate_legacy_work_items(runtime_root)
+    paths = RuntimePaths.from_root_dir(runtime_root)
     active_dirs = _list_work_item_dirs(paths.work_dir)
     if not active_dirs:
         return []
@@ -432,15 +432,15 @@ def list_work_items(state_root: Path) -> list[WorkItem]:
 
 
 def list_archived_work_items(
-    state_root: Path,
+    runtime_root: Path,
     *,
     limit: int = 10,
     all_archived: bool = False,
 ) -> list[WorkItem]:
     """Return archived work items sorted by archived_at descending."""
 
-    _migrate_legacy_work_items(state_root)
-    paths = RuntimePaths.from_root_dir(state_root)
+    _migrate_legacy_work_items(runtime_root)
+    paths = RuntimePaths.from_root_dir(runtime_root)
     archived_dirs = _list_work_item_dirs(paths.work_archive_dir)
     if not archived_dirs:
         return []
@@ -471,7 +471,7 @@ def list_archived_work_items(
 
 
 def update_work_item(
-    state_root: Path,
+    runtime_root: Path,
     work_id: str,
     *,
     status: str | None = None,
@@ -479,8 +479,8 @@ def update_work_item(
 ) -> WorkItem:
     """Update active work item metadata and rewrite ``__status.json`` atomically."""
 
-    _migrate_legacy_work_items(state_root)
-    paths = RuntimePaths.from_root_dir(state_root)
+    _migrate_legacy_work_items(runtime_root)
+    paths = RuntimePaths.from_root_dir(runtime_root)
     active_dir, archived_dir = _locate_dirs(paths, work_id)
     _ensure_not_both_locations(work_id, active_dir, archived_dir)
     if active_dir is None:
@@ -517,15 +517,15 @@ def update_work_item(
 
 
 def archive_work_item(
-    state_root: Path,
+    runtime_root: Path,
     work_id: str,
     *,
     description: str | None = None,
 ) -> WorkItem:
     """Archive active work by moving directory first, then setting done status."""
 
-    _migrate_legacy_work_items(state_root)
-    paths = RuntimePaths.from_root_dir(state_root)
+    _migrate_legacy_work_items(runtime_root)
+    paths = RuntimePaths.from_root_dir(runtime_root)
     active_dir, archived_dir = _locate_dirs(paths, work_id)
     _ensure_not_both_locations(work_id, active_dir, archived_dir)
 
@@ -562,14 +562,14 @@ def archive_work_item(
     return archived_item
 
 
-def reopen_work_item(state_root: Path, work_id: str, *, status: str = "open") -> WorkItem:
+def reopen_work_item(runtime_root: Path, work_id: str, *, status: str = "open") -> WorkItem:
     """Reopen archived work by clearing archive metadata before moving to active."""
 
     if status == "done":
         raise ValueError("'done' is reserved for archived work items.")
 
-    _migrate_legacy_work_items(state_root)
-    paths = RuntimePaths.from_root_dir(state_root)
+    _migrate_legacy_work_items(runtime_root)
+    paths = RuntimePaths.from_root_dir(runtime_root)
     active_dir, archived_dir = _locate_dirs(paths, work_id)
     _ensure_not_both_locations(work_id, active_dir, archived_dir)
     if archived_dir is None:
@@ -596,11 +596,11 @@ def reopen_work_item(state_root: Path, work_id: str, *, status: str = "open") ->
     return _work_item_from_dir(target, archived=False, default_status=status)
 
 
-def rename_work_item(state_root: Path, old_work_id: str, new_name: str) -> WorkItem:
+def rename_work_item(runtime_root: Path, old_work_id: str, new_name: str) -> WorkItem:
     """Rename active or archived work directory in one atomic directory rename."""
 
-    _migrate_legacy_work_items(state_root)
-    paths = RuntimePaths.from_root_dir(state_root)
+    _migrate_legacy_work_items(runtime_root)
+    paths = RuntimePaths.from_root_dir(runtime_root)
     active_dir, archived_dir = _locate_dirs(paths, old_work_id)
     _ensure_not_both_locations(old_work_id, active_dir, archived_dir)
     if active_dir is None and archived_dir is None:
@@ -608,7 +608,7 @@ def rename_work_item(state_root: Path, old_work_id: str, new_name: str) -> WorkI
 
     normalized = _validate_exact_slug(new_name)
     if normalized == old_work_id:
-        existing = get_work_item(state_root, old_work_id)
+        existing = get_work_item(runtime_root, old_work_id)
         if existing is None:
             raise ValueError(f"Work item '{old_work_id}' not found")
         return existing
@@ -636,7 +636,7 @@ def rename_work_item(state_root: Path, old_work_id: str, new_name: str) -> WorkI
 
 
 def delete_work_item(
-    state_root: Path,
+    runtime_root: Path,
     work_id: str,
     *,
     force: bool = False,
@@ -647,8 +647,8 @@ def delete_work_item(
     files beyond ``__status.json``.
     """
 
-    _migrate_legacy_work_items(state_root)
-    paths = RuntimePaths.from_root_dir(state_root)
+    _migrate_legacy_work_items(runtime_root)
+    paths = RuntimePaths.from_root_dir(runtime_root)
     active_dir, archived_dir = _locate_dirs(paths, work_id)
     if active_dir is None and archived_dir is None:
         raise ValueError(f"Work item '{work_id}' not found")

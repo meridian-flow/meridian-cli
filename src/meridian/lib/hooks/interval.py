@@ -35,8 +35,8 @@ def parse_interval(interval: str) -> timedelta:
 class IntervalTracker:
     """Track and persist last successful hook execution timestamps."""
 
-    def __init__(self, state_root: Path) -> None:
-        self._state_path = RuntimePaths.from_root_dir(state_root).hook_state_json
+    def __init__(self, runtime_root: Path) -> None:
+        self._state_path = RuntimePaths.from_root_dir(runtime_root).hook_state_json
         self._state = self._load_state()
 
     @property
