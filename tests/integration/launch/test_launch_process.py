@@ -205,6 +205,7 @@ def test_run_harness_process_writes_prompt_file_before_primary_launch(
     )
 
     captured: dict[str, object] = {}
+    claude_adapter = harness_registry.get_subprocess_harness(HarnessId.CLAUDE)
 
     def fake_run_primary_process_with_capture(**kwargs: object) -> tuple[int, int]:
         command = tuple(kwargs["command"])
@@ -232,6 +233,7 @@ def test_run_harness_process_writes_prompt_file_before_primary_launch(
         "_run_primary_process_with_capture",
         fake_run_primary_process_with_capture,
     )
+    monkeypatch.setattr(claude_adapter, "observe_session_id", lambda **kwargs: None)
     monkeypatch.setattr(process, "stop_session", lambda *args, **kwargs: None)
     monkeypatch.setattr(process, "update_session_harness_id", lambda *args, **kwargs: None)
 

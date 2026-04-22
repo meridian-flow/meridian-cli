@@ -35,24 +35,30 @@ def _assert_ordered(text: str, expected_parts: tuple[str, ...]) -> None:
 
 def test_claude_project_content_routes_system_separately_from_user_turn() -> None:
     projected = ClaudeAdapter().project_content(_content())
+    system_sentinels = (
+        "SYSTEM: skill content",
+        "SYSTEM: profile body",
+        "SYSTEM: report instruction",
+        "SYSTEM: agent inventory",
+        "SYSTEM: passthrough fragment",
+    )
+    user_turn_sentinels = (
+        "USER: task prompt",
+        "CONTEXT: reference file",
+        "CONTEXT: prior output",
+    )
 
     assert projected.system_prompt
     assert projected.user_turn_content
 
-    assert "SYSTEM: skill content" in projected.system_prompt
-    assert "SYSTEM: profile body" in projected.system_prompt
-    assert "SYSTEM: report instruction" in projected.system_prompt
-    assert "SYSTEM: agent inventory" in projected.system_prompt
+    for sentinel in system_sentinels:
+        assert sentinel in projected.system_prompt
+        assert sentinel not in projected.user_turn_content
     assert projected.system_prompt.endswith("SYSTEM: passthrough fragment")
-    assert "USER: task prompt" not in projected.system_prompt
-    assert "CONTEXT: reference file" not in projected.system_prompt
-    assert "CONTEXT: prior output" not in projected.system_prompt
 
-    assert "USER: task prompt" in projected.user_turn_content
-    assert "CONTEXT: reference file" in projected.user_turn_content
-    assert "CONTEXT: prior output" in projected.user_turn_content
-    assert "SYSTEM: skill content" not in projected.user_turn_content
-    assert "SYSTEM: profile body" not in projected.user_turn_content
+    for sentinel in user_turn_sentinels:
+        assert sentinel not in projected.system_prompt
+        assert sentinel in projected.user_turn_content
 
 
 def test_codex_project_content_keeps_required_inline_ordering() -> None:
