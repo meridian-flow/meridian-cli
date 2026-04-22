@@ -79,6 +79,7 @@ class SpawnParams(BaseModel):
     continue_fork: bool = False
     appended_system_prompt: str | None = None
     report_output_path: str | None = None
+    user_turn_content: str | None = None
 
 
 class McpConfig(BaseModel):

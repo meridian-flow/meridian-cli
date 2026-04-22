@@ -41,6 +41,7 @@ from .command import (
     normalize_system_prompt_passthrough_args,
     resolve_launch_spec_stage,
 )
+from .composition import ComposedLaunchContent
 from .cwd import resolve_child_execution_cwd
 from .env import build_env_plan, inherit_child_env
 from .env import merge_env_overrides as _merge_env_overrides
@@ -410,11 +411,13 @@ def _resolve_surface_request(
     final_prompt = prompt
     final_passthrough_args = request.extra_args
     appended_system_prompt: str | None = None
+    user_turn_content: str | None = None
     seed_harness_session_id = resolved_continue_harness_session_id
     if runtime.composition_surface == LaunchCompositionSurface.PRIMARY:
         session_mode = (
             (request.session.primary_session_mode or "fresh").strip().lower()
         ) or "fresh"
+        inventory_prompt: str | None = None
         if session_mode != "resume":
             inventory_prompt = build_primary_inventory_prompt(repo_root=project_paths.repo_root)
             if inventory_prompt:
@@ -435,40 +438,53 @@ def _resolve_surface_request(
             )
 
         final_passthrough_args = seeded_passthrough_args
+        user_turn_content: str | None = None
         if not override:
             passthrough_args, passthrough_prompt_fragments = (
                 normalize_system_prompt_passthrough_args(seeded_passthrough_args)
             )
             final_passthrough_args = passthrough_args
             skill_injection = compose_skill_injections(resolved_skills.loaded_skills) or ""
-            if harness.id == HarnessId.CODEX and profile is not None and profile.body.strip():
-                skill_injection = "\n\n".join(
-                    part
-                    for part in (
-                        f"# Agent Profile\n\n{profile.body.strip()}",
-                        skill_injection.strip(),
-                    )
-                    if part
-                )
-            policy = harness.filter_launch_content(
-                prompt=final_prompt,
+            
+            # Phase 3A: Build ComposedLaunchContent and use project_content()
+            # for proper semantic channel separation (spec S-2a)
+            agent_profile_body = ""
+            # Agent profile body is SYSTEM_INSTRUCTION when not delivered via native agents
+            # (Codex handling: profile body goes inline in project_content())
+            if (
+                profile is not None
+                and profile.body.strip()
+                and not harness.capabilities.supports_native_agents
+            ):
+                agent_profile_body = profile.body.strip()
+            
+            composed = ComposedLaunchContent(
+                # SYSTEM_INSTRUCTION blocks
                 skill_injection=skill_injection,
-                is_resume=session_mode == "resume",
-                harness_session_id=resolved_continue_harness_session_id or "",
+                agent_profile_body=agent_profile_body,
+                report_instruction="",  # No report instruction for primary launch
+                inventory_prompt=inventory_prompt or "",
+                passthrough_system_fragments=tuple(
+                    frag.strip() for frag in passthrough_prompt_fragments if frag.strip()
+                ),
+                # USER_TASK_PROMPT
+                user_task_prompt=request.prompt,
+                # TASK_CONTEXT (no references/prior for primary; spawn-only)
+                reference_blocks=(),
+                prior_output="",
             )
-            if policy.skill_injection is not None:
-                appended_parts = [policy.prompt.strip()]
-                appended_parts.extend(
-                    fragment.strip()
-                    for fragment in passthrough_prompt_fragments
-                    if fragment.strip()
-                )
-                if policy.skill_injection:
-                    appended_parts.append(policy.skill_injection)
-                final_prompt = "\n\n".join(part for part in appended_parts if part)
-                appended_system_prompt = final_prompt if final_prompt else None
-            else:
-                final_prompt = policy.prompt
+            
+            projected = harness.project_content(composed)
+            
+            # Use projected content for proper channel separation
+            if projected.system_prompt.strip():
+                appended_system_prompt = projected.system_prompt
+            if projected.user_turn_content.strip():
+                user_turn_content = projected.user_turn_content
+            
+            # For harnesses without separate channels, user_turn_content IS the prompt
+            if not projected.system_prompt.strip() and projected.user_turn_content.strip():
+                final_prompt = projected.user_turn_content
     elif prompt_policy.skill_injection_mode == "append-system-prompt":
         appended_system_prompt = compose_skill_injections(resolved_skills.loaded_skills) or None
 
@@ -501,6 +517,8 @@ def _resolve_surface_request(
         )
     if appended_system_prompt:
         agent_metadata["appended_system_prompt"] = appended_system_prompt
+    if user_turn_content:
+        agent_metadata["user_turn_content"] = user_turn_content
 
     resolved_request = request.model_copy(
         update={
@@ -648,6 +666,9 @@ def build_launch_context(
     appended_system_prompt = (
         (resolved_agent_metadata.get("appended_system_prompt") or "").strip() or None
     )
+    user_turn_content = (
+        (resolved_agent_metadata.get("user_turn_content") or "").strip() or None
+    )
     is_primary_launch = runtime.composition_surface == LaunchCompositionSurface.PRIMARY
     run_params = ResolvedRunInputs(
         prompt=resolved_request.prompt,
@@ -666,6 +687,7 @@ def build_launch_context(
         appended_system_prompt=appended_system_prompt,
         context_from_payload=resolved_request.context_from,
         reference_items=loaded_references,
+        user_turn_content=user_turn_content,
     )
 
     permission_config, perms = resolve_permission_pipeline(

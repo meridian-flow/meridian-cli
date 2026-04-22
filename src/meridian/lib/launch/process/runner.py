@@ -263,10 +263,22 @@ def run_harness_process(
                 )
                 if isinstance(appended_system_prompt, str) and appended_system_prompt:
                     atomic_write_text(log_dir / "system-prompt.md", appended_system_prompt)
-                # Write starting-prompt.md with user-turn content (original request prompt)
-                starting_prompt = runtime_context.request.prompt.strip()
+                
+                # Write starting-prompt.md with user-turn content (from projection)
+                # Phase 3A: Use user_turn_content from projection for Claude primary
+                user_turn_content = getattr(
+                    runtime_context.spec,
+                    "user_turn_content",
+                    runtime_context.run_params.user_turn_content,
+                )
+                starting_prompt = (
+                    user_turn_content.strip()
+                    if isinstance(user_turn_content, str) and user_turn_content
+                    else runtime_context.request.prompt.strip()
+                )
                 if starting_prompt:
                     atomic_write_text(log_dir / "starting-prompt.md", starting_prompt)
+                
                 # Write projection-manifest.json for observability (S-4d)
                 harness_id_value = (
                     harness_adapter.id.value
@@ -274,6 +286,9 @@ def run_harness_process(
                     else str(harness_adapter.id)
                 )
                 has_system_prompt = bool(appended_system_prompt)
+                has_user_turn_content = bool(user_turn_content)
+                
+                # Phase 3A: Update manifest to reflect proper Claude channel separation
                 projection_manifest = {
                     "harness": harness_id_value,
                     "surface": "primary",
@@ -281,8 +296,12 @@ def run_harness_process(
                         "system_instruction": (
                             "append-system-prompt" if has_system_prompt else "none"
                         ),
-                        "user_task_prompt": "inline",  # Phase 1: still inline for all harnesses
-                        "task_context": "inline",
+                        "user_task_prompt": (
+                            "user-turn" if has_user_turn_content else "inline"
+                        ),
+                        "task_context": (
+                            "user-turn" if has_user_turn_content else "inline"
+                        ),
                     },
                 }
                 atomic_write_text(

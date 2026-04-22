@@ -179,7 +179,7 @@ class OpenCodeAdapter(BaseHarnessAdapter[OpenCodeLaunchSpec]):
         }
     )
     _EXPLICITLY_IGNORED_FIELDS: ClassVar[frozenset[str]] = frozenset(
-        {"appended_system_prompt", "report_output_path"}
+        {"appended_system_prompt", "report_output_path", "user_turn_content"}
     )
 
     @property

@@ -226,6 +226,7 @@ class ClaudeAdapter(BaseHarnessAdapter[ClaudeLaunchSpec]):
             "continue_fork",
             "appended_system_prompt",
             "mcp_tools",
+            "user_turn_content",
         }
     )
     _EXPLICITLY_IGNORED_FIELDS: ClassVar[frozenset[str]] = frozenset({"report_output_path"})
@@ -288,6 +289,8 @@ class ClaudeAdapter(BaseHarnessAdapter[ClaudeLaunchSpec]):
             )
         elif run.repo_root:
             prompt_file_path = str(Path(run.repo_root) / "system-prompt.md")
+        # Extract user_turn_content from run params if available
+        user_turn_content = getattr(run, "user_turn_content", None)
         return ClaudeLaunchSpec(
             model=str(run.model).strip() if run.model else None,
             effort=normalized_effort,
@@ -302,6 +305,7 @@ class ClaudeAdapter(BaseHarnessAdapter[ClaudeLaunchSpec]):
             agents_payload=run.adhoc_agent_payload.strip() or None,
             agent_name=run.agent,
             prompt_file_path=prompt_file_path,
+            user_turn_content=user_turn_content,
         )
 
     def preflight(

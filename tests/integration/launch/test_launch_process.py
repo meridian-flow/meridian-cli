@@ -208,6 +208,7 @@ def test_run_harness_process_writes_prompt_file_before_primary_launch(
 
     def fake_run_primary_process_with_capture(**kwargs: object) -> tuple[int, int]:
         command = tuple(kwargs["command"])
+        captured["command"] = command
         prompt_flag_index = command.index("--append-system-prompt-file")
         prompt_file_path = Path(command[prompt_flag_index + 1])
         captured["prompt_file_exists"] = prompt_file_path.exists()
@@ -239,6 +240,13 @@ def test_run_harness_process_writes_prompt_file_before_primary_launch(
     assert captured["prompt_file_is_spawn_log_prompt"] is True
     prompt_file_text = captured["prompt_file_text"]
     assert isinstance(prompt_file_text, str)
-    assert "primary prompt" in prompt_file_text
+    # Phase 3A: system-prompt.md should contain only SYSTEM_INSTRUCTION
+    # (passthrough fragments), not USER_TASK_PROMPT (primary prompt)
     assert "passthrough system prompt" in prompt_file_text
+    # User task prompt should now be in the positional argument (user-turn channel)
+    assert "primary prompt" not in prompt_file_text
+    # Verify the command includes the positional prompt argument for Claude interactive
+    command = captured.get("command")
+    assert command is not None
+    assert "primary prompt" in command[-1]  # Positional arg is last
     assert outcome.exit_code == 0

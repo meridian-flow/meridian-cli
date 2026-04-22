@@ -30,6 +30,7 @@ class ResolvedRunInputs(BaseModel):
     report_output_path: str | None = None
     context_from_payload: tuple[str, ...] = ()
     reference_items: tuple[ReferenceItem, ...] = ()
+    user_turn_content: str | None = None
 
 
 def coerce_resolved_run_inputs(run_inputs: ResolvedRunInputs | SpawnParams) -> ResolvedRunInputs:

@@ -306,7 +306,7 @@ class CodexAdapter(BaseHarnessAdapter[CodexLaunchSpec]):
         }
     )
     _EXPLICITLY_IGNORED_FIELDS: ClassVar[frozenset[str]] = frozenset(
-        {"skills", "agent", "adhoc_agent_payload", "appended_system_prompt"}
+        {"skills", "agent", "adhoc_agent_payload", "appended_system_prompt", "user_turn_content"}
     )
 
     @property

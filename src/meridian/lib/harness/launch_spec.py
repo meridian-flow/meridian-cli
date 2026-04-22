@@ -18,6 +18,7 @@ class ClaudeLaunchSpec(ResolvedLaunchSpec):
     agents_payload: str | None = None
     appended_system_prompt: str | None = None
     prompt_file_path: str | None = None
+    user_turn_content: str | None = None
 
 
 class CodexLaunchSpec(ResolvedLaunchSpec):
