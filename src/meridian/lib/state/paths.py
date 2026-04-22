@@ -25,8 +25,8 @@ _GITIGNORE_CONTENT = (
     "# Track .gitignore itself\n"
     "!.gitignore\n"
     "\n"
-    "# Ignore the project UUID\n"
-    "id\n"
+    "# Track project identity\n"
+    "!id\n"
     "\n"
     "# Track shared repo state\n"
     "!kb/\n"
@@ -38,6 +38,7 @@ _GITIGNORE_CONTENT = (
 )
 _REQUIRED_GITIGNORE_LINES = (
     "!.gitignore",
+    "!id",
     "!kb/",
     "!kb/**",
     "!work/",
@@ -46,6 +47,8 @@ _REQUIRED_GITIGNORE_LINES = (
     "!archive/**",
 )
 _DEPRECATED_GITIGNORE_LINES = (
+    "id",
+    "# Ignore the project UUID",
     "!fs/",
     "!fs/**",
     "!work-archive/",

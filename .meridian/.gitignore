@@ -4,23 +4,18 @@
 # Track .gitignore itself
 !.gitignore
 
-# Ignore the project UUID
-id
+# Track project identity
+!id
 
 # Track project config
 !models.toml
 
-# Track fs/, work/, and invariants/
-!work/
-!work/**
-!invariants/
-!invariants/**
-# Added by Meridian to keep required project state tracked
-# Added by Meridian to keep required project state tracked
-# Added by Meridian to keep required project state tracked
-# Added by Meridian to keep required project state tracked
-# Added by Meridian to keep required project state tracked
+# Track shared repo state
 !kb/
 !kb/**
+!work/
+!work/**
 !archive/
 !archive/**
+!invariants/
+!invariants/**
