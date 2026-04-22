@@ -4,6 +4,7 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Changed
+- Default app server port changed from `8420` to `7676`. Vite proxy config updated to match.
 - **Work items: directory is the work item.** Eliminated `work-items/` metadata index. Work item exists iff its directory exists in `work/` (active) or `archive/work/` (done). `__status.json` inside each dir holds mutable metadata. `meridian work list` scans the actual work directory — no separate index to drift. Auto-heals missing/malformed status files. Fixes #69, #70.
 - `work list --done` now paginated: shows last 10 by default, `-n N` for custom limit, `--all` for everything.
 - Archive/reopen crash-safe: archive moves dir first then writes metadata; reopen clears metadata first then moves. Crash leaves recoverable state.
