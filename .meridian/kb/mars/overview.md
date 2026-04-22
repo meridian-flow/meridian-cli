@@ -29,14 +29,14 @@ Mars reads `mars.toml` and materializes content from declared sources (git repos
 
 ## Bootstrap Integration
 
-`ops/config.py:_ensure_mars_init(repo_root, link)` runs during `ensure_state_bootstrap_sync()`:
+`ops/config.py:_ensure_mars_init(project_root, link)` runs during `ensure_state_bootstrap_sync()`:
 
 ```python
 if not mars_toml.exists():
-    subprocess.run([mars_bin, "init", "--json", *link_flags], cwd=repo_root)
+    subprocess.run([mars_bin, "init", "--json", *link_flags], cwd=project_root)
 elif link:
     for d in link:
-        subprocess.run([mars_bin, "link", d], cwd=repo_root)
+        subprocess.run([mars_bin, "link", d], cwd=project_root)
 ```
 
 - If `mars.toml` is absent: runs `mars init` to scaffold an empty managed root. `--link <dir>` flags are forwarded if `--link` was passed to `meridian init`.

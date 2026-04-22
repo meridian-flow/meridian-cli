@@ -103,8 +103,8 @@ event fires
 
 Context passed to hooks:
 
-- `HookContext` fields: `event_name`, `event_id`, `timestamp`, `repo_root`,
-  `state_root`, `spawn_id`, `spawn_status`, `spawn_agent`, `spawn_model`,
+- `HookContext` fields: `event_name`, `event_id`, `timestamp`, `project_root`,
+  `runtime_root`, `spawn_id`, `spawn_status`, `spawn_agent`, `spawn_model`,
   `spawn_duration_secs`, `spawn_cost_usd`, `spawn_error`, `work_id`, `work_dir`
 - Command hooks receive context as `MERIDIAN_*` env vars (via `HookContext.to_env()`)
   and as JSON on stdin (via `HookContext.to_json()`)

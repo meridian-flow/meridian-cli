@@ -79,7 +79,7 @@ finalizing → succeeded | failed | cancelled
 
 `queued → finalizing` is NOT allowed. A cancellation from `queued` goes directly to `cancelled`.
 
-**`mark_finalizing(state_root, spawn_id) -> bool`** is the only CAS writer for `running → finalizing`. It acquires the spawns flock, projects current status, and appends `SpawnUpdateEvent(status="finalizing")` only when the current status is exactly `running`. Returns `True` on success, `False` on CAS miss (non-running or missing row). Failure is non-fatal — the runner logs and continues to the terminal `finalize_spawn()` call. See `launch/process.md` for when the runner calls this.
+**`mark_finalizing(runtime_root, spawn_id) -> bool`** is the only CAS writer for `running → finalizing`. It acquires the spawns flock, projects current status, and appends `SpawnUpdateEvent(status="finalizing")` only when the current status is exactly `running`. Returns `True` on success, `False` on CAS miss (non-running or missing row). Failure is non-fatal — the runner logs and continues to the terminal `finalize_spawn()` call. See `launch/process.md` for when the runner calls this.
 
 Presence of an `exited` event does **not** change the spawn's projected status. The spawn stays `running` or `finalizing` until a `finalize` event arrives. `spawn wait` blocks until finalize.
 
@@ -91,7 +91,7 @@ The reaper runs on every read path (`spawn list`, `spawn show`, `spawn wait`, da
 
 **Decide/IO split:** the reaper separates pure computation from I/O.
 
-1. `_collect_artifact_snapshot(state_root, record, now) → ArtifactSnapshot` — pure read. Gathers:
+1. `_collect_artifact_snapshot(runtime_root, record, now) → ArtifactSnapshot` — pure read. Gathers:
    - `started_epoch` — parsed from `record.started_at`
    - `last_activity_epoch` and `recent_activity_artifact` — freshest mtime across `{"heartbeat", "output.jsonl", "stderr.log", "report.md"}` in the spawn artifact dir
    - `durable_report_completion` — whether `report.md` contains a valid non-error completion marker

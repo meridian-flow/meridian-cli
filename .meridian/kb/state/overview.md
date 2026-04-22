@@ -65,11 +65,11 @@ The split means projects can be moved, renamed, or duplicated without losing run
 
 ## Runtime Override Precedence
 
-`MERIDIAN_PROJECT_ROOT` overrides the runtime root entirely (bypasses UUID lookup):
+`MERIDIAN_RUNTIME_DIR` overrides the runtime root entirely (bypasses UUID lookup):
 - Absolute path → treated as the runtime root directly
-- Relative path → resolved relative to repo root
+- Relative path → resolved relative to project root
 
-`MERIDIAN_HOME` only affects the user root default (step 2 above). It does not override an absolute `MERIDIAN_PROJECT_ROOT`.
+`MERIDIAN_HOME` only affects the user root default (step 2 above). It does not override an absolute `MERIDIAN_RUNTIME_DIR`.
 
 ## Read vs Write Resolution
 
@@ -77,9 +77,9 @@ Bootstrap (UUID creation + runtime dir setup) is **skipped for read-only command
 
 | Resolver | Creates UUID? | Use when |
 |----------|--------------|----------|
-| `resolve_project_runtime_root(repo_root)` | No | Read paths; falls back to repo `.meridian/` if no UUID yet |
-| `resolve_project_runtime_root_or_none(repo_root)` | No | Read paths where caller needs to know if uninitialized |
-| `resolve_project_runtime_root_for_write(repo_root)` | Yes (under lock) | Write paths; creates UUID + runtime dir on first write |
+| `resolve_project_runtime_root(project_root)` | No | Read paths; falls back to repo `.meridian/` if no UUID yet |
+| `resolve_project_runtime_root_or_none(project_root)` | No | Read paths where caller needs to know if uninitialized |
+| `resolve_project_runtime_root_for_write(project_root)` | Yes (under lock) | Write paths; creates UUID + runtime dir on first write |
 
 UUID generation in `get_or_create_project_uuid()` is double-checked under `id.lock` (cross-process exclusive lock) so concurrent first-writes converge to the same UUID.
 
@@ -87,17 +87,17 @@ UUID generation in `get_or_create_project_uuid()` is double-checked under `id.lo
 
 Two path model classes:
 
-**`RepoStatePaths`** — repo-owned paths only (`root_dir`, `id_file`, `fs_dir`, `work_dir`, `work_archive_dir`). Built by `RepoStatePaths.from_root_dir()`.
+**`ProjectPaths`** — repo-owned paths only (`root_dir`, `id_file`, `fs_dir`, `work_dir`, `work_archive_dir`). Built by `ProjectPaths.from_root_dir()`.
 
-**`RuntimePaths`** — runtime state paths (spawn/session indexes, per-spawn artifact dirs). Built by `RuntimePaths.from_root_dir()`. Still carries `fs_dir`, `work_dir`, `work_archive_dir` fields for transitional callers — these will be removed when all callers migrate to `RepoStatePaths`. The authoritative repo paths come through `RepoStatePaths`.
+**`RuntimePaths`** — runtime state paths (spawn/session indexes, per-spawn artifact dirs). Built by `RuntimePaths.from_root_dir()`. Still carries `fs_dir`, `work_dir`, `work_archive_dir` fields for transitional callers — these will be removed when all callers migrate to `ProjectPaths`. The authoritative repo paths come through `ProjectPaths`.
 
 Convenience resolvers:
 
-- `resolve_repo_paths(repo_root)` → `RepoStatePaths` for repo `.meridian/` (ignores runtime overrides)
-- `resolve_state_paths(repo_root)` → `RepoStatePaths` honoring `MERIDIAN_PROJECT_ROOT`
-- `resolve_cache_dir(repo_root)` → runtime `cache/` directory
-- `resolve_fs_dir(repo_root)` → repo `fs/` directory
-- `resolve_spawn_log_dir(repo_root, spawn_id)` → per-spawn artifact dir under runtime root
+- `resolve_project_paths(project_root)` → `ProjectPaths` for repo `.meridian/` (ignores runtime overrides)
+- `resolve_runtime_paths(project_root)` → `ProjectPaths` honoring `MERIDIAN_RUNTIME_DIR`
+- `resolve_cache_dir(project_root)` → runtime `cache/` directory
+- `resolve_fs_dir(project_root)` → repo `fs/` directory
+- `resolve_spawn_log_dir(project_root, spawn_id)` → per-spawn artifact dir under runtime root
 
 ## Storage Patterns
 
@@ -129,6 +129,6 @@ Tracking splits across two files, mirroring the state split:
 - `.meridian/.migrations.json` — repo-side (gitignored)
 - `~/.meridian/projects/<uuid>/.migrations.json` — user-side
 
-Migrations run manually via `python migrations/vNNN/migrate.py <repo_root>`. No auto-run; no CLI integration yet. See `migrations/README.md` for the framework, `migrations/registry.toml` for the current migration list.
+Migrations run manually via `python migrations/vNNN/migrate.py <project_root>`. No auto-run; no CLI integration yet. See `migrations/README.md` for the framework, `migrations/registry.toml` for the current migration list.
 
 **v001 `uuid_state_split`** (introduced 0.0.34) — moves legacy runtime state from repo `.meridian/` to user `~/.meridian/projects/<uuid>/`. Currently a stub; not yet implemented.

@@ -14,7 +14,7 @@ Meridian separates "loaded settings" (from TOML files) from "runtime overrides" 
 3. User config: `~/.meridian/config.toml` (or `MERIDIAN_CONFIG` env var)
 4. Built-in defaults
 
-Loaded via `load_config(repo_root, user_config=None)`. Uses a `ContextVar` to thread `repo_root` through validation so model identifiers in config files can be resolved at load time.
+Loaded via `load_config(project_root, user_config=None)`. Uses a `ContextVar` to thread `project_root` through validation so model identifiers in config files can be resolved at load time.
 
 **Key fields**:
 
@@ -90,12 +90,12 @@ This is applied by `resolve_policies()` in `launch/resolve.py` as a two-pass pro
 
 This two-pass design is required because the profile may influence model/harness selection, but the profile itself is selected based on a pre-profile agent name resolution.
 
-## resolve_repo_root()
+## resolve_project_root()
 
-`resolve_repo_root(explicit=None)` in `settings.py` determines the project root:
+`resolve_project_root(explicit=None)` in `settings.py` determines the project root:
 
 1. Explicit argument
-2. `MERIDIAN_REPO_ROOT` env var
+2. `MERIDIAN_PROJECT_DIR` env var
 3. Walk up from cwd looking for `.agents/skills/` directory
 4. Walk up looking for `.git` boundary
 5. Fallback to cwd
@@ -114,7 +114,7 @@ The `.agents/skills/` check is the primary heuristic — it finds the meridian p
 
 ### File Location
 
-`resolve_project_config_paths(repo_root).workspace_local_toml` resolves to `<state-root-parent>/workspace.local.toml` (one level above `.meridian/`). The file is local-only: `meridian workspace init` writes it and adds it to `.git/info/exclude` so it never gets committed.
+`resolve_project_config_paths(project_root).workspace_local_toml` resolves to `<state-root-parent>/workspace.local.toml` (one level above `.meridian/`). The file is local-only: `meridian workspace init` writes it and adds it to `.git/info/exclude` so it never gets committed.
 
 ### Two-Stage Model
 
@@ -128,7 +128,7 @@ path = "../sibling-repo"
 enabled = true
 ```
 
-**Stage 2 — resolve:** `resolve_workspace_snapshot(repo_root) → WorkspaceSnapshot`
+**Stage 2 — resolve:** `resolve_workspace_snapshot(project_root) → WorkspaceSnapshot`
 
 Filesystem evaluation on top of the parsed config. Resolves each declared path (relative paths resolved against the workspace file's parent; `~` expanded), checks `is_dir()`, and assembles `ResolvedContextRoot` entries.
 

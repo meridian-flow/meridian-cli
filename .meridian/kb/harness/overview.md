@@ -17,10 +17,10 @@ Two protocols, defined in `adapter.py`:
 - `extract_usage(artifacts, spawn_id)` → `TokenUsage`
 - `extract_session_id(artifacts, spawn_id)` → `str | None`
 - `extract_report(artifacts, spawn_id)` → `str | None`
-- `detect_primary_session_id(repo_root, started_at_epoch, ...)` → `str | None` — post-launch scan for primary harness session
+- `detect_primary_session_id(project_root, started_at_epoch, ...)` → `str | None` — post-launch scan for primary harness session
 - `seed_session(is_resume, harness_session_id, passthrough_args)` → `SessionSeed`
 - `filter_launch_content(prompt, skill_injection, is_resume, ...)` → `PromptPolicy`
-- `owns_untracked_session(repo_root, session_ref)` → `bool`
+- `owns_untracked_session(project_root, session_ref)` → `bool`
 
 **`InProcessHarness`** — in-process execution (Direct adapter only). Single method: `execute(prompt, model, **kwargs)` → `SpawnResult`.
 
@@ -51,7 +51,7 @@ Each adapter declares its feature flags via `HarnessCapabilities`:
 - `TRANSFORM` — call a custom function to modify the args list
 - `DROP` — silently skip this field
 
-**Invariant:** Every `SpawnParams` field must be either in `STRATEGIES` or in the `_SKIP_FIELDS` set (`prompt`, `extra_args`, `repo_root`, `mcp_tools`, `adhoc_agent_payload`, `interactive`, `report_output_path`). Missing mappings raise `ValueError` at build time — this prevents adapter drift when `SpawnParams` gains new fields.
+**Invariant:** Every `SpawnParams` field must be either in `STRATEGIES` or in the `_SKIP_FIELDS` set (`prompt`, `extra_args`, `project_root`, `mcp_tools`, `adhoc_agent_payload`, `interactive`, `report_output_path`). Missing mappings raise `ValueError` at build time — this prevents adapter drift when `SpawnParams` gains new fields.
 
 **`PromptMode`:**
 - `FLAG` — prompt passed via `-p "..."` flag (Claude uses `--prompt` via stdin + `-p`)
@@ -63,7 +63,7 @@ The canonical input to every harness command build:
 - `prompt`, `model`, `effort`, `skills`, `agent`
 - `adhoc_agent_payload` — pre-built native agent JSON (Claude only)
 - `extra_args` — passthrough CLI args
-- `repo_root`, `mcp_tools`, `interactive`
+- `project_root`, `mcp_tools`, `interactive`
 - `continue_harness_session_id`, `continue_fork` — session continuity
 - `appended_system_prompt` — launch-layer injected startup context for Claude (skills plus primary-session `Meridian Agents` inventory)
 - `report_output_path` — for harnesses supporting `-o` style report output (Codex)

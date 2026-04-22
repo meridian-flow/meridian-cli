@@ -49,7 +49,7 @@ AGENTS
 - <agent>: <description>
 ```
 
-The inventory is produced by `build_primary_inventory_prompt(repo_root=...)` in `prompt.py`, using `scan_agent_profiles()`. It is appended to the primary launch startup context for fresh and forked sessions. Resume sessions keep the existing behavior and do not get a new startup inventory block.
+The inventory is produced by `build_primary_inventory_prompt(project_root=...)` in `prompt.py`, using `scan_agent_profiles()`. It is appended to the primary launch startup context for fresh and forked sessions. Resume sessions keep the existing behavior and do not get a new startup inventory block.
 
 This startup inventory is additive. It does not replace normal launch-time loading of the selected agent profile body or its skill content.
 

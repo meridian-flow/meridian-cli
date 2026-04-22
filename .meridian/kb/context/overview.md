@@ -55,7 +55,7 @@ no `archive`). Extra contexts are resolved and returned in
 
 ## Resolver
 
-`src/meridian/lib/context/resolver.py` — `resolve_context_paths(repo_root, config, project_uuid?) → ResolvedContextPaths`
+`src/meridian/lib/context/resolver.py` — `resolve_context_paths(project_root, config, project_uuid?) → ResolvedContextPaths`
 
 ### Path resolution rules
 
@@ -65,13 +65,13 @@ no `archive`). Extra contexts are resolved and returned in
 
 2. **Git-backed path** — when `source = "git"` and `remote` is set:
    - Calls `plugin_api.resolve_clone_path(remote)` to get the local clone root
-   - Resolves `path` relative to that clone root (not the repo root)
+   - Resolves `path` relative to that clone root (not the project root)
    - Clone is managed by the git-autosync hook or manual `git clone`; the
      resolver itself does **not** clone — it only computes the path
 
 3. **Local absolute path** — returned as-is (after `~` expansion)
 
-4. **Local relative path** — resolved relative to `repo_root`
+4. **Local relative path** — resolved relative to `project_root`
 
 ### Output type
 

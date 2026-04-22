@@ -36,7 +36,7 @@ run_harness_process(preview_context, …) →  ProcessOutcome
 Inside `run_harness_process()` (`process/`):
 - Allocates session via `session_scope`, creates spawn row (`start_spawn`)
 - Materializes fork if needed via `fork.py:materialize_fork()` — only after row exists (I-10)
-- **Rebuilds `LaunchContext`** via factory with actual spawn/report/work paths (`report_output_path`, `state_root`, etc.) — this is the runtime context that produces the real argv/env
+- **Rebuilds `LaunchContext`** via factory with actual spawn/report/work paths (`report_output_path`, `runtime_root`, etc.) — this is the runtime context that produces the real argv/env
 - Runs `_run_primary_process_with_capture()` (PTY or pipe mode)
 - Finalizes inline (exit code + durable report check); no `enrich_finalize`
 - Calls `harness_adapter.observe_session_id()` once post-execution (I-4)
@@ -85,7 +85,7 @@ signal_coordinator().mask_sigterm() → spawn_store.finalize_spawn(...)
 SpawnRequest     # Caller intent DTO — prompt, model, harness, skills, session, budget, …
                  # Frozen Pydantic. JSON-safe. No derived/cached state (I-5).
 
-LaunchRuntime    # Driving-adapter inputs — surface, state_root, project_paths,
+LaunchRuntime    # Driving-adapter inputs — surface, runtime_root, project_paths,
                  # argv_intent, config_snapshot, harness_command_override, …
                  # Frozen Pydantic.
 
@@ -115,7 +115,7 @@ LaunchMode                 # background | foreground | app  (in state/spawn_stor
 
 `launch_primary()` in `__init__.py`:
 ```python
-def launch_primary(*, repo_root, request, harness_registry) -> LaunchResult
+def launch_primary(*, project_root, request, harness_registry) -> LaunchResult
 ```
 
 Resolves work-item attachment, calls factory for preview context (dry-run), then delegates to `run_harness_process()`. Returns `LaunchResult{command, exit_code, continue_ref, warning}`.
@@ -163,7 +163,7 @@ Workspace context injection happens in two steps: a pre-launch gate at the very 
 
 ```python
 # context.py — first lines of build_launch_context()
-workspace_snapshot = resolve_workspace_snapshot_for_launch(project_paths.repo_root)
+workspace_snapshot = resolve_workspace_snapshot_for_launch(project_paths.project_root)
 workspace_roots = get_projectable_roots(workspace_snapshot)
 ```
 
@@ -219,7 +219,7 @@ Diagnostics from projection become `CompositionWarning` entries in `LaunchContex
 
 **Factory-centered composition**: All policy, permission, prompt, argv, and env assembly happens inside `build_launch_context()` and its named pipeline stages. Driving adapters are prohibited from reconstructing any of this (I-1, I-2). Adding a new composition concern = one named stage in the factory.
 
-**Two-phase context building in the primary path**: `launch_primary()` calls the factory once (`dry_run=True`) for preview/display. After the spawn row is created, `run_harness_process()` calls the factory again with real paths (`report_output_path`, actual `state_root`, `work_id`). The preview context is used for the initial argv display; the runtime context drives actual execution.
+**Two-phase context building in the primary path**: `launch_primary()` calls the factory once (`dry_run=True`) for preview/display. After the spawn row is created, `run_harness_process()` calls the factory again with real paths (`report_output_path`, actual `runtime_root`, `work_id`). The preview context is used for the initial argv display; the runtime context drives actual execution.
 
 **Policy vs mechanism split**: `launch_primary()` resolves explicit work-item attachment (policy: parses `--work` flag, calls `resolve_work_item`). `process.py` inherits the resolved `work_id` via `LaunchContext`, but also handles the preserved-work-id case for resumed sessions — reading the prior session's attached work id and calling `update_session_work_id()` inside `run_harness_process()` after `session_scope()` yields the managed chat. This is mechanism (querying state after session allocation), not policy override. The subprocess lifecycle, state writes, and artifact persistence in `process.py` are otherwise unaware of work-item or override layers.
 

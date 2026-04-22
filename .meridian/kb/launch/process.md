@@ -16,7 +16,7 @@ Precondition: caller has already built a preview LaunchContext via build_launch_
 1a. Work-item attachment (inside session_scope block, before start_spawn)
    - Reads explicit work_id from preview_context.work_id (set upstream by launch_primary)
    - For resumed sessions with no explicit work_id: reads preserved_work_id from the prior
-     session via get_session_active_work_id(state_root, resume_chat_id)
+     session via get_session_active_work_id(runtime_root, resume_chat_id)
    - Calls update_session_work_id() if attachment needed; passes attached_work_id to start_spawn
      and to the runtime context rebuild
 
@@ -29,7 +29,7 @@ Precondition: caller has already built a preview LaunchContext via build_launch_
    - Sole callsite for adapter.fork_session()
 
 4. build_launch_context() [context.py] — RUNTIME rebuild
-   - Updates runtime with actual spawn log dir, report path, state_root, work_id
+   - Updates runtime with actual spawn log dir, report path, runtime_root, work_id
    - This is the context used for real execution (not the preview context passed in)
    - Produces final argv, env, child_cwd, run_params
 
@@ -60,7 +60,7 @@ Precondition: caller has already built a preview LaunchContext via build_launch_
 The primary path calls `build_launch_context()` twice:
 
 - **Preview phase** (in `launch_primary()`, `dry_run=True`): resolves policies, builds preview argv for display, detects warnings. Uses a placeholder `report_output_path` (`"<spawn-report-path>"`). No filesystem side-effects.
-- **Runtime phase** (inside `run_harness_process()`, after spawn row exists): rebuilds context with real paths — actual `report_output_path`, concrete `state_root`, resolved `work_id`. This is the context that drives real subprocess execution.
+- **Runtime phase** (inside `run_harness_process()`, after spawn row exists): rebuilds context with real paths — actual `report_output_path`, concrete `runtime_root`, resolved `work_id`. This is the context that drives real subprocess execution.
 
 The split exists because the spawn row (and thus the real log dir) doesn't exist at preview time.
 

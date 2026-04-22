@@ -2,7 +2,7 @@
 
 ## Resolution Entry Point
 
-`resolve_model(name_or_alias, repo_root)` in `models.py` is the single caller-facing function. Returns `AliasEntry{alias, model_id, resolved_harness, description}`. Always resolves to a concrete harness or raises `ValueError`.
+`resolve_model(name_or_alias, project_root)` in `models.py` is the single caller-facing function. Returns `AliasEntry{alias, model_id, resolved_harness, description}`. Always resolves to a concrete harness or raises `ValueError`.
 
 ### Step 1: Mars resolve (authoritative)
 
@@ -58,7 +58,7 @@ Two commands are used:
 
 ## Alias Loading (`meridian models list`)
 
-`load_mars_aliases(repo_root)` in `model_aliases.py`:
+`load_mars_aliases(project_root)` in `model_aliases.py`:
 1. Tries `mars models list --json` → `_mars_list_to_entries()`
 2. Falls back to `.mars/models-merged.json` → `_mars_merged_to_entries()`
 3. Returns `[]` if both unavailable

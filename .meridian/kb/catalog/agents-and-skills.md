@@ -30,7 +30,7 @@ class AgentProfile(BaseModel):
 ### Loading Chain
 
 `load_agent_profile(name)`:
-1. Calls `scan_agent_profiles(repo_root)` to build the full profile list
+1. Calls `scan_agent_profiles(project_root)` to build the full profile list
 2. Matches by `path.stem == name` OR `profile.name == name`
 3. Raises `FileNotFoundError` with expected path if not found (includes `meridian mars sync` hint)
 
@@ -92,8 +92,8 @@ Skills are deduplicated by name before loading (`dedupe_skill_names()`, `dedupe_
 
 Primary launch startup context now includes a compact installed agent catalog derived from the same catalog layer rather than shelling out to CLI text parsing.
 
-`build_primary_inventory_prompt(repo_root)` in `launch/prompt.py`:
-- scans installed agent profiles via `scan_agent_profiles(repo_root)`
+`build_primary_inventory_prompt(project_root)` in `launch/prompt.py`:
+- scans installed agent profiles via `scan_agent_profiles(project_root)`
 - renders a stable markdown block headed `# Meridian Agents`
 
 This intentionally exposes only the top-level agent catalog at startup. Skills remain a lower-level launch/runtime mechanism and are not listed in the primary startup inventory, even though their content may still be loaded through the harness's normal launch path for the selected agent.

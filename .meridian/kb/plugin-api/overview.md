@@ -56,8 +56,8 @@ class HookContext:
     event_name:          HookEventName
     event_id:            UUID
     timestamp:           str           # ISO 8601
-    repo_root:           str
-    state_root:          str
+    project_root:        str
+    runtime_root:        str
     schema_version:      int = 1
     spawn_id:            str | None
     spawn_status:        SpawnStatus | None
@@ -116,7 +116,7 @@ resolve_clone_path(repo_url: str) -> Path
     # Returns absolute local clone path for a remote URL.
     # Priority:
     #   1. [git."<url>"].path override from user config
-    #   2. <user_state_root>/git/<generate_repo_slug(repo_url)>
+    #   2. <meridian_home>/git/<generate_repo_slug(repo_url)>
     # Does NOT clone — only resolves where the clone would live.
 ```
 
@@ -124,7 +124,7 @@ resolve_clone_path(repo_url: str) -> Path
 
 ```python
 get_user_config() -> dict[str, Any]
-    # Loads <user_state_root>/config.toml as a dict.
+    # Loads <meridian_home>/config.toml as a dict.
     # Returns {} if file is missing.
     # Raises tomllib.TOMLDecodeError on invalid TOML.
 

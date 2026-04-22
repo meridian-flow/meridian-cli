@@ -36,7 +36,7 @@ The manifest's validation enforces: CLI ops must have `cli_group` + `cli_name`; 
 
 Auto-generation works because many operations (e.g., `models.refresh`, `doctor`) have no required user input — their input models default to `None` everywhere. Operations with required args (e.g., `spawn.show` needing a spawn ID) always have explicit handlers in the respective `cli/*.py` module.
 
-`repo_root` is an implicit field — it's always injected at runtime from `resolve_repo_root()`, never provided by the user. The registration layer knows to skip it when checking whether a handler can be auto-generated.
+`project_root` is an implicit field — it's always injected at runtime from `resolve_project_root()`, never provided by the user. The registration layer knows to skip it when checking whether a handler can be auto-generated.
 
 **Why cyclopts?** The CLI uses cyclopts rather than argparse/click because cyclopts can derive CLI args from Python type annotations, which meshes cleanly with Pydantic input models. This keeps the explicit handler implementations thin — they translate cyclopts kwargs to the input model, call the sync handler, and emit the output.
 
