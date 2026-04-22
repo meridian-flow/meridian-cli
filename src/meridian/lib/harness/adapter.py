@@ -12,7 +12,11 @@ from meridian.lib.core.domain import TokenUsage
 from meridian.lib.core.types import ArtifactKey, ModelId, SpawnId
 from meridian.lib.harness.ids import HarnessId
 from meridian.lib.harness.launch_types import PromptPolicy, SessionSeed
-from meridian.lib.launch.composition import ComposedLaunchContent, ProjectedContent
+from meridian.lib.launch.composition import (
+    ComposedLaunchContent,
+    ProjectedContent,
+    ProjectionChannels,
+)
 from meridian.lib.launch.launch_types import (
     PermissionResolver,
     PreflightResult,
@@ -368,6 +372,11 @@ class BaseHarnessAdapter(Generic[SpecT], ABC):
             system_prompt="",  # Default: no separate system-prompt channel
             user_turn_content=user_turn,
             reference_routing=(),  # Default: no native file injection
+            channels=ProjectionChannels(
+                system_instruction="inline",
+                user_task_prompt="inline",
+                task_context="inline",
+            ),
         )
 
     def detect_primary_session_id(

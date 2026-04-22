@@ -35,6 +35,7 @@ from meridian.lib.harness.projections.project_opencode_subprocess import (
 from meridian.lib.launch.composition import (
     ComposedLaunchContent,
     ProjectedContent,
+    ProjectionChannels,
 )
 from meridian.lib.launch.constants import (
     BASE_COMMAND_OPENCODE_SUBPROCESS,
@@ -281,9 +282,8 @@ class OpenCodeAdapter(BaseHarnessAdapter[OpenCodeLaunchSpec]):
         ]
         system_text = "\n\n".join(b.strip() for b in system_blocks if b.strip())
         
-        # OpenCode supports native file injection, so refs may not be inline
-        # For now, reference_blocks are rendered inline; native injection
-        # requires actual ReferenceItem objects, which Phase 4 will implement
+        # Spawn reference routing is executed from concrete ReferenceItem data.
+        # Primary projection still uses inline context blocks only.
         context_blocks = [*content.reference_blocks, content.prior_output]
         context_text = "\n\n".join(b.strip() for b in context_blocks if b.strip())
         
@@ -293,7 +293,12 @@ class OpenCodeAdapter(BaseHarnessAdapter[OpenCodeLaunchSpec]):
         return ProjectedContent(
             system_prompt="",  # OpenCode has no system-prompt channel
             user_turn_content=user_turn,
-            reference_routing=(),  # Phase 4 will implement native file injection routing
+            reference_routing=(),
+            channels=ProjectionChannels(
+                system_instruction="inline",
+                user_task_prompt="inline",
+                task_context="inline",
+            ),
         )
 
     def filter_launch_content(

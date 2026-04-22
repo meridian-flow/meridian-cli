@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import time
@@ -21,9 +20,9 @@ from meridian.lib.core.spawn_lifecycle import (
 from meridian.lib.core.types import HarnessId, SpawnId
 from meridian.lib.harness.claude_preflight import ensure_claude_session_accessible
 from meridian.lib.harness.registry import HarnessRegistry
+from meridian.lib.launch.artifact_io import write_projection_artifacts
 from meridian.lib.state import spawn_store
 from meridian.lib.state.artifact_store import LocalStore, make_artifact_key
-from meridian.lib.state.atomic import atomic_write_text
 from meridian.lib.state.paths import resolve_spawn_log_dir
 from meridian.lib.state.session_store import (
     get_session_active_work_id,
@@ -256,60 +255,10 @@ def run_harness_process(
                     plan_overrides=plan_overrides,
                     runtime_work_id=attached_work_id,
                 )
-                appended_system_prompt = getattr(
-                    runtime_context.spec,
-                    "appended_system_prompt",
-                    runtime_context.run_params.appended_system_prompt,
-                )
-                if isinstance(appended_system_prompt, str) and appended_system_prompt:
-                    atomic_write_text(log_dir / "system-prompt.md", appended_system_prompt)
-                
-                # Write starting-prompt.md with user-turn content (from projection)
-                # Phase 3A: Use user_turn_content from projection for Claude primary
-                user_turn_content = getattr(
-                    runtime_context.spec,
-                    "user_turn_content",
-                    runtime_context.run_params.user_turn_content,
-                )
-                starting_prompt = (
-                    user_turn_content.strip()
-                    if isinstance(user_turn_content, str) and user_turn_content
-                    else runtime_context.request.prompt.strip()
-                )
-                if starting_prompt:
-                    atomic_write_text(log_dir / "starting-prompt.md", starting_prompt)
-                
-                # Write projection-manifest.json for observability (S-4d)
-                harness_id_value = (
-                    harness_adapter.id.value
-                    if hasattr(harness_adapter.id, "value")
-                    else str(harness_adapter.id)
-                )
-                has_system_prompt = bool(appended_system_prompt)
-
-                if harness_adapter.id == HarnessId.CLAUDE:
-                    manifest_channels = {
-                        "system_instruction": (
-                            "append-system-prompt" if has_system_prompt else "none"
-                        ),
-                        "user_task_prompt": "user-turn",
-                        "task_context": "user-turn",
-                    }
-                else:
-                    manifest_channels = {
-                        "system_instruction": "inline",
-                        "user_task_prompt": "inline",
-                        "task_context": "inline",
-                    }
-
-                projection_manifest = {
-                    "harness": harness_id_value,
-                    "surface": "primary",
-                    "channels": manifest_channels,
-                }
-                atomic_write_text(
-                    log_dir / "projection-manifest.json",
-                    json.dumps(projection_manifest, indent=2),
+                write_projection_artifacts(
+                    log_dir=log_dir,
+                    launch_context=runtime_context,
+                    surface="primary",
                 )
                 command = runtime_context.argv
                 resolved_harness_session_id = runtime_context.seed_harness_session_id or ""

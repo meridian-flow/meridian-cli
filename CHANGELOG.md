@@ -3,6 +3,17 @@
 Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [SemVer](https://semver.org/). Versions `0.0.6` through `0.0.25` in git history only — changelog fell stale, resumed at `[Unreleased]`.
 ## [Unreleased]
 
+### Changed
+- Launch artifacts now source from adapter projection output. Primary and spawn write `system-prompt.md` / `starting-prompt.md` plus `projection-manifest.json` from one shared path.
+- Spawn prompt composition now skips inline duplication for files routed to OpenCode native `--file` injection.
+
+### Removed
+- Spawn prepare no longer writes legacy `prompt.md` or `delivery-manifest.json` artifacts.
+
+### Fixed
+- OpenCode semantic projection now keeps agent profile body in system-instruction ordering.
+- Projection manifest routing for Codex/OpenCode primary launches now reflects actual inline channels instead of Claude-specific defaults.
+
 ## [0.0.39] - 2026-04-21
 
 ### Added

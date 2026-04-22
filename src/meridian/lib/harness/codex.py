@@ -40,6 +40,7 @@ from meridian.lib.harness.projections.project_codex_subprocess import (
 from meridian.lib.launch.composition import (
     ComposedLaunchContent,
     ProjectedContent,
+    ProjectionChannels,
 )
 from meridian.lib.launch.constants import (
     BASE_COMMAND_CODEX_SUBPROCESS,
@@ -397,6 +398,11 @@ class CodexAdapter(BaseHarnessAdapter[CodexLaunchSpec]):
             system_prompt="",  # Codex has no system-prompt channel
             user_turn_content=user_turn,
             reference_routing=(),  # Codex does not support native file injection
+            channels=ProjectionChannels(
+                system_instruction="inline",
+                user_task_prompt="inline",
+                task_context="inline",
+            ),
         )
 
     def filter_launch_content(

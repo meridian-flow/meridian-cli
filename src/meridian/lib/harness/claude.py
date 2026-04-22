@@ -35,6 +35,7 @@ from meridian.lib.harness.projections.project_claude import project_claude_spec_
 from meridian.lib.launch.composition import (
     ComposedLaunchContent,
     ProjectedContent,
+    ProjectionChannels,
     ReferenceRouting,
 )
 from meridian.lib.launch.constants import (
@@ -461,6 +462,13 @@ class ClaudeAdapter(BaseHarnessAdapter[ClaudeLaunchSpec]):
             system_prompt=system_prompt,
             user_turn_content=user_turn,
             reference_routing=reference_routing,
+            channels=ProjectionChannels(
+                system_instruction=(
+                    "append-system-prompt" if system_prompt.strip() else "none"
+                ),
+                user_task_prompt="user-turn",
+                task_context="user-turn",
+            ),
         )
 
     def filter_launch_content(

@@ -38,6 +38,22 @@ class ReferenceRouting:
 
 
 @dataclass(frozen=True)
+class ProjectionChannels:
+    """Adapter-resolved channel decisions for semantic content categories."""
+
+    system_instruction: Literal["append-system-prompt", "inline", "none"]
+    user_task_prompt: Literal["user-turn", "inline"]
+    task_context: Literal["user-turn", "inline", "native-injection"]
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "system_instruction": self.system_instruction,
+            "user_task_prompt": self.user_task_prompt,
+            "task_context": self.task_context,
+        }
+
+
+@dataclass(frozen=True)
 class ComposedLaunchContent:
     """Semantic content blocks before harness channel projection.
 
@@ -99,27 +115,17 @@ class ProjectedContent:
     reference_routing: tuple[ReferenceRouting, ...]
     """Per-reference routing decisions."""
 
+    channels: ProjectionChannels
+    """Per-category routing decisions for projection-manifest.json."""
+
     def channel_manifest(self) -> dict[str, str]:
         """Generate channel routing for projection-manifest.json (S-4d)."""
-        has_system = bool(self.system_prompt.strip())
-        has_user = bool(self.user_turn_content.strip())
-        has_native_refs = any(
-            r.routing == "native-injection" for r in self.reference_routing
-        )
-
-        return {
-            "system_instruction": "append-system-prompt" if has_system else "none",
-            "user_task_prompt": "user-turn" if has_user else "inline",
-            "task_context": (
-                "native-injection"
-                if has_native_refs
-                else ("user-turn" if has_user else "inline")
-            ),
-        }
+        return self.channels.to_dict()
 
 
 __all__ = [
     "ComposedLaunchContent",
     "ProjectedContent",
+    "ProjectionChannels",
     "ReferenceRouting",
 ]

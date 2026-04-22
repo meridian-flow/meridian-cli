@@ -50,6 +50,11 @@ def test_claude_project_content_routes_system_separately_from_user_turn() -> Non
 
     assert projected.system_prompt
     assert projected.user_turn_content
+    assert projected.channel_manifest() == {
+        "system_instruction": "append-system-prompt",
+        "user_task_prompt": "user-turn",
+        "task_context": "user-turn",
+    }
 
     for sentinel in system_sentinels:
         assert sentinel in projected.system_prompt
@@ -66,6 +71,11 @@ def test_codex_project_content_keeps_required_inline_ordering() -> None:
 
     assert projected.system_prompt == ""
     assert projected.reference_routing == ()
+    assert projected.channel_manifest() == {
+        "system_instruction": "inline",
+        "user_task_prompt": "inline",
+        "task_context": "inline",
+    }
     _assert_ordered(
         projected.user_turn_content,
         (
@@ -86,6 +96,11 @@ def test_opencode_project_content_includes_profile_body_as_system_instruction() 
 
     assert projected.system_prompt == ""
     assert projected.reference_routing == ()
+    assert projected.channel_manifest() == {
+        "system_instruction": "inline",
+        "user_task_prompt": "inline",
+        "task_context": "inline",
+    }
     _assert_ordered(
         projected.user_turn_content,
         (

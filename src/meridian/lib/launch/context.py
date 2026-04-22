@@ -41,7 +41,7 @@ from .command import (
     normalize_system_prompt_passthrough_args,
     resolve_launch_spec_stage,
 )
-from .composition import ComposedLaunchContent
+from .composition import ComposedLaunchContent, ProjectedContent
 from .cwd import resolve_child_execution_cwd
 from .env import build_env_plan, inherit_child_env
 from .env import merge_env_overrides as _merge_env_overrides
@@ -161,6 +161,7 @@ class LaunchContext:
     report_output_path: Path
     harness: SubprocessHarness
     resolved_request: SpawnRequest
+    projected_content: ProjectedContent | None = None
     seed_harness_session_id: str | None = None
     is_bypass: bool = False
     # I-13: adapter input transformations surface here instead of silently mutating.
@@ -302,6 +303,7 @@ def _resolve_surface_request(
     str | None,
     tuple[CompositionWarning, ...],
     tuple[ReferenceItem, ...],
+    ProjectedContent | None,
 ]:
     config = (
         MeridianConfig.model_validate(runtime.config_snapshot)
@@ -351,6 +353,13 @@ def _resolve_surface_request(
             request.reference_files,
             base_dir=project_paths.repo_root,
         )
+        references_for_prompt = loaded_references
+        if harness.capabilities.supports_native_file_injection and loaded_references:
+            references_for_prompt = tuple(
+                item
+                for item in loaded_references
+                if not (item.kind == "file" and item.body.strip() and not item.warning)
+            )
         prior_output: str | None = None
         if request.context_from:
             from meridian.lib.ops.spawn.context_ref import (
@@ -368,7 +377,7 @@ def _resolve_surface_request(
             prior_output = render_context_refs(resolved_context_refs)
         prompt = compose_run_prompt_text(
             skills=resolved_skills.loaded_skills if prompt_policy.include_skills else (),
-            references=loaded_references,
+            references=references_for_prompt,
             user_prompt=request.prompt,
             agent_body=(profile.body.strip() if profile is not None else "")
             if prompt_policy.include_agent_body
@@ -412,6 +421,7 @@ def _resolve_surface_request(
     final_passthrough_args = request.extra_args
     appended_system_prompt: str | None = None
     user_turn_content: str | None = None
+    projected_content: ProjectedContent | None = None
     seed_harness_session_id = resolved_continue_harness_session_id
     if runtime.composition_surface == LaunchCompositionSurface.PRIMARY:
         session_mode = (
@@ -420,8 +430,6 @@ def _resolve_surface_request(
         inventory_prompt: str | None = None
         if session_mode != "resume":
             inventory_prompt = build_primary_inventory_prompt(repo_root=project_paths.repo_root)
-            if inventory_prompt:
-                final_prompt = "\n\n".join((final_prompt, inventory_prompt))
 
         seed = harness.seed_session(
             is_resume=session_mode == "resume",
@@ -473,18 +481,18 @@ def _resolve_surface_request(
                 reference_blocks=(),
                 prior_output="",
             )
-            
+
             projected = harness.project_content(composed)
-            
-            # Use projected content for proper channel separation
+            projected_content = projected
+
+            # Use projected content for channel-separated prompt state.
             if projected.system_prompt.strip():
                 appended_system_prompt = projected.system_prompt
             if projected.user_turn_content.strip():
                 user_turn_content = projected.user_turn_content
-            
-            # For harnesses without separate channels, user_turn_content IS the prompt
-            if not projected.system_prompt.strip() and projected.user_turn_content.strip():
                 final_prompt = projected.user_turn_content
+        elif inventory_prompt:
+            final_prompt = "\n\n".join((final_prompt, inventory_prompt))
     elif prompt_policy.skill_injection_mode == "append-system-prompt":
         appended_system_prompt = compose_skill_injections(resolved_skills.loaded_skills) or None
 
@@ -558,6 +566,7 @@ def _resolve_surface_request(
         seed_harness_session_id,
         composition_warnings,
         loaded_references,
+        projected_content,
     )
 
 
@@ -582,6 +591,7 @@ def build_launch_context(
     state_root = Path(runtime.state_root).expanduser().resolve()
     resolved_request = request
     composition_warnings: tuple[CompositionWarning, ...] = ()
+    projected_content: ProjectedContent | None = None
     seed_harness_session_id = (
         (request.session.requested_harness_session_id or "").strip() or None
     )
@@ -592,6 +602,7 @@ def build_launch_context(
             seed_harness_session_id,
             composition_warnings,
             loaded_references,
+            projected_content,
         ) = _resolve_surface_request(
             request=request,
             runtime=runtime,
@@ -609,7 +620,10 @@ def build_launch_context(
             missing_skills_warning=None,
             continuation_warning=None,
         )
-        loaded_references = ()
+        loaded_references = load_reference_items(
+            resolved_request.reference_files,
+            base_dir=project_paths.repo_root,
+        )
 
     report_output_path = _resolve_report_output_path(
         runtime=runtime,
@@ -663,12 +677,16 @@ def build_launch_context(
     requested_harness_session_id = (
         (resolved_request.session.requested_harness_session_id or "").strip() or None
     )
-    appended_system_prompt = (
-        (resolved_agent_metadata.get("appended_system_prompt") or "").strip() or None
-    )
-    user_turn_content = (
-        (resolved_agent_metadata.get("user_turn_content") or "").strip() or None
-    )
+    if projected_content is not None:
+        appended_system_prompt = projected_content.system_prompt.strip() or None
+        user_turn_content = projected_content.user_turn_content.strip() or None
+    else:
+        appended_system_prompt = (
+            (resolved_agent_metadata.get("appended_system_prompt") or "").strip() or None
+        )
+        user_turn_content = (
+            (resolved_agent_metadata.get("user_turn_content") or "").strip() or None
+        )
     is_primary_launch = runtime.composition_surface == LaunchCompositionSurface.PRIMARY
     run_params = ResolvedRunInputs(
         prompt=resolved_request.prompt,
@@ -757,6 +775,7 @@ def build_launch_context(
         report_output_path=report_output_path,
         harness=harness,
         resolved_request=resolved_request,
+        projected_content=projected_content,
         seed_harness_session_id=seed_harness_session_id,
         is_bypass=is_bypass,
         warnings=composition_warnings,

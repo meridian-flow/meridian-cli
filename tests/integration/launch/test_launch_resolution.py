@@ -10,7 +10,12 @@ from meridian.lib.launch.plan import (
     build_primary_launch_runtime,
     build_primary_spawn_request,
 )
-from meridian.lib.launch.request import LaunchArgvIntent, LaunchRuntime, SpawnRequest
+from meridian.lib.launch.request import (
+    LaunchArgvIntent,
+    LaunchCompositionSurface,
+    LaunchRuntime,
+    SpawnRequest,
+)
 from meridian.lib.launch.types import LaunchRequest
 from tests.support.fixtures import write_agent, write_skill
 
@@ -24,7 +29,7 @@ def _write_minimal_mars_config(repo_root: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("model", "peer_name", "peer_model", "skill_name", "skill_description", "expect_inline"),
+    ("model", "peer_name", "peer_model", "skill_name", "skill_description"),
     [
         (
             "claude-sonnet-4",
@@ -32,7 +37,6 @@ def _write_minimal_mars_config(repo_root: Path) -> None:
             "gpt-5.4",
             "review",
             "Review helper",
-            True,  # Changed: content is now delivered via file, not argv
         ),
         (
             "gpt-5.4",
@@ -40,7 +44,6 @@ def _write_minimal_mars_config(repo_root: Path) -> None:
             "claude-sonnet-4",
             "meridian-spawn",
             "Spawn helper",
-            True,
         ),
         (
             "opencode-gpt-5.3-codex",
@@ -48,7 +51,6 @@ def _write_minimal_mars_config(repo_root: Path) -> None:
             "claude-sonnet-4",
             "verification",
             "Verification helper",
-            True,
         ),
     ],
     ids=["claude", "codex", "opencode"],
@@ -60,7 +62,6 @@ def test_primary_launch_injects_inventory_by_harness_family(
     peer_model: str,
     skill_name: str,
     skill_description: str,
-    expect_inline: bool,
 ) -> None:
     _write_minimal_mars_config(tmp_path)
     write_agent(tmp_path, name="dev-orchestrator", model=model)
@@ -78,7 +79,11 @@ def test_primary_launch_injects_inventory_by_harness_family(
         dry_run=True,
     )
 
-    text = preview.run_params.prompt if expect_inline else " ".join(preview.argv)
+    text = (
+        preview.projected_content.system_prompt
+        if preview.projected_content and preview.projected_content.system_prompt
+        else preview.run_params.prompt
+    )
     assert "# Meridian Agents" in text
     assert "AGENTS" in text
     assert "- dev-orchestrator" in text
@@ -186,3 +191,39 @@ def test_opencode_workspace_projection_handles_parent_env_suppression(
             "permission": {"external_directory": [shared_root.as_posix(), state_root.as_posix()]},
         }
         assert "workspace_opencode_parent_env_suppressed" not in warning_codes
+
+
+def test_spawn_prepare_opencode_uses_native_file_injection_and_keeps_inline_fallbacks(
+    tmp_path: Path,
+) -> None:
+    _write_minimal_mars_config(tmp_path)
+    file_ref = tmp_path / "README.md"
+    file_ref.write_text("# hello\n", encoding="utf-8")
+    dir_ref = tmp_path / "src"
+    dir_ref.mkdir()
+    (dir_ref / "main.py").write_text("print('ok')\n", encoding="utf-8")
+
+    preview = build_launch_context(
+        spawn_id="dry-run-opencode-spawn-prepare",
+        request=SpawnRequest(
+            prompt="task prompt",
+            prompt_is_composed=False,
+            model="opencode-gpt-5.3-codex",
+            harness="opencode",
+            reference_files=(file_ref.as_posix(), dir_ref.as_posix()),
+        ),
+        runtime=LaunchRuntime(
+            argv_intent=LaunchArgvIntent.REQUIRED,
+            composition_surface=LaunchCompositionSurface.SPAWN_PREPARE,
+            state_root=(tmp_path / ".meridian").as_posix(),
+            project_paths_repo_root=tmp_path.as_posix(),
+            project_paths_execution_cwd=tmp_path.as_posix(),
+        ),
+        harness_registry=get_default_harness_registry(),
+        dry_run=True,
+    )
+
+    assert "--file" in preview.argv
+    assert file_ref.as_posix() in preview.argv
+    assert f"# Reference: {file_ref.as_posix()}" not in preview.resolved_request.prompt
+    assert f"# Reference: {dir_ref.as_posix()}/" in preview.resolved_request.prompt
