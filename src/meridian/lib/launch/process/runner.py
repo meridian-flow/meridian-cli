@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import time
@@ -261,7 +262,33 @@ def run_harness_process(
                     runtime_context.run_params.appended_system_prompt,
                 )
                 if isinstance(appended_system_prompt, str) and appended_system_prompt:
-                    atomic_write_text(log_dir / "prompt.md", appended_system_prompt)
+                    atomic_write_text(log_dir / "system-prompt.md", appended_system_prompt)
+                # Write starting-prompt.md with user-turn content (original request prompt)
+                starting_prompt = runtime_context.request.prompt.strip()
+                if starting_prompt:
+                    atomic_write_text(log_dir / "starting-prompt.md", starting_prompt)
+                # Write projection-manifest.json for observability (S-4d)
+                harness_id_value = (
+                    harness_adapter.id.value
+                    if hasattr(harness_adapter.id, "value")
+                    else str(harness_adapter.id)
+                )
+                has_system_prompt = bool(appended_system_prompt)
+                projection_manifest = {
+                    "harness": harness_id_value,
+                    "surface": "primary",
+                    "channels": {
+                        "system_instruction": (
+                            "append-system-prompt" if has_system_prompt else "none"
+                        ),
+                        "user_task_prompt": "inline",  # Phase 1: still inline for all harnesses
+                        "task_context": "inline",
+                    },
+                }
+                atomic_write_text(
+                    log_dir / "projection-manifest.json",
+                    json.dumps(projection_manifest, indent=2),
+                )
                 command = runtime_context.argv
                 resolved_harness_session_id = runtime_context.seed_harness_session_id or ""
                 child_env = dict(runtime_context.env)

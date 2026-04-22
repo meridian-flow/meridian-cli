@@ -65,7 +65,7 @@ def test_claude_resolve_launch_spec_normalizes_effort_and_maps_fields(tmp_path: 
     assert spec.appended_system_prompt == "system-prompt"
     assert spec.agents_payload == '{"agent":"payload"}'
     assert spec.agent_name == "coder"
-    assert spec.prompt_file_path == str(report_path.parent / "prompt.md")
+    assert spec.prompt_file_path == str(report_path.parent / "system-prompt.md")
     assert spec.permission_resolver.config == resolver.config
     assert spec.permission_resolver is resolver
 

@@ -272,15 +272,17 @@ class ClaudeAdapter(BaseHarnessAdapter[ClaudeLaunchSpec]):
                 "xhigh": "max",
             }.get(normalized_value, normalized_value)
         continue_session_id = (run.continue_harness_session_id or "").strip() or None
-        # Prefer the spawn log directory (from report_output_path) for prompt.md.
+        # Prefer the spawn log directory (from report_output_path) for system-prompt.md.
         # Keep repo_root fallback for compatibility with contexts that do not set
         # report_output_path.
         prompt_file_path: str | None = None
         report_output_path = (run.report_output_path or "").strip()
         if report_output_path:
-            prompt_file_path = str(Path(report_output_path).expanduser().parent / "prompt.md")
+            prompt_file_path = str(
+                Path(report_output_path).expanduser().parent / "system-prompt.md"
+            )
         elif run.repo_root:
-            prompt_file_path = str(Path(run.repo_root) / "prompt.md")
+            prompt_file_path = str(Path(run.repo_root) / "system-prompt.md")
         return ClaudeLaunchSpec(
             model=str(run.model).strip() if run.model else None,
             effort=normalized_effort,
@@ -350,7 +352,11 @@ class ClaudeAdapter(BaseHarnessAdapter[ClaudeLaunchSpec]):
             if (tool_call := _tool_call_from_payload(payload)) is not None
         )
 
-        prompt_text = _read_artifact_text(artifacts, spawn_id, "prompt.md").strip()
+        # Read user-turn content: prefer starting-prompt.md (new), fall back to prompt.md (legacy)
+        prompt_text = (
+            _read_artifact_text(artifacts, spawn_id, "starting-prompt.md")
+            or _read_artifact_text(artifacts, spawn_id, "prompt.md")
+        ).strip()
         report_text = _read_artifact_text(artifacts, spawn_id, "report.md").strip()
         if not report_text:
             fallback_report = extract_claude_report(artifacts, spawn_id)

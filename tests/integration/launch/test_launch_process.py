@@ -218,7 +218,7 @@ def test_run_harness_process_writes_prompt_file_before_primary_launch(
         )
         captured["prompt_file_is_spawn_log_prompt"] = (
             prompt_file_path.resolve()
-            == Path(kwargs["output_log_path"]).with_name("prompt.md").resolve()
+            == Path(kwargs["output_log_path"]).with_name("system-prompt.md").resolve()
         )
         started = kwargs.get("on_child_started")
         assert callable(started)
