@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from meridian.lib.config.context_config import ContextConfig, ContextSourceType
 from meridian.lib.context.resolver import ResolvedContextPaths
@@ -23,31 +23,31 @@ if TYPE_CHECKING:
     from pytest import MonkeyPatch
 
 
-def test_resolve_runtime_context_delegates_to_resolved_context(
+def test_resolve_runtime_context_passes_explicit_roots(
     monkeypatch: MonkeyPatch,
 ) -> None:
+    """_resolve_runtime_context passes roots explicitly — no env mutation."""
+
     monkeypatch.delenv("MERIDIAN_PROJECT_DIR", raising=False)
     monkeypatch.delenv("MERIDIAN_RUNTIME_DIR", raising=False)
 
-    seen_env: list[tuple[str | None, str | None]] = []
+    seen_kwargs: list[dict[str, Any]] = []
     expected = ResolvedContext(depth=7, work_id="w7", work_dir=Path("/repo/.meridian/work/w7"))
 
-    def fake_from_environment(cls: type[ResolvedContext]) -> ResolvedContext:
-        _ = cls
-        seen_env.append(
-            (
-                os.environ.get("MERIDIAN_PROJECT_DIR"),
-                os.environ.get("MERIDIAN_RUNTIME_DIR"),
-            )
-        )
+    @classmethod  # type: ignore[misc]
+    def capturing_from_environment(cls: type[ResolvedContext], **kwargs: Any) -> ResolvedContext:
+        seen_kwargs.append(kwargs)
         return expected
 
-    monkeypatch.setattr(ResolvedContext, "from_environment", classmethod(fake_from_environment))
+    monkeypatch.setattr(ResolvedContext, "from_environment", capturing_from_environment)
 
     resolved = _resolve_runtime_context(Path("/repo"), Path("/runtime/state"))
 
     assert resolved is expected
-    assert seen_env == [("/repo", "/runtime/state")]
+    assert len(seen_kwargs) == 1
+    assert seen_kwargs[0]["explicit_project_root"] == Path("/repo")
+    assert seen_kwargs[0]["explicit_runtime_root"] == Path("/runtime/state")
+    # Env vars must NOT have been mutated.
     assert os.environ.get("MERIDIAN_PROJECT_DIR") is None
     assert os.environ.get("MERIDIAN_RUNTIME_DIR") is None
 
@@ -239,9 +239,11 @@ def test_work_current_sync_uses_resolved_context(monkeypatch: MonkeyPatch) -> No
     assert output.work_dir == "/repo/.meridian/work/current"
 
 
-def test_ops_context_env_parsing_is_limited_to_repo_and_state_defaults() -> None:
+def test_ops_context_does_not_reference_env_vars_directly() -> None:
+    """ops/context.py must not read or mutate MERIDIAN_* env vars itself."""
+
     source_path = Path(__file__).resolve().parents[3] / "src/meridian/lib/ops/context.py"
     source = source_path.read_text(encoding="utf-8")
     meridian_keys = set(re.findall(r"MERIDIAN_[A-Z_]+", source))
 
-    assert meridian_keys == {"MERIDIAN_PROJECT_DIR", "MERIDIAN_RUNTIME_DIR"}
+    assert meridian_keys == set()

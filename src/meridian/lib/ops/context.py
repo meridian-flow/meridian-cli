@@ -3,9 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
-from collections.abc import Iterator
-from contextlib import contextmanager
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -98,37 +95,13 @@ class WorkCurrentOutput(BaseModel):
         return self.work_dir or ""
 
 
-@contextmanager
-def _resolved_context_env_defaults(project_root: Path, runtime_root: Path) -> Iterator[None]:
-    """Provide repo/state env defaults so `ResolvedContext` can resolve fully."""
-
-    original_project_root = os.environ.get("MERIDIAN_PROJECT_DIR")
-    original_runtime_dir = os.environ.get("MERIDIAN_RUNTIME_DIR")
-
-    if not (original_project_root or "").strip():
-        os.environ["MERIDIAN_PROJECT_DIR"] = project_root.as_posix()
-    if not (original_runtime_dir or "").strip():
-        os.environ["MERIDIAN_RUNTIME_DIR"] = runtime_root.as_posix()
-
-    try:
-        yield
-    finally:
-        if original_project_root is None:
-            os.environ.pop("MERIDIAN_PROJECT_DIR", None)
-        else:
-            os.environ["MERIDIAN_PROJECT_DIR"] = original_project_root
-
-        if original_runtime_dir is None:
-            os.environ.pop("MERIDIAN_RUNTIME_DIR", None)
-        else:
-            os.environ["MERIDIAN_RUNTIME_DIR"] = original_runtime_dir
-
-
 def _resolve_runtime_context(project_root: Path, runtime_root: Path) -> ResolvedContext:
-    """Resolve context from environment with repo/state defaults applied."""
+    """Resolve context with explicit roots — no env mutation needed."""
 
-    with _resolved_context_env_defaults(project_root, runtime_root):
-        return ResolvedContext.from_environment()
+    return ResolvedContext.from_environment(
+        explicit_project_root=project_root,
+        explicit_runtime_root=runtime_root,
+    )
 
 
 def context_sync(input: ContextInput) -> ContextOutput:

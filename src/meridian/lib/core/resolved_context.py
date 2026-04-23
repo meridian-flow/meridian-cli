@@ -62,10 +62,18 @@ class ResolvedContext:
         cls,
         *,
         explicit_work_id: str | None = None,
+        explicit_project_root: Path | None = None,
+        explicit_runtime_root: Path | None = None,
         backend: ContextBackend | None = None,
         context_config: ContextConfig | None = None,
     ) -> Self:
-        """Resolve and freeze canonical runtime context from ``MERIDIAN_*`` values."""
+        """Resolve and freeze canonical runtime context from ``MERIDIAN_*`` values.
+
+        When *explicit_project_root* or *explicit_runtime_root* are supplied they
+        take precedence over the corresponding ``MERIDIAN_PROJECT_DIR`` /
+        ``MERIDIAN_RUNTIME_DIR`` environment variables, allowing callers to resolve
+        context without mutating process-global state.
+        """
 
         import os
 
@@ -82,8 +90,16 @@ class ResolvedContext:
 
         depth = parse_meridian_depth(depth_raw)
 
-        project_root = Path(project_root_raw) if project_root_raw else None
-        runtime_root = Path(runtime_root_raw) if runtime_root_raw else None
+        project_root = (
+            explicit_project_root
+            if explicit_project_root is not None
+            else Path(project_root_raw) if project_root_raw else None
+        )
+        runtime_root = (
+            explicit_runtime_root
+            if explicit_runtime_root is not None
+            else Path(runtime_root_raw) if runtime_root_raw else None
+        )
 
         # Authoritative work-ID precedence:
         # explicit override > MERIDIAN_WORK_ID > session active work lookup.
