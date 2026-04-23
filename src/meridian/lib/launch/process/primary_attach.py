@@ -226,7 +226,13 @@ class PrimaryAttachLauncher:
         """Update activity state based on connection events."""
 
         event_type = event.event_type
-        if event_type in {"turn/started"}:
+        if event_type in {
+            "turn/started",  # Codex
+            "agent_message_chunk",  # OpenCode: assistant text streaming
+            "agent_thought_chunk",  # OpenCode: reasoning streaming
+            "tool_call",  # OpenCode: tool invocation
+            "tool_call_update",  # OpenCode: tool result
+        }:
             self._set_activity("turn_active")
         elif event_type in {"turn/completed", "session.idle"}:
             self._set_activity("idle")
