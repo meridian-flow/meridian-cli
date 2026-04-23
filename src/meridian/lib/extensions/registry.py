@@ -14,6 +14,7 @@ class ExtensionCommandRegistry:
 
     def __init__(self) -> None:
         self._commands: dict[str, ExtensionCommandSpec] = {}
+        self._cli_commands: dict[tuple[str, str], str] = {}  # (group, name) -> fqid
 
     def register(self, spec: ExtensionCommandSpec) -> None:
         """Register a command spec. Raises ValueError on validation failure."""
@@ -21,6 +22,15 @@ class ExtensionCommandRegistry:
         fqid = spec.fqid
         if fqid in self._commands:
             raise ValueError(f"Duplicate extension command: {fqid}")
+
+        cli_key: tuple[str, str] | None = None
+        if spec.cli_group is not None and spec.cli_name is not None:
+            cli_key = (spec.cli_group, spec.cli_name)
+            if cli_key in self._cli_commands:
+                raise ValueError(
+                    f"Duplicate CLI command '{spec.cli_group}.{spec.cli_name}': "
+                    f"{fqid} conflicts with {self._cli_commands[cli_key]}"
+                )
 
         if not spec.first_party:
             forbidden_surfaces = {ExtensionSurface.CLI, ExtensionSurface.MCP}
@@ -30,9 +40,25 @@ class ExtensionCommandRegistry:
                 )
 
         self._commands[fqid] = spec
+        if cli_key is not None:
+            self._cli_commands[cli_key] = fqid
 
     def get(self, fqid: str) -> ExtensionCommandSpec | None:
         return self._commands.get(fqid)
+
+    def get_by_cli(self, group: str, name: str) -> ExtensionCommandSpec | None:
+        """Look up a command by CLI group and subcommand name."""
+        fqid = self._cli_commands.get((group, name))
+        if fqid is None:
+            return None
+        return self._commands.get(fqid)
+
+    def list_for_cli_group(self, group: str) -> list[ExtensionCommandSpec]:
+        """Return all commands in a CLI group, sorted by cli_name."""
+        return sorted(
+            (s for s in self._commands.values() if s.cli_group == group),
+            key=lambda s: s.cli_name or "",
+        )
 
     def list_all(self) -> list[ExtensionCommandSpec]:
         return list(self._commands.values())
