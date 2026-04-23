@@ -31,11 +31,13 @@ import time
 from collections.abc import AsyncIterator, Callable
 from contextlib import suppress
 from pathlib import Path
-from typing import Protocol, cast
+from typing import Generic, Protocol, TypeVar, cast
 
 from meridian.lib.core.types import SpawnId
 from meridian.lib.harness.connections.base import HarnessEvent
 from meridian.lib.streaming.spawn_manager import SpawnManager
+
+_T = TypeVar("_T")
 
 
 class _FastAPIAppState(Protocol):
@@ -50,27 +52,30 @@ class _FastAPIApp(Protocol):
     def get(self, path: str, **kwargs: object) -> Callable[[Callable[..., object]], object]: ...
 
 
-class StreamBroadcaster:
-    """Multi-subscriber broadcast manager for SSE streams.
-    
-    Manages multiple subscriber queues and broadcasts events to all of them.
+class BroadcastHub(Generic[_T]):
+    """Generic multi-subscriber broadcast primitive.
+
+    Manages multiple asyncio.Queue subscribers and broadcasts events to all
+    of them with backpressure handling (drops oldest on full queues).
     Thread-safe through asyncio primitives.
+
+    Used as the fan-out mechanism for both SSE lifecycle events
+    (``BroadcastHub[dict[str, object]]``) and per-spawn harness event
+    streams (``BroadcastHub[HarnessEvent]``).
     """
 
     def __init__(self, maxsize: int = 1000) -> None:
-        self._subscribers: dict[int, asyncio.Queue[dict[str, object] | None]] = {}
+        self._subscribers: dict[int, asyncio.Queue[_T | None]] = {}
         self._next_id = 0
         self._lock = asyncio.Lock()
         self._maxsize = maxsize
 
-    async def subscribe(self) -> tuple[int, asyncio.Queue[dict[str, object] | None]]:
+    async def subscribe(self) -> tuple[int, asyncio.Queue[_T | None]]:
         """Create a new subscriber queue and return (subscriber_id, queue)."""
         async with self._lock:
             sub_id = self._next_id
             self._next_id += 1
-            queue: asyncio.Queue[dict[str, object] | None] = asyncio.Queue(
-                maxsize=self._maxsize
-            )
+            queue: asyncio.Queue[_T | None] = asyncio.Queue(maxsize=self._maxsize)
             self._subscribers[sub_id] = queue
             return sub_id, queue
 
@@ -79,8 +84,8 @@ class StreamBroadcaster:
         async with self._lock:
             self._subscribers.pop(subscriber_id, None)
 
-    def broadcast(self, event: dict[str, object]) -> None:
-        """Send event to all subscribers, dropping if queue is full."""
+    def broadcast(self, event: _T) -> None:
+        """Send event to all subscribers, dropping oldest if queue is full."""
         for queue in list(self._subscribers.values()):
             try:
                 queue.put_nowait(event)
@@ -109,55 +114,8 @@ class StreamBroadcaster:
         return len(self._subscribers)
 
 
-class _EventBroadcaster:
-    """Multi-subscriber broadcast manager for raw spawn HarnessEvent streams."""
-
-    def __init__(self, maxsize: int = 1000) -> None:
-        self._subscribers: dict[int, asyncio.Queue[HarnessEvent | None]] = {}
-        self._next_id = 0
-        self._lock = asyncio.Lock()
-        self._maxsize = maxsize
-
-    async def subscribe(self) -> tuple[int, asyncio.Queue[HarnessEvent | None]]:
-        """Create a new subscriber queue and return (subscriber_id, queue)."""
-        async with self._lock:
-            sub_id = self._next_id
-            self._next_id += 1
-            queue: asyncio.Queue[HarnessEvent | None] = asyncio.Queue(maxsize=self._maxsize)
-            self._subscribers[sub_id] = queue
-            return sub_id, queue
-
-    async def unsubscribe(self, subscriber_id: int) -> None:
-        """Remove a subscriber."""
-        async with self._lock:
-            self._subscribers.pop(subscriber_id, None)
-
-    def broadcast(self, event: HarnessEvent) -> None:
-        """Send one event to all subscribers, dropping oldest if queue is full."""
-        for queue in list(self._subscribers.values()):
-            try:
-                queue.put_nowait(event)
-            except asyncio.QueueFull:
-                with suppress(asyncio.QueueEmpty):
-                    queue.get_nowait()
-                with suppress(asyncio.QueueFull):
-                    queue.put_nowait(event)
-
-    def broadcast_close(self) -> None:
-        """Signal all subscribers to close."""
-        for queue in list(self._subscribers.values()):
-            while True:
-                try:
-                    queue.put_nowait(None)
-                    break
-                except asyncio.QueueFull:
-                    with suppress(asyncio.QueueEmpty):
-                        queue.get_nowait()
-
-    @property
-    def subscriber_count(self) -> int:
-        """Return current subscriber count."""
-        return len(self._subscribers)
+# SSE lifecycle events use dict payloads.
+StreamBroadcaster = BroadcastHub[dict[str, object]]
 
 
 class SpawnMultiSubscriberManager:
@@ -170,7 +128,7 @@ class SpawnMultiSubscriberManager:
 
     def __init__(self, spawn_manager: SpawnManager) -> None:
         self._spawn_manager = spawn_manager
-        self._broadcasters: dict[SpawnId, _EventBroadcaster] = {}
+        self._broadcasters: dict[SpawnId, BroadcastHub[HarnessEvent]] = {}
         self._pump_tasks: dict[SpawnId, asyncio.Task[None]] = {}
         self._lock = asyncio.Lock()
 
@@ -195,7 +153,7 @@ class SpawnMultiSubscriberManager:
                     return None
                 
                 # Create broadcaster and start pump task
-                broadcaster = _EventBroadcaster()
+                broadcaster: BroadcastHub[HarnessEvent] = BroadcastHub()
                 self._broadcasters[spawn_id] = broadcaster
                 self._pump_tasks[spawn_id] = asyncio.create_task(
                     self._pump_loop(spawn_id, queue)
@@ -281,9 +239,9 @@ def get_or_create_stream_broadcaster(app: object) -> StreamBroadcaster:
     """Return app-global SSE broadcaster, creating it on first access."""
     typed_app = cast("_FastAPIApp", app)
     existing = getattr(typed_app.state, "stream_broadcaster", None)
-    if isinstance(existing, StreamBroadcaster):
-        return existing
-    broadcaster = StreamBroadcaster()
+    if isinstance(existing, BroadcastHub):
+        return cast("StreamBroadcaster", existing)
+    broadcaster: StreamBroadcaster = BroadcastHub()
     typed_app.state.stream_broadcaster = broadcaster
     return broadcaster
 
@@ -379,6 +337,7 @@ def register_stream_routes(
 
 
 __all__ = [
+    "BroadcastHub",
     "SpawnMultiSubscriberManager",
     "StreamBroadcaster",
     "broadcast_stream_event",

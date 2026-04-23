@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from meridian.lib.app.stream import SpawnMultiSubscriberManager, StreamBroadcaster
+from meridian.lib.app.stream import BroadcastHub, SpawnMultiSubscriberManager, StreamBroadcaster
 from meridian.lib.core.types import SpawnId
 from meridian.lib.harness.connections.base import HarnessEvent
 
@@ -28,6 +28,25 @@ class _FakeManager:
 
     def get_connection(self, spawn_id: SpawnId) -> object | None:
         return self.connections.get(spawn_id)
+
+
+@pytest.mark.asyncio
+async def test_broadcast_hub_works_with_arbitrary_type() -> None:
+    """BroadcastHub should broadcast any type, not just dicts or HarnessEvents."""
+
+    hub: BroadcastHub[str] = BroadcastHub(maxsize=10)
+    sub_id, queue = await hub.subscribe()
+
+    hub.broadcast("hello")
+    hub.broadcast("world")
+
+    assert await asyncio.wait_for(queue.get(), timeout=1) == "hello"
+    assert await asyncio.wait_for(queue.get(), timeout=1) == "world"
+
+    hub.broadcast_close()
+    assert await asyncio.wait_for(queue.get(), timeout=1) is None
+
+    await hub.unsubscribe(sub_id)
 
 
 @pytest.mark.asyncio
