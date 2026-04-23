@@ -6,7 +6,7 @@ import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from meridian.lib.extensions.types import ExtensionCommandSpec
+from meridian.lib.extensions.types import ExtensionCommandSpec, ExtensionSurface
 
 if TYPE_CHECKING:
     from cyclopts import App
@@ -71,6 +71,8 @@ def register_extension_cli_group(
     resolved_epilogues = command_help_epilogues or {}
 
     for spec in registry.list_for_cli_group(group):
+        if ExtensionSurface.CLI not in spec.surfaces:
+            continue
         fqid = spec.fqid
         handler_factory = resolved_handlers.get(fqid)
 

@@ -6,7 +6,8 @@ from typing import Any
 
 from cyclopts import App
 
-from meridian.cli.registration import register_manifest_cli_group
+from meridian.cli.ext_registration import register_extension_cli_group
+from meridian.lib.extensions.registry import get_first_party_registry
 from meridian.lib.ops.config import (
     ConfigGetInput,
     ConfigResetInput,
@@ -34,8 +35,14 @@ def _config_reset(emit: Emitter, key: str) -> None:
 def register_config_commands(app: App, emit: Emitter) -> tuple[set[str], dict[str, str]]:
     handlers: dict[str, Callable[[], Callable[..., None]]] = {
         # config.init and config.show are auto-generated (no required CLI args).
-        "config.set": lambda: partial(_config_set, emit),
-        "config.get": lambda: partial(_config_get, emit),
-        "config.reset": lambda: partial(_config_reset, emit),
+        "meridian.config.set": lambda: partial(_config_set, emit),
+        "meridian.config.get": lambda: partial(_config_get, emit),
+        "meridian.config.reset": lambda: partial(_config_reset, emit),
     }
-    return register_manifest_cli_group(app, group="config", handlers=handlers, emit=emit)
+    return register_extension_cli_group(
+        app,
+        registry=get_first_party_registry(),
+        group="config",
+        handlers=handlers,
+        emit=emit,
+    )

@@ -6,7 +6,8 @@ from typing import Annotated, Any
 
 from cyclopts import App, Parameter
 
-from meridian.cli.registration import register_manifest_cli_group
+from meridian.cli.ext_registration import register_extension_cli_group
+from meridian.lib.extensions.registry import get_first_party_registry
 from meridian.lib.ops.session_log import SessionLogInput, session_log_sync
 from meridian.lib.ops.session_search import SessionSearchInput, session_search_sync
 
@@ -104,15 +105,16 @@ def register_session_commands(app: App, emit: Emitter) -> tuple[set[str], dict[s
     """Register session CLI commands using registry metadata as source of truth."""
 
     handlers: dict[str, Callable[[], Callable[..., None]]] = {
-        "session.log": lambda: partial(_session_log, emit),
-        "session.search": lambda: partial(_session_search, emit),
+        "meridian.session.log": lambda: partial(_session_log, emit),
+        "meridian.session.search": lambda: partial(_session_search, emit),
     }
-    return register_manifest_cli_group(
+    return register_extension_cli_group(
         app,
+        registry=get_first_party_registry(),
         group="session",
         handlers=handlers,
         command_help_epilogues={
-            "session.log": (
+            "meridian.session.log": (
                 "Examples:\n\n"
                 "  meridian session log c123\n\n"
                 "  meridian session log c123 -n 20\n\n"
@@ -121,7 +123,7 @@ def register_session_commands(app: App, emit: Emitter) -> tuple[set[str], dict[s
                 "  meridian session log c123 -c 2          # older segment "
                 "(higher numbers walk backward)\n"
             ),
-            "session.search": (
+            "meridian.session.search": (
                 "Example:\n\n"
                 "  meridian session search \"auth bug\" c123\n\n"
                 "Search is case-insensitive. Output includes navigation hints, for example:\n\n"

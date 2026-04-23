@@ -9,13 +9,14 @@ from typing import Annotated, Any, cast, get_args
 
 from cyclopts import App, Parameter
 
+from meridian.cli.ext_registration import register_extension_cli_group
 from meridian.cli.main import agent_mode_enabled, current_output_sink, get_global_options
-from meridian.cli.registration import register_manifest_cli_group
 from meridian.cli.spawn_inject import inject_message
 from meridian.cli.utils import missing_fork_session_error, parse_csv_list
 from meridian.lib.config.settings import resolve_project_root
 from meridian.lib.core.domain import SpawnStatus
 from meridian.lib.core.spawn_lifecycle import ACTIVE_SPAWN_STATUSES
+from meridian.lib.extensions.registry import get_first_party_registry
 from meridian.lib.launch.request import SessionRequest
 from meridian.lib.ops.reference import resolve_session_reference
 from meridian.lib.ops.runtime import resolve_runtime_root_and_config, resolve_runtime_root_for_read
@@ -743,16 +744,17 @@ def register_spawn_commands(app: App, emit: Emitter) -> tuple[set[str], dict[str
     """Register spawn CLI commands using registry metadata as source of truth."""
 
     handlers: dict[str, Callable[[], Callable[..., None]]] = {
-        "spawn.children": lambda: partial(_spawn_children, emit),
-        "spawn.files": lambda: partial(_spawn_files, emit),
-        "spawn.list": lambda: partial(_spawn_list, emit),
-        "spawn.stats": lambda: partial(_spawn_stats, emit),
-        "spawn.show": lambda: partial(_spawn_show, emit),
-        "spawn.cancel": lambda: partial(_spawn_cancel, emit),
-        "spawn.wait": lambda: partial(_spawn_wait, emit),
+        "meridian.spawn.children": lambda: partial(_spawn_children, emit),
+        "meridian.spawn.files": lambda: partial(_spawn_files, emit),
+        "meridian.spawn.list": lambda: partial(_spawn_list, emit),
+        "meridian.spawn.stats": lambda: partial(_spawn_stats, emit),
+        "meridian.spawn.show": lambda: partial(_spawn_show, emit),
+        "meridian.spawn.cancel": lambda: partial(_spawn_cancel, emit),
+        "meridian.spawn.wait": lambda: partial(_spawn_wait, emit),
     }
-    registered, descriptions = register_manifest_cli_group(
+    registered, descriptions = register_extension_cli_group(
         app,
+        registry=get_first_party_registry(),
         group="spawn",
         handlers=handlers,
         emit=emit,
@@ -764,7 +766,7 @@ def register_spawn_commands(app: App, emit: Emitter) -> tuple[set[str], dict[str
         help="Inject a message or interrupt request into a running streaming spawn.",
     )
     registered.add("spawn.inject")
-    descriptions["spawn.inject"] = (
+    descriptions["meridian.spawn.inject"] = (
         "Inject a message or interrupt request into a running streaming spawn."
     )
     app.command(

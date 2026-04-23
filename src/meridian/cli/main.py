@@ -188,15 +188,9 @@ def agent_mode_enabled() -> bool:
 
 
 def _get_op_spec_by_cli(group: str, name: str):
-    from meridian.lib.extensions.types import ExtensionSurface
-    from meridian.lib.ops.manifest import get_all_op_specs
+    from meridian.lib.extensions.registry import get_first_party_registry
 
-    for spec in get_all_op_specs():
-        if ExtensionSurface.CLI not in spec.surfaces:
-            continue
-        if spec.cli_group == group and spec.cli_name == name:
-            return spec
-    return None
+    return get_first_party_registry().get_by_cli(group, name)
 
 
 def _resolve_command_path(argv: Sequence[str]) -> tuple[str | None, str | None]:

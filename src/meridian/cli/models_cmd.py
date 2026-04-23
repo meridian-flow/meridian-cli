@@ -4,7 +4,8 @@ from collections.abc import Callable
 from functools import partial
 from typing import Any
 
-from meridian.cli.registration import register_manifest_cli_group
+from meridian.cli.ext_registration import register_extension_cli_group
+from meridian.lib.extensions.registry import get_first_party_registry
 from meridian.lib.ops.catalog import (
     ModelsListInput,
     models_list_sync,
@@ -19,11 +20,12 @@ def _models_list(emit: Emitter, all: bool = False, show_superseded: bool = False
 
 def register_models_commands(app: Any, emit: Emitter) -> tuple[set[str], dict[str, str]]:
     handlers: dict[str, Callable[[], Callable[..., None]]] = {
-        "models.list": lambda: partial(_models_list, emit),
+        "meridian.models.list": lambda: partial(_models_list, emit),
         # models.refresh is auto-generated (no required CLI args).
     }
-    return register_manifest_cli_group(
+    return register_extension_cli_group(
         app,
+        registry=get_first_party_registry(),
         group="models",
         handlers=handlers,
         emit=emit,

@@ -5,18 +5,20 @@ from typing import Any
 
 from cyclopts import App
 
-from meridian.cli.registration import register_manifest_cli_group
+from meridian.cli.ext_registration import register_extension_cli_group
+from meridian.lib.extensions.registry import get_first_party_registry
 
 Emitter = Callable[[Any], None]
 
 
 def register_workspace_commands(app: App, emit: Emitter) -> tuple[set[str], dict[str, str]]:
     # workspace.init has no required CLI args — handler is auto-generated.
-    return register_manifest_cli_group(
+    return register_extension_cli_group(
         app,
+        registry=get_first_party_registry(),
         group="workspace",
         command_help_epilogues={
-            "workspace.init": (
+            "meridian.workspace.init": (
                 "Create the local workspace topology file (workspace.local.toml).\n\n"
                 "The file is local-only and scaffolded with commented examples.\n"
                 "The command is idempotent and also ensures local gitignore coverage.\n\n"

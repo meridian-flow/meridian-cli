@@ -6,8 +6,9 @@ from typing import Annotated, Any
 
 from cyclopts import App, Parameter
 
-from meridian.cli.registration import register_manifest_cli_group
+from meridian.cli.ext_registration import register_extension_cli_group
 from meridian.lib.core.context import RuntimeContext
+from meridian.lib.extensions.registry import get_first_party_registry
 from meridian.lib.ops.context import (
     WorkCurrentInput,
     work_current_sync,
@@ -234,21 +235,22 @@ def register_work_commands(app: App, emit: Emitter) -> tuple[set[str], dict[str,
     """Register work CLI commands using registry metadata as source of truth."""
 
     handlers: dict[str, Callable[[], Callable[..., None]]] = {
-        "work.current": lambda: partial(_work_current, emit),
-        "work.start": lambda: partial(_work_start, emit),
-        "work.list": lambda: partial(_work_list, emit),
-        "work.show": lambda: partial(_work_show, emit),
-        "work.sessions": lambda: partial(_work_sessions, emit),
-        "work.update": lambda: partial(_work_update, emit),
-        "work.done": lambda: partial(_work_done, emit),
-        "work.delete": lambda: partial(_work_delete, emit),
-        "work.switch": lambda: partial(_work_switch, emit),
-        "work.reopen": lambda: partial(_work_reopen, emit),
-        "work.rename": lambda: partial(_work_rename, emit),
-        "work.clear": lambda: partial(_work_clear, emit),
+        "meridian.work.current": lambda: partial(_work_current, emit),
+        "meridian.work.start": lambda: partial(_work_start, emit),
+        "meridian.work.list": lambda: partial(_work_list, emit),
+        "meridian.work.show": lambda: partial(_work_show, emit),
+        "meridian.work.sessions": lambda: partial(_work_sessions, emit),
+        "meridian.work.update": lambda: partial(_work_update, emit),
+        "meridian.work.done": lambda: partial(_work_done, emit),
+        "meridian.work.delete": lambda: partial(_work_delete, emit),
+        "meridian.work.switch": lambda: partial(_work_switch, emit),
+        "meridian.work.reopen": lambda: partial(_work_reopen, emit),
+        "meridian.work.rename": lambda: partial(_work_rename, emit),
+        "meridian.work.clear": lambda: partial(_work_clear, emit),
     }
-    return register_manifest_cli_group(
+    return register_extension_cli_group(
         app,
+        registry=get_first_party_registry(),
         group="work",
         handlers=handlers,
         emit=emit,

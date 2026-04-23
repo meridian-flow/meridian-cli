@@ -5,18 +5,20 @@ from typing import Any
 
 from cyclopts import App
 
-from meridian.cli.registration import register_manifest_cli_group
+from meridian.cli.ext_registration import register_extension_cli_group
+from meridian.lib.extensions.registry import get_first_party_registry
 
 Emitter = Callable[[Any], None]
 
 
 def register_doctor_command(app: App, emit: Emitter) -> tuple[set[str], dict[str, str]]:
     # doctor has no required CLI args — handler is auto-generated.
-    return register_manifest_cli_group(
+    return register_extension_cli_group(
         app,
+        registry=get_first_party_registry(),
         group="doctor",
         command_help_epilogues={
-            "doctor": (
+            "meridian.doctor.doctor": (
                 "Health check and auto-repair for meridian state.\n\n"
                 "Reconciles orphaned spawns (dead PIDs, missing spawn directories),\n"
                 "cleans stale session locks, and warns about\n"
