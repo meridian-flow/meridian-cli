@@ -58,7 +58,11 @@ class ExtensionCommandSpec(BaseModel):
     args_schema: type[BaseModel] = Field(
         description="Pydantic model for input validation",
     )
-    result_schema: type[BaseModel] = Field(description="Pydantic model for output")
+    result_schema: type[BaseModel] = Field(
+        description="Pydantic model for output. "
+        "Intentionally not validated at runtime — used as documentation metadata "
+        "for manifest hashing (registry) and HTTP discovery (extension_routes).",
+    )
     handler: ExtensionHandler
     surfaces: frozenset[ExtensionSurface] = Field(
         default=frozenset(
