@@ -182,6 +182,201 @@ def _cleanup_managed_primary_sidecars(spawn_dir: Path) -> None:
             (spawn_dir / filename).unlink()
 
 
+def _execute_via_managed_attach(
+    *,
+    harness_id: HarnessId,
+    primary_spawn_id: SpawnId,
+    log_dir: Path,
+    project_root: Path,
+    child_cwd: Path,
+    child_env: dict[str, str],
+    launch_spec: ResolvedLaunchSpec,
+    managed: Any,
+    runtime_root: Path,
+    run_primary_attach_fn: RunPrimaryAttach,
+    on_running: Callable[[int], None],
+) -> tuple[int, str | None]:
+    """Run managed attach path and persist managed session id when available."""
+
+    managed_outcome = run_primary_attach_fn(
+        harness_id,
+        primary_spawn_id,
+        log_dir,
+        project_root,
+        child_cwd,
+        child_env,
+        launch_spec,
+        select_process_launcher(None),
+        on_running,
+    )
+    managed_session_id = (managed_outcome.session_id or "").strip() or None
+    if managed_session_id:
+        managed.record_harness_session_id(managed_session_id)
+        spawn_store.update_spawn(
+            runtime_root,
+            primary_spawn_id,
+            harness_session_id=managed_session_id,
+        )
+    return managed_outcome.exit_code, managed_session_id
+
+
+def _execute_via_blackbox(
+    *,
+    command: tuple[str, ...],
+    child_cwd: Path,
+    child_env: dict[str, str],
+    run_primary_process_with_capture_fn: RunPrimaryProcessWithCapture,
+    on_running: Callable[[int], None],
+) -> int:
+    """Run legacy black-box launch path and return process exit code."""
+
+    exit_code, _child_pid = run_primary_process_with_capture_fn(
+        command,
+        child_cwd,
+        child_env,
+        None,
+        on_running,
+    )
+    return exit_code
+
+
+def _execute_primary_process(
+    *,
+    harness_id: HarnessId,
+    session_mode: SessionMode,
+    primary_spawn_id: SpawnId,
+    log_dir: Path,
+    project_root: Path,
+    child_cwd: Path,
+    child_env: dict[str, str],
+    launch_spec: ResolvedLaunchSpec,
+    command: tuple[str, ...],
+    managed: Any,
+    runtime_root: Path,
+    run_primary_process_with_capture_fn: RunPrimaryProcessWithCapture,
+    run_primary_attach_fn: RunPrimaryAttach,
+    on_running: Callable[[int], None],
+) -> tuple[int, bool, str | None]:
+    """Run managed attach when eligible, otherwise fall back to black-box launch."""
+
+    use_managed_backend = (
+        harness_id in {HarnessId.CODEX, HarnessId.OPENCODE} and session_mode != SessionMode.FORK
+    )
+    if use_managed_backend:
+        try:
+            exit_code, managed_session_id = _execute_via_managed_attach(
+                harness_id=harness_id,
+                primary_spawn_id=primary_spawn_id,
+                log_dir=log_dir,
+                project_root=project_root,
+                child_cwd=child_cwd,
+                child_env=child_env,
+                launch_spec=launch_spec,
+                managed=managed,
+                runtime_root=runtime_root,
+                run_primary_attach_fn=run_primary_attach_fn,
+                on_running=on_running,
+            )
+            return exit_code, True, managed_session_id
+        except PrimaryAttachError as exc:
+            logger.warning(
+                "Managed backend failed, falling back to black-box TUI: %s",
+                exc,
+            )
+            _cleanup_managed_primary_sidecars(log_dir)
+            use_managed_backend = False
+
+    if harness_id == HarnessId.CLAUDE or not use_managed_backend:
+        return (
+            _execute_via_blackbox(
+                command=command,
+                child_cwd=child_cwd,
+                child_env=child_env,
+                run_primary_process_with_capture_fn=run_primary_process_with_capture_fn,
+                on_running=on_running,
+            ),
+            False,
+            None,
+        )
+
+    return 2, use_managed_backend, None
+
+
+def _finalize_lifecycle_and_observe_session(
+    *,
+    primary_spawn_id: SpawnId | None,
+    exit_code: int,
+    resolved_harness_session_id: str,
+    harness_adapter: Any,
+    artifacts: LocalStore,
+    project_root: Path,
+    runtime_root: Path,
+    primary_started: float,
+    primary_started_epoch: float,
+    primary_started_local_iso: str | None,
+    managed: Any,
+    lifecycle_service: Any,
+) -> tuple[int, str]:
+    """Finalize lifecycle state and persist best-effort observed session ids."""
+
+    durable_report = False
+    terminated_after_completion = False
+    if primary_spawn_id is not None:
+        report_path = resolve_spawn_log_dir(project_root, primary_spawn_id) / "report.md"
+        try:
+            report_text = report_path.read_text(encoding="utf-8") if report_path.is_file() else None
+        except OSError:
+            report_text = None
+        durable_report = has_durable_report_completion(report_text)
+        terminated_after_completion = durable_report and exit_code in (143, -15)
+    status, resolved_exit_code, _failure_reason = resolve_execution_terminal_state(
+        exit_code=exit_code,
+        failure_reason=None,
+        cancelled=False,
+        durable_report_completion=durable_report,
+        terminated_after_completion=terminated_after_completion,
+    )
+    if primary_spawn_id is not None:
+        duration = max(0.0, time.monotonic() - primary_started) if primary_started > 0.0 else None
+        lifecycle_service.finalize(
+            primary_spawn_id,
+            status,
+            resolved_exit_code,
+            origin="launcher",
+            duration_secs=duration,
+        )
+    try:
+        observed_harness_session_id = None
+        if primary_started_epoch > 0.0:
+            observed_harness_session_id = harness_adapter.observe_session_id(
+                artifacts=artifacts,
+                spawn_id=None,
+                current_session_id=resolved_harness_session_id,
+                project_root=project_root,
+                started_at_epoch=primary_started_epoch,
+                started_at_local_iso=primary_started_local_iso,
+            )
+        if (
+            observed_harness_session_id is not None
+            and observed_harness_session_id.strip()
+            and observed_harness_session_id.strip() != resolved_harness_session_id.strip()
+        ):
+            resolved_harness_session_id = observed_harness_session_id.strip()
+            managed.record_harness_session_id(resolved_harness_session_id)
+            if primary_spawn_id is not None:
+                spawn_store.update_spawn(
+                    runtime_root,
+                    primary_spawn_id,
+                    harness_session_id=resolved_harness_session_id,
+                )
+    except Exception:
+        logger.debug(
+            "Best-effort harness session persistence failed",
+            exc_info=True,
+        )
+    return resolved_exit_code, resolved_harness_session_id
+
+
 async def _run_primary_attach(
     *,
     harness_id: HarnessId,
@@ -477,11 +672,6 @@ def run_harness_process(
                         child_cwd=child_cwd,
                     )
 
-                use_managed_backend = (
-                    harness_id in {HarnessId.CODEX, HarnessId.OPENCODE}
-                    and session_mode != SessionMode.FORK
-                )
-
                 def _record_primary_started(child_pid: int) -> None:
                     lifecycle_service.mark_running(
                         primary_spawn_id,
@@ -489,117 +679,51 @@ def run_harness_process(
                         worker_pid=child_pid,
                     )
 
-                if use_managed_backend:
-                    try:
-                        managed_outcome = run_primary_attach_fn(
-                            harness_id,
-                            primary_spawn_id,
-                            log_dir,
-                            project_root,
-                            child_cwd,
-                            child_env,
-                            launch_spec,
-                            select_process_launcher(None),
-                            _record_primary_started,
-                        )
-                        exit_code = managed_outcome.exit_code
-                        managed_session_id = (managed_outcome.session_id or "").strip()
-                        if managed_session_id:
-                            resolved_harness_session_id = managed_session_id
-                            managed.record_harness_session_id(managed_session_id)
-                            spawn_store.update_spawn(
-                                runtime_root,
-                                primary_spawn_id,
-                                harness_session_id=managed_session_id,
-                            )
-                    except PrimaryAttachError as exc:
-                        logger.warning(
-                            "Managed backend failed, falling back to black-box TUI: %s",
-                            exc,
-                        )
-                        _cleanup_managed_primary_sidecars(log_dir)
-                        use_managed_backend = False
-
-                if harness_id == HarnessId.CLAUDE or not use_managed_backend:
-                    exit_code, _child_pid = run_primary_process_with_capture_fn(
-                        command,
-                        child_cwd,
-                        child_env,
-                        None,
-                        _record_primary_started,
-                    )
+                (
+                    exit_code,
+                    _used_managed_backend,
+                    managed_session_id,
+                ) = _execute_primary_process(
+                    harness_id=harness_id,
+                    session_mode=session_mode,
+                    primary_spawn_id=primary_spawn_id,
+                    log_dir=log_dir,
+                    project_root=project_root,
+                    child_cwd=child_cwd,
+                    child_env=child_env,
+                    launch_spec=launch_spec,
+                    command=command,
+                    managed=managed,
+                    runtime_root=runtime_root,
+                    run_primary_process_with_capture_fn=run_primary_process_with_capture_fn,
+                    run_primary_attach_fn=run_primary_attach_fn,
+                    on_running=_record_primary_started,
+                )
+                if managed_session_id is not None:
+                    resolved_harness_session_id = managed_session_id
                 with suppress(Exception):
                     lifecycle_service.record_exited(
                         primary_spawn_id,
                         exit_code=exit_code,
                     )
             finally:
-                durable_report = False
-                terminated_after_completion = False
-                if primary_spawn_id is not None:
-                    report_path = (
-                        resolve_spawn_log_dir(project_root, primary_spawn_id) / "report.md"
-                    )
-                    try:
-                        report_text = (
-                            report_path.read_text(encoding="utf-8")
-                            if report_path.is_file()
-                            else None
-                        )
-                    except OSError:
-                        report_text = None
-                    durable_report = has_durable_report_completion(report_text)
-                    terminated_after_completion = durable_report and exit_code in (143, -15)
-                status, exit_code, _failure_reason = resolve_execution_terminal_state(
+                (
+                    exit_code,
+                    resolved_harness_session_id,
+                ) = _finalize_lifecycle_and_observe_session(
+                    primary_spawn_id=primary_spawn_id,
                     exit_code=exit_code,
-                    failure_reason=None,
-                    cancelled=False,
-                    durable_report_completion=durable_report,
-                    terminated_after_completion=terminated_after_completion,
+                    resolved_harness_session_id=resolved_harness_session_id,
+                    harness_adapter=harness_adapter,
+                    artifacts=artifacts,
+                    project_root=project_root,
+                    runtime_root=runtime_root,
+                    primary_started=primary_started,
+                    primary_started_epoch=primary_started_epoch,
+                    primary_started_local_iso=primary_started_local_iso,
+                    managed=managed,
+                    lifecycle_service=lifecycle_service,
                 )
-                if primary_spawn_id is not None:
-                    duration = (
-                        max(0.0, time.monotonic() - primary_started)
-                        if primary_started > 0.0
-                        else None
-                    )
-                    lifecycle_service.finalize(
-                        primary_spawn_id,
-                        status,
-                        exit_code,
-                        origin="launcher",
-                        duration_secs=duration,
-                    )
-                try:
-                    observed_harness_session_id = None
-                    if primary_started_epoch > 0.0:
-                        observed_harness_session_id = harness_adapter.observe_session_id(
-                            artifacts=artifacts,
-                            spawn_id=None,
-                            current_session_id=resolved_harness_session_id,
-                            project_root=project_root,
-                            started_at_epoch=primary_started_epoch,
-                            started_at_local_iso=primary_started_local_iso,
-                        )
-                    if (
-                        observed_harness_session_id is not None
-                        and observed_harness_session_id.strip()
-                        and observed_harness_session_id.strip()
-                        != resolved_harness_session_id.strip()
-                    ):
-                        resolved_harness_session_id = observed_harness_session_id.strip()
-                        managed.record_harness_session_id(resolved_harness_session_id)
-                        if primary_spawn_id is not None:
-                            spawn_store.update_spawn(
-                                runtime_root,
-                                primary_spawn_id,
-                                harness_session_id=resolved_harness_session_id,
-                            )
-                except Exception:
-                    logger.debug(
-                        "Best-effort harness session persistence failed",
-                        exc_info=True,
-                    )
     except FileNotFoundError:
         logger.debug("Harness command not found", exc_info=True)
         exit_code = 2
