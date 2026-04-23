@@ -112,9 +112,12 @@ export function SessionRow({
             <ContextMenuSeparator />
           </>
         )}
-        <ContextMenuItem onClick={() => onContextAction('fork')}>
+        {/* Fork is surfaced but disabled until the backend implements it
+            (currently returns 501). Keeping it visible advertises the
+            affordance without giving users a broken action. */}
+        <ContextMenuItem disabled>
           <GitFork size={16} />
-          Fork
+          Fork (coming soon)
         </ContextMenuItem>
         <ContextMenuItem onClick={() => onContextAction('archive')}>
           <Archive size={16} />

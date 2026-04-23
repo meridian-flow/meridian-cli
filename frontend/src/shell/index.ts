@@ -7,4 +7,9 @@ export {
 } from "./StatusBar"
 export { ModeViewport, type ModeViewportProps } from "./ModeViewport"
 export { AppShell, type AppShellProps } from "./AppShell"
+export {
+  NavigationContext,
+  useNavigation,
+  type NavigationContextValue,
+} from "./NavigationContext"
 export * from "./registry"

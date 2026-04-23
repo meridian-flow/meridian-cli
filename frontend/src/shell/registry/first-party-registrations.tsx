@@ -1,11 +1,6 @@
-import { ChatCircle, ListDashes } from '@phosphor-icons/react'
+import { ChatCircle } from '@phosphor-icons/react'
+import { sessionsManifest } from '@/features/sessions/manifest'
 import type { ExtensionRegistry } from './ExtensionRegistry'
-
-const SessionsPlaceholder = () => (
-  <div className="flex h-full items-center justify-center text-muted-foreground">
-    Sessions mode — coming in A4a
-  </div>
-)
 
 const ChatPlaceholder = () => (
   <div className="flex h-full items-center justify-center text-muted-foreground">
@@ -14,14 +9,10 @@ const ChatPlaceholder = () => (
 )
 
 export function registerFirstPartyExtensions(registry: ExtensionRegistry): void {
-  registry.register({
-    id: 'sessions',
-    name: 'Sessions',
-    railItems: [{ id: 'sessions', icon: ListDashes, label: 'Sessions', order: 0 }],
-    panels: [{ id: 'sessions', component: SessionsPlaceholder }],
-    commands: [{ id: 'switch-to-sessions', label: 'Switch to Sessions', execute: () => {} }],
-  })
+  // Real Sessions mode
+  registry.register(sessionsManifest)
 
+  // Chat placeholder — replaced in A4b
   registry.register({
     id: 'chat',
     name: 'Chat',
