@@ -1,4 +1,4 @@
-import type { ComponentType } from "react"
+import type { Icon as PhosphorIcon } from "@phosphor-icons/react"
 import {
   Tooltip,
   TooltipContent,
@@ -8,7 +8,7 @@ import {
 import { cn } from "@/lib/utils"
 
 export interface ModeIconProps {
-  icon: ComponentType<{ size?: number; weight?: "thin" | "light" | "regular" | "bold" | "fill" | "duotone" }>
+  icon: PhosphorIcon
   label: string
   isActive: boolean
   badge?: number

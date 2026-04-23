@@ -1,8 +1,9 @@
+import type { Icon as PhosphorIcon } from '@phosphor-icons/react'
 import type { ComponentType } from 'react'
 
 export interface RailItemContribution {
   id: string
-  icon: ComponentType<{ size?: number; weight?: string }>
+  icon: PhosphorIcon
   label: string
   order: number // Lower = higher in rail
   badge?: () => number // Dynamic badge count

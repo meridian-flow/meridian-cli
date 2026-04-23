@@ -189,37 +189,6 @@ function SubsectionHeading({ children }: { children: React.ReactNode }) {
 // ============================================================================
 
 function DesignTokensPage() {
-  const [contrastResults, setContrastResults] = useState<Array<{
-    bg: string
-    fg: string
-    ratio: number
-    passes: boolean
-  }>>([])
-
-  useEffect(() => {
-    // Calculate contrast ratios for key combinations
-    const combinations = [
-      { bg: "--background", fg: "--foreground" },
-      { bg: "--background", fg: "--muted-foreground" },
-      { bg: "--background", fg: "--accent-text" },
-      { bg: "--card", fg: "--card-foreground" },
-      { bg: "--muted", fg: "--foreground" },
-      { bg: "--primary", fg: "--primary-foreground" },
-      { bg: "--secondary", fg: "--secondary-foreground" },
-      { bg: "--sidebar", fg: "--sidebar-foreground" },
-    ]
-    
-    const style = getComputedStyle(document.documentElement)
-    const results = combinations.map(({ bg, fg }) => {
-      const bgColor = style.getPropertyValue(bg).trim()
-      const fgColor = style.getPropertyValue(fg).trim()
-      // Simplified contrast check - in production use a proper library
-      const ratio = 4.5 + Math.random() * 3 // Placeholder - real impl would compute
-      return { bg, fg, ratio, passes: ratio >= 4.5 }
-    })
-    setContrastResults(results)
-  }, [])
-
   return (
     <div className="max-w-5xl mx-auto space-y-12 font-sans">
       {/* Header */}
