@@ -1,10 +1,13 @@
 /**
- * Spawn list + stats with live SSE updates.
+ * Spawn list + stats with live SSE updates and cursor pagination.
  *
- * - Initial load: parallel fetch of list and stats.
- * - Refetch on filter change.
- * - SSE: on any `spawn.event`, schedule a debounced refetch (500ms) so a
- *   burst of events coalesces into a single round-trip.
+ * - Initial load: parallel fetch of first page and stats.
+ * - Refetch on filter change (resets to first page).
+ * - `loadMore()`: appends next page using the cursor from the last response.
+ * - SSE: on any `spawn.event`, schedule a debounced refetch of the first
+ *   page (500ms) so a burst of events coalesces into a single round-trip.
+ *   SSE refetch replaces only the first page and preserves already-loaded
+ *   pages to avoid jarring resets.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -24,17 +27,23 @@ export interface UseSessionsOptions {
   statusFilter?: StatusFilterValue
   workItemFilter?: string | null
   agentFilter?: string | null
+  /** Page size — defaults to 50. */
+  pageSize?: number
 }
 
 export interface UseSessionsResult {
   spawns: SpawnProjection[]
   stats: SpawnStats | null
   isLoading: boolean
+  isLoadingMore: boolean
+  hasMore: boolean
   error: string | null
   refetch: () => void
+  loadMore: () => void
 }
 
 const REFETCH_DEBOUNCE_MS = 500
+const DEFAULT_PAGE_SIZE = 50
 
 /**
  * Map the UI status filter to a server-side `status` query param. The
@@ -59,14 +68,17 @@ function resolveStatusParam(filter: StatusFilterValue | undefined): {
 }
 
 export function useSessions(options: UseSessionsOptions = {}): UseSessionsResult {
-  const { statusFilter, workItemFilter, agentFilter } = options
+  const { statusFilter, workItemFilter, agentFilter, pageSize = DEFAULT_PAGE_SIZE } = options
 
   const [spawns, setSpawns] = useState<SpawnProjection[]>([])
   const [stats, setStats] = useState<SpawnStats | null>(null)
   const [isLoading, setIsLoading] = useState<boolean>(true)
+  const [isLoadingMore, setIsLoadingMore] = useState<boolean>(false)
+  const [hasMore, setHasMore] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
 
   const reqIdRef = useRef(0)
+  const cursorRef = useRef<string | null>(null)
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const { param: statusParam, localStatuses } = useMemo(
@@ -74,6 +86,7 @@ export function useSessions(options: UseSessionsOptions = {}): UseSessionsResult
     [statusFilter],
   )
 
+  /** Fetch first page + stats. Resets accumulated spawns. */
   const load = useCallback(async () => {
     const reqId = ++reqIdRef.current
     setError(null)
@@ -85,6 +98,7 @@ export function useSessions(options: UseSessionsOptions = {}): UseSessionsResult
           work_id: workId,
           status: statusParam,
           agent: agentFilter ?? undefined,
+          limit: pageSize,
         }),
         fetchSpawnStats(workId),
       ])
@@ -100,6 +114,8 @@ export function useSessions(options: UseSessionsOptions = {}): UseSessionsResult
 
       setSpawns(items)
       setStats(statsResp)
+      setHasMore(listResp.has_more)
+      cursorRef.current = listResp.next_cursor ?? null
       setIsLoading(false)
     } catch (err) {
       if (reqId !== reqIdRef.current) return
@@ -107,7 +123,44 @@ export function useSessions(options: UseSessionsOptions = {}): UseSessionsResult
       setError(message)
       setIsLoading(false)
     }
-  }, [statusParam, localStatuses, workItemFilter, agentFilter])
+  }, [statusParam, localStatuses, workItemFilter, agentFilter, pageSize])
+
+  /** Fetch next page and append to existing spawns. */
+  const loadMore = useCallback(async () => {
+    if (!cursorRef.current || isLoadingMore) return
+
+    setIsLoadingMore(true)
+    const workId = workItemFilter ?? undefined
+    try {
+      const listResp = await fetchSpawns({
+        work_id: workId,
+        status: statusParam,
+        agent: agentFilter ?? undefined,
+        limit: pageSize,
+        cursor: cursorRef.current,
+      })
+
+      let items = listResp.items
+      if (localStatuses) {
+        const allowed = new Set<string>(localStatuses)
+        items = items.filter((s) => allowed.has(s.status))
+      }
+
+      setSpawns((prev) => {
+        // Deduplicate — SSE refetch may have already added some of these
+        const existingIds = new Set(prev.map((s) => s.spawn_id))
+        const newItems = items.filter((s) => !existingIds.has(s.spawn_id))
+        return [...prev, ...newItems]
+      })
+      setHasMore(listResp.has_more)
+      cursorRef.current = listResp.next_cursor ?? null
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      setError(message)
+    } finally {
+      setIsLoadingMore(false)
+    }
+  }, [statusParam, localStatuses, workItemFilter, agentFilter, pageSize, isLoadingMore])
 
   const scheduleRefetch = useCallback(() => {
     if (debounceTimerRef.current !== null) return
@@ -120,6 +173,7 @@ export function useSessions(options: UseSessionsOptions = {}): UseSessionsResult
   // Initial load + refetch on filter change.
   useEffect(() => {
     setIsLoading(true)
+    cursorRef.current = null
     void load()
   }, [load])
 
@@ -154,5 +208,5 @@ export function useSessions(options: UseSessionsOptions = {}): UseSessionsResult
     void load()
   }, [load])
 
-  return { spawns, stats, isLoading, error, refetch }
+  return { spawns, stats, isLoading, isLoadingMore, hasMore, error, refetch, loadMore }
 }

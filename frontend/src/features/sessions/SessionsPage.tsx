@@ -10,7 +10,7 @@
  * by their freshest spawn so active work floats to the top.
  */
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowClockwise, FolderOpen, WarningCircle } from '@phosphor-icons/react'
 
 import { Button } from '@/components/ui/button'
@@ -56,8 +56,11 @@ export interface SessionsPageDataOverride {
   stats: SpawnStats | null
   workItems: WorkProjection[]
   isLoading?: boolean
+  isLoadingMore?: boolean
+  hasMore?: boolean
   error?: string | null
   onRefetch?: () => void
+  onLoadMore?: () => void
   onAction?: (action: 'cancel' | 'fork' | 'archive', spawnId: string) => void
 }
 
@@ -193,6 +196,8 @@ export function SessionsPage({
   const stats = dataOverride?.stats ?? liveSessions.stats
   const workItems = dataOverride?.workItems ?? liveWorkItems.workItems
   const isLoading = dataOverride?.isLoading ?? liveSessions.isLoading
+  const isLoadingMore = dataOverride?.isLoadingMore ?? liveSessions.isLoadingMore
+  const hasMore = dataOverride?.hasMore ?? liveSessions.hasMore
   const error = dataOverride?.error ?? liveSessions.error
 
   const refetch = useCallback(() => {
@@ -203,6 +208,35 @@ export function SessionsPage({
       liveWorkItems.refetch()
     }
   }, [dataOverride, liveSessions, liveWorkItems])
+
+  const loadMore = useCallback(() => {
+    if (dataOverride?.onLoadMore) {
+      dataOverride.onLoadMore()
+    } else {
+      liveSessions.loadMore()
+    }
+  }, [dataOverride, liveSessions])
+
+  // Infinite scroll: observe a sentinel element near the bottom of the list.
+  // When it enters the viewport, trigger loadMore().
+  const sentinelRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current
+    if (!sentinel) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting && hasMore && !isLoadingMore) {
+          loadMore()
+        }
+      },
+      { rootMargin: '200px' },
+    )
+
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [hasMore, isLoadingMore, loadMore])
 
   const handleContextAction = useCallback(
     async (action: 'cancel' | 'fork' | 'archive', spawnId: string) => {
@@ -300,6 +334,20 @@ export function SessionsPage({
                 </div>
               </WorkItemGroupHeader>
             ))}
+
+            {/* Infinite scroll sentinel + loading indicator */}
+            {hasMore && (
+              <div ref={sentinelRef} className="flex items-center justify-center py-4">
+                {isLoadingMore ? (
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <div className="h-3 w-3 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground" />
+                    Loading more…
+                  </div>
+                ) : (
+                  <span className="text-xs text-muted-foreground/50">·</span>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -12,7 +12,7 @@
  * appear "open" without mounting a stateful ChatProvider.
  */
 
-import { useMemo } from "react"
+import { useEffect, useMemo, useRef } from "react"
 
 import { ElapsedTime, MonoId, StatusDot } from "@/components/atoms"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -68,12 +68,34 @@ export function SessionList({ className, dataOverride }: SessionListProps) {
 
   const spawns = dataOverride?.spawns ?? live.spawns
   const isLoading = dataOverride?.isLoading ?? live.isLoading
+  const isLoadingMore = live.isLoadingMore
+  const hasMore = live.hasMore
   const error = dataOverride?.error ?? live.error
   const activeColumns = dataOverride?.activeColumns ?? chat.state.columns
   const focusedColumn = dataOverride?.focusedColumn ?? chat.state.focusedColumn
   const handleSelect = dataOverride?.onSelect ?? chat.openSpawn
 
   const activeSet = useMemo(() => new Set(activeColumns), [activeColumns])
+
+  // Infinite scroll sentinel for the sidebar
+  const sentinelRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current
+    if (!sentinel) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting && hasMore && !isLoadingMore) {
+          live.loadMore()
+        }
+      },
+      { rootMargin: '100px' },
+    )
+
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [hasMore, isLoadingMore, live])
 
   // Sort: active columns first (in their column order), then newest-first
   // by start time. Keeps focused work pinned at the top while still
@@ -123,17 +145,28 @@ export function SessionList({ className, dataOverride }: SessionListProps) {
         ) : orderedSpawns.length === 0 ? (
           <EmptyState />
         ) : (
-          <ul className="flex flex-col py-1">
-            {orderedSpawns.map((p) => (
-              <SessionListRow
-                key={p.spawn_id}
-                spawn={p}
-                isActive={activeSet.has(p.spawn_id)}
-                isFocused={focusedColumn === p.spawn_id}
-                onSelect={handleSelect}
-              />
-            ))}
-          </ul>
+          <>
+            <ul className="flex flex-col py-1">
+              {orderedSpawns.map((p) => (
+                <SessionListRow
+                  key={p.spawn_id}
+                  spawn={p}
+                  isActive={activeSet.has(p.spawn_id)}
+                  isFocused={focusedColumn === p.spawn_id}
+                  onSelect={handleSelect}
+                />
+              ))}
+            </ul>
+            {hasMore && (
+              <div ref={sentinelRef} className="flex items-center justify-center py-2">
+                {isLoadingMore ? (
+                  <div className="h-3 w-3 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground" />
+                ) : (
+                  <span className="text-[10px] text-muted-foreground/40">·</span>
+                )}
+              </div>
+            )}
+          </>
         )}
       </ScrollArea>
     </aside>
