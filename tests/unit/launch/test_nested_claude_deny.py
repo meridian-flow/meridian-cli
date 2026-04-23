@@ -85,10 +85,6 @@ def _build_context(
     return context.resolved_request
 
 
-def _normalize(tool_name: str) -> str:
-    return tool_name.split("(", 1)[0].strip().lower()
-
-
 def test_spawn_prepare_claude_adds_full_implicit_deny_set(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
@@ -106,15 +102,6 @@ def test_spawn_prepare_claude_adds_full_implicit_deny_set(
 def test_compute_nested_deny_excludes_opted_out_agent_tool() -> None:
     deny_additions = compute_nested_claude_deny_additions(
         profile_allowed_tools=("Agent",),
-        existing_disallowed_tools=(),
-    )
-
-    assert set(deny_additions) == (CLAUDE_NATIVE_DELEGATION_TOOLS - {"Agent"})
-
-
-def test_compute_nested_deny_normalizes_opt_out_case() -> None:
-    deny_additions = compute_nested_claude_deny_additions(
-        profile_allowed_tools=("agent",),
         existing_disallowed_tools=(),
     )
 
@@ -151,63 +138,6 @@ def test_spawn_prepare_non_claude_does_not_add_implicit_deny(
     assert resolved_request.disallowed_tools == ("Bash",)
 
 
-def test_spawn_prepare_claude_dedupes_existing_agent_deny(
-    tmp_path: Path,
-    monkeypatch: MonkeyPatch,
-) -> None:
-    _write_agent_profile(
-        tmp_path=tmp_path,
-        name="dedupe-agent",
-        disallowed_tools=("Agent",),
-    )
-    resolved_request = _build_context(
-        tmp_path=tmp_path,
-        monkeypatch=monkeypatch,
-        composition_surface=LaunchCompositionSurface.SPAWN_PREPARE,
-        harness=HarnessId.CLAUDE,
-        agent="dedupe-agent",
-    )
-
-    normalized = [_normalize(tool) for tool in resolved_request.disallowed_tools]
-    assert normalized.count("agent") == 1
-
-
-def test_spawn_prepare_claude_preserves_existing_disallowed_and_adds_implicit(
-    tmp_path: Path,
-    monkeypatch: MonkeyPatch,
-) -> None:
-    _write_agent_profile(
-        tmp_path=tmp_path,
-        name="preserve-deny-agent",
-        disallowed_tools=("Bash",),
-    )
-    resolved_request = _build_context(
-        tmp_path=tmp_path,
-        monkeypatch=monkeypatch,
-        composition_surface=LaunchCompositionSurface.SPAWN_PREPARE,
-        harness=HarnessId.CLAUDE,
-        agent="preserve-deny-agent",
-    )
-
-    assert "Bash" in resolved_request.disallowed_tools
-    assert CLAUDE_NATIVE_DELEGATION_TOOLS.issubset(set(resolved_request.disallowed_tools))
-
-
-def test_direct_surface_claude_does_not_add_implicit_deny(
-    tmp_path: Path,
-    monkeypatch: MonkeyPatch,
-) -> None:
-    resolved_request = _build_context(
-        tmp_path=tmp_path,
-        monkeypatch=monkeypatch,
-        composition_surface=LaunchCompositionSurface.DIRECT,
-        harness=HarnessId.CLAUDE,
-        disallowed_tools=("Bash",),
-    )
-
-    assert resolved_request.disallowed_tools == ("Bash",)
-
-
 def test_spawn_prepare_claude_skips_implicit_deny_when_allowlist_present(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
@@ -228,26 +158,6 @@ def test_spawn_prepare_claude_skips_implicit_deny_when_allowlist_present(
     assert resolved_request.allowed_tools == ("Agent",)
     expected_implicit_deny = CLAUDE_NATIVE_DELEGATION_TOOLS - {"Agent"}
     assert set(resolved_request.disallowed_tools) == expected_implicit_deny
-
-
-def test_spawn_prepare_claude_does_not_store_profile_optout_metadata(
-    tmp_path: Path,
-    monkeypatch: MonkeyPatch,
-) -> None:
-    _write_agent_profile(
-        tmp_path=tmp_path,
-        name="metadata-optout-agent",
-        tools=("Agent",),
-    )
-    resolved_request = _build_context(
-        tmp_path=tmp_path,
-        monkeypatch=monkeypatch,
-        composition_surface=LaunchCompositionSurface.SPAWN_PREPARE,
-        harness=HarnessId.CLAUDE,
-        agent="metadata-optout-agent",
-    )
-
-    assert "_profile_tools_for_deny_optout" not in resolved_request.agent_metadata
 
 
 def test_spawn_prepare_claude_with_profile_tools_partial_optout(

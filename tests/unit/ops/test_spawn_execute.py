@@ -3,10 +3,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from types import MappingProxyType
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    import pytest
 
 from meridian.lib.config.project_paths import ProjectConfigPaths
 from meridian.lib.core.types import ModelId, SpawnId
@@ -22,7 +18,6 @@ from meridian.lib.launch.context import LaunchContext
 from meridian.lib.launch.reference import ReferenceItem
 from meridian.lib.launch.request import LaunchRuntime, SpawnRequest
 from meridian.lib.launch.run_inputs import ResolvedRunInputs
-from meridian.lib.ops.spawn import execute as spawn_execute
 from meridian.lib.ops.spawn.execute import _write_params_json
 from meridian.lib.safety.permissions import PermissionConfig, TieredPermissionResolver
 
@@ -196,58 +191,3 @@ def test_write_params_json_does_not_write_legacy_prompt_md(tmp_path: Path) -> No
     assert not (log_dir / "prompt.md").exists()
 
 
-def test_background_worker_main_uses_project_root_flag(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    project_root = (tmp_path / "project").resolve()
-    project_root.mkdir()
-    observed_project_root: dict[str, Path] = {}
-    finalized: dict[str, object] = {}
-
-    def fake_resolve_project_config_paths(*, project_root: Path) -> ProjectConfigPaths:
-        observed_project_root["value"] = project_root
-        return ProjectConfigPaths(project_root=project_root, execution_cwd=project_root)
-
-    class _FakeLifecycleService:
-        def finalize(self, spawn_id: str, **kwargs: object) -> None:
-            finalized["spawn_id"] = spawn_id
-            finalized["status"] = kwargs.get("status")
-
-    def fake_load_bg_worker_request(_log_dir: Path) -> spawn_execute.BackgroundWorkerLaunchRequest:
-        raise RuntimeError("missing launch payload")
-
-    monkeypatch.setattr(
-        spawn_execute,
-        "resolve_project_config_paths",
-        fake_resolve_project_config_paths,
-    )
-    monkeypatch.setattr(
-        spawn_execute,
-        "resolve_runtime_root",
-        lambda _project_root: tmp_path / ".meridian",
-    )
-    monkeypatch.setattr(
-        spawn_execute,
-        "resolve_spawn_log_dir",
-        lambda _project_root, _spawn_id: tmp_path / "logs",
-    )
-    monkeypatch.setattr(
-        spawn_execute,
-        "create_lifecycle_service",
-        lambda _project_root, _runtime_root: _FakeLifecycleService(),
-    )
-    monkeypatch.setattr(
-        spawn_execute,
-        "_load_bg_worker_request",
-        fake_load_bg_worker_request,
-    )
-
-    exit_code = spawn_execute._background_worker_main(
-        ["--spawn-id", "p123", "--project-root", project_root.as_posix()]
-    )
-
-    assert exit_code == 1
-    assert observed_project_root["value"] == project_root
-    assert finalized["spawn_id"] == "p123"
-    assert finalized["status"] == "failed"

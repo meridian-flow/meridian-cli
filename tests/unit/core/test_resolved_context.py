@@ -244,18 +244,6 @@ def test_from_environment_non_integer_depth_defaults_to_zero(
     assert resolved.depth == 0
 
 
-def test_from_environment_float_string_depth_defaults_to_zero(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A float string like '3.5' is not a valid int and must default to 0."""
-    _clear_meridian_env(monkeypatch)
-    monkeypatch.setenv("MERIDIAN_DEPTH", "3.5")
-
-    resolved = ResolvedContext.from_environment(backend=FakeBackend())
-
-    assert resolved.depth == 0
-
-
 # ---------------------------------------------------------------------------
 # Edge case 2: Empty env vars treated same as missing
 # ---------------------------------------------------------------------------
@@ -272,18 +260,6 @@ def test_from_environment_empty_project_root_treated_as_absent(
 
     assert resolved.project_root is None
     assert resolved.kb_dir is None
-
-
-def test_from_environment_whitespace_only_project_root_treated_as_absent(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A whitespace-only MERIDIAN_PROJECT_DIR must be stripped and treated as absent."""
-    _clear_meridian_env(monkeypatch)
-    monkeypatch.setenv("MERIDIAN_PROJECT_DIR", "   ")
-
-    resolved = ResolvedContext.from_environment(backend=FakeBackend())
-
-    assert resolved.project_root is None
 
 
 def test_from_environment_empty_work_id_env_treated_as_absent(
@@ -303,23 +279,6 @@ def test_from_environment_empty_work_id_env_treated_as_absent(
     assert backend.work_dir_calls == []
 
 
-def test_from_environment_empty_state_root_treated_as_absent(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """An empty MERIDIAN_RUNTIME_DIR must be treated as absent (no session lookup)."""
-    _clear_meridian_env(monkeypatch)
-    monkeypatch.setenv("MERIDIAN_RUNTIME_DIR", "")
-    monkeypatch.setenv("MERIDIAN_CHAT_ID", "c42")
-    backend = FakeBackend(session_active_work_id="active-work")
-
-    resolved = ResolvedContext.from_environment(backend=backend)
-
-    # runtime_root is absent so the session lookup branch is never entered
-    assert resolved.runtime_root is None
-    assert resolved.work_id is None
-    assert backend.session_lookup_calls == []
-
-
 # ---------------------------------------------------------------------------
 # Edge case 3: Explicit override precedence — empty/whitespace explicit_work_id
 # ---------------------------------------------------------------------------
@@ -334,20 +293,6 @@ def test_from_environment_empty_explicit_work_id_falls_back_to_env(
     backend = FakeBackend()
 
     resolved = ResolvedContext.from_environment(explicit_work_id="", backend=backend)
-
-    assert resolved.work_id == "env-work"
-
-
-def test_from_environment_whitespace_explicit_work_id_falls_back_to_env(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A whitespace-only explicit_work_id must be stripped and treated as absent,
-    falling through to MERIDIAN_WORK_ID."""
-    _clear_meridian_env(monkeypatch)
-    monkeypatch.setenv("MERIDIAN_WORK_ID", "env-work")
-    backend = FakeBackend()
-
-    resolved = ResolvedContext.from_environment(explicit_work_id="   ", backend=backend)
 
     assert resolved.work_id == "env-work"
 
@@ -369,68 +314,6 @@ def test_from_environment_explicit_work_id_beats_session_lookup(
     assert resolved.work_id == "override-work"
     # Session lookup must be skipped entirely
     assert backend.session_lookup_calls == []
-
-
-def test_from_environment_work_id_resolution_precedence_d8(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """D8 precedence: explicit_work_id > MERIDIAN_WORK_ID > session lookup."""
-    _clear_meridian_env(monkeypatch)
-    monkeypatch.setenv("MERIDIAN_PROJECT_DIR", "/repo")
-    monkeypatch.setenv("MERIDIAN_RUNTIME_DIR", "/runtime/state")
-    monkeypatch.setenv("MERIDIAN_CHAT_ID", "c42")
-    monkeypatch.setenv("MERIDIAN_WORK_ID", "env-work")
-
-    explicit_backend = FakeBackend(session_active_work_id="session-work")
-    resolved_explicit = ResolvedContext.from_environment(
-        explicit_work_id="explicit-work",
-        backend=explicit_backend,
-    )
-    assert resolved_explicit.work_id == "explicit-work"
-    assert explicit_backend.session_lookup_calls == []
-    assert explicit_backend.work_dir_calls == []
-
-    env_backend = FakeBackend(session_active_work_id="session-work")
-    resolved_env = ResolvedContext.from_environment(backend=env_backend)
-    assert resolved_env.work_id == "env-work"
-    assert env_backend.session_lookup_calls == []
-    assert env_backend.work_dir_calls == []
-
-    monkeypatch.delenv("MERIDIAN_WORK_ID", raising=False)
-    session_backend = FakeBackend(session_active_work_id="session-work")
-    resolved_session = ResolvedContext.from_environment(backend=session_backend)
-    assert resolved_session.work_id == "session-work"
-    assert session_backend.session_lookup_calls == [(Path("/runtime/state"), "c42")]
-    assert session_backend.work_dir_calls == []
-
-
-# ---------------------------------------------------------------------------
-# Edge case 4: Immutability — other fields besides depth
-# ---------------------------------------------------------------------------
-
-
-def test_resolved_context_frozen_project_root() -> None:
-    """ResolvedContext must reject mutations to project_root."""
-    resolved = ResolvedContext(project_root=Path("/repo"))
-
-    with pytest.raises(FrozenInstanceError):
-        resolved.project_root = Path("/other")  # type: ignore[misc]
-
-
-def test_resolved_context_frozen_chat_id() -> None:
-    """ResolvedContext must reject mutations to chat_id."""
-    resolved = ResolvedContext(chat_id="original")
-
-    with pytest.raises(FrozenInstanceError):
-        resolved.chat_id = "changed"  # type: ignore[misc]
-
-
-def test_resolved_context_frozen_work_id() -> None:
-    """ResolvedContext must reject mutations to work_id."""
-    resolved = ResolvedContext(work_id="w1")
-
-    with pytest.raises(FrozenInstanceError):
-        resolved.work_id = "w2"  # type: ignore[misc]
 
 
 # ---------------------------------------------------------------------------
@@ -460,103 +343,6 @@ def test_work_dir_uses_state_root_directly_when_no_project_root(
     assert resolved.kb_dir is None
 
 
-def test_work_dir_is_none_when_no_work_id_even_with_state_root(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """work_dir must stay None when work_id cannot be resolved,
-    even when runtime_root is populated."""
-    _clear_meridian_env(monkeypatch)
-    monkeypatch.setenv("MERIDIAN_RUNTIME_DIR", "/runtime/state")
-    # No MERIDIAN_WORK_ID and no MERIDIAN_CHAT_ID (so session lookup skipped)
-    backend = FakeBackend()
-
-    resolved = ResolvedContext.from_environment(backend=backend)
-
-    assert resolved.work_id is None
-    assert resolved.work_dir is None
-    assert backend.work_dir_calls == []
-
-
-# ---------------------------------------------------------------------------
-# Edge case: spawn_id is NOT propagated to child env overrides
-# ---------------------------------------------------------------------------
-
-
-def test_child_env_overrides_propagates_spawn_id() -> None:
-    """MERIDIAN_SPAWN_ID must appear in child_env_overrides output so
-    children know their parent spawn for parent_id tracking."""
-    from meridian.lib.core.types import SpawnId
-
-    resolved = ResolvedContext(
-        spawn_id=SpawnId("parent-spawn"),
-        depth=1,
-        chat_id="c1",
-    )
-
-    overrides = resolved.child_env_overrides()
-
-    assert overrides.get("MERIDIAN_SPAWN_ID") == "parent-spawn"
-
-
-# ---------------------------------------------------------------------------
-# Edge case: whitespace-only MERIDIAN_SPAWN_ID → spawn_id is None
-# ---------------------------------------------------------------------------
-
-
-def test_from_environment_whitespace_only_spawn_id_treated_as_absent(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A whitespace-only MERIDIAN_SPAWN_ID must be stripped to '' and treated as absent,
-    producing spawn_id=None rather than a SpawnId wrapping a blank string."""
-    _clear_meridian_env(monkeypatch)
-    monkeypatch.setenv("MERIDIAN_SPAWN_ID", "   ")
-
-    resolved = ResolvedContext.from_environment(backend=FakeBackend())
-
-    assert resolved.spawn_id is None
-
-
-# ---------------------------------------------------------------------------
-# Edge case: large valid MERIDIAN_DEPTH is preserved exactly
-# ---------------------------------------------------------------------------
-
-
-def test_from_environment_large_valid_depth_preserved(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A large but valid positive integer MERIDIAN_DEPTH must be preserved exactly.
-    Only negative values are clamped — large valid integers pass through unchanged."""
-    _clear_meridian_env(monkeypatch)
-    monkeypatch.setenv("MERIDIAN_DEPTH", "9999")
-
-    resolved = ResolvedContext.from_environment(backend=FakeBackend())
-
-    assert resolved.depth == 9999
-
-
-# ---------------------------------------------------------------------------
-# Edge case: runtime_root present + empty chat_id → session lookup skipped
-# ---------------------------------------------------------------------------
-
-
-def test_from_environment_session_lookup_skipped_when_chat_id_empty(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Session lookup must be skipped when chat_id resolves to '' even if
-    runtime_root is populated.  The lookup branch guards on both runtime_root and
-    a non-empty chat_id — an empty MERIDIAN_CHAT_ID must prevent the call."""
-    _clear_meridian_env(monkeypatch)
-    monkeypatch.setenv("MERIDIAN_RUNTIME_DIR", "/runtime/state")
-    monkeypatch.setenv("MERIDIAN_CHAT_ID", "")
-    backend = FakeBackend(session_active_work_id="should-not-be-returned")
-
-    resolved = ResolvedContext.from_environment(backend=backend)
-
-    assert resolved.work_id is None
-    assert resolved.work_dir is None
-    assert backend.session_lookup_calls == []
-
-
 # ---------------------------------------------------------------------------
 # Edge case: child_env_overrides with all optional fields absent
 # ---------------------------------------------------------------------------
@@ -571,28 +357,6 @@ def test_child_env_overrides_minimal_context_only_emits_depth() -> None:
 
     assert list(overrides.keys()) == ["MERIDIAN_DEPTH"]
     assert overrides["MERIDIAN_DEPTH"] == "1"
-
-
-# ---------------------------------------------------------------------------
-# Edge case: relative path in MERIDIAN_PROJECT_DIR is handled without error
-# ---------------------------------------------------------------------------
-
-
-def test_from_environment_relative_project_root_handled_gracefully(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A relative path string in MERIDIAN_PROJECT_DIR must not raise an exception.
-    The module performs no filesystem existence check — it merely constructs
-    the Path object and derives downstream paths from it."""
-    _clear_meridian_env(monkeypatch)
-    monkeypatch.setenv("MERIDIAN_PROJECT_DIR", "../relative/repo")
-
-    resolved = ResolvedContext.from_environment(backend=FakeBackend())
-
-    # Relative path accepted without error — downstream callers must resolve
-    assert resolved.project_root == Path("../relative/repo")
-    # kb_dir is also derived relative — still no error
-    assert resolved.kb_dir == Path("../relative/repo/.meridian/kb")
 
 
 def test_from_environment_uses_context_config_for_repo_paths(

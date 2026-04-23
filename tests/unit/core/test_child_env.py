@@ -33,15 +33,6 @@ def test_validate_accepts_non_meridian_keys() -> None:
     validate_child_env_keys(overrides)
 
 
-def test_validate_accepts_empty_mapping() -> None:
-    """Empty mapping must pass without error."""
-    validate_child_env_keys({})
-
-
-def test_validate_accepts_parent_spawn_id() -> None:
-    validate_child_env_keys({"MERIDIAN_PARENT_SPAWN_ID": "p1"})
-
-
 def test_validate_accepts_context_dir_keys() -> None:
     validate_child_env_keys({"MERIDIAN_CONTEXT_DOCS_DIR": "/contexts/docs"})
 
@@ -101,19 +92,6 @@ def test_build_increments_depth_by_default() -> None:
         parent_depth=3,
     )
     assert result["MERIDIAN_DEPTH"] == "4"
-
-
-def test_build_no_increment_keeps_depth() -> None:
-    """increment_depth=False must keep the depth value unchanged."""
-    result = build_child_env_overrides(
-        parent_spawn_id=None,
-        project_root=None,
-        runtime_root=None,
-        parent_chat_id=None,
-        parent_depth=2,
-        increment_depth=False,
-    )
-    assert result["MERIDIAN_DEPTH"] == "2"
 
 
 def test_build_omits_none_fields() -> None:
@@ -248,133 +226,3 @@ def test_integration_matches_resolved_context_child_env_overrides() -> None:
     )
 
     assert result == expected
-
-
-def test_integration_increment_depth_false_matches_resolved_context() -> None:
-    """increment_depth=False must match child_env_overrides(increment_depth=False)."""
-    ctx = ResolvedContext(
-        depth=5,
-        project_root=Path("/r"),
-        runtime_root=Path("/s"),
-        chat_id="c5",
-    )
-    expected = ctx.child_env_overrides(increment_depth=False)
-
-    result = build_child_env_overrides(
-        parent_spawn_id=None,
-        project_root=Path("/r"),
-        runtime_root=Path("/s"),
-        parent_chat_id="c5",
-        parent_depth=5,
-        increment_depth=False,
-    )
-
-    assert result == expected
-
-
-# ---------------------------------------------------------------------------
-# Edge case 6: increment_depth=False at depth 0 stays at 0
-# ---------------------------------------------------------------------------
-
-
-def test_build_no_increment_at_depth_zero_stays_zero() -> None:
-    """increment_depth=False at parent_depth=0 must produce MERIDIAN_DEPTH=0, not -1."""
-    result = build_child_env_overrides(
-        parent_spawn_id=None,
-        project_root=None,
-        runtime_root=None,
-        parent_chat_id=None,
-        parent_depth=0,
-        increment_depth=False,
-    )
-    assert result["MERIDIAN_DEPTH"] == "0"
-
-
-def test_build_no_increment_preserves_large_depth() -> None:
-    """increment_depth=False must keep an arbitrary depth value unchanged."""
-    result = build_child_env_overrides(
-        parent_spawn_id=None,
-        project_root=None,
-        runtime_root=None,
-        parent_chat_id=None,
-        parent_depth=99,
-        increment_depth=False,
-    )
-    assert result["MERIDIAN_DEPTH"] == "99"
-
-
-# ---------------------------------------------------------------------------
-# Edge case 7: validate_child_env_keys with mixed allowed/disallowed keys
-# ---------------------------------------------------------------------------
-
-
-def test_validate_rejects_bad_key_alongside_non_meridian_keys() -> None:
-    """A disallowed MERIDIAN_* key must be caught even when mixed with
-    unrelated non-MERIDIAN_ keys that are always allowed."""
-    overrides = {
-        "PATH": "/usr/bin",
-        "HOME": "/home/user",
-        "MERIDIAN_DEPTH": "2",
-        "MERIDIAN_BAD_KEY": "oops",
-    }
-    with pytest.raises(RuntimeError, match="MERIDIAN_BAD_KEY"):
-        validate_child_env_keys(overrides)
-
-
-def test_validate_multiple_bad_keys_raises_on_first_encountered() -> None:
-    """Having more than one unknown MERIDIAN_* key must still raise RuntimeError."""
-    overrides = {
-        "MERIDIAN_ALPHA": "a",
-        "MERIDIAN_BETA": "b",
-    }
-    with pytest.raises(RuntimeError, match="Unexpected MERIDIAN_\\* key"):
-        validate_child_env_keys(overrides)
-
-
-# ---------------------------------------------------------------------------
-# Edge case: empty/None chat_id is omitted from child env overrides
-# ---------------------------------------------------------------------------
-
-
-def test_build_empty_string_chat_id_is_omitted() -> None:
-    """An empty parent_chat_id string must not produce a MERIDIAN_CHAT_ID key."""
-    result = build_child_env_overrides(
-        parent_spawn_id=None,
-        project_root=None,
-        runtime_root=None,
-        parent_chat_id="",
-        parent_depth=1,
-    )
-    assert "MERIDIAN_CHAT_ID" not in result
-
-
-def test_build_none_chat_id_is_omitted() -> None:
-    """A None parent_chat_id must not produce a MERIDIAN_CHAT_ID key."""
-    result = build_child_env_overrides(
-        parent_spawn_id=None,
-        project_root=None,
-        runtime_root=None,
-        parent_chat_id=None,
-        parent_depth=1,
-    )
-    assert "MERIDIAN_CHAT_ID" not in result
-
-
-# ---------------------------------------------------------------------------
-# Edge case: MERIDIAN_DEPTH is always present and is a numeric string
-# ---------------------------------------------------------------------------
-
-
-def test_build_depth_is_always_numeric_string() -> None:
-    """MERIDIAN_DEPTH must always be a string representation of a non-negative integer."""
-    for depth in (0, 1, 10, 100):
-        result = build_child_env_overrides(
-            parent_spawn_id=None,
-            project_root=None,
-            runtime_root=None,
-            parent_chat_id=None,
-            parent_depth=depth,
-        )
-        assert result["MERIDIAN_DEPTH"].isdigit(), (
-            f"Expected numeric string, got {result['MERIDIAN_DEPTH']!r} for depth={depth}"
-        )

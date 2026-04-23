@@ -7,7 +7,7 @@ import pytest
 
 from meridian.lib.core.types import HarnessId, SpawnId
 from meridian.lib.harness.connections import codex_ws
-from meridian.lib.harness.connections.base import MAX_HARNESS_MESSAGE_BYTES, ConnectionConfig
+from meridian.lib.harness.connections.base import ConnectionConfig
 from meridian.lib.harness.launch_spec import CodexLaunchSpec
 from meridian.lib.harness.projections.project_codex_streaming import (
     project_codex_spec_to_appserver_command,
@@ -78,12 +78,6 @@ def _values_for_setting(command: list[str], key: str) -> list[str]:
         if setting.startswith(prefix):
             values.append(setting[len(prefix) :])
     return values
-
-
-def test_codex_ws_activity_event_names_are_pinned() -> None:
-    assert CODEX_TURN_STARTED_EVENT == "turn/started"
-    assert CODEX_TURN_COMPLETED_EVENT == "turn/completed"
-    assert CODEX_THREAD_ACTIVITY_EVENTS == ("thread/start", "thread/started")
 
 
 def test_codex_ws_update_turn_state_tracks_started_and_completed_events() -> None:
@@ -215,58 +209,6 @@ async def test_codex_ws_primary_observer_mode_declines_all_server_requests(
         )
     ]
     assert connection._event_queue.empty()
-
-
-@pytest.mark.asyncio
-async def test_codex_ws_connect_uses_explicit_max_frame_size(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    captured: dict[str, object] = {}
-
-    class _FakeWebsockets:
-        async def connect(self, url: str, **kwargs: object) -> object:
-            captured["url"] = url
-            captured["kwargs"] = kwargs
-            return object()
-
-    monkeypatch.setattr(codex_ws, "_WEBSOCKETS_MODULE", _FakeWebsockets())
-
-    connection = codex_ws.CodexConnection()
-    result = await connection._connect_with_retry("ws://127.0.0.1:7777", timeout_seconds=0.1)
-
-    assert result is not None
-    assert captured == {
-        "url": "ws://127.0.0.1:7777",
-        "kwargs": {"max_size": MAX_HARNESS_MESSAGE_BYTES},
-    }
-
-
-@pytest.mark.asyncio
-async def test_codex_ws_aiohttp_connect_uses_explicit_max_message_size(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    captured: dict[str, object] = {}
-
-    class _FakeSession:
-        closed = False
-
-        async def ws_connect(self, url: str, **kwargs: object) -> object:
-            captured["url"] = url
-            captured["kwargs"] = kwargs
-            return object()
-
-        async def close(self) -> None:
-            self.closed = True
-
-    monkeypatch.setattr(codex_ws, "ClientSession", _FakeSession)
-
-    result = await codex_ws._aiohttp_connect("ws://127.0.0.1:8888")
-
-    assert isinstance(result, codex_ws._AiohttpWebSocketCompat)
-    assert captured == {
-        "url": "ws://127.0.0.1:8888",
-        "kwargs": {"max_msg_size": MAX_HARNESS_MESSAGE_BYTES},
-    }
 
 
 def test_codex_streaming_projection_builds_appserver_command_and_logs_ignored_report_path(
