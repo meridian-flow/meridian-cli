@@ -79,6 +79,7 @@ def compute_manifest_hash(registry: ExtensionCommandRegistry) -> str:
     """Compute deterministic hash of all registered commands.
 
     EB1.12: Same registry in-process and subprocess yields identical hash.
+    Includes input/output schemas so schema changes rotate the hash.
     """
 
     specs = sorted(registry.list_all(), key=lambda s: s.fqid)
@@ -90,6 +91,8 @@ def compute_manifest_hash(registry: ExtensionCommandRegistry) -> str:
             "first_party": spec.first_party,
             "requires_app_server": spec.requires_app_server,
             "required_capabilities": sorted(spec.required_capabilities),
+            "args_schema": spec.args_schema.model_json_schema(),
+            "result_schema": spec.result_schema.model_json_schema(),
         }
         for spec in specs
     ]

@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from meridian.lib.extensions.registry import (
     ExtensionCommandRegistry,
     build_first_party_registry,
+    compute_manifest_hash,
     get_first_party_registry,
 )
 from meridian.lib.extensions.types import (
@@ -27,6 +28,11 @@ class _ResultModel(BaseModel):
     done: bool = True
 
 
+class _ArgsModelWithExtraField(BaseModel):
+    value: str = "ok"
+    extra: int = 1
+
+
 async def _handler(
     args: dict[str, Any],
     context: Any,
@@ -42,13 +48,15 @@ def _make_spec(
     command_id: str = "ping",
     first_party: bool = True,
     surfaces: frozenset[ExtensionSurface] = frozenset({ExtensionSurface.HTTP}),
+    args_schema: type[BaseModel] = _ArgsModel,
+    result_schema: type[BaseModel] = _ResultModel,
 ) -> ExtensionCommandSpec:
     return ExtensionCommandSpec(
         extension_id=extension_id,
         command_id=command_id,
         summary="test command",
-        args_schema=_ArgsModel,
-        result_schema=_ResultModel,
+        args_schema=args_schema,
+        result_schema=result_schema,
         handler=_handler,
         surfaces=surfaces,
         first_party=first_party,
@@ -134,3 +142,15 @@ def test_command_spec_fqid_property() -> None:
     spec = _make_spec(extension_id="meridian.sessions", command_id="archiveSpawn")
 
     assert spec.fqid == "meridian.sessions.archiveSpawn"
+
+
+def test_manifest_hash_changes_when_schema_changes() -> None:
+    registry_a = ExtensionCommandRegistry()
+    registry_a.register(_make_spec())
+    hash_a = compute_manifest_hash(registry_a)
+
+    registry_b = ExtensionCommandRegistry()
+    registry_b.register(_make_spec(args_schema=_ArgsModelWithExtraField))
+    hash_b = compute_manifest_hash(registry_b)
+
+    assert hash_a != hash_b
