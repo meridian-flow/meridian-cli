@@ -17,8 +17,14 @@ from meridian.lib.harness.launch_spec import CodexLaunchSpec
 from meridian.lib.harness.registry import get_default_harness_registry
 from meridian.lib.launch import command as launch_command
 from meridian.lib.launch import process
-from meridian.lib.launch.constants import PRIMARY_TUI_LOG_FILENAME
+from meridian.lib.launch.constants import (
+    OUTPUT_FILENAME,
+    PRIMARY_META_FILENAME,
+    PRIMARY_TUI_LOG_FILENAME,
+)
 from meridian.lib.launch.context import build_launch_context
+from meridian.lib.launch.process.ports import ProcessLauncher
+from meridian.lib.launch.process import runner as process_runner
 from meridian.lib.launch.process.subprocess_launcher import SubprocessProcessLauncher
 from meridian.lib.launch.request import (
     LaunchArgvIntent,
@@ -449,10 +455,18 @@ def test_run_harness_process_codex_primary_routes_to_managed_path(
     )
     codex_adapter = harness_registry.get_subprocess_harness(HarnessId.CODEX)
     captured: dict[str, object] = {}
+    selector_args: list[Path | None] = []
+
+    def fake_select_process_launcher(output_log_path: Path | None) -> ProcessLauncher:
+        selector_args.append(output_log_path)
+        return SubprocessProcessLauncher()
 
     def fake_run_primary_attach(**kwargs: object) -> process.PrimaryAttachOutcome:
         captured["harness_id"] = kwargs["harness_id"]
-        captured["spawn_dir"] = Path(kwargs["spawn_dir"])
+        spawn_dir = Path(kwargs["spawn_dir"])
+        spawn_dir.mkdir(parents=True, exist_ok=True)
+        (spawn_dir / PRIMARY_TUI_LOG_FILENAME).write_text("managed tui log\n", encoding="utf-8")
+        captured["spawn_dir"] = spawn_dir
         return process.PrimaryAttachOutcome(exit_code=0, session_id="thread-managed", tui_pid=5150)
 
     def fail_black_box(**kwargs: object) -> tuple[int, int]:
@@ -461,6 +475,7 @@ def test_run_harness_process_codex_primary_routes_to_managed_path(
 
     monkeypatch.setattr(process, "_run_primary_attach", fake_run_primary_attach)
     monkeypatch.setattr(process, "_run_primary_process_with_capture", fail_black_box)
+    monkeypatch.setattr(process_runner, "select_process_launcher", fake_select_process_launcher)
     monkeypatch.setattr(codex_adapter, "observe_session_id", lambda **kwargs: None)
     monkeypatch.setattr(process, "stop_session", lambda *args, **kwargs: None)
     monkeypatch.setattr(process, "update_session_harness_id", lambda *args, **kwargs: None)
@@ -469,6 +484,10 @@ def test_run_harness_process_codex_primary_routes_to_managed_path(
 
     assert captured["harness_id"] == HarnessId.CODEX
     assert isinstance(captured["spawn_dir"], Path)
+    assert selector_args == [None]
+    assert outcome.primary_spawn_id is not None
+    artifact_dir = launch_context.runtime_root / "artifacts" / outcome.primary_spawn_id
+    assert not (artifact_dir / PRIMARY_TUI_LOG_FILENAME).exists()
     assert outcome.exit_code == 0
     assert outcome.resolved_harness_session_id == "thread-managed"
 
@@ -680,11 +699,23 @@ def test_run_harness_process_managed_failure_falls_back_to_black_box(
     codex_adapter = harness_registry.get_subprocess_harness(HarnessId.CODEX)
     managed_calls = 0
     black_box_calls = 0
+    captured_spawn_dir: Path | None = None
 
     def failing_managed(**kwargs: object) -> process.PrimaryAttachOutcome:
         nonlocal managed_calls
-        _ = kwargs
+        nonlocal captured_spawn_dir
         managed_calls += 1
+        spawn_dir = Path(kwargs["spawn_dir"])
+        spawn_dir.mkdir(parents=True, exist_ok=True)
+        (spawn_dir / PRIMARY_META_FILENAME).write_text(
+            '{"managed_backend":true}\n',
+            encoding="utf-8",
+        )
+        (spawn_dir / OUTPUT_FILENAME).write_text(
+            '{"type":"turn/started"}\n',
+            encoding="utf-8",
+        )
+        captured_spawn_dir = spawn_dir
         raise process.PrimaryAttachError("managed startup error")
 
     def fake_run_primary_process_with_capture(**kwargs: object) -> tuple[int, int]:
@@ -712,4 +743,7 @@ def test_run_harness_process_managed_failure_falls_back_to_black_box(
 
     assert managed_calls == 1
     assert black_box_calls == 1
+    assert captured_spawn_dir is not None
+    assert not (captured_spawn_dir / PRIMARY_META_FILENAME).exists()
+    assert not (captured_spawn_dir / OUTPUT_FILENAME).exists()
     assert outcome.exit_code == 0

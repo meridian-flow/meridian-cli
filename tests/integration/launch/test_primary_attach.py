@@ -139,6 +139,7 @@ class FakeProcessLauncher(ProcessLauncher):
     exit_code: int = 0
     pause_seconds: float = 0.05
     launch_commands: list[tuple[str, ...]] = field(default_factory=list)
+    output_log_paths: list[Path | None] = field(default_factory=list)
     metadata_seen_at_launch: dict[str, object] | None = None
 
     def launch(
@@ -152,6 +153,7 @@ class FakeProcessLauncher(ProcessLauncher):
     ) -> LaunchedProcess:
         _ = (cwd, env, output_log_path)
         self.launch_commands.append(command)
+        self.output_log_paths.append(output_log_path)
         metadata_path = self.spawn_dir / PRIMARY_META_FILENAME
         assert metadata_path.exists()
         self.metadata_seen_at_launch = cast(
@@ -208,6 +210,7 @@ async def test_primary_attach_writes_metadata_before_tui_launch(tmp_path: Path) 
     assert launch_meta["backend_pid"] == 913
     assert launch_meta["backend_port"] == 7811
     assert launch_meta["harness_session_id"] == "thread-123"
+    assert process_launcher.output_log_paths == [None]
 
 
 @pytest.mark.asyncio

@@ -25,7 +25,6 @@ from meridian.lib.harness.connections.base import ConnectionConfig, HarnessConne
 from meridian.lib.launch.constants import (
     OUTPUT_FILENAME,
     PRIMARY_META_FILENAME,
-    PRIMARY_TUI_LOG_FILENAME,
 )
 from meridian.lib.launch.launch_types import ResolvedLaunchSpec
 from meridian.lib.state.atomic import atomic_write_text
@@ -145,7 +144,7 @@ class PrimaryAttachLauncher:
                 command=command,
                 cwd=cwd,
                 env=env,
-                output_log_path=self._spawn_dir / PRIMARY_TUI_LOG_FILENAME,
+                output_log_path=None,
                 on_child_started=_on_child_started,
             )
 

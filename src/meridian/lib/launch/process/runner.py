@@ -27,7 +27,11 @@ from meridian.lib.harness.connections.base import ConnectionConfig, HarnessConne
 from meridian.lib.harness.launch_spec import CodexLaunchSpec, OpenCodeLaunchSpec
 from meridian.lib.harness.registry import HarnessRegistry
 from meridian.lib.launch.artifact_io import write_projection_artifacts
-from meridian.lib.launch.constants import PRIMARY_TUI_LOG_FILENAME
+from meridian.lib.launch.constants import (
+    OUTPUT_FILENAME,
+    PRIMARY_META_FILENAME,
+    PRIMARY_TUI_LOG_FILENAME,
+)
 from meridian.lib.launch.launch_types import ResolvedLaunchSpec
 from meridian.lib.state import spawn_store
 from meridian.lib.state.artifact_store import LocalStore, make_artifact_key
@@ -164,6 +168,14 @@ def _resolve_opencode_http_url(connection: HarnessConnection[Any]) -> str:
     if isinstance(raw_base_url, str) and raw_base_url.strip():
         return raw_base_url.strip()
     raise PrimaryAttachError("OpenCode managed backend did not expose an HTTP attach URL")
+
+
+def _cleanup_managed_primary_sidecars(spawn_dir: Path) -> None:
+    """Delete managed sidecars when attach startup falls back to black-box launch."""
+
+    for filename in (PRIMARY_META_FILENAME, OUTPUT_FILENAME):
+        with suppress(OSError):
+            (spawn_dir / filename).unlink()
 
 
 async def _run_primary_attach(
@@ -484,7 +496,7 @@ def run_harness_process(
                             child_cwd,
                             child_env,
                             launch_spec,
-                            select_process_launcher(output_log_path),
+                            select_process_launcher(None),
                             _record_primary_started,
                         )
                         exit_code = managed_outcome.exit_code
@@ -502,6 +514,7 @@ def run_harness_process(
                             "Managed backend failed, falling back to black-box TUI: %s",
                             exc,
                         )
+                        _cleanup_managed_primary_sidecars(log_dir)
                         use_managed_backend = False
 
                 if harness_id == HarnessId.CLAUDE or not use_managed_backend:
@@ -517,7 +530,7 @@ def run_harness_process(
                         primary_spawn_id,
                         exit_code=exit_code,
                     )
-                if output_log_path.exists():
+                if not use_managed_backend and output_log_path.exists():
                     artifacts.put(
                         make_artifact_key(primary_spawn_id, PRIMARY_TUI_LOG_FILENAME),
                         output_log_path.read_bytes(),
