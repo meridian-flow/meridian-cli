@@ -14,8 +14,24 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command"
+import { useState } from "react"
 import { cn } from "@/lib/utils"
 import type { SpawnStatus } from "@/types/spawn"
+
+export type StatusFilterValue = SpawnStatus | 'all' | 'done'
+
+// Maps grouped filter values to the raw SpawnStatus values they include.
+// "done" groups finished-like states; single-status values map to themselves.
+export const STATUS_FILTER_MAPPING: Record<StatusFilterValue, SpawnStatus[] | 'all'> = {
+  all: 'all',
+  running: ['running'],
+  queued: ['queued'],
+  done: ['succeeded', 'cancelled', 'finalizing'],
+  succeeded: ['succeeded'],
+  cancelled: ['cancelled'],
+  finalizing: ['finalizing'],
+  failed: ['failed'],
+}
 
 // FilterChip - individual toggle chip
 export interface FilterChipProps {
@@ -67,8 +83,8 @@ export function FilterChip({
 
 // FilterBar - the full filter row
 export interface FilterBarProps {
-  statusFilter: SpawnStatus | 'all'
-  onStatusFilterChange: (status: SpawnStatus | 'all') => void
+  statusFilter: StatusFilterValue
+  onStatusFilterChange: (status: StatusFilterValue) => void
   statusCounts?: Partial<Record<SpawnStatus | 'all', number>>
   workItemFilter?: string | null
   onWorkItemFilterChange?: (workId: string | null) => void
@@ -80,18 +96,37 @@ export interface FilterBarProps {
 }
 
 type StatusFilterOption = {
-  value: SpawnStatus | 'all'
+  value: StatusFilterValue
   label: string
-  statuses: (SpawnStatus | 'all')[]  // Which statuses to match
 }
 
 const statusFilterOptions: StatusFilterOption[] = [
-  { value: 'all', label: 'All', statuses: ['all'] },
-  { value: 'running', label: 'Running', statuses: ['running'] },
-  { value: 'queued', label: 'Queued', statuses: ['queued'] },
-  { value: 'succeeded', label: 'Done', statuses: ['succeeded', 'cancelled', 'finalizing'] },
-  { value: 'failed', label: 'Failed', statuses: ['failed'] },
+  { value: 'all', label: 'All' },
+  { value: 'running', label: 'Running' },
+  { value: 'queued', label: 'Queued' },
+  { value: 'done', label: 'Done' },
+  { value: 'failed', label: 'Failed' },
 ]
+
+function computeFilterCount(
+  value: StatusFilterValue,
+  counts?: Partial<Record<SpawnStatus | 'all', number>>,
+): number | undefined {
+  if (!counts) return undefined
+  const mapping = STATUS_FILTER_MAPPING[value]
+  if (mapping === 'all') return counts.all
+  // Sum the counts for the grouped statuses; if none have a count, leave undefined
+  let total = 0
+  let any = false
+  for (const s of mapping) {
+    const n = counts[s]
+    if (typeof n === 'number') {
+      total += n
+      any = true
+    }
+  }
+  return any ? total : undefined
+}
 
 export function FilterBar({
   statusFilter,
@@ -108,20 +143,25 @@ export function FilterBar({
   const selectedWorkItem = availableWorkItems?.find(
     (w) => w.work_id === workItemFilter
   )
+  const [workItemOpen, setWorkItemOpen] = useState(false)
+  const [agentOpen, setAgentOpen] = useState(false)
 
   return (
     <div className={cn("flex items-center gap-2 flex-wrap", className)}>
       {/* Status filter chips */}
       <div className="flex items-center gap-1">
         {statusFilterOptions.map((option) => {
-          // Get icon based on status
+          // Get icon based on status. "done" uses the succeeded dot as the
+          // representative visual for the grouped state.
           let icon: React.ReactNode = null
-          if (option.value !== 'all') {
+          if (option.value === 'done') {
+            icon = <StatusDot status="succeeded" size="sm" />
+          } else if (option.value !== 'all') {
             icon = <StatusDot status={option.value} size="sm" />
           }
 
-          // Calculate count for this filter option
-          const count = statusCounts?.[option.value]
+          // Calculate count for this filter option (summed for grouped values)
+          const count = computeFilterCount(option.value, statusCounts)
 
           return (
             <FilterChip
@@ -138,7 +178,7 @@ export function FilterBar({
 
       {/* Work item filter */}
       {availableWorkItems && onWorkItemFilterChange && (
-        <Popover>
+        <Popover open={workItemOpen} onOpenChange={setWorkItemOpen}>
           <PopoverTrigger asChild>
             <Button
               variant="outline"
@@ -162,7 +202,10 @@ export function FilterBar({
                 <CommandGroup>
                   <CommandItem
                     value=""
-                    onSelect={() => onWorkItemFilterChange(null)}
+                    onSelect={() => {
+                      onWorkItemFilterChange(null)
+                      setWorkItemOpen(false)
+                    }}
                   >
                     <Check
                       size={14}
@@ -177,7 +220,10 @@ export function FilterBar({
                     <CommandItem
                       key={item.work_id}
                       value={item.name}
-                      onSelect={() => onWorkItemFilterChange(item.work_id)}
+                      onSelect={() => {
+                        onWorkItemFilterChange(item.work_id)
+                        setWorkItemOpen(false)
+                      }}
                     >
                       <Check
                         size={14}
@@ -200,7 +246,7 @@ export function FilterBar({
 
       {/* Agent filter */}
       {availableAgents && onAgentFilterChange && (
-        <Popover>
+        <Popover open={agentOpen} onOpenChange={setAgentOpen}>
           <PopoverTrigger asChild>
             <Button
               variant="outline"
@@ -224,7 +270,10 @@ export function FilterBar({
                 <CommandGroup>
                   <CommandItem
                     value=""
-                    onSelect={() => onAgentFilterChange(null)}
+                    onSelect={() => {
+                      onAgentFilterChange(null)
+                      setAgentOpen(false)
+                    }}
                   >
                     <Check
                       size={14}
@@ -239,7 +288,10 @@ export function FilterBar({
                     <CommandItem
                       key={agent}
                       value={agent}
-                      onSelect={() => onAgentFilterChange(agent)}
+                      onSelect={() => {
+                        onAgentFilterChange(agent)
+                        setAgentOpen(false)
+                      }}
                     >
                       <Check
                         size={14}

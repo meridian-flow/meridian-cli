@@ -31,6 +31,7 @@ export function ModeIcon({
           <button
             type="button"
             onClick={onClick}
+            aria-label={label}
             className={cn(
               "relative flex items-center justify-center w-12 h-12",
               "transition-all duration-[var(--duration-fast)]",

@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from "react"
+import { useState, useMemo, useCallback, useEffect, useId } from "react"
 import { Copy, Check } from "@phosphor-icons/react"
 import {
   Dialog,
@@ -53,6 +53,22 @@ export interface NewSessionDialogProps {
 
 const DEFAULT_HARNESSES = ["claude", "codex", "opencode"]
 
+const PROMPT_PREVIEW_LEN = 50
+
+/**
+ * Shell-escape a string for inclusion inside a double-quoted bash argument.
+ * Handles backslashes, double quotes, backticks, `$`, and newlines so the
+ * copied command can be pasted into a shell without losing the prompt body.
+ */
+export function shellEscape(str: string): string {
+  return str
+    .replace(/\\/g, "\\\\")
+    .replace(/`/g, "\\`")
+    .replace(/\$/g, "\\$")
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, "\\n")
+}
+
 export function NewSessionDialog({
   open,
   onOpenChange,
@@ -69,7 +85,14 @@ export function NewSessionDialog({
   const [workItem, setWorkItem] = useState<string | null>(null)
   const [prompt, setPrompt] = useState("")
   const [agentOpen, setAgentOpen] = useState(false)
+  const [workItemOpen, setWorkItemOpen] = useState(false)
   const [copied, setCopied] = useState(false)
+
+  const agentId = useId()
+  const modelId = useId()
+  const harnessId = useId()
+  const workItemId = useId()
+  const promptId = useId()
 
   // Reset form when dialog opens
   useEffect(() => {
@@ -84,7 +107,9 @@ export function NewSessionDialog({
 
   const canSubmit = prompt.trim().length > 0 && !isSubmitting
 
-  // Build the resolved CLI command
+  // Build the resolved CLI command shown in the preview. The prompt segment
+  // uses a truncated, single-line rendering so the preview stays compact;
+  // the copy handler expands it into a fully shell-escaped argument.
   const resolvedCommand = useMemo(() => {
     const parts = ["meridian spawn"]
     if (agent) parts.push(`-a ${agent}`)
@@ -92,17 +117,36 @@ export function NewSessionDialog({
     if (workItem) parts.push(`--work ${workItem}`)
     // Harness is implied by the spawn system - claude is default
     if (harness !== "claude") parts.push(`--harness ${harness}`)
-    // Add prompt placeholder
-    parts.push('-p "..."')
+
+    const trimmed = prompt.trim()
+    if (trimmed.length === 0) {
+      parts.push('-p "..."')
+    } else {
+      // Collapse newlines so the preview stays on one visual line, then truncate.
+      const oneLine = trimmed.replace(/\s+/g, " ")
+      const shown =
+        oneLine.length > PROMPT_PREVIEW_LEN
+          ? oneLine.slice(0, PROMPT_PREVIEW_LEN) + "..."
+          : oneLine
+      // Escape only the display-safe bits here; this string is not intended
+      // to be pasted as-is (copy uses the fully-escaped full prompt).
+      parts.push(`-p "${shown.replace(/"/g, '\\"')}"`)
+    }
     return parts.join(" ")
-  }, [agent, model, harness, workItem])
+  }, [agent, model, harness, workItem, prompt])
 
   const handleCopyCommand = useCallback(async () => {
-    const fullCommand = resolvedCommand.replace('-p "..."', `-p "${prompt.replace(/"/g, '\\"')}"`)
-    await navigator.clipboard.writeText(fullCommand)
+    const parts = ["meridian spawn"]
+    if (agent) parts.push(`-a ${agent}`)
+    if (model) parts.push(`-m ${model}`)
+    if (workItem) parts.push(`--work ${workItem}`)
+    if (harness !== "claude") parts.push(`--harness ${harness}`)
+    const body = prompt.trim()
+    parts.push(`-p "${shellEscape(body)}"`)
+    await navigator.clipboard.writeText(parts.join(" "))
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
-  }, [resolvedCommand, prompt])
+  }, [agent, model, harness, workItem, prompt])
 
   const handleSubmit = useCallback(() => {
     if (!canSubmit) return
@@ -142,10 +186,11 @@ export function NewSessionDialog({
         <div className="space-y-4 py-2">
           {/* Agent picker with search */}
           <div className="grid grid-cols-[100px_1fr] items-center gap-2">
-            <label className="text-sm text-muted-foreground">Agent</label>
+            <label htmlFor={agentId} className="text-sm text-muted-foreground">Agent</label>
             <Popover open={agentOpen} onOpenChange={setAgentOpen}>
               <PopoverTrigger asChild>
                 <Button
+                  id={agentId}
                   variant="outline"
                   size="sm"
                   className="justify-between w-full"
@@ -206,12 +251,12 @@ export function NewSessionDialog({
 
           {/* Model select */}
           <div className="grid grid-cols-[100px_1fr] items-center gap-2">
-            <label className="text-sm text-muted-foreground">Model</label>
+            <label htmlFor={modelId} className="text-sm text-muted-foreground">Model</label>
             <Select
               value={model ?? "auto"}
               onValueChange={(v) => setModel(v === "auto" ? null : v)}
             >
-              <SelectTrigger size="sm">
+              <SelectTrigger id={modelId} size="sm">
                 <SelectValue placeholder="Auto-routed" />
               </SelectTrigger>
               <SelectContent>
@@ -227,9 +272,9 @@ export function NewSessionDialog({
 
           {/* Harness select */}
           <div className="grid grid-cols-[100px_1fr] items-center gap-2">
-            <label className="text-sm text-muted-foreground">Harness</label>
+            <label htmlFor={harnessId} className="text-sm text-muted-foreground">Harness</label>
             <Select value={harness} onValueChange={setHarness}>
-              <SelectTrigger size="sm">
+              <SelectTrigger id={harnessId} size="sm">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -245,10 +290,11 @@ export function NewSessionDialog({
           {/* Work item select */}
           {availableWorkItems.length > 0 && (
             <div className="grid grid-cols-[100px_1fr] items-center gap-2">
-              <label className="text-sm text-muted-foreground">Work item</label>
-              <Popover>
+              <label htmlFor={workItemId} className="text-sm text-muted-foreground">Work item</label>
+              <Popover open={workItemOpen} onOpenChange={setWorkItemOpen}>
                 <PopoverTrigger asChild>
                   <Button
+                    id={workItemId}
                     variant="outline"
                     size="sm"
                     className="justify-between w-full"
@@ -275,7 +321,10 @@ export function NewSessionDialog({
                       <CommandGroup>
                         <CommandItem
                           value=""
-                          onSelect={() => setWorkItem(null)}
+                          onSelect={() => {
+                            setWorkItem(null)
+                            setWorkItemOpen(false)
+                          }}
                         >
                           <Check
                             size={14}
@@ -290,7 +339,10 @@ export function NewSessionDialog({
                           <CommandItem
                             key={item.work_id}
                             value={item.name}
-                            onSelect={() => setWorkItem(item.work_id)}
+                            onSelect={() => {
+                              setWorkItem(item.work_id)
+                              setWorkItemOpen(false)
+                            }}
                           >
                             <Check
                               size={14}
@@ -314,8 +366,9 @@ export function NewSessionDialog({
 
           {/* Prompt textarea */}
           <div className="space-y-1.5">
-            <label className="text-sm text-muted-foreground">Prompt</label>
+            <label htmlFor={promptId} className="text-sm text-muted-foreground">Prompt</label>
             <Textarea
+              id={promptId}
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               onKeyDown={handleKeyDown}

@@ -35,15 +35,18 @@ export function SessionRow({
 
   const rowContent = (
     <div
-      role="button"
-      tabIndex={0}
+      {...(onClick ? { role: 'button', tabIndex: 0 } : {})}
       onClick={onClick}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault()
-          onClick?.()
-        }
-      }}
+      onKeyDown={
+        onClick
+          ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                onClick()
+              }
+            }
+          : undefined
+      }
       className={cn(
         "grid items-center gap-3 px-3 py-2 transition-colors",
         "grid-cols-[auto_auto_minmax(60px,80px)_minmax(60px,80px)_1fr_auto_auto]",

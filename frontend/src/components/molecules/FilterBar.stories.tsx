@@ -1,6 +1,6 @@
 import { useState } from "react"
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { FilterChip, FilterBar } from "./FilterBar"
+import { FilterChip, FilterBar, type StatusFilterValue } from "./FilterBar"
 import type { SpawnStatus } from "@/types/spawn"
 
 const meta: Meta<typeof FilterBar> = {
@@ -39,7 +39,7 @@ export const SingleChip: Story = {
 
 // FilterBar with state
 function FilterBarDemo() {
-  const [statusFilter, setStatusFilter] = useState<SpawnStatus | 'all'>('all')
+  const [statusFilter, setStatusFilter] = useState<StatusFilterValue>('all')
   const [workItemFilter, setWorkItemFilter] = useState<string | null>(null)
   const [agentFilter, setAgentFilter] = useState<string | null>(null)
 
@@ -85,7 +85,7 @@ export const Default: Story = {
 
 // Status chips only (no popovers)
 function StatusOnlyDemo() {
-  const [statusFilter, setStatusFilter] = useState<SpawnStatus | 'all'>('all')
+  const [statusFilter, setStatusFilter] = useState<StatusFilterValue>('all')
 
   return (
     <FilterBar
@@ -101,7 +101,7 @@ export const StatusChipsOnly: Story = {
 
 // With counts
 function WithCountsDemo() {
-  const [statusFilter, setStatusFilter] = useState<SpawnStatus | 'all'>('running')
+  const [statusFilter, setStatusFilter] = useState<StatusFilterValue>('running')
 
   const statusCounts: Partial<Record<SpawnStatus | 'all', number>> = {
     all: 42,
@@ -146,7 +146,7 @@ export const ChipVariants: Story = {
 
 // Active work item filter
 function ActiveFiltersDemo() {
-  const [statusFilter, setStatusFilter] = useState<SpawnStatus | 'all'>('running')
+  const [statusFilter, setStatusFilter] = useState<StatusFilterValue>('running')
   const [workItemFilter, setWorkItemFilter] = useState<string | null>('auth-refactor')
   const [agentFilter, setAgentFilter] = useState<string | null>('coder')
 

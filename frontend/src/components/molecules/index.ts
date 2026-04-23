@@ -10,8 +10,10 @@ export {
 export {
   FilterChip,
   FilterBar,
+  STATUS_FILTER_MAPPING,
   type FilterChipProps,
   type FilterBarProps,
+  type StatusFilterValue,
 } from "./FilterBar"
 
 // Dialog
