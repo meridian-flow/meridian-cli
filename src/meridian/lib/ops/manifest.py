@@ -264,7 +264,7 @@ _OPERATIONS: tuple[OperationSpec[Any, Any], ...] = (
         cli_group="config",
         cli_name="get",
         mcp_name="config_get",
-        agent_default_format="json",
+        agent_default_format="text",
         surfaces=frozenset({"cli"}),
     ),
     _spec(
@@ -483,7 +483,7 @@ _OPERATIONS: tuple[OperationSpec[Any, Any], ...] = (
         cli_group="spawn",
         cli_name="cancel",
         mcp_name=None,
-        agent_default_format="json",
+        agent_default_format="text",
         surfaces=frozenset({"cli"}),
     ),
     _spec(
@@ -522,7 +522,7 @@ _OPERATIONS: tuple[OperationSpec[Any, Any], ...] = (
         cli_group="spawn",
         cli_name="continue",
         mcp_name="spawn_continue",
-        agent_default_format="json",
+        agent_default_format="text",
         surfaces=frozenset({"mcp"}),
     ),
     _spec(
@@ -535,7 +535,7 @@ _OPERATIONS: tuple[OperationSpec[Any, Any], ...] = (
         cli_group="spawn",
         cli_name="create",
         mcp_name="spawn_create",
-        agent_default_format="json",
+        agent_default_format="text",
         surfaces=frozenset({"mcp"}),
     ),
     _spec(
@@ -587,7 +587,7 @@ _OPERATIONS: tuple[OperationSpec[Any, Any], ...] = (
         cli_group="spawn",
         cli_name="wait",
         mcp_name="spawn_wait",
-        agent_default_format="json",
+        agent_default_format="text",
     ),
     _spec(
         name="work.clear",
@@ -754,7 +754,7 @@ _OPERATIONS: tuple[OperationSpec[Any, Any], ...] = (
         cli_group="context",
         cli_name="context",
         mcp_name="context",
-        agent_default_format="json",
+        agent_default_format="text",
         surfaces=frozenset({"cli"}),
     ),
     _spec(
@@ -767,7 +767,7 @@ _OPERATIONS: tuple[OperationSpec[Any, Any], ...] = (
         cli_group="work",
         cli_name="current",
         mcp_name="work_current",
-        agent_default_format="json",
+        agent_default_format="text",
         surfaces=frozenset({"cli"}),
     ),
 )

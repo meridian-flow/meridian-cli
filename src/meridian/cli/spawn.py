@@ -660,6 +660,13 @@ def _spawn_wait(
         bool,
         Parameter(name="--quiet", help="Suppress wait progress output.", show=_HUMAN_ONLY),
     ] = False,
+    report: Annotated[
+        bool,
+        Parameter(
+            name="--report",
+            help="Include full report body in output (default: omitted).",
+        ),
+    ] = False,
 ) -> None:
     result = spawn_wait_sync(
         SpawnWaitInput(
@@ -667,7 +674,7 @@ def _spawn_wait(
             timeout=timeout,
             verbose=verbose,
             quiet=quiet,
-            include_report_body=False,
+            include_report_body=report,
         ),
         sink=current_output_sink(),
     )

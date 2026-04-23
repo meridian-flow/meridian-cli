@@ -73,7 +73,7 @@ from meridian.cli.workspace_cmd import register_workspace_commands
 from meridian.lib.core.depth import is_nested_meridian_process
 from meridian.lib.core.sink import OutputSink
 from meridian.lib.ops.mars import check_upgrade_availability, format_upgrade_availability
-from meridian.lib.ops.spawn.api import SpawnActionOutput
+from meridian.lib.ops.spawn.api import SpawnActionOutput, SpawnDetailOutput, SpawnWaitMultiOutput
 from meridian.server.main import run_server
 
 
@@ -135,6 +135,10 @@ def emit(payload: object) -> None:
                 emit_output(payload.to_wire(), sink=sink)
         else:
             emit_output(payload, sink=sink)
+    elif isinstance(payload, (SpawnDetailOutput, SpawnWaitMultiOutput)) and (
+        options.output.format == "json"
+    ):
+        emit_output(payload.to_cli_wire(), sink=sink)
     else:
         emit_output(payload, sink=sink)
     if flush_after:
@@ -710,8 +714,6 @@ def main(argv: Sequence[str] | None = None) -> None:
     suppress_events = (
         effective_agent_mode
         and options.explicit_format is None
-        and resolved_format == "json"
-        and _is_spawn_background_request(cleaned_args)
     )
     options = options.model_copy(
         update={

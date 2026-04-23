@@ -120,7 +120,7 @@ def test_spawn_continue_without_prompt_is_allowed(monkeypatch: pytest.MonkeyPatc
 
 
 @pytest.mark.parametrize("prompt_value", ["list", "show", "files", "stats"])
-def test_spawn_default_create_stays_json_when_option_value_matches_subcommand(
+def test_spawn_default_create_routes_correctly_when_prompt_matches_subcommand(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     prompt_value: str,
@@ -143,8 +143,8 @@ def test_spawn_default_create_stays_json_when_option_value_matches_subcommand(
         cli_main.main(["spawn", "-p", prompt_value, "--dry-run"])
 
     assert exc_info.value.code == 0
-    payload = json.loads(capsys.readouterr().out)
-    assert payload["status"] == "dry-run"
+    output = capsys.readouterr().out
+    assert "Spawn dry-run." in output
 
 
 @pytest.mark.parametrize(
@@ -154,7 +154,7 @@ def test_spawn_default_create_stays_json_when_option_value_matches_subcommand(
         ["spawn", "--continue=p1", "--dry-run"],
     ],
 )
-def test_spawn_continue_default_stays_json(
+def test_spawn_continue_routes_correctly(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     argv: list[str],
@@ -179,11 +179,11 @@ def test_spawn_continue_default_stays_json(
 
     assert exc_info.value.code == 0
     assert captured["spawn_id"] == "p1"
-    payload = json.loads(capsys.readouterr().out)
-    assert payload["status"] == "dry-run"
+    output = capsys.readouterr().out
+    assert "Spawn dry-run." in output
 
 
-def test_spawn_format_text_overrides_agent_default_json(
+def test_spawn_explicit_text_format_works(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -228,7 +228,7 @@ def test_spawn_explicit_json_error_is_structured(
     assert payload["exit_code"] == 1
 
 
-def test_spawn_implicit_json_error_is_structured(
+def test_spawn_implicit_text_error_is_plain(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -241,13 +241,10 @@ def test_spawn_implicit_json_error_is_structured(
     assert exc_info.value.code == 1
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert captured.err.strip().startswith("{"), captured.err
-    payload = json.loads(captured.err)
-    assert payload["error"] == "cannot specify both -p and --prompt-file"
-    assert payload["exit_code"] == 1
+    assert captured.err == "error: cannot specify both -p and --prompt-file\n"
 
 
-def test_spawn_background_implicit_json_returns_sparse_result_without_event_noise(
+def test_spawn_background_implicit_text_returns_text_without_event_noise(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -281,14 +278,13 @@ def test_spawn_background_implicit_json_returns_sparse_result_without_event_nois
 
     assert exc_info.value.code == 0
     captured = capsys.readouterr()
+    # Events suppressed in agent mode - stderr should be empty
     assert captured.err == ""
-    payload = json.loads(captured.out)
-    assert payload == {
-        "status": "running",
-        "spawn_id": "p123",
-        "note": "Backgrounded. Run `meridian spawn wait p123` to get results.",
-        "warning": "heads up",
-    }
+    # Text output
+    output = captured.out
+    assert "Spawn running." in output
+    assert "p123" in output
+    assert "meridian spawn wait p123" in output
 
 
 def test_spawn_background_explicit_json_preserves_rich_wire_and_events(

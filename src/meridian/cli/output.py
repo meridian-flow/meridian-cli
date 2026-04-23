@@ -86,10 +86,12 @@ class TextSink:
         format: OutputFormat = "text",
         stdout: TextIO | None = None,
         stderr: TextIO | None = None,
+        emit_events: bool = True,
     ) -> None:
         self._format = format
         self._stdout = sys.stdout if stdout is None else stdout
         self._stderr = sys.stderr if stderr is None else stderr
+        self._emit_events = emit_events
 
     def result(self, payload: Any) -> None:
         if isinstance(payload, str):
@@ -116,9 +118,11 @@ class TextSink:
         print(message, file=self._stderr, flush=True)
 
     def event(self, payload: dict[str, Any]) -> None:
+        if not self._emit_events:
+            return
         print(
             json.dumps(_to_json_value(payload), separators=(",", ":")),
-            file=self._stdout,
+            file=self._stderr,
             flush=True,
         )
 
@@ -184,7 +188,7 @@ def create_sink(config: OutputConfig) -> OutputSink:
     if config.format == "json":
         return JsonSink(emit_events=not config.suppress_events)
     if config.format == "text":
-        return TextSink(format=config.format)
+        return TextSink(format=config.format, emit_events=not config.suppress_events)
     return _NULL_SINK
 
 

@@ -83,8 +83,16 @@ class SpawnActionOutput(BaseModel):
         if self.spawn_id is not None:
             wire["spawn_id"] = self.spawn_id
             if self.background and self.status == "running":
-                note = f"Backgrounded. Run `meridian spawn wait {self.spawn_id}` to get results."
+                note = (
+                    "Backgrounded. You MUST run "
+                    f"`meridian spawn wait {self.spawn_id}` "
+                    "to collect the result. Until wait completes, this spawn is still running "
+                    "and you will not receive its report."
+                )
                 wire["note"] = note
+                wire["terminal"] = False
+                wire["wait_required"] = True
+                wire["wait_command"] = f"meridian spawn wait {self.spawn_id}"
         if self.forked_from is not None:
             wire["forked_from"] = self.forked_from
         if self.duration_secs is not None:
@@ -131,8 +139,14 @@ class SpawnActionOutput(BaseModel):
         if self.spawn_id is not None:
             wire["spawn_id"] = self.spawn_id
             wire["note"] = (
-                f"Backgrounded. Run `meridian spawn wait {self.spawn_id}` to get results."
+                "Backgrounded. You MUST run "
+                f"`meridian spawn wait {self.spawn_id}` "
+                "to collect the result. Until wait completes, this spawn is still running "
+                "and you will not receive its report."
             )
+            wire["terminal"] = False
+            wire["wait_required"] = True
+            wire["wait_command"] = f"meridian spawn wait {self.spawn_id}"
         if self.warning is not None:
             wire["warning"] = self.warning
         return wire
@@ -147,7 +161,12 @@ class SpawnActionOutput(BaseModel):
         if self.spawn_id:
             lines.append(f"Spawn id: {self.spawn_id}")
             if self.background and self.status == "running":
-                lines.append(f"Run `meridian spawn wait {self.spawn_id}` to get results.")
+                lines.append(
+                    "You MUST run "
+                    f"`meridian spawn wait {self.spawn_id}` "
+                    "to collect the result. Until wait completes, this spawn is still running "
+                    "and you will not receive its report."
+                )
         if self.forked_from:
             lines.append(f"Forked from: {self.forked_from}")
         if self.model and self.harness_id:
@@ -429,6 +448,36 @@ class SpawnDetailOutput(BaseModel):
             return None
         return f"Report for {self.spawn_id}\n{report_text}"
 
+    def to_cli_wire(self) -> dict[str, object]:
+        """Project slim JSON shape for wire serialization. Omits internal fields."""
+        wire: dict[str, object] = {
+            "spawn_id": self.spawn_id,
+            "status": self.status,
+            "model": self.model,
+            "harness": self.harness,
+        }
+        if self.parent_id is not None:
+            wire["parent_id"] = self.parent_id
+        if self.work_id is not None:
+            wire["work_id"] = self.work_id
+        if self.desc is not None:
+            wire["desc"] = self.desc
+        if self.duration_secs is not None:
+            wire["duration_secs"] = round(self.duration_secs, 2)
+        if self.exit_code is not None:
+            wire["exit_code"] = self.exit_code
+        if self.failure_reason is not None:
+            wire["failure_reason"] = self.failure_reason
+        if self.cost_usd is not None:
+            wire["cost_usd"] = round(self.cost_usd, 4)
+        if self.report_path is not None:
+            wire["report_path"] = self.report_path
+        if self.report_summary is not None:
+            wire["report_summary"] = self.report_summary
+        if self.report_body is not None:
+            wire["report_body"] = self.report_body
+        return wire
+
     def format_text(self, ctx: FormatContext | None = None) -> str:
         """Key-value detail view for text output mode. Omits None/empty fields."""
         from meridian.cli.format_helpers import kv_block
@@ -585,6 +634,26 @@ class SpawnWaitMultiOutput(BaseModel):
         if not report_sections:
             return table
         return f"{table}\n\n" + "\n\n".join(report_sections)
+
+    def to_cli_wire(self) -> dict[str, object]:
+        """Sparse wire projection. Includes spawn summaries, not full details."""
+        wire: dict[str, object] = {
+            "total_runs": self.total_runs,
+            "succeeded_runs": self.succeeded_runs,
+            "failed_runs": self.failed_runs,
+            "cancelled_runs": self.cancelled_runs,
+            "any_failed": self.any_failed,
+        }
+        # Compatibility fields for single-run callers
+        if self.spawn_id is not None:
+            wire["spawn_id"] = self.spawn_id
+        if self.status is not None:
+            wire["status"] = self.status
+        if self.exit_code is not None:
+            wire["exit_code"] = self.exit_code
+        # Sparse spawn details
+        wire["spawns"] = [spawn.to_cli_wire() for spawn in self.spawns]
+        return wire
 
 
 __all__ = [

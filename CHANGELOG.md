@@ -4,6 +4,11 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Changed
+- Agent-mode CLI output defaults to text for all commands. Prior JSON defaults on `config.get`, `spawn.cancel`, `spawn.create`, `spawn.continue`, `spawn.wait`, `context`, `work.current` flipped to text. Explicit `--json` still available.
+- `spawn.wait` omits report body by default; pass `--report` to include. Report path always shown.
+- Lifecycle events (`meridian.spawn.start`, `meridian.spawn.done`) suppressed in agent mode for all commands. Human mode routes `TextSink.event()` to stderr.
+- `SpawnWaitMultiOutput` and `SpawnDetailOutput` now have sparse `to_cli_wire()` projections for explicit JSON; omit internal fields like `harness_session_id`, `log_path`, `process_exit_code`.
+- Background spawn output now explicitly instructs agents to wait: "You MUST run..." with machine-actionable fields `terminal`, `wait_required`, `wait_command` in JSON output.
 - `MERIDIAN_DEPTH` parsing and nested-execution checks now share one core helper. CLI agent mode, doctor, reaper, work warnings, subrun events, and max-depth gates use same zero-based contract.
 - Docs and KB now spell out zero-based depth, immediate parent spawn linkage, and fail-closed root-only repair gates.
 
