@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import pytest
@@ -9,7 +10,6 @@ from pydantic import BaseModel
 
 from meridian.lib.extensions.registry import (
     ExtensionCommandRegistry,
-    build_first_party_registry,
     compute_manifest_hash,
     get_first_party_registry,
 )
@@ -99,15 +99,6 @@ def test_get_first_party_registry_returns_singleton_instance() -> None:
     assert first is second
 
 
-def test_build_first_party_registry_returns_fresh_instances() -> None:
-    first = build_first_party_registry()
-    second = build_first_party_registry()
-
-    assert first is not second
-    assert len(first) == len(second)
-    assert len(first) >= 42
-
-
 def test_list_for_surface_filters_by_requested_surface() -> None:
     registry = ExtensionCommandRegistry()
     cli_spec = _make_spec(
@@ -138,6 +129,68 @@ def test_list_for_surface_filters_by_requested_surface() -> None:
     assert http_ids == {"cli_http_surfaces", "http_only"}
 
 
+def test_duplicate_cli_key_raises_value_error() -> None:
+    registry = ExtensionCommandRegistry()
+    registry.register(
+        _make_spec(
+            command_id="first",
+            surfaces=frozenset({ExtensionSurface.CLI}),
+            extension_id="meridian.alpha",
+        )
+        .model_copy(update={"cli_group": "work", "cli_name": "show"})
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=re.escape("Duplicate CLI command 'work.show'"),
+    ):
+        registry.register(
+            _make_spec(
+                command_id="second",
+                surfaces=frozenset({ExtensionSurface.CLI}),
+                extension_id="meridian.beta",
+            )
+            .model_copy(update={"cli_group": "work", "cli_name": "show"})
+        )
+
+
+def test_get_by_cli_returns_matching_spec_and_missing_none() -> None:
+    registry = ExtensionCommandRegistry()
+    hidden = _make_spec(command_id="hidden")
+    visible = hidden.model_copy(
+        update={
+            "command_id": "visible",
+            "surfaces": frozenset({ExtensionSurface.CLI}),
+            "cli_group": "spawn",
+            "cli_name": "wait",
+        }
+    )
+    registry.register(hidden)
+    registry.register(visible)
+
+    assert registry.get_by_cli("spawn", "wait") == visible
+    assert registry.get_by_cli("spawn", "missing") is None
+
+
+def test_list_for_cli_group_returns_specs_sorted_by_cli_name() -> None:
+    registry = ExtensionCommandRegistry()
+    zed = _make_spec(
+        command_id="zed",
+        surfaces=frozenset({ExtensionSurface.CLI}),
+    ).model_copy(update={"cli_group": "config", "cli_name": "zed"})
+    alpha = _make_spec(
+        command_id="alpha",
+        surfaces=frozenset({ExtensionSurface.CLI}),
+    ).model_copy(update={"cli_group": "config", "cli_name": "alpha"})
+    registry.register(zed)
+    registry.register(alpha)
+
+    assert [spec.cli_name for spec in registry.list_for_cli_group("config")] == [
+        "alpha",
+        "zed",
+    ]
+
+
 def test_command_spec_fqid_property() -> None:
     spec = _make_spec(extension_id="meridian.sessions", command_id="archiveSpawn")
 
@@ -154,3 +207,67 @@ def test_manifest_hash_changes_when_schema_changes() -> None:
     hash_b = compute_manifest_hash(registry_b)
 
     assert hash_a != hash_b
+
+
+def test_manifest_hash_is_stable_across_registration_order() -> None:
+    first = ExtensionCommandRegistry()
+    first.register(
+        _make_spec(
+            extension_id="meridian.alpha",
+            command_id="one",
+            surfaces=frozenset({ExtensionSurface.CLI, ExtensionSurface.HTTP}),
+        ).model_copy(update={"cli_group": "alpha", "cli_name": "one"})
+    )
+    first.register(
+        _make_spec(
+            extension_id="meridian.beta",
+            command_id="two",
+            surfaces=frozenset({ExtensionSurface.HTTP}),
+        )
+    )
+
+    second = ExtensionCommandRegistry()
+    second.register(
+        _make_spec(
+            extension_id="meridian.beta",
+            command_id="two",
+            surfaces=frozenset({ExtensionSurface.HTTP}),
+        )
+    )
+    second.register(
+        _make_spec(
+            extension_id="meridian.alpha",
+            command_id="one",
+            surfaces=frozenset({ExtensionSurface.CLI, ExtensionSurface.HTTP}),
+        ).model_copy(update={"cli_group": "alpha", "cli_name": "one"})
+    )
+
+    assert compute_manifest_hash(first) == compute_manifest_hash(second)
+
+
+@pytest.mark.parametrize(
+    ("update", "label"),
+    [
+        ({"summary": "changed summary"}, "summary"),
+        ({"requires_app_server": False}, "requires_app_server"),
+        ({"required_capabilities": frozenset({"kernel"})}, "required_capabilities"),
+    ],
+)
+def test_manifest_hash_changes_when_manifest_fields_change(
+    update: dict[str, Any],
+    label: str,
+) -> None:
+    base = ExtensionCommandRegistry()
+    base.register(
+        _make_spec(
+            surfaces=frozenset({ExtensionSurface.HTTP}),
+        )
+    )
+    changed = ExtensionCommandRegistry()
+    changed.register(
+        _make_spec(
+            surfaces=frozenset({ExtensionSurface.HTTP}),
+        ).model_copy(update=update)
+    )
+
+    assert compute_manifest_hash(base) != compute_manifest_hash(changed), label

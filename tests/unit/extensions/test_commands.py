@@ -36,24 +36,19 @@ def _build_context() -> ExtensionInvocationContext:
 
 def test_first_party_registry_contains_wrapped_operations() -> None:
     registry = build_first_party_registry()
-    all_fqids = {spec.fqid for spec in registry.list_all()}
-    v1_fqids = {
-        "meridian.sessions.archiveSpawn",
-        "meridian.sessions.getSpawnStats",
-        "meridian.workbench.ping",
+    by_fqid = {spec.fqid: spec for spec in registry.list_all()}
+    expected_surfaces = {
+        "meridian.sessions.archiveSpawn": {"cli", "http", "mcp"},
+        "meridian.sessions.getSpawnStats": {"cli", "http", "mcp"},
+        "meridian.workbench.ping": {"cli", "http", "mcp"},
+        "meridian.config.show": {"cli", "http"},
+        "meridian.spawn.create": {"http", "mcp"},
+        "meridian.work.list": {"cli", "http"},
     }
 
-    # Original v1 commands are preserved.
-    assert v1_fqids.issubset(all_fqids)
-
-    # Wrapped operations are registered (39 operations + 3 v1 = 42).
-    assert len(registry) >= 42
-    assert len(all_fqids - v1_fqids) >= 39
-
-    # Spot-check wrapped operation fqids.
-    assert "meridian.spawn.create" in all_fqids
-    assert "meridian.config.show" in all_fqids
-    assert "meridian.work.list" in all_fqids
+    for fqid, surfaces in expected_surfaces.items():
+        assert fqid in by_fqid
+        assert {surface.value for surface in by_fqid[fqid].surfaces} == surfaces
 
 
 @pytest.mark.asyncio

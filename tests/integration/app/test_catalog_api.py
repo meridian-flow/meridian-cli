@@ -2,42 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING
 
-import pytest
-from fastapi.testclient import TestClient
-
-from meridian.lib.app.server import create_app
-from meridian.lib.core.types import SpawnId
-from meridian.lib.state.paths import resolve_runtime_paths
-
-
-class FakeManager:
-    def __init__(self, *, project_root: Path) -> None:
-        self.project_root = project_root
-        self.runtime_root = resolve_runtime_paths(project_root).root_dir
-
-    async def shutdown(self) -> None:
-        return None
-
-    def list_spawns(self) -> list[SpawnId]:
-        return []
-
-    def get_connection(self, spawn_id: SpawnId) -> object | None:
-        _ = spawn_id
-        return None
-
-
-@pytest.fixture
-def app_client(tmp_path: Path) -> Iterator[tuple[TestClient, Path]]:
-    project_root = tmp_path
-    manager = FakeManager(project_root=project_root)
-    app = create_app(cast("Any", manager), allow_unsafe_no_permissions=True)
-    with TestClient(app) as client:
-        yield client, project_root
-
+if TYPE_CHECKING:
+    from fastapi.testclient import TestClient
 
 # ---------------------------------------------------------------------------
 # APP-CAT-01: GET /api/models

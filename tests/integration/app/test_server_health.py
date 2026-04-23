@@ -4,42 +4,25 @@ import json
 import os
 import stat
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, cast
 
 import pytest
 from fastapi.testclient import TestClient
 
-from meridian.lib.app.server import create_app
-from meridian.lib.core.types import SpawnId
 from meridian.lib.state.paths import resolve_runtime_paths
+
+from .conftest import make_test_app
 
 if TYPE_CHECKING:
     from starlette.applications import Starlette
-
-
-class FakeManager:
-    def __init__(self, *, project_root: Path) -> None:
-        self.project_root = project_root
-        self.runtime_root = resolve_runtime_paths(project_root).root_dir
-
-    async def shutdown(self) -> None:
-        return None
-
-    def list_spawns(self) -> list[SpawnId]:
-        return []
-
-    def get_connection(self, spawn_id: SpawnId) -> object | None:
-        _ = spawn_id
-        return None
-
 
 def _instance_dir(runtime_root: Path) -> Path:
     return runtime_root / "app" / str(os.getpid())
 
 
 def test_health_default_project_uuid(tmp_path: Path) -> None:
-    manager = FakeManager(project_root=tmp_path)
-    app = cast("Starlette", create_app(cast("Any", manager), allow_unsafe_no_permissions=True))
+    app, _ = make_test_app(tmp_path)
+    app = cast("Starlette", app)
 
     with TestClient(app) as client:
         response = client.get("/api/health")
@@ -51,15 +34,8 @@ def test_health_default_project_uuid(tmp_path: Path) -> None:
 
 
 def test_health_endpoint_returns_identity(tmp_path: Path) -> None:
-    manager = FakeManager(project_root=tmp_path)
-    app = cast(
-        "Starlette",
-        create_app(
-            cast("Any", manager),
-            project_uuid="project-uuid-123",
-            allow_unsafe_no_permissions=True,
-        ),
-    )
+    app, _ = make_test_app(tmp_path, project_uuid="project-uuid-123")
+    app = cast("Starlette", app)
 
     with TestClient(app) as client:
         response = client.get("/api/health")
@@ -72,12 +48,13 @@ def test_health_endpoint_returns_identity(tmp_path: Path) -> None:
 
 
 def test_health_instance_id_changes_on_restart(tmp_path: Path) -> None:
-    manager = FakeManager(project_root=tmp_path)
-    app_one = cast("Starlette", create_app(cast("Any", manager), allow_unsafe_no_permissions=True))
+    app_one, _ = make_test_app(tmp_path)
+    app_one = cast("Starlette", app_one)
     with TestClient(app_one):
         first_instance_id = app_one.state.instance_id
 
-    app_two = cast("Starlette", create_app(cast("Any", manager), allow_unsafe_no_permissions=True))
+    app_two, _ = make_test_app(tmp_path)
+    app_two = cast("Starlette", app_two)
     with TestClient(app_two):
         second_instance_id = app_two.state.instance_id
 
@@ -85,23 +62,19 @@ def test_health_instance_id_changes_on_restart(tmp_path: Path) -> None:
 
 
 def test_health_startup_writes_endpoint_descriptor(tmp_path: Path) -> None:
-    manager = FakeManager(project_root=tmp_path)
     runtime_root = resolve_runtime_paths(tmp_path).root_dir
     instance_dir = _instance_dir(runtime_root)
     endpoint_file = instance_dir / "endpoint.json"
 
-    app = cast(
-        "Starlette",
-        create_app(
-            cast("Any", manager),
-            project_uuid="project-uuid-abc",
-            runtime_root=runtime_root,
-            transport="tcp",
-            host="127.0.0.1",
-            port=7676,
-            allow_unsafe_no_permissions=True,
-        ),
+    app, manager = make_test_app(
+        tmp_path,
+        project_uuid="project-uuid-abc",
+        runtime_root=runtime_root,
+        transport="tcp",
+        host="127.0.0.1",
+        port=7676,
     )
+    app = cast("Starlette", app)
 
     with TestClient(app):
         assert endpoint_file.exists()
@@ -122,11 +95,11 @@ def test_health_startup_writes_endpoint_descriptor(tmp_path: Path) -> None:
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX mode bits are not portable on Windows")
 def test_health_token_file_mode_is_0600(tmp_path: Path) -> None:
-    manager = FakeManager(project_root=tmp_path)
     runtime_root = resolve_runtime_paths(tmp_path).root_dir
     token_file = _instance_dir(runtime_root) / "token"
 
-    app = cast("Starlette", create_app(cast("Any", manager), allow_unsafe_no_permissions=True))
+    app, _ = make_test_app(tmp_path)
+    app = cast("Starlette", app)
 
     with TestClient(app):
         file_mode = stat.S_IMODE(token_file.stat().st_mode)
