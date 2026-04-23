@@ -230,20 +230,17 @@ def _read_mars_merged_file(project_root: Path | None = None) -> dict[str, object
 
     Falls back to empty dict if the file doesn't exist or is invalid.
     """
-    search_dirs: list[Path] = []
-    if project_root is not None:
-        search_dirs.append(project_root)
-    search_dirs.append(Path.cwd())
+    if project_root is None:
+        return {}
 
-    for root in search_dirs:
-        merged_path = root / ".mars" / "models-merged.json"
-        if merged_path.is_file():
-            try:
-                raw = json.loads(merged_path.read_text(encoding="utf-8"))
-                if isinstance(raw, dict):
-                    return cast("dict[str, object]", raw)
-            except (OSError, json.JSONDecodeError, ValueError):
-                logger.debug("Failed to read %s", merged_path, exc_info=True)
+    merged_path = project_root / ".mars" / "models-merged.json"
+    if merged_path.is_file():
+        try:
+            raw = json.loads(merged_path.read_text(encoding="utf-8"))
+            if isinstance(raw, dict):
+                return cast("dict[str, object]", raw)
+        except (OSError, json.JSONDecodeError, ValueError):
+            logger.debug("Failed to read %s", merged_path, exc_info=True)
     return {}
 
 
