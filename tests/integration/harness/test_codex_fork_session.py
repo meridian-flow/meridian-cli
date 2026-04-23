@@ -17,13 +17,14 @@ def _setup_codex_state(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     source_session_id: str,
+    codex_home: Path | None = None,
 ) -> tuple[Path, Path]:
     fake_home = tmp_path / "home"
     monkeypatch.setenv("HOME", fake_home.as_posix())
+    resolved_codex_home = codex_home if codex_home is not None else fake_home / ".codex"
 
     source_rollout_path = (
-        fake_home
-        / ".codex"
+        resolved_codex_home
         / "sessions"
         / "2026"
         / "03"
@@ -53,7 +54,7 @@ def _setup_codex_state(
         encoding="utf-8",
     )
 
-    db_path = fake_home / ".codex" / "state_5.sqlite"
+    db_path = resolved_codex_home / "state_5.sqlite"
     db_path.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(db_path)
     connection.execute(
@@ -85,6 +86,36 @@ def _setup_codex_state(
     connection.commit()
     connection.close()
     return db_path, source_rollout_path
+
+
+def test_codex_fork_session_uses_codex_home_override(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_session_id = "77777777-7777-4777-8777-777777777777"
+    codex_home_override = tmp_path / "codex-home"
+    monkeypatch.setenv("CODEX_HOME", codex_home_override.as_posix())
+    db_path, source_rollout_path = _setup_codex_state(
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+        source_session_id=source_session_id,
+        codex_home=codex_home_override,
+    )
+
+    forked_session_id = CodexAdapter().fork_session(source_session_id)
+
+    connection = sqlite3.connect(db_path)
+    forked_row = connection.execute(
+        "SELECT rollout_path FROM threads WHERE id = ?",
+        (forked_session_id,),
+    ).fetchone()
+    connection.close()
+
+    assert forked_row is not None
+    forked_rollout_path = Path(forked_row[0])
+    assert forked_rollout_path != source_rollout_path
+    assert forked_rollout_path.is_file()
+    assert codex_home_override in forked_rollout_path.parents
 
 
 def test_codex_fork_session_copies_rollout_and_inserts_thread(

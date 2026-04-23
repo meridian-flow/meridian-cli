@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Final
 
 OUTPUT_FILENAME: Final[str] = "output.jsonl"
+PRIMARY_TUI_LOG_FILENAME: Final[str] = "tui.log"
 STDERR_FILENAME: Final[str] = "stderr.log"
 TOKENS_FILENAME: Final[str] = "tokens.json"
 REPORT_FILENAME: Final[str] = "report.md"
@@ -56,6 +57,7 @@ __all__ = [
     "PRIMARY_BASE_COMMAND_CLAUDE",
     "PRIMARY_BASE_COMMAND_CODEX",
     "PRIMARY_BASE_COMMAND_OPENCODE",
+    "PRIMARY_TUI_LOG_FILENAME",
     "REPORT_FILENAME",
     "REPORT_WATCHDOG_GRACE_SECONDS",
     "REPORT_WATCHDOG_POLL_SECONDS",

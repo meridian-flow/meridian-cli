@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import NamedTuple, cast
 
@@ -17,6 +18,7 @@ from meridian.lib.core.util import FormatContext
 from meridian.lib.harness.registry import get_default_harness_registry
 from meridian.lib.harness.session_detection import infer_harness_from_untracked_session_ref
 from meridian.lib.harness.transcript import TranscriptMessage, text_from_value
+from meridian.lib.launch.constants import OUTPUT_FILENAME
 from meridian.lib.ops.reference import resolve_session_reference
 from meridian.lib.ops.runtime import (
     async_from_sync,
@@ -29,6 +31,9 @@ _CODEX_FILENAME_RE = re.compile(
     r"^rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-(?P<session_id>[0-9a-fA-F-]{36})\.jsonl$"
 )
 _MAX_PREVIEW = 120
+_PRIMARY_TRANSCRIPT_UNAVAILABLE_SUFFIX = (
+    "exists but no transcript is available yet (no harness session id recorded)."
+)
 
 
 class SessionLogInput(BaseModel):
@@ -437,9 +442,91 @@ def _resolve_harness_session_file(
     )
 
 
+def _primary_transcript_unavailable_message(ref: str) -> str:
+    return f"Session '{ref}' {_PRIMARY_TRANSCRIPT_UNAVAILABLE_SUFFIX}"
+
+
+def _started_at_observation_window(started_at: str | None) -> tuple[float | None, str | None]:
+    normalized_started_at = (started_at or "").strip()
+    if not normalized_started_at:
+        return (None, None)
+    if normalized_started_at.endswith("Z"):
+        normalized_started_at = f"{normalized_started_at[:-1]}+00:00"
+    try:
+        parsed_started_at = datetime.fromisoformat(normalized_started_at)
+    except ValueError:
+        return (None, None)
+    started_at_epoch = parsed_started_at.timestamp()
+    started_at_local_iso = datetime.fromtimestamp(started_at_epoch).strftime("%Y-%m-%dT%H:%M:%S")
+    return (started_at_epoch, started_at_local_iso)
+
+
+def _persist_primary_harness_session_id(
+    *,
+    runtime_root: Path,
+    spawn_id: str,
+    chat_id: str | None,
+    harness_session_id: str,
+) -> None:
+    normalized_harness_session_id = harness_session_id.strip()
+    if not normalized_harness_session_id:
+        return
+    spawn_store.update_spawn(
+        runtime_root,
+        spawn_id,
+        harness_session_id=normalized_harness_session_id,
+    )
+    normalized_chat_id = (chat_id or "").strip()
+    if (
+        normalized_chat_id
+        and session_store.get_session_harness_id(runtime_root, normalized_chat_id) is not None
+    ):
+        session_store.update_session_harness_id(
+            runtime_root,
+            normalized_chat_id,
+            normalized_harness_session_id,
+        )
+
+
+def _detect_primary_harness_session_id(
+    *,
+    project_root: Path,
+    spawn_row: spawn_store.SpawnRecord,
+    harness_hint: str | None,
+) -> str | None:
+    if spawn_row.kind != "primary":
+        return None
+    normalized_harness = (harness_hint or spawn_row.harness or "").strip().lower()
+    if not normalized_harness:
+        return None
+    started_at_epoch, started_at_local_iso = _started_at_observation_window(spawn_row.started_at)
+    if started_at_epoch is None:
+        return None
+
+    registry = get_default_harness_registry()
+    try:
+        harness_id = HarnessId(normalized_harness)
+        adapter = registry.get_subprocess_harness(harness_id)
+    except (KeyError, TypeError, ValueError):
+        return None
+
+    detected_harness_session_id = (
+        adapter.detect_primary_session_id(
+            project_root=project_root,
+            started_at_epoch=started_at_epoch,
+            started_at_local_iso=started_at_local_iso,
+        )
+        or ""
+    ).strip()
+    if not detected_harness_session_id:
+        return None
+
+    return detected_harness_session_id
+
+
 def _spawn_output_path(runtime_root: Path, spawn_id: str, *, live_first: bool) -> Path | None:
-    live_path = runtime_root / "spawns" / spawn_id / "output.jsonl"
-    artifact_path = runtime_root / "artifacts" / spawn_id / "output.jsonl"
+    live_path = runtime_root / "spawns" / spawn_id / OUTPUT_FILENAME
+    artifact_path = runtime_root / "artifacts" / spawn_id / OUTPUT_FILENAME
     candidates = (live_path, artifact_path) if live_first else (artifact_path, live_path)
     for candidate in candidates:
         if candidate.is_file():
@@ -488,79 +575,74 @@ def _resolve_from_chat_id(
     if not resolved.tracked:
         raise ValueError(f"Chat '{chat_id}' not found")
     primary_spawn = _primary_spawn_for_chat(runtime_root, chat_id)
-    if (
-        primary_spawn is not None
-        and is_active_spawn_status(primary_spawn.status)
-        and (
-            output_target := _target_from_spawn_output(
-                runtime_root,
-                display_id=chat_id,
-                spawn_id=primary_spawn.id,
-                live_first=True,
-            )
-        )
-        is not None
-    ):
-        return output_target
+    normalized_harness = (resolved.harness or "").strip() or None
+    if normalized_harness is None and primary_spawn is not None and primary_spawn.harness:
+        normalized_harness = primary_spawn.harness.strip() or None
 
+    normalized_session_id = (
+        resolved.harness_session_id.strip() if resolved.harness_session_id is not None else None
+    )
+    should_persist_primary_session_id = False
     if resolved.missing_harness_session_id:
-        # Fallback: check if the primary spawn for this chat has a harness session id
-        spawns = spawn_store.list_spawns(runtime_root, filters={"chat_id": chat_id})
-        fallback_session_id: str | None = None
-        fallback_harness: str | None = resolved.harness
-        for spawn in spawns:
-            sid = (spawn.harness_session_id or "").strip()
-            if sid:
-                fallback_session_id = sid
-                if spawn.harness:
-                    fallback_harness = spawn.harness.strip() or fallback_harness
-                break
-        if fallback_session_id:
-            return _resolve_harness_session_file(
+        if primary_spawn is None:
+            raise ValueError(_primary_transcript_unavailable_message(chat_id))
+        primary_spawn_session_id = (primary_spawn.harness_session_id or "").strip()
+        if primary_spawn_session_id:
+            normalized_session_id = primary_spawn_session_id
+            should_persist_primary_session_id = True
+        else:
+            normalized_session_id = _detect_primary_harness_session_id(
                 project_root=project_root,
-                session_id=fallback_session_id,
-                harness=fallback_harness,
+                spawn_row=primary_spawn,
+                harness_hint=normalized_harness,
             )
-        if primary_spawn is not None and (
-            output_target := _target_from_spawn_output(
-                runtime_root,
-                display_id=chat_id,
-                spawn_id=primary_spawn.id,
-                live_first=True,
-            )
-        ):
-            return output_target
-        if spawns:
-            raise ValueError(
-                f"Session '{chat_id}' exists but no transcript is available yet "
-                "(no harness session id recorded and no spawn output found)."
-            )
-        raise ValueError(
-            f"Session '{chat_id}' exists but no transcript is available yet "
-            "(no harness session id recorded)."
-        )
+            should_persist_primary_session_id = normalized_session_id is not None
+        if normalized_session_id is None:
+            raise ValueError(_primary_transcript_unavailable_message(chat_id))
 
-    normalized_session_id = resolved.harness_session_id
-    if normalized_session_id is None:
+    if normalized_session_id is None or not normalized_session_id.strip():
         raise ValueError(f"Chat '{chat_id}' not found")
 
     try:
-        return _resolve_harness_session_file(
+        resolved_target = _resolve_harness_session_file(
             project_root=project_root,
             session_id=normalized_session_id,
-            harness=resolved.harness,
+            harness=normalized_harness,
         )
     except FileNotFoundError:
-        if primary_spawn is not None and (
-            output_target := _target_from_spawn_output(
-                runtime_root,
-                display_id=chat_id,
-                spawn_id=primary_spawn.id,
-                live_first=True,
-            )
+        if primary_spawn is None:
+            raise
+        detected_session_id = _detect_primary_harness_session_id(
+            project_root=project_root,
+            spawn_row=primary_spawn,
+            harness_hint=normalized_harness,
+        )
+        if (
+            detected_session_id is None
+            or detected_session_id.strip() == normalized_session_id.strip()
         ):
-            return output_target
-        raise
+            raise
+        resolved_target = _resolve_harness_session_file(
+            project_root=project_root,
+            session_id=detected_session_id,
+            harness=normalized_harness,
+        )
+        _persist_primary_harness_session_id(
+            runtime_root=runtime_root,
+            spawn_id=primary_spawn.id,
+            chat_id=chat_id,
+            harness_session_id=resolved_target.session_id,
+        )
+        return resolved_target
+
+    if should_persist_primary_session_id and primary_spawn is not None:
+        _persist_primary_harness_session_id(
+            runtime_root=runtime_root,
+            spawn_id=primary_spawn.id,
+            chat_id=chat_id,
+            harness_session_id=resolved_target.session_id,
+        )
+    return resolved_target
 
 
 def _resolve_from_spawn_id(
@@ -573,7 +655,9 @@ def _resolve_from_spawn_id(
     if row is None:
         raise ValueError(f"Spawn '{spawn_id}' not found")
 
-    if is_active_spawn_status(row.status) and (
+    is_primary_spawn = row.kind == "primary"
+
+    if (not is_primary_spawn) and is_active_spawn_status(row.status) and (
         output_target := _target_from_spawn_output(
             runtime_root,
             display_id=spawn_id,
@@ -585,23 +669,40 @@ def _resolve_from_spawn_id(
 
     session_id = (row.harness_session_id or "").strip()
     harness = (row.harness or "").strip() or None
+    should_persist_primary_session_id = False
 
     if not session_id and row.chat_id is not None:
         by_chat = session_store.get_session_harness_id(runtime_root, row.chat_id)
         session_id = (by_chat or "").strip()
 
     if not session_id:
-        output_target = _target_from_spawn_output(
-            runtime_root,
-            display_id=spawn_id,
-            spawn_id=spawn_id,
-            live_first=True,
-        )
-        if output_target is not None:
-            return output_target
+        if is_primary_spawn:
+            detected_session_id = _detect_primary_harness_session_id(
+                project_root=project_root,
+                spawn_row=row,
+                harness_hint=harness,
+            )
+            if detected_session_id:
+                session_id = detected_session_id
+                should_persist_primary_session_id = True
+        else:
+            output_target = _target_from_spawn_output(
+                runtime_root,
+                display_id=spawn_id,
+                spawn_id=spawn_id,
+                live_first=True,
+            )
+            if output_target is not None:
+                return output_target
+            raise ValueError(
+                f"Spawn '{spawn_id}' has no transcript available yet "
+                "(no harness session id recorded and no spawn output found)."
+            )
+
+    if not session_id:
         raise ValueError(
             f"Spawn '{spawn_id}' has no transcript available yet "
-            "(no harness session id recorded and no spawn output found)."
+            "(no harness session id recorded)."
         )
 
     if harness is None:
@@ -610,12 +711,36 @@ def _resolve_from_spawn_id(
             harness = record.harness.strip()
 
     try:
-        return _resolve_harness_session_file(
+        resolved_target = _resolve_harness_session_file(
             project_root=project_root,
             session_id=session_id,
             harness=harness,
         )
     except FileNotFoundError:
+        if is_primary_spawn:
+            detected_session_id = _detect_primary_harness_session_id(
+                project_root=project_root,
+                spawn_row=row,
+                harness_hint=harness,
+            )
+            if (
+                detected_session_id is not None
+                and detected_session_id.strip()
+                and detected_session_id.strip() != session_id.strip()
+            ):
+                resolved_target = _resolve_harness_session_file(
+                    project_root=project_root,
+                    session_id=detected_session_id,
+                    harness=harness,
+                )
+                _persist_primary_harness_session_id(
+                    runtime_root=runtime_root,
+                    spawn_id=row.id,
+                    chat_id=row.chat_id,
+                    harness_session_id=resolved_target.session_id,
+                )
+                return resolved_target
+            raise
         output_target = _target_from_spawn_output(
             runtime_root,
             display_id=spawn_id,
@@ -625,6 +750,15 @@ def _resolve_from_spawn_id(
         if output_target is not None:
             return output_target
         raise
+
+    if should_persist_primary_session_id and is_primary_spawn:
+        _persist_primary_harness_session_id(
+            runtime_root=runtime_root,
+            spawn_id=row.id,
+            chat_id=row.chat_id,
+            harness_session_id=resolved_target.session_id,
+        )
+    return resolved_target
 
 
 def _resolve_from_session_ref(

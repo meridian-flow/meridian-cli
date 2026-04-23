@@ -50,6 +50,13 @@ CODEX_ROLLOUT_FILENAME_RE = re.compile(
 )
 
 
+def _codex_home() -> Path:
+    configured_home = os.environ.get("CODEX_HOME", "").strip()
+    if configured_home:
+        return Path(configured_home).expanduser()
+    return get_home_path() / ".codex"
+
+
 def _fsync_directory(path: Path) -> None:
     if sys.platform == "win32":
         return
@@ -182,7 +189,7 @@ def _resolve_rollout_session_id(path: Path, resolved_repo: Path) -> str | None:
 
 
 def _detect_primary_session_id(project_root: Path, started_at_epoch: float) -> str | None:
-    sessions_root = get_home_path() / ".codex" / "sessions"
+    sessions_root = _codex_home() / "sessions"
     if not sessions_root.is_dir():
         return None
 
@@ -216,7 +223,7 @@ def _owns_session(project_root: Path, session_ref: str) -> bool:
         return False
 
     resolved_repo = project_root.resolve()
-    codex_root = get_home_path() / ".codex" / "sessions"
+    codex_root = _codex_home() / "sessions"
     if not codex_root.is_dir():
         return False
 
@@ -368,7 +375,7 @@ class CodexAdapter(BaseHarnessAdapter[CodexLaunchSpec]):
         if not normalized_session_id:
             return None
 
-        sessions_root = get_home_path() / ".codex" / "sessions"
+        sessions_root = _codex_home() / "sessions"
         if not sessions_root.is_dir():
             return None
 
@@ -401,7 +408,7 @@ class CodexAdapter(BaseHarnessAdapter[CodexLaunchSpec]):
         if not normalized_source_session_id:
             raise ValueError("source_session_id is required.")
 
-        db_path = get_home_path() / ".codex" / "state_5.sqlite"
+        db_path = _codex_home() / "state_5.sqlite"
         connection: sqlite3.Connection | None = None
         try:
             connection = sqlite3.connect(str(db_path), timeout=10)

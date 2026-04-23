@@ -390,3 +390,29 @@ def test_streaming_extractor_falls_back_to_harness_owned_artifact_detection() ->
         extractor.extract_session_id(InMemoryStore(), SpawnId("p-fallback"))
         == "thread-fallback-456"
     )
+
+
+def test_observe_session_id_prefers_current_session_before_primary_detection() -> None:
+    class _Adapter(CodexAdapter):
+        def detect_primary_session_id(
+            self,
+            *,
+            project_root: Path,
+            started_at_epoch: float,
+            started_at_local_iso: str | None,
+        ) -> str | None:
+            _ = project_root, started_at_epoch, started_at_local_iso
+            raise AssertionError("primary-session detection should not run when current_session_id exists")
+
+    adapter = _Adapter()
+    observed = adapter.observe_session_id(
+        artifacts=InMemoryStore(),
+        spawn_id=None,
+        current_session_id=" seeded-session-id ",
+        connection_session_id=None,
+        project_root=Path.cwd(),
+        started_at_epoch=1.0,
+        started_at_local_iso="2026-01-01T00:00:00",
+    )
+
+    assert observed == "seeded-session-id"

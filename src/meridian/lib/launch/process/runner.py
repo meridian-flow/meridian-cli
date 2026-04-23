@@ -21,6 +21,7 @@ from meridian.lib.core.types import HarnessId, SpawnId
 from meridian.lib.harness.claude_preflight import ensure_claude_session_accessible
 from meridian.lib.harness.registry import HarnessRegistry
 from meridian.lib.launch.artifact_io import write_projection_artifacts
+from meridian.lib.launch.constants import PRIMARY_TUI_LOG_FILENAME
 from meridian.lib.state import spawn_store
 from meridian.lib.state.artifact_store import LocalStore, make_artifact_key
 from meridian.lib.state.paths import resolve_spawn_log_dir
@@ -49,7 +50,6 @@ from .subprocess_launcher import SubprocessProcessLauncher
 from .windows_launcher import WindowsConsoleLauncher, can_use_windows_console_launcher
 
 logger = logging.getLogger(__name__)
-_PRIMARY_OUTPUT_FILENAME = "output.jsonl"
 
 
 class ProcessOutcome(BaseModel):
@@ -261,7 +261,7 @@ def run_harness_process(
                 if managed.chat_id:
                     child_env["MERIDIAN_CHAT_ID"] = managed.chat_id
                 child_cwd = runtime_context.child_cwd
-                output_log_path = log_dir / _PRIMARY_OUTPUT_FILENAME
+                output_log_path = log_dir / PRIMARY_TUI_LOG_FILENAME
 
                 if (
                     harness_adapter.id == HarnessId.CLAUDE
@@ -295,7 +295,7 @@ def run_harness_process(
                     )
                 if output_log_path.exists():
                     artifacts.put(
-                        make_artifact_key(primary_spawn_id, _PRIMARY_OUTPUT_FILENAME),
+                        make_artifact_key(primary_spawn_id, PRIMARY_TUI_LOG_FILENAME),
                         output_log_path.read_bytes(),
                     )
             finally:
@@ -340,7 +340,7 @@ def run_harness_process(
                     if primary_started_epoch > 0.0:
                         observed_harness_session_id = harness_adapter.observe_session_id(
                             artifacts=artifacts,
-                            spawn_id=primary_spawn_id,
+                            spawn_id=None,
                             current_session_id=resolved_harness_session_id,
                             project_root=project_root,
                             started_at_epoch=primary_started_epoch,

@@ -1,6 +1,7 @@
 """OpenCode CLI harness adapter."""
 
 import logging
+import os
 import re
 from datetime import datetime
 from pathlib import Path
@@ -63,12 +64,19 @@ def _normalize_opencode_model(model: str) -> str:
     return f"{provider}/{model_name}"
 
 
+def _opencode_data_root() -> Path:
+    xdg_data_home = os.environ.get("XDG_DATA_HOME", "").strip()
+    if xdg_data_home:
+        return Path(xdg_data_home).expanduser()
+    return get_home_path() / ".local" / "share"
+
+
 def _detect_primary_session_id(
     project_root: Path,
     started_at_epoch: float,
     started_at_local_iso: str,
 ) -> str | None:
-    logs_root = get_home_path() / ".local" / "share" / "opencode" / "log"
+    logs_root = _opencode_data_root() / "opencode" / "log"
     if not logs_root.is_dir():
         return None
 
@@ -116,7 +124,7 @@ def _owns_session(project_root: Path, session_ref: str) -> bool:
         return False
 
     resolved_repo = project_root.resolve()
-    opencode_logs = get_home_path() / ".local" / "share" / "opencode" / "log"
+    opencode_logs = _opencode_data_root() / "opencode" / "log"
     if not opencode_logs.is_dir():
         return False
 

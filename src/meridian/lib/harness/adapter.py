@@ -236,10 +236,10 @@ class SubprocessHarness(HarnessAdapter[ResolvedLaunchSpec], Protocol):
            layer (e.g. HTTP/WS adapters that know the session id at
            connection time).
         2. Artifact extraction via ``extract_session_id()``.
-        3. Primary-session detection via ``detect_primary_session_id()``
+        3. *current_session_id* — previously known id, returned as fallback
+           so callers can treat the result as authoritative.
+        4. Primary-session detection via ``detect_primary_session_id()``
            (only when *project_root* and *started_at_epoch* are supplied).
-        4. *current_session_id* — previously known id, returned as
-           fallback so callers can treat the result as authoritative.
 
         I-4 contract: called exactly once per launch, by the driving adapter
         after the executor returns.  MUST NOT read or write adapter-instance
@@ -356,7 +356,7 @@ class BaseHarnessAdapter(Generic[SpecT], ABC):
         """Return the best observed session ID after one execution.
 
         Default priority: connection_session_id > extract_session_id >
-        detect_primary_session_id > current_session_id.
+        current_session_id > detect_primary_session_id.
 
         Concrete adapters may override for harness-specific extraction.
         """
@@ -376,6 +376,10 @@ class BaseHarnessAdapter(Generic[SpecT], ABC):
             if extracted:
                 return extracted
 
+        current = _norm(current_session_id)
+        if current:
+            return current
+
         if project_root is not None and started_at_epoch is not None:
             detected = _norm(
                 self.detect_primary_session_id(
@@ -387,7 +391,7 @@ class BaseHarnessAdapter(Generic[SpecT], ABC):
             if detected:
                 return detected
 
-        return _norm(current_session_id)
+        return None
 
     def mcp_config(self, run: SpawnParams) -> McpConfig | None:
         _ = run

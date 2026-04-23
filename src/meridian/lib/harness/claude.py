@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 import re
 from pathlib import Path
 from typing import Any, ClassVar, cast
@@ -77,8 +78,15 @@ def project_slug(project_root: Path) -> str:
     return re.sub(r"[^a-zA-Z0-9]", "-", str(project_root.resolve()))
 
 
+def _claude_config_root() -> Path:
+    configured_root = os.environ.get("CLAUDE_CONFIG_DIR", "").strip()
+    if configured_root:
+        return Path(configured_root).expanduser()
+    return get_home_path() / ".claude"
+
+
 def _claude_projects_root() -> Path:
-    return get_home_path() / ".claude" / "projects"
+    return _claude_config_root() / "projects"
 
 
 def _claude_project_dir(project_root: Path) -> Path:

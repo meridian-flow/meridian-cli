@@ -17,6 +17,7 @@ from meridian.lib.harness.launch_spec import CodexLaunchSpec
 from meridian.lib.harness.registry import get_default_harness_registry
 from meridian.lib.launch import command as launch_command
 from meridian.lib.launch import process
+from meridian.lib.launch.constants import PRIMARY_TUI_LOG_FILENAME
 from meridian.lib.launch.context import build_launch_context
 from meridian.lib.launch.process.subprocess_launcher import SubprocessProcessLauncher
 from meridian.lib.launch.request import (
@@ -210,6 +211,8 @@ def test_run_harness_process_writes_prompt_file_before_primary_launch(
     def fake_run_primary_process_with_capture(**kwargs: object) -> tuple[int, int]:
         command = tuple(kwargs["command"])
         captured["command"] = command
+        output_log_path = Path(kwargs["output_log_path"])
+        captured["output_log_name"] = output_log_path.name
         prompt_flag_index = command.index("--append-system-prompt-file")
         prompt_file_path = Path(command[prompt_flag_index + 1])
         captured["prompt_file_exists"] = prompt_file_path.exists()
@@ -219,10 +222,9 @@ def test_run_harness_process_writes_prompt_file_before_primary_launch(
             else None
         )
         captured["prompt_file_is_spawn_log_prompt"] = (
-            prompt_file_path.resolve()
-            == Path(kwargs["output_log_path"]).with_name("system-prompt.md").resolve()
+            prompt_file_path.resolve() == output_log_path.with_name("system-prompt.md").resolve()
         )
-        captured["log_dir"] = Path(kwargs["output_log_path"]).parent
+        captured["log_dir"] = output_log_path.parent
         started = kwargs.get("on_child_started")
         assert callable(started)
         started(222)
@@ -241,6 +243,7 @@ def test_run_harness_process_writes_prompt_file_before_primary_launch(
 
     assert captured["prompt_file_exists"] is True
     assert captured["prompt_file_is_spawn_log_prompt"] is True
+    assert captured["output_log_name"] == PRIMARY_TUI_LOG_FILENAME
     prompt_file_text = captured["prompt_file_text"]
     assert isinstance(prompt_file_text, str)
     # Phase 3A: system-prompt.md should contain only SYSTEM_INSTRUCTION
@@ -276,9 +279,11 @@ def test_run_harness_process_writes_inline_primary_projection_manifest(
 ) -> None:
     monkeypatch.delenv("MERIDIAN_CHAT_ID", raising=False)
 
-    def fake_launcher_for(captured: dict[str, Path]):
+    def fake_launcher_for(captured: dict[str, object]):
         def fake_run_primary_process_with_capture(**kwargs: object) -> tuple[int, int]:
-            captured["log_dir"] = Path(kwargs["output_log_path"]).parent
+            output_log_path = Path(kwargs["output_log_path"])
+            captured["log_dir"] = output_log_path.parent
+            captured["output_log_name"] = output_log_path.name
             started = kwargs.get("on_child_started")
             assert callable(started)
             started(333)
@@ -322,7 +327,7 @@ def test_run_harness_process_writes_inline_primary_projection_manifest(
         adapter = harness_registry.get_subprocess_harness(harness_id)
         monkeypatch.setattr(adapter, "observe_session_id", lambda **kwargs: None)
 
-        captured: dict[str, Path] = {}
+        captured: dict[str, object] = {}
         monkeypatch.setattr(
             process,
             "_run_primary_process_with_capture",
@@ -334,6 +339,8 @@ def test_run_harness_process_writes_inline_primary_projection_manifest(
         outcome = process.run_harness_process(launch_context, harness_registry)
 
         log_dir = captured["log_dir"]
+        assert isinstance(log_dir, Path)
+        assert captured["output_log_name"] == PRIMARY_TUI_LOG_FILENAME
         assert not (log_dir / "system-prompt.md").exists()
         assert not (log_dir / "prompt.md").exists()
         starting_prompt = (log_dir / "starting-prompt.md").read_text(encoding="utf-8")
@@ -349,3 +356,61 @@ def test_run_harness_process_writes_inline_primary_projection_manifest(
             },
         }
         assert outcome.exit_code == 0
+
+
+def test_run_harness_process_primary_tui_capture_stored_as_tui_log(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.delenv("MERIDIAN_CHAT_ID", raising=False)
+    project_root = tmp_path / "repo"
+    project_root.mkdir()
+    _write_minimal_mars_config(project_root)
+    harness_registry = get_default_harness_registry()
+    config = load_config(project_root)
+    launch_context = build_launch_context(
+        spawn_id="dry-run-primary-codex",
+        request=SpawnRequest(
+            prompt="primary prompt",
+            prompt_is_composed=False,
+            model="gpt-5.4",
+            harness=HarnessId.CODEX.value,
+        ),
+        runtime=LaunchRuntime(
+            argv_intent=LaunchArgvIntent.REQUIRED,
+            composition_surface=LaunchCompositionSurface.PRIMARY,
+            config_snapshot=config.model_dump(mode="json", exclude_none=True),
+            runtime_root=(project_root / ".meridian").as_posix(),
+            project_paths_project_root=project_root.as_posix(),
+            project_paths_execution_cwd=project_root.as_posix(),
+        ),
+        harness_registry=harness_registry,
+        dry_run=True,
+    )
+    codex_adapter = harness_registry.get_subprocess_harness(HarnessId.CODEX)
+
+    def fake_run_primary_process_with_capture(**kwargs: object) -> tuple[int, int]:
+        output_log_path = Path(kwargs["output_log_path"])
+        output_log_path.parent.mkdir(parents=True, exist_ok=True)
+        output_log_path.write_text("raw tui bytes\n", encoding="utf-8")
+        started = kwargs.get("on_child_started")
+        assert callable(started)
+        started(444)
+        return (0, 444)
+
+    monkeypatch.setattr(
+        process,
+        "_run_primary_process_with_capture",
+        fake_run_primary_process_with_capture,
+    )
+    monkeypatch.setattr(codex_adapter, "observe_session_id", lambda **kwargs: None)
+    monkeypatch.setattr(process, "stop_session", lambda *args, **kwargs: None)
+    monkeypatch.setattr(process, "update_session_harness_id", lambda *args, **kwargs: None)
+
+    outcome = process.run_harness_process(launch_context, harness_registry)
+
+    assert outcome.primary_spawn_id is not None
+    artifact_dir = launch_context.runtime_root / "artifacts" / outcome.primary_spawn_id
+    captured_tui = (artifact_dir / PRIMARY_TUI_LOG_FILENAME).read_text(encoding="utf-8")
+    assert captured_tui == "raw tui bytes\n"
+    assert not (artifact_dir / "output.jsonl").exists()
