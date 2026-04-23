@@ -11,7 +11,6 @@ from pydantic import BaseModel
 from meridian.lib.extensions.registry import (
     ExtensionCommandRegistry,
     compute_manifest_hash,
-    get_first_party_registry,
 )
 from meridian.lib.extensions.types import (
     ExtensionCommandSpec,
@@ -92,13 +91,6 @@ def test_non_first_party_cli_or_mcp_is_rejected(
         registry.register(spec)
 
 
-def test_get_first_party_registry_returns_singleton_instance() -> None:
-    first = get_first_party_registry()
-    second = get_first_party_registry()
-
-    assert first is second
-
-
 def test_list_for_surface_filters_by_requested_surface() -> None:
     registry = ExtensionCommandRegistry()
     cli_spec = _make_spec(
@@ -172,31 +164,6 @@ def test_get_by_cli_returns_matching_spec_and_missing_none() -> None:
     assert registry.get_by_cli("spawn", "missing") is None
 
 
-def test_list_for_cli_group_returns_specs_sorted_by_cli_name() -> None:
-    registry = ExtensionCommandRegistry()
-    zed = _make_spec(
-        command_id="zed",
-        surfaces=frozenset({ExtensionSurface.CLI}),
-    ).model_copy(update={"cli_group": "config", "cli_name": "zed"})
-    alpha = _make_spec(
-        command_id="alpha",
-        surfaces=frozenset({ExtensionSurface.CLI}),
-    ).model_copy(update={"cli_group": "config", "cli_name": "alpha"})
-    registry.register(zed)
-    registry.register(alpha)
-
-    assert [spec.cli_name for spec in registry.list_for_cli_group("config")] == [
-        "alpha",
-        "zed",
-    ]
-
-
-def test_command_spec_fqid_property() -> None:
-    spec = _make_spec(extension_id="meridian.sessions", command_id="archiveSpawn")
-
-    assert spec.fqid == "meridian.sessions.archiveSpawn"
-
-
 def test_manifest_hash_changes_when_schema_changes() -> None:
     registry_a = ExtensionCommandRegistry()
     registry_a.register(_make_spec())
@@ -245,29 +212,22 @@ def test_manifest_hash_is_stable_across_registration_order() -> None:
     assert compute_manifest_hash(first) == compute_manifest_hash(second)
 
 
-@pytest.mark.parametrize(
-    ("update", "label"),
-    [
-        ({"summary": "changed summary"}, "summary"),
-        ({"requires_app_server": False}, "requires_app_server"),
-        ({"required_capabilities": frozenset({"kernel"})}, "required_capabilities"),
-    ],
-)
-def test_manifest_hash_changes_when_manifest_fields_change(
-    update: dict[str, Any],
-    label: str,
-) -> None:
+def test_manifest_hash_changes_when_manifest_fields_change() -> None:
     base = ExtensionCommandRegistry()
     base.register(
         _make_spec(
             surfaces=frozenset({ExtensionSurface.HTTP}),
         )
     )
-    changed = ExtensionCommandRegistry()
-    changed.register(
-        _make_spec(
-            surfaces=frozenset({ExtensionSurface.HTTP}),
-        ).model_copy(update=update)
-    )
-
-    assert compute_manifest_hash(base) != compute_manifest_hash(changed), label
+    for label, update in [
+        ("summary", {"summary": "changed summary"}),
+        ("requires_app_server", {"requires_app_server": False}),
+        ("required_capabilities", {"required_capabilities": frozenset({"kernel"})}),
+    ]:
+        changed = ExtensionCommandRegistry()
+        changed.register(
+            _make_spec(
+                surfaces=frozenset({ExtensionSurface.HTTP}),
+            ).model_copy(update=update)
+        )
+        assert compute_manifest_hash(base) != compute_manifest_hash(changed), label

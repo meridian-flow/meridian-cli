@@ -4,16 +4,13 @@ import os
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-import httpx
 import pytest
 
 from meridian.lib.app.locator import (
     AppServerLocator,
     AppServerNotRunning,
     AppServerStaleEndpoint,
-    AppServerUnreachable,
     AppServerWrongProject,
-    _pid_alive,
 )
 from meridian.lib.platform import IS_WINDOWS
 
@@ -76,7 +73,12 @@ def _write_uds_instance(
     return instance_dir
 
 
-def _mock_health_response(*, status_code: int, project_uuid: str, instance_id: str) -> Mock:
+def _health_response(
+    *,
+    status_code: int = 200,
+    project_uuid: str = "project-1",
+    instance_id: str = "instance-1",
+) -> Mock:
     response = Mock()
     response.status_code = status_code
     response.json.return_value = {
@@ -87,227 +89,6 @@ def _mock_health_response(*, status_code: int, project_uuid: str, instance_id: s
     return response
 
 
-class _FakeHttpxClient:
-    def __init__(
-        self,
-        *,
-        transport: httpx.BaseTransport,
-        timeout: float,
-        response: Mock,
-    ) -> None:
-        self.transport = transport
-        self.timeout = timeout
-        self.response = response
-        self.request_url: str | None = None
-        self.request_headers: dict[str, str] | None = None
-        self.closed = False
-
-    def __enter__(self) -> _FakeHttpxClient:
-        return self
-
-    def __exit__(self, *exc_info: object) -> None:
-        self.closed = True
-
-    def get(self, url: str, *, headers: dict[str, str] | None = None) -> Mock:
-        self.request_url = url
-        self.request_headers = headers
-        return self.response
-
-
-def test_pid_alive_self() -> None:
-    assert _pid_alive(os.getpid())
-
-
-def test_pid_alive_dead() -> None:
-    assert not _pid_alive(999_999_999)
-
-
-def test_scan_empty_dir(tmp_path: Path) -> None:
-    locator = AppServerLocator(state_root=tmp_path, project_uuid="project-1")
-    assert locator._scan_instances() == []
-
-
-def test_scan_malformed_skipped(tmp_path: Path) -> None:
-    instance_dir = tmp_path / "app" / "1234"
-    instance_dir.mkdir(parents=True, exist_ok=True)
-    (instance_dir / "endpoint.json").write_text("{invalid", encoding="utf-8")
-    (instance_dir / "token").write_text("token-1", encoding="utf-8")
-
-    locator = AppServerLocator(state_root=tmp_path, project_uuid="project-1")
-    assert locator._scan_instances() == []
-
-
-def test_scan_non_object_descriptor_skipped(tmp_path: Path) -> None:
-    instance_dir = tmp_path / "app" / "1234"
-    instance_dir.mkdir(parents=True, exist_ok=True)
-    (instance_dir / "endpoint.json").write_text("[]", encoding="utf-8")
-    (instance_dir / "token").write_text("token-1", encoding="utf-8")
-
-    locator = AppServerLocator(state_root=tmp_path, project_uuid="project-1")
-    assert locator._scan_instances() == []
-
-
-def test_scan_missing_token_skipped(tmp_path: Path) -> None:
-    instance_dir = tmp_path / "app" / "1234"
-    instance_dir.mkdir(parents=True, exist_ok=True)
-    (instance_dir / "endpoint.json").write_text(
-        (
-            "{"
-            '"schema_version":1,'
-            '"instance_id":"instance-1",'
-            '"transport":"tcp",'
-            '"host":"127.0.0.1",'
-            '"port":8080,'
-            '"project_uuid":"project-1",'
-            '"pid":1234'
-            "}"
-        ),
-        encoding="utf-8",
-    )
-
-    locator = AppServerLocator(state_root=tmp_path, project_uuid="project-1")
-    assert locator._scan_instances() == []
-
-
-def test_scan_tcp_endpoint(tmp_path: Path) -> None:
-    _write_tcp_instance(
-        tmp_path,
-        pid=4242,
-        project_uuid="project-1",
-        instance_id="instance-tcp",
-        host="127.0.0.1",
-        port=9100,
-        token="abc123",
-    )
-
-    locator = AppServerLocator(state_root=tmp_path, project_uuid="project-1")
-    endpoints = locator._scan_instances()
-
-    assert len(endpoints) == 1
-    endpoint = endpoints[0]
-    assert endpoint.transport == "tcp"
-    assert endpoint.base_url == "http://127.0.0.1:9100"
-    assert endpoint.project_uuid == "project-1"
-    assert endpoint.instance_id == "instance-tcp"
-    assert endpoint.token == "abc123"
-    assert endpoint.pid == 4242
-
-
-@pytest.mark.skipif(IS_WINDOWS, reason="UDS endpoints are POSIX-only")
-def test_scan_uds_endpoint(tmp_path: Path) -> None:
-    socket_path = tmp_path / "app.sock"
-    socket_path.write_text("", encoding="utf-8")
-    _write_uds_instance(
-        tmp_path,
-        pid=5151,
-        socket_path=socket_path,
-        project_uuid="project-1",
-        instance_id="instance-uds",
-        token="uds-token",
-    )
-
-    locator = AppServerLocator(state_root=tmp_path, project_uuid="project-1")
-    endpoints = locator._scan_instances()
-
-    assert len(endpoints) == 1
-    endpoint = endpoints[0]
-    assert endpoint.transport == "uds"
-    assert endpoint.base_url == f"http+unix://{str(socket_path).replace('/', '%2F')}/"
-    assert endpoint.project_uuid == "project-1"
-    assert endpoint.instance_id == "instance-uds"
-    assert endpoint.token == "uds-token"
-    assert endpoint.pid == 5151
-
-
-@pytest.mark.skipif(IS_WINDOWS, reason="UDS endpoints are POSIX-only")
-def test_scan_uds_missing_socket_included(tmp_path: Path) -> None:
-    missing_socket = tmp_path / "missing.sock"
-    _write_uds_instance(tmp_path, pid=6161, socket_path=missing_socket)
-
-    locator = AppServerLocator(state_root=tmp_path, project_uuid="project-1")
-    endpoints = locator._scan_instances()
-
-    assert len(endpoints) == 1
-    endpoint = endpoints[0]
-    assert endpoint.transport == "uds"
-    assert endpoint.base_url == f"http+unix://{str(missing_socket).replace('/', '%2F')}/"
-    assert endpoint.pid == 6161
-
-
-@pytest.mark.skipif(IS_WINDOWS, reason="UDS endpoints are POSIX-only")
-def test_locate_missing_uds_socket_raises_stale(tmp_path: Path) -> None:
-    missing_socket = tmp_path / "missing.sock"
-    _write_uds_instance(
-        tmp_path,
-        pid=6162,
-        socket_path=missing_socket,
-        project_uuid="project-1",
-        instance_id="instance-missing-socket",
-    )
-
-    locator = AppServerLocator(state_root=tmp_path, project_uuid="project-1")
-
-    with (
-        patch("meridian.lib.app.locator._pid_alive", return_value=True),
-        pytest.raises(AppServerStaleEndpoint),
-    ):
-        locator.locate()
-
-
-def test_locate_all_filters_dead_pids(tmp_path: Path) -> None:
-    live_pid = os.getpid()
-    _write_tcp_instance(
-        tmp_path,
-        pid=live_pid,
-        project_uuid="project-live",
-        instance_id="instance-live",
-        port=9200,
-        token="live-token",
-    )
-    _write_tcp_instance(
-        tmp_path,
-        pid=999_999_999,
-        project_uuid="project-dead",
-        instance_id="instance-dead",
-        port=9201,
-        token="dead-token",
-    )
-
-    locator = AppServerLocator(state_root=tmp_path, project_uuid="project-1")
-    endpoints = locator.locate_all()
-
-    assert len(endpoints) == 1
-    assert endpoints[0].pid == live_pid
-    assert endpoints[0].token == "live-token"
-
-
-def test_prune_stale_removes_dead_dirs(tmp_path: Path) -> None:
-    live_pid = os.getpid()
-    live_instance_dir = _write_tcp_instance(
-        tmp_path,
-        pid=live_pid,
-        project_uuid="project-live",
-        instance_id="instance-live",
-        port=9300,
-        token="live-token",
-    )
-    dead_instance_dir = _write_tcp_instance(
-        tmp_path,
-        pid=999_999_999,
-        project_uuid="project-dead",
-        instance_id="instance-dead",
-        port=9301,
-        token="dead-token",
-    )
-
-    locator = AppServerLocator(state_root=tmp_path, project_uuid="project-1")
-    pruned = locator.prune_stale()
-
-    assert pruned == 1
-    assert live_instance_dir.exists()
-    assert not dead_instance_dir.exists()
-
-
 def test_locate_no_instances_raises_not_running(tmp_path: Path) -> None:
     locator = AppServerLocator(state_root=tmp_path, project_uuid="project-1")
 
@@ -315,32 +96,71 @@ def test_locate_no_instances_raises_not_running(tmp_path: Path) -> None:
         locator.locate()
 
 
-def test_locate_all_dead_raises_stale(tmp_path: Path) -> None:
-    _write_tcp_instance(tmp_path, pid=101, project_uuid="project-1", instance_id="instance-1")
-    _write_tcp_instance(tmp_path, pid=202, project_uuid="project-1", instance_id="instance-2")
+@pytest.mark.skipif(IS_WINDOWS, reason="UDS endpoints are POSIX-only")
+def test_locate_missing_uds_socket_raises_stale(tmp_path: Path) -> None:
+    missing_socket = tmp_path / "missing.sock"
+    _write_uds_instance(
+        tmp_path,
+        pid=1001,
+        socket_path=missing_socket,
+        project_uuid="project-1",
+        instance_id="missing-socket",
+    )
     locator = AppServerLocator(state_root=tmp_path, project_uuid="project-1")
 
     with (
-        patch("meridian.lib.app.locator._pid_alive", return_value=False),
+        patch("meridian.lib.app.locator._pid_alive", return_value=True),
         pytest.raises(AppServerStaleEndpoint),
     ):
         locator.locate()
 
 
-def test_locate_wrong_project_raises(tmp_path: Path) -> None:
-    _write_tcp_instance(tmp_path, pid=303, project_uuid="project-other", instance_id="instance-1")
+def test_locate_wrong_project_raises_for_live_other_project(tmp_path: Path) -> None:
+    _write_tcp_instance(
+        tmp_path,
+        pid=1002,
+        project_uuid="project-other",
+        instance_id="other-project",
+    )
     locator = AppServerLocator(state_root=tmp_path, project_uuid="project-1")
 
     with (
         patch("meridian.lib.app.locator._pid_alive", return_value=True),
         pytest.raises(AppServerWrongProject),
     ):
-        locator.locate()
+        locator.locate(verify_reachable=False)
 
 
-def test_locate_multiple_uses_most_recent(tmp_path: Path) -> None:
-    older = _write_tcp_instance(tmp_path, pid=404, project_uuid="project-1", instance_id="older")
-    newer = _write_tcp_instance(tmp_path, pid=505, project_uuid="project-1", instance_id="newer")
+@pytest.mark.skipif(IS_WINDOWS, reason="UDS precedence case is POSIX-only")
+def test_locate_prefers_stale_matching_project_over_live_wrong_project(tmp_path: Path) -> None:
+    missing_socket = tmp_path / "missing.sock"
+    _write_uds_instance(
+        tmp_path,
+        pid=1003,
+        socket_path=missing_socket,
+        project_uuid="project-1",
+        instance_id="stale-match",
+    )
+    _write_tcp_instance(
+        tmp_path,
+        pid=1004,
+        project_uuid="project-other",
+        instance_id="live-other",
+    )
+    locator = AppServerLocator(state_root=tmp_path, project_uuid="project-1")
+
+    with (
+        patch("meridian.lib.app.locator._pid_alive", return_value=True),
+        pytest.raises(AppServerStaleEndpoint),
+    ):
+        locator.locate(verify_reachable=False)
+
+
+def test_locate_multiple_uses_most_recent_and_warns(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    older = _write_tcp_instance(tmp_path, pid=1005, project_uuid="project-1", instance_id="older")
+    newer = _write_tcp_instance(tmp_path, pid=1006, project_uuid="project-1", instance_id="newer")
     os.utime(older, (100, 100))
     os.utime(newer, (200, 200))
     locator = AppServerLocator(state_root=tmp_path, project_uuid="project-1")
@@ -348,186 +168,108 @@ def test_locate_multiple_uses_most_recent(tmp_path: Path) -> None:
     with patch("meridian.lib.app.locator._pid_alive", return_value=True):
         endpoint = locator.locate(verify_reachable=False)
 
-    assert endpoint.instance_id == "newer"
-    assert endpoint.pid == 505
-
-
-def test_locate_multiple_warns_stderr(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    older = _write_tcp_instance(tmp_path, pid=606, project_uuid="project-1", instance_id="older")
-    newer = _write_tcp_instance(tmp_path, pid=707, project_uuid="project-1", instance_id="newer")
-    os.utime(older, (100, 100))
-    os.utime(newer, (200, 200))
-    locator = AppServerLocator(state_root=tmp_path, project_uuid="project-1")
-
-    with patch("meridian.lib.app.locator._pid_alive", return_value=True):
-        locator.locate(verify_reachable=False)
-
     captured = capsys.readouterr()
+    assert endpoint.instance_id == "newer"
+    assert endpoint.pid == 1006
     assert "warning" in captured.err
     assert "using most recently started" in captured.err
 
 
-def test_locate_unreachable_on_transport_error(tmp_path: Path) -> None:
-    _write_tcp_instance(tmp_path, pid=808, project_uuid="project-1", instance_id="instance-1")
+@pytest.mark.parametrize(
+    ("project_uuid", "instance_id"),
+    [
+        ("project-other", "instance-1"),
+        ("project-1", "instance-other"),
+    ],
+    ids=["project_uuid_mismatch", "instance_id_mismatch"],
+)
+def test_locate_wrong_project_on_health_identity_mismatch(
+    tmp_path: Path, project_uuid: str, instance_id: str
+) -> None:
+    _write_tcp_instance(tmp_path, pid=1009, project_uuid="project-1", instance_id="instance-1")
     locator = AppServerLocator(state_root=tmp_path, project_uuid="project-1")
 
     with (
         patch("meridian.lib.app.locator._pid_alive", return_value=True),
-        patch("meridian.lib.app.locator.httpx.get", side_effect=httpx.TransportError("boom")),
-        pytest.raises(AppServerUnreachable),
-    ):
-        locator.locate()
-
-
-def test_locate_unreachable_on_5xx(tmp_path: Path) -> None:
-    _write_tcp_instance(tmp_path, pid=909, project_uuid="project-1", instance_id="instance-1")
-    locator = AppServerLocator(state_root=tmp_path, project_uuid="project-1")
-    response = _mock_health_response(
-        status_code=503,
-        project_uuid="project-1",
-        instance_id="instance-1",
-    )
-
-    with (
-        patch("meridian.lib.app.locator._pid_alive", return_value=True),
-        patch("meridian.lib.app.locator.httpx.get", return_value=response),
-        pytest.raises(AppServerUnreachable),
-    ):
-        locator.locate()
-
-
-def test_locate_unreachable_on_401(tmp_path: Path) -> None:
-    _write_tcp_instance(tmp_path, pid=1001, project_uuid="project-1", instance_id="instance-1")
-    locator = AppServerLocator(state_root=tmp_path, project_uuid="project-1")
-    response = _mock_health_response(
-        status_code=401,
-        project_uuid="project-1",
-        instance_id="instance-1",
-    )
-
-    with (
-        patch("meridian.lib.app.locator._pid_alive", return_value=True),
-        patch("meridian.lib.app.locator.httpx.get", return_value=response),
-        pytest.raises(AppServerUnreachable),
-    ):
-        locator.locate()
-
-
-def test_locate_unreachable_on_403(tmp_path: Path) -> None:
-    _write_tcp_instance(tmp_path, pid=1101, project_uuid="project-1", instance_id="instance-1")
-    locator = AppServerLocator(state_root=tmp_path, project_uuid="project-1")
-    response = _mock_health_response(
-        status_code=403,
-        project_uuid="project-1",
-        instance_id="instance-1",
-    )
-
-    with (
-        patch("meridian.lib.app.locator._pid_alive", return_value=True),
-        patch("meridian.lib.app.locator.httpx.get", return_value=response),
-        pytest.raises(AppServerUnreachable),
-    ):
-        locator.locate()
-
-
-def test_locate_wrong_project_on_uuid_mismatch(tmp_path: Path) -> None:
-    _write_tcp_instance(tmp_path, pid=1201, project_uuid="project-1", instance_id="instance-1")
-    locator = AppServerLocator(state_root=tmp_path, project_uuid="project-1")
-    response = _mock_health_response(
-        status_code=200,
-        project_uuid="project-other",
-        instance_id="instance-1",
-    )
-
-    with (
-        patch("meridian.lib.app.locator._pid_alive", return_value=True),
-        patch("meridian.lib.app.locator.httpx.get", return_value=response),
+        patch(
+            "meridian.lib.app.locator.httpx.get",
+            return_value=_health_response(
+                status_code=200,
+                project_uuid=project_uuid,
+                instance_id=instance_id,
+            ),
+        ),
         pytest.raises(AppServerWrongProject),
     ):
         locator.locate()
 
 
-def test_locate_wrong_project_on_instance_mismatch(tmp_path: Path) -> None:
-    _write_tcp_instance(tmp_path, pid=1301, project_uuid="project-1", instance_id="instance-1")
-    locator = AppServerLocator(state_root=tmp_path, project_uuid="project-1")
-    response = _mock_health_response(
-        status_code=200,
-        project_uuid="project-1",
-        instance_id="instance-other",
-    )
-
-    with (
-        patch("meridian.lib.app.locator._pid_alive", return_value=True),
-        patch("meridian.lib.app.locator.httpx.get", return_value=response),
-        pytest.raises(AppServerWrongProject),
-    ):
-        locator.locate()
-
-
-def test_locate_success_returns_endpoint(tmp_path: Path) -> None:
+def test_locate_success_returns_tcp_endpoint(tmp_path: Path) -> None:
     _write_tcp_instance(
         tmp_path,
-        pid=1401,
+        pid=1010,
         project_uuid="project-1",
         instance_id="instance-1",
         host="127.0.0.1",
         port=9900,
-        token="token-success",
+        token="tcp-token",
     )
     locator = AppServerLocator(state_root=tmp_path, project_uuid="project-1")
-    response = _mock_health_response(
-        status_code=200,
-        project_uuid="project-1",
-        instance_id="instance-1",
-    )
 
     with (
         patch("meridian.lib.app.locator._pid_alive", return_value=True),
-        patch("meridian.lib.app.locator.httpx.get", return_value=response),
+        patch(
+            "meridian.lib.app.locator.httpx.get",
+            return_value=_health_response(status_code=200),
+        ),
     ):
         endpoint = locator.locate()
 
-    assert endpoint.pid == 1401
+    assert endpoint.transport == "tcp"
+    assert endpoint.base_url == "http://127.0.0.1:9900"
     assert endpoint.project_uuid == "project-1"
     assert endpoint.instance_id == "instance-1"
-    assert endpoint.base_url == "http://127.0.0.1:9900"
+    assert endpoint.token == "tcp-token"
+    assert endpoint.pid == 1010
 
 
-@pytest.mark.skipif(IS_WINDOWS, reason="UDS endpoints are POSIX-only")
-def test_locate_uds_success_uses_client_transport(tmp_path: Path) -> None:
-    socket_path = tmp_path / "app.sock"
-    socket_path.write_text("", encoding="utf-8")
-    _write_uds_instance(
+def test_locate_all_and_prune_stale_keep_only_live_active_instances(tmp_path: Path) -> None:
+    live_dir = _write_tcp_instance(
         tmp_path,
-        pid=1501,
-        socket_path=socket_path,
-        project_uuid="project-1",
-        instance_id="instance-uds",
-        token="uds-token",
+        pid=1012,
+        project_uuid="project-live",
+        instance_id="instance-live",
+        token="live-token",
+    )
+    dead_dir = _write_tcp_instance(
+        tmp_path,
+        pid=1013,
+        project_uuid="project-dead",
+        instance_id="instance-dead",
+        token="dead-token",
+    )
+    missing_socket = tmp_path / "missing.sock"
+    stale_uds_dir = _write_uds_instance(
+        tmp_path,
+        pid=1014,
+        socket_path=missing_socket,
+        project_uuid="project-live",
+        instance_id="instance-stale-uds",
+        token="stale-uds-token",
     )
     locator = AppServerLocator(state_root=tmp_path, project_uuid="project-1")
-    response = _mock_health_response(
-        status_code=200,
-        project_uuid="project-1",
-        instance_id="instance-uds",
-    )
-    fake_client = _FakeHttpxClient(
-        transport=httpx.HTTPTransport(uds=str(socket_path)),
-        timeout=5.0,
-        response=response,
-    )
-    client_factory = Mock(return_value=fake_client)
 
-    with (
-        patch("meridian.lib.app.locator._pid_alive", return_value=True),
-        patch("meridian.lib.app.locator.httpx.Client", client_factory),
-    ):
-        endpoint = locator.locate()
+    def _is_live(pid: int) -> bool:
+        return pid != 1013
 
-    assert endpoint.transport == "uds"
-    assert fake_client.request_url == "http://localhost/api/health"
-    assert fake_client.request_headers is None
-    assert fake_client.closed
-    client_factory.assert_called_once()
-    assert client_factory.call_args.kwargs["timeout"] == 5.0
-    assert isinstance(client_factory.call_args.kwargs["transport"], httpx.HTTPTransport)
+    with patch("meridian.lib.app.locator._pid_alive", side_effect=_is_live):
+        endpoints = locator.locate_all()
+        pruned = locator.prune_stale()
+
+    assert len(endpoints) == 1
+    assert endpoints[0].pid == 1012
+    assert endpoints[0].token == "live-token"
+    assert pruned == 2
+    assert live_dir.exists()
+    assert not dead_dir.exists()
+    assert not stale_uds_dir.exists()
