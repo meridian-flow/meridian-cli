@@ -574,9 +574,15 @@ class SpawnManager:
         with suppress(Exception):
             await session.connection.stop()
 
-        session.drain_task.cancel()
-        with suppress(asyncio.CancelledError, Exception):
-            await session.drain_task
+        # Give drain loop time to persist remaining events after connection closes.
+        # The drain loop exits naturally once events() terminates, but enforce a
+        # hard timeout to prevent indefinite blocking on a stuck drain.
+        try:
+            await asyncio.wait_for(asyncio.shield(session.drain_task), timeout=2.0)
+        except (TimeoutError, asyncio.CancelledError, Exception):
+            session.drain_task.cancel()
+            with suppress(asyncio.CancelledError, Exception):
+                await session.drain_task
         if session.drain_task.done() and not session.drain_task.cancelled():
             with suppress(Exception):
                 session.drain_task.result()
