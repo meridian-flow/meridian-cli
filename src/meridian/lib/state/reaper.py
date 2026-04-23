@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import signal
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -138,6 +140,21 @@ def _collect_artifact_snapshot(
         durable_report_completion=has_durable_report_completion(report_text),
         runner_pid_alive=runner_pid_alive,
     )
+
+
+def _terminate_worker_pid(worker_pid: int, started_epoch: float | None) -> None:
+    """Terminate a leaked harness subprocess during orphan reconciliation.
+
+    Uses PID-reuse guard to avoid killing unrelated processes.
+    Suppresses all errors -- best-effort cleanup in a crash-recovery path.
+    """
+    try:
+        created_after = started_epoch if started_epoch is not None else 0.0
+        if not is_process_alive(worker_pid, created_after_epoch=created_after):
+            return
+        os.kill(worker_pid, signal.SIGTERM)
+    except OSError:
+        pass
 
 
 def _has_recent_activity(snapshot: ArtifactSnapshot) -> bool:
@@ -297,6 +314,8 @@ def reconcile_active_spawn(runtime_root: Path, record: SpawnRecord) -> SpawnReco
         return _finalize_completed_report(runtime_root, record, generic_snapshot, now)
     if decision.terminate_orphan_primary_children and managed_snapshot is not None:
         ManagedPrimaryReconciliationStrategy.cleanup(managed_snapshot)
+    elif managed_snapshot is None and record.worker_pid is not None and record.worker_pid > 0:
+        _terminate_worker_pid(record.worker_pid, generic_snapshot.started_epoch)
     return _finalize_failed(runtime_root, record, decision.error, generic_snapshot, now)
 
 
