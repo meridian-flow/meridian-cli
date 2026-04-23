@@ -195,6 +195,7 @@ def test_child_env_context_child_context_routes_through_contract_helpers(
             "work_dir": ctx.work_dir,
             "kb_dir": ctx.kb_dir,
             "context_dirs": (("docs", tmp_path / "repo/.meridian/docs"),),
+            "increment_depth": True,
         }
         return dict(expected)
 
@@ -214,6 +215,24 @@ def test_child_env_context_child_context_routes_through_contract_helpers(
 
     assert result == expected
     assert seen == [expected]
+
+
+def test_child_env_context_can_preserve_depth_for_primary_surface(
+    tmp_path: Path,
+) -> None:
+    ctx = ChildEnvContext(
+        parent_spawn_id=None,
+        project_root=tmp_path / "repo",
+        runtime_root=tmp_path / "runtime-state",
+        parent_chat_id="chat-parent",
+        parent_depth=0,
+    )
+
+    result = ctx.child_context(child_spawn_id="p-primary", increment_depth=False)
+
+    assert result["MERIDIAN_DEPTH"] == "0"
+    assert result["MERIDIAN_SPAWN_ID"] == "p-primary"
+    assert "MERIDIAN_PARENT_SPAWN_ID" not in result
 
 
 def test_child_env_context_passes_child_spawn_id_through(
@@ -247,3 +266,4 @@ def test_child_env_context_passes_child_spawn_id_through(
 
     assert result["MERIDIAN_SPAWN_ID"] == "p2"
     assert seen_kwargs["child_spawn_id"] == "p2"
+    assert seen_kwargs["increment_depth"] is True

@@ -151,7 +151,12 @@ class ChildEnvContext:
             context_dirs=parent_ctx.context_dirs,
         )
 
-    def child_context(self, *, child_spawn_id: str | None = None) -> dict[str, str]:
+    def child_context(
+        self,
+        *,
+        child_spawn_id: str | None = None,
+        increment_depth: bool = True,
+    ) -> dict[str, str]:
         overrides = build_child_env_overrides(
             parent_spawn_id=self.parent_spawn_id,
             child_spawn_id=child_spawn_id,
@@ -163,6 +168,7 @@ class ChildEnvContext:
             work_dir=self.work_dir,
             kb_dir=self.kb_dir,
             context_dirs=self.context_dirs,
+            increment_depth=increment_depth,
         )
         validate_child_env_keys(overrides)
         return overrides
@@ -862,9 +868,13 @@ def build_launch_context(
         runtime_root=runtime_root,
     )
     effective_work_id = (runtime_work_id or resolved_request.work_id_hint or "").strip() or None
+    increment_depth = runtime.composition_surface != LaunchCompositionSurface.PRIMARY
     merged_overrides = merge_env_overrides(
         plan_overrides=plan_overrides or {},
-        runtime_overrides=runtime_ctx.child_context(child_spawn_id=spawn_id),
+        runtime_overrides=runtime_ctx.child_context(
+            child_spawn_id=spawn_id,
+            increment_depth=increment_depth,
+        ),
         preflight_overrides=preflight.extra_env,
     )
     merged_overrides.update(workspace_projection.env_overrides)

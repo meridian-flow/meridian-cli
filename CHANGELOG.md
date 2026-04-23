@@ -3,6 +3,9 @@
 Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [SemVer](https://semver.org/). Versions `0.0.6` through `0.0.25` in git history only — changelog fell stale, resumed at `[Unreleased]`.
 ## [Unreleased]
 
+### Fixed
+- Primary launch preserves `MERIDIAN_DEPTH`; root sessions stay depth `0` while delegated spawns still increment.
+
 ## [0.0.43] - 2026-04-22
 
 ### Added
