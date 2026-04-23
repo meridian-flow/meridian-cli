@@ -70,8 +70,8 @@ async def test_archive_spawn_handler_uses_spawn_archive_helper(
     def _fake_archive(runtime_root: Path, spawn_id: str) -> None:
         calls.append((runtime_root, spawn_id))
 
-    monkeypatch.setattr(archive_mod, "_is_spawn_archived", _fake_is_archived)
-    monkeypatch.setattr(archive_mod, "_archive_spawn", _fake_archive)
+    monkeypatch.setattr(archive_mod, "is_spawn_archived", _fake_is_archived)
+    monkeypatch.setattr(archive_mod, "archive_spawn", _fake_archive)
 
     result = await archive_spawn_handler(
         {"spawn_id": "p123"},

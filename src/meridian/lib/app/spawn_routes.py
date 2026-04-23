@@ -28,9 +28,9 @@ from meridian.lib.harness.registry import get_default_harness_registry
 from meridian.lib.launch.context import build_launch_context
 from meridian.lib.launch.request import LaunchArgvIntent, LaunchRuntime, SpawnRequest
 from meridian.lib.spawn.archive import (
-    _archive_spawn,  # pyright: ignore[reportPrivateUsage]
-    _is_spawn_archived,  # pyright: ignore[reportPrivateUsage]
-    _read_archived_spawns,  # pyright: ignore[reportPrivateUsage]
+    archive_spawn,
+    is_spawn_archived,
+    read_archived_spawns,
 )
 from meridian.lib.state import spawn_store
 from meridian.lib.streaming.signal_canceller import SignalCanceller
@@ -438,7 +438,7 @@ def register_spawn_routes(
             "origin": outcome.origin,
         }
 
-    async def archive_spawn(spawn_id: str) -> dict[str, object]:
+    async def archive_spawn_route(spawn_id: str) -> dict[str, object]:
         """Archive a terminal spawn (soft-hide from default list views)."""
         typed_spawn_id = _validate_spawn_id(spawn_id)
         record = _require_spawn(typed_spawn_id)
@@ -452,7 +452,7 @@ def register_spawn_routes(
             )
         
         # Check if already archived
-        if _is_spawn_archived(runtime_root, str(typed_spawn_id)):
+        if is_spawn_archived(runtime_root, str(typed_spawn_id)):
             return {
                 "ok": True,
                 "spawn_id": str(typed_spawn_id),
@@ -460,7 +460,7 @@ def register_spawn_routes(
                 "noop": True,
             }
         
-        _archive_spawn(runtime_root, str(typed_spawn_id))
+        archive_spawn(runtime_root, str(typed_spawn_id))
         _broadcast(
             "spawn.archived",
             {
@@ -505,7 +505,7 @@ def register_spawn_routes(
     typed_app.get("/api/spawns/{spawn_id}")(get_spawn)
     typed_app.post("/api/spawns/{spawn_id}/inject")(inject_message)
     typed_app.post("/api/spawns/{spawn_id}/cancel")(cancel_spawn)
-    typed_app.post("/api/spawns/{spawn_id}/archive")(archive_spawn)
+    typed_app.post("/api/spawns/{spawn_id}/archive")(archive_spawn_route)
     typed_app.post("/api/spawns/{spawn_id}/fork")(fork_spawn)
 
 
@@ -592,7 +592,7 @@ def register_spawn_query_routes(
 
         # Filter out archived spawns unless explicitly requested
         if not include_archived:
-            archived_ids = _read_archived_spawns(runtime_root)
+            archived_ids = read_archived_spawns(runtime_root)
             spawns = [s for s in spawns if s.id not in archived_ids]
 
         # Sort by started_at desc, id desc for stable pagination
@@ -643,7 +643,7 @@ def register_spawn_query_routes(
 
         # Filter out archived spawns unless explicitly requested
         if not include_archived:
-            archived_ids = _read_archived_spawns(runtime_root)
+            archived_ids = read_archived_spawns(runtime_root)
             spawns = [s for s in spawns if s.id not in archived_ids]
 
         running = 0

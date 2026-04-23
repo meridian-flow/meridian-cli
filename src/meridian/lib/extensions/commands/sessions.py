@@ -48,10 +48,10 @@ async def archive_spawn_handler(
             message="runtime_root not available",
         )
 
-    from meridian.lib.spawn.archive import _archive_spawn, _is_spawn_archived
+    from meridian.lib.spawn.archive import archive_spawn, is_spawn_archived
 
     spawn_id = args["spawn_id"]
-    if _is_spawn_archived(services.runtime_root, spawn_id):
+    if is_spawn_archived(services.runtime_root, spawn_id):
         return ExtensionJSONResult(
             payload={
                 "spawn_id": spawn_id,
@@ -60,7 +60,7 @@ async def archive_spawn_handler(
             }
         )
 
-    _archive_spawn(services.runtime_root, spawn_id)
+    archive_spawn(services.runtime_root, spawn_id)
     return ExtensionJSONResult(payload={"spawn_id": spawn_id, "archived": True})
 
 

@@ -2,13 +2,10 @@
 
 from contextlib import asynccontextmanager
 from typing import Any, cast
-from urllib.parse import unquote
 
-import httpx
 from mcp.server.fastmcp import FastMCP
 
 from meridian.lib.app.locator import (
-    AppServerAuthFailed,
     AppServerLocator,
     AppServerNotRunning,
     AppServerStaleEndpoint,
@@ -26,6 +23,10 @@ from meridian.lib.extensions.dispatcher import ExtensionCommandDispatcher
 from meridian.lib.extensions.registry import (
     build_first_party_registry,
     compute_manifest_hash,
+)
+from meridian.lib.extensions.remote_invoker import (
+    RemoteExtensionInvoker,
+    RemoteInvokeRequest,
 )
 from meridian.lib.extensions.types import (
     ExtensionErrorResult,
@@ -53,11 +54,6 @@ async def lifespan(_: FastMCP[Any]):
 mcp = FastMCP("meridian", lifespan=lifespan)
 
 
-def _uds_socket_path(base_url: str) -> str:
-    encoded = base_url.removeprefix("http+unix://").rstrip("/")
-    return unquote(encoded)
-
-
 @mcp.tool()
 async def extension_list_commands() -> dict[str, Any]:
     """List all registered extension commands.
@@ -66,7 +62,10 @@ async def extension_list_commands() -> dict[str, Any]:
     """
 
     registry = build_first_party_registry()
-    commands = sorted(registry.list_all(), key=lambda spec: spec.fqid)
+    commands = sorted(
+        registry.list_for_surface(ExtensionSurface.MCP),
+        key=lambda spec: spec.fqid,
+    )
 
     return {
         "schema_version": 1,
@@ -90,6 +89,8 @@ async def extension_invoke(
     fqid: str,
     args: dict[str, Any] | None = None,
     request_id: str | None = None,
+    work_id: str | None = None,
+    spawn_id: str | None = None,
 ) -> dict[str, Any]:
     """Invoke an extension command.
 
@@ -108,12 +109,26 @@ async def extension_invoke(
             "code": "not_found",
             "message": f"Command not found: {fqid}",
         }
+    if ExtensionSurface.MCP not in spec.surfaces and ExtensionSurface.ALL not in spec.surfaces:
+        return {
+            "status": "error",
+            "code": "surface_not_allowed",
+            "message": f"Command {fqid} is not available via MCP",
+        }
 
     if not spec.requires_app_server:
+        # In-process dispatch for local-only commands — skip observability logging.
+        # These commands don't go through the app server, and the MCP server doesn't
+        # have a stable runtime root for writing logs. HTTP-routed commands will be
+        # logged by the app server's dispatcher.
         dispatcher = ExtensionCommandDispatcher(registry)
         context_builder = ExtensionInvocationContextBuilder(ExtensionSurface.MCP)
         if request_id is not None:
             context_builder = context_builder.with_request_id(request_id)
+        if work_id is not None:
+            context_builder = context_builder.with_work_id(work_id)
+        if spawn_id is not None:
+            context_builder = context_builder.with_spawn_id(spawn_id)
         result = await dispatcher.dispatch(
             fqid=fqid,
             args=resolved_args,
@@ -158,76 +173,27 @@ async def extension_invoke(
             "code": "app_server_unreachable",
             "message": "App server is unreachable",
         }
-    except AppServerAuthFailed:
-        return {
-            "status": "error",
-            "code": "app_server_auth_failed",
-            "message": "App server auth failed",
-        }
 
-    invoke_path = (
-        f"/api/extensions/{spec.extension_id}/commands/{spec.command_id}/invoke"
+    invoker = RemoteExtensionInvoker(endpoint)
+    result = await invoker.invoke_async(
+        RemoteInvokeRequest(
+            extension_id=spec.extension_id,
+            command_id=spec.command_id,
+            args=resolved_args,
+            request_id=request_id,
+            work_id=work_id,
+            spawn_id=spawn_id,
+        )
     )
-    request_payload: dict[str, object | None] = {
-        "args": resolved_args,
-        "request_id": request_id,
-    }
-    headers = {"Authorization": f"Bearer {endpoint.token}"}
 
-    try:
-        if endpoint.transport == "tcp":
-            invoke_url = f"{endpoint.base_url.rstrip('/')}{invoke_path}"
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(
-                    invoke_url,
-                    json=request_payload,
-                    headers=headers,
-                )
-        else:
-            transport = httpx.AsyncHTTPTransport(uds=_uds_socket_path(endpoint.base_url))
-            async with httpx.AsyncClient(transport=transport, timeout=30.0) as client:
-                response = await client.post(
-                    f"http://localhost{invoke_path}",
-                    json=request_payload,
-                    headers=headers,
-                )
-    except httpx.HTTPError as error:
-        return {"status": "error", "code": "request_failed", "message": str(error)}
-
-    if response.status_code >= 400:
-        try:
-            raw_error = response.json()
-        except ValueError:
-            return {
-                "status": "error",
-                "code": "http_error",
-                "message": response.text,
-            }
-        if not isinstance(raw_error, dict):
-            return {
-                "status": "error",
-                "code": "http_error",
-                "message": response.text,
-            }
-        typed_error = cast("dict[str, Any]", raw_error)
-        code = typed_error.get("code")
-        detail = typed_error.get("detail")
+    if not result.success:
         return {
             "status": "error",
-            "code": code if isinstance(code, str) and code else "http_error",
-            "message": (
-                detail if isinstance(detail, str) and detail else response.text
-            ),
+            "code": result.error_code or "invoke_failed",
+            "message": result.error_message or "Invoke failed",
         }
 
-    try:
-        payload = response.json()
-    except ValueError:
-        return {"status": "ok", "result": response.text}
-
-    if isinstance(payload, dict) and "result" in payload:
-        return {"status": "ok", "result": payload["result"]}
-    return {"status": "ok", "result": payload}
+    return {"status": "ok", "result": result.payload}
 
 
 def _build_tool_handler(op: OperationSpec[Any, Any]) -> Any:

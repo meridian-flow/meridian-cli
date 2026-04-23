@@ -8,7 +8,6 @@ import httpx
 import pytest
 
 from meridian.lib.app.locator import (
-    AppServerAuthFailed,
     AppServerLocator,
     AppServerNotRunning,
     AppServerStaleEndpoint,
@@ -109,7 +108,7 @@ class _FakeHttpxClient:
     def __exit__(self, *exc_info: object) -> None:
         self.closed = True
 
-    def get(self, url: str, *, headers: dict[str, str]) -> Mock:
+    def get(self, url: str, *, headers: dict[str, str] | None = None) -> Mock:
         self.request_url = url
         self.request_headers = headers
         return self.response
@@ -397,7 +396,7 @@ def test_locate_unreachable_on_5xx(tmp_path: Path) -> None:
         locator.locate()
 
 
-def test_locate_auth_failed_on_401(tmp_path: Path) -> None:
+def test_locate_unreachable_on_401(tmp_path: Path) -> None:
     _write_tcp_instance(tmp_path, pid=1001, project_uuid="project-1", instance_id="instance-1")
     locator = AppServerLocator(state_root=tmp_path, project_uuid="project-1")
     response = _mock_health_response(
@@ -409,12 +408,12 @@ def test_locate_auth_failed_on_401(tmp_path: Path) -> None:
     with (
         patch("meridian.lib.app.locator._pid_alive", return_value=True),
         patch("meridian.lib.app.locator.httpx.get", return_value=response),
-        pytest.raises(AppServerAuthFailed),
+        pytest.raises(AppServerUnreachable),
     ):
         locator.locate()
 
 
-def test_locate_auth_failed_on_403(tmp_path: Path) -> None:
+def test_locate_unreachable_on_403(tmp_path: Path) -> None:
     _write_tcp_instance(tmp_path, pid=1101, project_uuid="project-1", instance_id="instance-1")
     locator = AppServerLocator(state_root=tmp_path, project_uuid="project-1")
     response = _mock_health_response(
@@ -426,7 +425,7 @@ def test_locate_auth_failed_on_403(tmp_path: Path) -> None:
     with (
         patch("meridian.lib.app.locator._pid_alive", return_value=True),
         patch("meridian.lib.app.locator.httpx.get", return_value=response),
-        pytest.raises(AppServerAuthFailed),
+        pytest.raises(AppServerUnreachable),
     ):
         locator.locate()
 
@@ -527,7 +526,7 @@ def test_locate_uds_success_uses_client_transport(tmp_path: Path) -> None:
 
     assert endpoint.transport == "uds"
     assert fake_client.request_url == "http://localhost/api/health"
-    assert fake_client.request_headers == {"Authorization": "Bearer uds-token"}
+    assert fake_client.request_headers is None
     assert fake_client.closed
     client_factory.assert_called_once()
     assert client_factory.call_args.kwargs["timeout"] == 5.0

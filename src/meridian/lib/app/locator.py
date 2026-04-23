@@ -108,7 +108,6 @@ class AppServerLocator:
         2. AppServerStaleEndpoint -- descriptors exist but are stale
         3. AppServerWrongProject  -- live instances exist but none for this project
         4. AppServerUnreachable   -- health check failed (verify_reachable=True only)
-        5. AppServerAuthFailed    -- health check returned 401/403
         """
 
         instances = self._scan_instances()
@@ -193,34 +192,26 @@ class AppServerLocator:
         """Verify endpoint is reachable and returns correct identity.
 
         Raises:
-            AppServerUnreachable: transport error or 5xx response
-            AppServerAuthFailed: 401/403 response
+            AppServerUnreachable: transport error or 4xx/5xx response
             AppServerWrongProject: project_uuid or instance_id mismatch
         """
 
-        headers = {"Authorization": f"Bearer {endpoint.token}"}
+        # No auth header: health endpoint is intentionally public.
         timeout = 5.0
         try:
             if endpoint.transport == "tcp":
                 response = httpx.get(
                     f"{endpoint.base_url.rstrip('/')}/api/health",
-                    headers=headers,
                     timeout=timeout,
                 )
             else:
                 socket_path = self._uds_socket_path(endpoint.base_url)
                 transport = httpx.HTTPTransport(uds=socket_path)
                 with httpx.Client(transport=transport, timeout=timeout) as client:
-                    response = client.get("http://localhost/api/health", headers=headers)
+                    response = client.get("http://localhost/api/health")
         except httpx.HTTPError as exc:
             raise AppServerUnreachable("App server health check failed") from exc
 
-        if response.status_code in {401, 403}:
-            raise AppServerAuthFailed("App server rejected authentication")
-        if response.status_code >= 500:
-            raise AppServerUnreachable(
-                f"App server health check failed with status {response.status_code}"
-            )
         if response.status_code >= 400:
             raise AppServerUnreachable(
                 f"App server health check returned status {response.status_code}"

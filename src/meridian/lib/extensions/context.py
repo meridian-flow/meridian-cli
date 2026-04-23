@@ -53,6 +53,7 @@ class ExtensionInvocationContext:
     project_uuid: str | None
     work_id: str | None
     work_path: Path | None
+    spawn_id: str | None
     capabilities: ExtensionCapabilities
     request_id: str | None = None
 
@@ -65,6 +66,7 @@ class ExtensionInvocationContextBuilder:
         self._project_uuid: str | None = None
         self._work_id: str | None = None
         self._work_path: Path | None = None
+        self._spawn_id: str | None = None
         self._capabilities: ExtensionCapabilities | None = None
         self._request_id: str | None = None
 
@@ -78,6 +80,10 @@ class ExtensionInvocationContextBuilder:
 
     def with_work_path(self, path: Path | None) -> ExtensionInvocationContextBuilder:
         self._work_path = path
+        return self
+
+    def with_spawn_id(self, spawn_id: str | None) -> ExtensionInvocationContextBuilder:
+        self._spawn_id = spawn_id
         return self
 
     def with_capabilities(
@@ -117,6 +123,7 @@ class ExtensionInvocationContextBuilder:
             project_uuid=self._project_uuid,
             work_id=self._work_id,
             work_path=resolved_work_path,
+            spawn_id=self._spawn_id,
             capabilities=caps,
             request_id=self._request_id,
         )

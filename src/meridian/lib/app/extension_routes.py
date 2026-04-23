@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import secrets
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, cast
 
@@ -81,6 +82,8 @@ class InvokeRequest(BaseModel):
 
     args: dict[str, Any] = Field(default_factory=dict)
     request_id: str | None = None
+    work_id: str | None = None
+    spawn_id: str | None = None
 
 
 class InvokeResponse(BaseModel):
@@ -125,7 +128,12 @@ async def verify_bearer_token(request: Request, expected_token: str) -> bool:
     if not auth_header.startswith("Bearer "):
         return False
     token = auth_header[7:]
-    return token == expected_token
+    # Compare bytes to handle non-ASCII tokens gracefully
+    # (compare_digest raises TypeError for non-ASCII strings)
+    return secrets.compare_digest(
+        token.encode("utf-8", errors="replace"),
+        expected_token.encode("utf-8", errors="replace"),
+    )
 
 
 def _stream_requested(request: Request, body: dict[str, Any]) -> bool:
@@ -348,6 +356,10 @@ def make_invoke_routes(
         builder = context_builder_factory()
         if request_id is not None:
             builder = builder.with_request_id(request_id)
+        if invoke_req.work_id is not None:
+            builder = builder.with_work_id(invoke_req.work_id)
+        if invoke_req.spawn_id is not None:
+            builder = builder.with_spawn_id(invoke_req.spawn_id)
         context = builder.build()
 
         result = await dispatcher.dispatch(

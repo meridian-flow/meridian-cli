@@ -5,15 +5,12 @@ from __future__ import annotations
 import json
 import sys
 from collections.abc import Callable
-from typing import Annotated, cast
-from urllib.parse import unquote
+from typing import Annotated, Any, cast
 
-import httpx
 from cyclopts import App, Parameter
 
 from meridian.cli.output import OutputFormat
 from meridian.lib.app.locator import (
-    AppServerAuthFailed,
     AppServerLocator,
     AppServerNotRunning,
     AppServerStaleEndpoint,
@@ -21,6 +18,11 @@ from meridian.lib.app.locator import (
     AppServerWrongProject,
 )
 from meridian.lib.extensions.registry import build_first_party_registry, compute_manifest_hash
+from meridian.lib.extensions.remote_invoker import (
+    RemoteExtensionInvoker,
+    RemoteInvokeRequest,
+)
+from meridian.lib.extensions.types import ExtensionSurface
 from meridian.lib.ops.runtime import (
     get_project_uuid,
     resolve_runtime_root_and_config_for_read,
@@ -74,11 +76,6 @@ def _emit_text_or_json(*, text_payload: str, json_payload: object, format: Outpu
     _emit(json_payload if format == "json" else text_payload)
 
 
-def _uds_socket_path(base_url: str) -> str:
-    encoded = base_url.removeprefix("http+unix://").rstrip("/")
-    return unquote(encoded)
-
-
 @ext_app.command(name="list")
 def ext_list(
     *,
@@ -92,7 +89,7 @@ def ext_list(
     registry = build_first_party_registry()
 
     extensions: dict[str, list[str]] = {}
-    for spec in registry.list_all():
+    for spec in registry.list_for_surface(ExtensionSurface.CLI):
         extensions.setdefault(spec.extension_id, []).append(spec.command_id)
 
     sorted_extensions: dict[str, list[str]] = {
@@ -133,7 +130,11 @@ def ext_show(
     registry = build_first_party_registry()
 
     commands = sorted(
-        (spec for spec in registry.list_all() if spec.extension_id == extension_id),
+        (
+            spec
+            for spec in registry.list_for_surface(ExtensionSurface.CLI)
+            if spec.extension_id == extension_id
+        ),
         key=lambda spec: spec.command_id,
     )
 
@@ -189,7 +190,10 @@ def ext_commands(
 
     effective_format = _resolve_effective_format(requested=format, json_output=json_output)
     registry = build_first_party_registry()
-    commands = sorted(registry.list_all(), key=lambda spec: spec.fqid)
+    commands = sorted(
+        registry.list_for_surface(ExtensionSurface.CLI),
+        key=lambda spec: spec.fqid,
+    )
 
     json_payload = {
         "schema_version": 1,
@@ -263,22 +267,25 @@ def ext_run(
     EB3.7: Stale endpoint exits with 3.
     """
 
-    _ = work_id, spawn_id
     effective_format = _resolve_effective_format(requested=format, json_output=json_output)
 
     try:
-        parsed_args = json.loads(args)
+        loaded_args: object = json.loads(args)
     except json.JSONDecodeError as exc:
         print(f"Invalid JSON args: {exc}", file=sys.stderr)
         raise SystemExit(EXIT_ARGS_ERROR) from exc
-    if not isinstance(parsed_args, dict):
+    if not isinstance(loaded_args, dict):
         print("Invalid JSON args: expected a JSON object", file=sys.stderr)
         raise SystemExit(EXIT_ARGS_ERROR)
+    parsed_args = cast("dict[str, Any]", loaded_args)
 
     registry = build_first_party_registry()
     spec = registry.get(fqid)
     if spec is None:
         print(f"Command not found: {fqid}", file=sys.stderr)
+        raise SystemExit(EXIT_GENERAL_ERROR)
+    if ExtensionSurface.CLI not in spec.surfaces and ExtensionSurface.ALL not in spec.surfaces:
+        print(f"Command {fqid} is not available via CLI", file=sys.stderr)
         raise SystemExit(EXIT_GENERAL_ERROR)
 
     project_root, _ = resolve_runtime_root_and_config_for_read(None)
@@ -299,76 +306,41 @@ def ext_run(
     except AppServerUnreachable:
         print("App server is unreachable", file=sys.stderr)
         raise SystemExit(EXIT_SERVER_UNREACHABLE) from None
-    except AppServerAuthFailed:
-        print("App server auth failed", file=sys.stderr)
-        raise SystemExit(EXIT_SERVER_AUTH_FAILED) from None
 
-    invoke_path = f"/api/extensions/{spec.extension_id}/commands/{spec.command_id}/invoke"
-    request_body: dict[str, object | None] = {
-        "args": parsed_args,
-        "request_id": request_id,
-    }
-    headers = {"Authorization": f"Bearer {endpoint.token}"}
+    invoker = RemoteExtensionInvoker(endpoint)
+    result = invoker.invoke_sync(
+        RemoteInvokeRequest(
+            extension_id=spec.extension_id,
+            command_id=spec.command_id,
+            args=parsed_args,
+            request_id=request_id,
+            work_id=work_id,
+            spawn_id=spawn_id,
+        )
+    )
 
-    try:
-        if endpoint.transport == "tcp":
-            invoke_url = f"{endpoint.base_url.rstrip('/')}{invoke_path}"
-            with httpx.Client(timeout=30.0) as client:
-                response = client.post(invoke_url, json=request_body, headers=headers)
-        else:
-            socket_path = _uds_socket_path(endpoint.base_url)
-            transport = httpx.HTTPTransport(uds=socket_path)
-            with httpx.Client(transport=transport, timeout=30.0) as client:
-                response = client.post(
-                    f"http://localhost{invoke_path}",
-                    json=request_body,
-                    headers=headers,
-                )
-    except httpx.HTTPError as exc:
-        print(f"Request failed: {exc}", file=sys.stderr)
-        raise SystemExit(EXIT_SERVER_UNREACHABLE) from exc
-
-    if response.status_code >= 400:
+    if not result.success:
         if effective_format == "json":
-            try:
-                print(json.dumps(response.json(), indent=2))
-            except ValueError:
-                print(response.text)
+            print(
+                json.dumps(
+                    {
+                        "status": "error",
+                        "code": result.error_code,
+                        "message": result.error_message,
+                    },
+                    indent=2,
+                )
+            )
         else:
-            try:
-                error_payload = response.json()
-            except ValueError:
-                print(f"HTTP {response.status_code}: {response.text}", file=sys.stderr)
-            else:
-                if not isinstance(error_payload, dict):
-                    print(f"HTTP {response.status_code}: {response.text}", file=sys.stderr)
-                else:
-                    typed_error_payload = cast("dict[str, object]", error_payload)
-                    title = typed_error_payload.get("title")
-                    detail = typed_error_payload.get("detail")
-                    if isinstance(title, str) and title:
-                        print(f"Error: {title}", file=sys.stderr)
-                    else:
-                        print(f"HTTP {response.status_code}: request failed", file=sys.stderr)
-                    if isinstance(detail, str) and detail:
-                        print(f"  {detail}", file=sys.stderr)
+            print(f"Error: {result.error_code}", file=sys.stderr)
+            if result.error_message:
+                print(f"  {result.error_message}", file=sys.stderr)
         raise SystemExit(EXIT_GENERAL_ERROR)
 
-    try:
-        result_payload = response.json()
-    except ValueError:
-        print(response.text)
-        raise SystemExit(EXIT_SUCCESS) from None
-
     if effective_format == "json":
-        print(json.dumps(result_payload, indent=2))
-        return
-
-    if isinstance(result_payload, dict) and "result" in result_payload:
-        print(json.dumps(result_payload["result"], indent=2))
-        return
-
-    print(json.dumps(result_payload, indent=2))
+        print(json.dumps({"result": result.payload}, indent=2))
+    else:
+        print(json.dumps(result.payload, indent=2))
 
 
 def register_ext_commands(

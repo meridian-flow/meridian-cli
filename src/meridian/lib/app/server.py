@@ -122,6 +122,7 @@ def create_app(
             0o600,
         )
         try:
+            os.fchmod(token_fd, 0o600)  # Defense-in-depth for PID reuse.
             os.write(token_fd, token.encode("utf-8"))
             os.fsync(token_fd)
         finally:
@@ -345,7 +346,10 @@ def create_app(
         runtime_root=runtime_root,
         meridian_dir=Path(meridian_dir_value) if isinstance(meridian_dir_value, str) else None,
     )
-    ext_dispatcher = ExtensionCommandDispatcher(ext_registry)
+    ext_dispatcher = ExtensionCommandDispatcher(
+        ext_registry,
+        observability_log=resolved_runtime_root / "extension-invocations.jsonl",
+    )
 
     def make_http_context_builder() -> ExtensionInvocationContextBuilder:
         return ExtensionInvocationContextBuilder(ExtensionSurface.HTTP).with_project_uuid(
