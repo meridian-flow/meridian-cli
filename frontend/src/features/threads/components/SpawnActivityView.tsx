@@ -51,7 +51,7 @@ export function SpawnActivityView({ activity }: SpawnActivityViewProps) {
   return (
     <ScrollArea className="h-full rounded-lg border border-border bg-card">
       <div className="space-y-4 p-4">
-        <ErrorBoundary>
+        <ErrorBoundary resetKeys={[activity.id]}>
           <TurnList turns={turns} />
         </ErrorBoundary>
         <div ref={bottomRef} />

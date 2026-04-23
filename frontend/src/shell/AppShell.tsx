@@ -195,7 +195,7 @@ export function AppShell({
           </div>
 
           <div style={{ gridColumn: "2", gridRow: "2" }} className="min-h-0 min-w-0 overflow-hidden">
-            <ErrorBoundary>
+            <ErrorBoundary resetKeys={[activeMode]}>
               {children ?? <ModeViewport activeMode={activeMode} />}
             </ErrorBoundary>
           </div>

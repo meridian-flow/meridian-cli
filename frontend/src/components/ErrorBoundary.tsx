@@ -4,6 +4,8 @@ interface ErrorBoundaryProps {
   children: ReactNode
   fallback?: ReactNode
   onError?: (error: Error, errorInfo: ErrorInfo) => void
+  /** When any value in this array changes, the error state resets. */
+  resetKeys?: ReadonlyArray<unknown>
 }
 
 interface ErrorBoundaryState {
@@ -23,6 +25,15 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
     this.props.onError?.(error, errorInfo)
+  }
+
+  componentDidUpdate(prevProps: Readonly<ErrorBoundaryProps>): void {
+    if (!this.state.hasError) return
+    const prev = prevProps.resetKeys ?? []
+    const curr = this.props.resetKeys ?? []
+    if (prev.length !== curr.length || prev.some((k, i) => k !== curr[i])) {
+      this.setState({ hasError: false, error: null })
+    }
   }
 
   render(): ReactNode {
