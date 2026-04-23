@@ -5,6 +5,7 @@ import shlex
 from pydantic import BaseModel, ConfigDict, Field, model_serializer
 
 from meridian.lib.core.domain import SpawnStatus
+from meridian.lib.core.spawn_lifecycle import is_active_spawn_status
 from meridian.lib.core.util import FormatContext
 from meridian.lib.launch.request import SessionRequest
 
@@ -552,6 +553,7 @@ class SpawnDetailOutput(BaseModel):
             harness_session_value = (self.harness_session_id or "").strip() or None
 
         parent_value = (self.parent_id or "").strip() or None
+        active_status = is_active_spawn_status(self.status)
 
         pairs: list[tuple[str, str | None]] = [
             ("Spawn", self.spawn_id),
@@ -563,10 +565,12 @@ class SpawnDetailOutput(BaseModel):
             ("TUI pid", None if self.tui_pid is None else str(self.tui_pid)),
             ("Backend port", None if self.backend_port is None else str(self.backend_port)),
             ("Harness session", harness_session_value),
-            ("Exited at", self.exited_at),
+            ("Exited at", None if active_status else self.exited_at),
             (
                 "Process exit code",
-                None if self.process_exit_code is None else str(self.process_exit_code),
+                None
+                if (active_status or self.process_exit_code is None)
+                else str(self.process_exit_code),
             ),
             ("Model", f"{self.model} ({self.harness})"),
             ("Duration", duration_value),

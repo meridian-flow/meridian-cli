@@ -4,7 +4,7 @@ from meridian.lib.ops.spawn.models import SpawnDetailOutput
 
 
 def _spawn_detail(**overrides: object) -> SpawnDetailOutput:
-    values = {
+    values: dict[str, object] = {
         "spawn_id": "p42",
         "status": "running",
         "model": "gpt-5.4",
@@ -38,3 +38,25 @@ def test_spawn_detail_with_harness_session_points_to_session_log() -> None:
     text = _spawn_detail(harness_session_id="thread-123").format_text()
 
     assert "Transcript: meridian session log p42" in text
+
+
+def test_spawn_detail_active_status_hides_attempt_exit_fields() -> None:
+    text = _spawn_detail(
+        status="running",
+        exited_at="2026-04-23T12:00:00Z",
+        process_exit_code=1,
+    ).format_text()
+
+    assert "Exited at:" not in text
+    assert "Process exit code:" not in text
+
+
+def test_spawn_detail_terminal_status_shows_attempt_exit_fields() -> None:
+    text = _spawn_detail(
+        status="failed",
+        exited_at="2026-04-23T12:00:00Z",
+        process_exit_code=1,
+    ).format_text()
+
+    assert "Exited at: 2026-04-23T12:00:00Z" in text
+    assert "Process exit code: 1" in text

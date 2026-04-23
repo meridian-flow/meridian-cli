@@ -1,7 +1,35 @@
 # Changelog
 
 Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [SemVer](https://semver.org/). Versions `0.0.6` through `0.0.25` in git history only — changelog fell stale, resumed at `[Unreleased]`.
+
 ## [Unreleased]
+
+### Added
+- **Extension system**: `meridian ext list|show|commands|run` CLI commands and `extension_list_commands`/`extension_invoke` MCP tools. Offline discovery works without app server; app-bound invocation uses locator + token auth. Exit codes: 2=no server, 3=stale, 7=invalid args.
+- **Extension registry CLI generation**: All CLI command modules switched from `registration.py` to registry-based `ext_registration.py`. Handler keys now fully qualified (e.g. `meridian.work.start`). Old `registration.py` deleted.
+- **`ExtensionCommandSpec` augmentation**: `cli_group`, `cli_name`, `agent_default_format`, `sync_handler` fields. `from_op()` factory wraps op-style handlers. Registry gains `get_by_cli()` and `list_for_cli_group()`.
+- **Remote extension invoker**: Shared `RemoteExtensionInvoker` with sync/async methods for CLI and MCP dispatch.
+- **`lib/markdown`** — thin wrapper around `markdown-it-py` for heading, fenced block, link, image, and wikilink extraction.
+- **`lib/kb`** — knowledge base graph analysis: broken link detection, orphan identification, missing backlinks, connected clusters, source coverage via Python AST symbol resolution.
+- **`lib/mermaid`** — Python wrapper for mermaid diagram validation via bundled JS parser. Node.js preflight, per-block validation with timeout.
+- **`lib/core/depth.py`** — extracted depth helpers from inline usage across CLI, doctor, reaper, and work lifecycle.
+- `lib/core/formatting.py` — shared text formatting (`tabular`, `kv_block`) extracted from CLI layer so ops/catalog models no longer import `cli.format_helpers` (#85).
+- `ResolvedContext.from_environment()` accepts explicit `explicit_project_root` / `explicit_runtime_root` kwargs — context resolution no longer mutates `os.environ` (#81).
+- `plugin_api` contract tests pin the narrowed public surface and verify unstable helpers stay in submodules.
+- **Managed primary attach**: `PrimaryAttachLauncher` orchestrates backend + TUI lifecycle for Codex/OpenCode. Activity tracking via `primary_meta.json` sidecar. TOCTOU port retry (3 attempts). Black-box fallback on managed startup failure. Codex/OpenCode non-fork → managed path; Claude and fork → black-box.
+- **Primary observer mode**: Codex and OpenCode connections support observer mode — skip initial turn/message, Codex declines server RPCs with -32601 so TUI handles approvals.
+- **Primary transcript resolution hardening**: Primary sessions resolve via native harness transcripts only. Lazy session ID detection with persistence. Harness adapters respect `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `XDG_DATA_HOME`.
+- App server: multi-viewer WebSocket with `EventBroadcaster` fan-out, 30s keepalive ping, 90s stale timeout.
+- Extension manifest hash now includes `args_schema` and `result_schema` — schema-only changes rotate the hash.
+- Extension invocation observability: app server dispatcher writes to `extension-invocations.jsonl`.
+- Extension invoke accepts `work_id` and `spawn_id` selector fields through CLI/MCP/HTTP.
+- Constant-time token comparison via `secrets.compare_digest` in app server auth.
+- Local `meridian ext run` dispatches in-process for extensions that don't require app server.
+- **Frontend AppShell**: Extension-driven shell with ActivityBar, TopBar, StatusBar, ModeViewport. Modes register via `ExtensionRegistry` singleton without shell hardcoding.
+- **Frontend Sessions mode**: Live spawn list with FilterBar, grouped by work item, SSE-backed refetch, context menu actions (cancel/fork/archive). StatusBar shows live spawn counts.
+- **Frontend Chat mode**: Multi-column spawn view (up to 4 side-by-side). ChatContext with LRU eviction, SessionList sidebar, SpawnHeader with streaming controls, ThreadColumn with composer.
+- **Frontend ⌘K command palette**: Fuzzy search over registered commands via `cmdk`. Mode switching, new session, theme toggle. Global `⌘K`/`Ctrl+K` shortcut.
+- **Frontend NewSessionDialog**: Submits to `POST /api/spawns` with agent/model/prompt selection.
 
 ### Changed
 - Agent-mode CLI output defaults to text for all commands. Prior JSON defaults on `config.get`, `spawn.cancel`, `spawn.create`, `spawn.continue`, `spawn.wait`, `context`, `work.current` flipped to text. Explicit `--json` still available.
@@ -11,10 +39,27 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Background spawn output now explicitly instructs agents to wait: "You MUST run..." with machine-actionable fields `terminal`, `wait_required`, `wait_command` in JSON output.
 - `MERIDIAN_DEPTH` parsing and nested-execution checks now share one core helper. CLI agent mode, doctor, reaper, work warnings, subrun events, and max-depth gates use same zero-based contract.
 - Docs and KB now spell out zero-based depth, immediate parent spawn linkage, and fail-closed root-only repair gates.
+- `plugin_api` public surface narrowed to hook types + state helpers only. Unstable utilities (`file_lock`, `generate_repo_slug`, `normalize_repo_url`, `resolve_clone_path`, `get_git_overrides`, `get_user_config`) moved to submodule imports (#94).
+- 7 ops/catalog modules now import formatting from `lib/core/formatting` instead of `cli.format_helpers`. CLI shim re-exports for backwards compat (#85).
+- User docs audited: `mcp-tools.md` rewritten (was listing 16 deleted tools), `commands.md` fixed wrong command names, `configuration.md` fixed stale `models.toml` section, `troubleshooting.md` fixed artifact paths.
+- Codex WebSocket message size limit split from shared harness constant to per-adapter value.
+- `OperationSpec` collapsed into `ExtensionCommandSpec` via `from_op()`. `OperationSpec` class, `OperationSurface`, and related APIs deleted from `manifest.py`.
+- `ExtensionSurface.ALL` removed — surface sets now explicit per command (`{CLI, MCP, HTTP}`).
+- App server health endpoint no longer requires auth — explicitly public.
+- `archive_spawn` and related helpers promoted from private `_archive_spawn` to public API.
+
+### Removed
+- `registration.py` — CLI command registration replaced by extension registry.
+- Old MCP `OperationSpec` → MCP tool projection in server. Extension system's `extension_list_commands`/`extension_invoke` replaces it.
+- `ops_bridge.py` intermediate layer — collapsed into direct `from_op()` calls.
 
 ### Fixed
+- `spawn show` no longer prints `Exited at` / `Process exit code` for active retrying spawns. Attempt-exit fields stay visible only after terminal status, so active retries no longer look stuck-finalized.
 - Primary launch preserves `MERIDIAN_DEPTH`; root sessions stay depth `0` while delegated spawns still increment.
 - Malformed non-empty `MERIDIAN_DEPTH` no longer enables root-only repair/reaper side effects.
+- App server startup no longer crashes on Windows — `os.fchmod` guard behind `IS_WINDOWS` (#87).
+- `_read_mars_merged_file` no longer falls back to `Path.cwd()` when `project_root` is None; returns empty dict instead of silently loading wrong project's aliases (#91).
+- Context resolution (`ops/context.py`) no longer temporarily mutates `os.environ`; uses explicit kwargs instead (#81).
 
 ## [0.0.43] - 2026-04-22
 
