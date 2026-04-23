@@ -1,7 +1,7 @@
 """FastMCP server entry point and operation registration."""
 
 from contextlib import asynccontextmanager
-from typing import Any, cast
+from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
@@ -12,9 +12,7 @@ from meridian.lib.app.locator import (
     AppServerUnreachable,
     AppServerWrongProject,
 )
-from meridian.lib.core.codec import coerce_input_payload, signature_from_model
 from meridian.lib.core.logging import configure_logging
-from meridian.lib.core.util import to_jsonable
 from meridian.lib.extensions.context import (
     ExtensionCommandServices,
     ExtensionInvocationContextBuilder,
@@ -32,7 +30,6 @@ from meridian.lib.extensions.types import (
     ExtensionErrorResult,
     ExtensionSurface,
 )
-from meridian.lib.ops.manifest import OperationSpec, get_operations_for_surface
 from meridian.lib.ops.runtime import (
     get_project_uuid,
     resolve_runtime_root_and_config_for_read,
@@ -192,42 +189,10 @@ async def extension_invoke(
 
     return {"status": "ok", "result": result.payload}
 
-
-def _build_tool_handler(op: OperationSpec[Any, Any]) -> Any:
-    async def _tool(**kwargs: object) -> object:
-        payload = coerce_input_payload(op.input_type, kwargs)
-        result = await op.handler(payload)
-        if hasattr(result, "to_wire"):
-            return result.to_wire()
-        return to_jsonable(result)
-
-    _tool.__name__ = f"tool_{op.mcp_name}"
-    _tool.__doc__ = op.description
-    cast("Any", _tool).__signature__ = signature_from_model(op.input_type)
-    return _tool
-
-
-def _register_operation_tool(op: OperationSpec[Any, Any]) -> None:
-    """Register one operation from the manifest as an MCP tool."""
-
-    if op.mcp_name is None:
-        raise ValueError(f"Operation '{op.name}' is missing MCP tool name")
-    mcp.tool(name=op.mcp_name, description=op.description)(_build_tool_handler(op))
-
-
-def _register_operation_tools() -> None:
-    for op in get_operations_for_surface("mcp"):
-        _register_operation_tool(op)
-
-
 def run_server() -> None:
     """Start the FastMCP stdio server."""
 
     mcp.run(transport="stdio")
-
-
-_register_operation_tools()
-
 
 if __name__ == "__main__":
     run_server()
