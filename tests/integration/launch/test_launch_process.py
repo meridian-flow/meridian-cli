@@ -20,11 +20,10 @@ from meridian.lib.launch import process
 from meridian.lib.launch.constants import (
     OUTPUT_FILENAME,
     PRIMARY_META_FILENAME,
-    PRIMARY_TUI_LOG_FILENAME,
 )
 from meridian.lib.launch.context import build_launch_context
-from meridian.lib.launch.process.ports import ProcessLauncher
 from meridian.lib.launch.process import runner as process_runner
+from meridian.lib.launch.process.ports import ProcessLauncher
 from meridian.lib.launch.process.subprocess_launcher import SubprocessProcessLauncher
 from meridian.lib.launch.request import (
     LaunchArgvIntent,
@@ -251,8 +250,8 @@ def test_run_harness_process_writes_prompt_file_before_primary_launch(
     def fake_run_primary_process_with_capture(**kwargs: object) -> tuple[int, int]:
         command = tuple(kwargs["command"])
         captured["command"] = command
-        output_log_path = Path(kwargs["output_log_path"])
-        captured["output_log_name"] = output_log_path.name
+        output_log_path = kwargs["output_log_path"]
+        captured["output_log_path"] = output_log_path
         prompt_flag_index = command.index("--append-system-prompt-file")
         prompt_file_path = Path(command[prompt_flag_index + 1])
         captured["prompt_file_exists"] = prompt_file_path.exists()
@@ -261,10 +260,7 @@ def test_run_harness_process_writes_prompt_file_before_primary_launch(
             if prompt_file_path.exists()
             else None
         )
-        captured["prompt_file_is_spawn_log_prompt"] = (
-            prompt_file_path.resolve() == output_log_path.with_name("system-prompt.md").resolve()
-        )
-        captured["log_dir"] = output_log_path.parent
+        captured["log_dir"] = prompt_file_path.parent
         started = kwargs.get("on_child_started")
         assert callable(started)
         started(222)
@@ -282,8 +278,7 @@ def test_run_harness_process_writes_prompt_file_before_primary_launch(
     outcome = process.run_harness_process(launch_context, harness_registry)
 
     assert captured["prompt_file_exists"] is True
-    assert captured["prompt_file_is_spawn_log_prompt"] is True
-    assert captured["output_log_name"] == PRIMARY_TUI_LOG_FILENAME
+    assert captured["output_log_path"] is None
     prompt_file_text = captured["prompt_file_text"]
     assert isinstance(prompt_file_text, str)
     # Phase 3A: system-prompt.md should contain only SYSTEM_INSTRUCTION
@@ -400,7 +395,7 @@ def test_run_harness_process_writes_inline_primary_projection_manifest(
         assert outcome.exit_code == 0
 
 
-def test_run_harness_process_primary_tui_capture_stored_as_tui_log(
+def test_run_harness_process_black_box_primary_uses_no_tui_log_artifact(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -413,11 +408,10 @@ def test_run_harness_process_primary_tui_capture_stored_as_tui_log(
         model="claude-sonnet-4-5",
     )
     claude_adapter = harness_registry.get_subprocess_harness(HarnessId.CLAUDE)
+    captured: dict[str, object] = {}
 
     def fake_run_primary_process_with_capture(**kwargs: object) -> tuple[int, int]:
-        output_log_path = Path(kwargs["output_log_path"])
-        output_log_path.parent.mkdir(parents=True, exist_ok=True)
-        output_log_path.write_text("raw tui bytes\n", encoding="utf-8")
+        captured["output_log_path"] = kwargs["output_log_path"]
         started = kwargs.get("on_child_started")
         assert callable(started)
         started(444)
@@ -434,11 +428,9 @@ def test_run_harness_process_primary_tui_capture_stored_as_tui_log(
 
     outcome = process.run_harness_process(launch_context, harness_registry)
 
+    assert captured["output_log_path"] is None
     assert outcome.primary_spawn_id is not None
-    artifact_dir = launch_context.runtime_root / "artifacts" / outcome.primary_spawn_id
-    captured_tui = (artifact_dir / PRIMARY_TUI_LOG_FILENAME).read_text(encoding="utf-8")
-    assert captured_tui == "raw tui bytes\n"
-    assert not (artifact_dir / "output.jsonl").exists()
+    assert list(launch_context.runtime_root.rglob("tui.log")) == []
 
 
 def test_run_harness_process_codex_primary_routes_to_managed_path(
@@ -465,7 +457,6 @@ def test_run_harness_process_codex_primary_routes_to_managed_path(
         captured["harness_id"] = kwargs["harness_id"]
         spawn_dir = Path(kwargs["spawn_dir"])
         spawn_dir.mkdir(parents=True, exist_ok=True)
-        (spawn_dir / PRIMARY_TUI_LOG_FILENAME).write_text("managed tui log\n", encoding="utf-8")
         captured["spawn_dir"] = spawn_dir
         return process.PrimaryAttachOutcome(exit_code=0, session_id="thread-managed", tui_pid=5150)
 
@@ -486,8 +477,7 @@ def test_run_harness_process_codex_primary_routes_to_managed_path(
     assert isinstance(captured["spawn_dir"], Path)
     assert selector_args == [None]
     assert outcome.primary_spawn_id is not None
-    artifact_dir = launch_context.runtime_root / "artifacts" / outcome.primary_spawn_id
-    assert not (artifact_dir / PRIMARY_TUI_LOG_FILENAME).exists()
+    assert list(launch_context.runtime_root.rglob("tui.log")) == []
     assert outcome.exit_code == 0
     assert outcome.resolved_harness_session_id == "thread-managed"
 
@@ -721,9 +711,7 @@ def test_run_harness_process_managed_failure_falls_back_to_black_box(
     def fake_run_primary_process_with_capture(**kwargs: object) -> tuple[int, int]:
         nonlocal black_box_calls
         black_box_calls += 1
-        output_log_path = Path(kwargs["output_log_path"])
-        output_log_path.parent.mkdir(parents=True, exist_ok=True)
-        output_log_path.write_text("fallback tui\n", encoding="utf-8")
+        assert kwargs["output_log_path"] is None
         started = kwargs.get("on_child_started")
         assert callable(started)
         started(9494)
@@ -746,4 +734,5 @@ def test_run_harness_process_managed_failure_falls_back_to_black_box(
     assert captured_spawn_dir is not None
     assert not (captured_spawn_dir / PRIMARY_META_FILENAME).exists()
     assert not (captured_spawn_dir / OUTPUT_FILENAME).exists()
+    assert list(launch_context.runtime_root.rglob("tui.log")) == []
     assert outcome.exit_code == 0

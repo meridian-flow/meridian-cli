@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 
 import pytest
 
@@ -66,7 +67,8 @@ async def test_spawn_multi_subscriber_manager_shares_underlying_subscription() -
     spawn_id = SpawnId("p1")
     spawn_manager = _FakeManager()
     spawn_manager.connections[spawn_id] = object()
-    manager = SpawnMultiSubscriberManager(spawn_manager)
+    spawn_manager_any: Any = spawn_manager
+    manager = SpawnMultiSubscriberManager(spawn_manager_any)
 
     first = await manager.subscribe(spawn_id)
     second = await manager.subscribe(spawn_id)
@@ -105,3 +107,29 @@ async def test_spawn_multi_subscriber_manager_shares_underlying_subscription() -
 
     await manager.unsubscribe(spawn_id, second_id)
     assert spawn_manager.unsubscribe_calls == [spawn_id]
+
+
+@pytest.mark.asyncio
+async def test_spawn_multi_subscriber_manager_cleans_up_after_terminal_event() -> None:
+    spawn_id = SpawnId("p2")
+    spawn_manager = _FakeManager()
+    spawn_manager.connections[spawn_id] = object()
+    spawn_manager_any: Any = spawn_manager
+    manager = SpawnMultiSubscriberManager(spawn_manager_any)
+
+    first = await manager.subscribe(spawn_id)
+    assert first is not None
+    first_id, first_queue = first
+
+    spawn_manager.queues[spawn_id].put_nowait(None)
+
+    assert await asyncio.wait_for(first_queue.get(), timeout=1) is None
+    await asyncio.sleep(0)
+
+    second = await manager.subscribe(spawn_id)
+    assert second is not None
+    second_id, _second_queue = second
+    assert spawn_manager.subscribe_calls == [spawn_id, spawn_id]
+
+    await manager.unsubscribe(spawn_id, first_id)
+    await manager.unsubscribe(spawn_id, second_id)

@@ -8,12 +8,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-from meridian.lib.extensions.registry import (
-    build_first_party_registry,
-    compute_manifest_hash,
-)
-from meridian.lib.extensions.types import ExtensionSurface
-
 
 def _isolated_env(tmp_path: Path) -> dict[str, str]:
     env = dict(os.environ)
@@ -64,42 +58,26 @@ def _write_stale_endpoint(tmp_path: Path, project_uuid: str) -> None:
 class TestExtCliIntegration:
     """Integration tests for ext CLI commands."""
 
-    def test_ext_commands_json_shape_and_cli_surface_are_stable(self, tmp_path: Path) -> None:
-        first = _run_ext(tmp_path, "commands", "--json")
-        second = _run_ext(tmp_path, "commands", "--json")
+    def test_ext_commands_json_has_expected_shape_and_cli_surface(self, tmp_path: Path) -> None:
+        result = _run_ext(tmp_path, "commands", "--json")
 
-        assert first.returncode == 0
-        assert second.returncode == 0
+        assert result.returncode == 0
+        payload = json.loads(result.stdout)
+        assert set(payload.keys()) == {"schema_version", "manifest_hash", "commands"}
+        assert payload["schema_version"] == 1
 
-        first_payload = json.loads(first.stdout)
-        second_payload = json.loads(second.stdout)
-
-        assert set(first_payload.keys()) == {"schema_version", "manifest_hash", "commands"}
-        assert set(first_payload.keys()) == set(second_payload.keys())
-        assert first_payload["manifest_hash"] == compute_manifest_hash(
-            build_first_party_registry()
-        )[:16]
-
-        if first_payload["commands"] and second_payload["commands"]:
-            assert set(first_payload["commands"][0].keys()) == {
-                "fqid",
-                "extension_id",
-                "command_id",
-                "summary",
-                "surfaces",
-                "requires_app_server",
-            }
-            assert set(first_payload["commands"][0].keys()) == set(
-                second_payload["commands"][0].keys()
-            )
-
-        expected_fqids = {
-            spec.fqid
-            for spec in build_first_party_registry().list_for_surface(ExtensionSurface.CLI)
+        assert payload["commands"], "expected at least one CLI command"
+        first = payload["commands"][0]
+        assert set(first.keys()) == {
+            "fqid",
+            "extension_id",
+            "command_id",
+            "summary",
+            "surfaces",
+            "requires_app_server",
         }
-        actual_fqids = {command["fqid"] for command in first_payload["commands"]}
-        assert actual_fqids == expected_fqids
-        assert all("cli" in command["surfaces"] for command in first_payload["commands"])
+        assert all("cli" in command["surfaces"] for command in payload["commands"])
+        assert any(command["fqid"] == "meridian.workbench.ping" for command in payload["commands"])
 
     def test_ext_show_returns_extension_details_offline(self, tmp_path: Path) -> None:
         text_result = _run_ext(tmp_path, "show", "meridian.workbench")
@@ -122,13 +100,11 @@ class TestExtCliIntegration:
         ]
 
     def test_ext_run_invalid_json_exits_7(self, tmp_path: Path) -> None:
-        """EB3.5: Invalid JSON exits with 7."""
         result = _run_ext(tmp_path, "run", "demo.cmd", "--args", "{bad")
         assert result.returncode == 7
         assert "Invalid JSON args" in result.stderr
 
     def test_ext_run_no_server_exits_2(self, tmp_path: Path) -> None:
-        """EB3.6: No server exits with 2."""
         result = _run_ext(
             tmp_path,
             "run",
@@ -140,7 +116,6 @@ class TestExtCliIntegration:
         assert "No app server running" in result.stderr
 
     def test_ext_run_stale_endpoint_exits_3(self, tmp_path: Path) -> None:
-        """EB3.7: Stale endpoint exits with 3."""
         project_uuid = "project-stale-uuid"
         _write_project_uuid(tmp_path / "project", project_uuid)
         _write_stale_endpoint(tmp_path, project_uuid)

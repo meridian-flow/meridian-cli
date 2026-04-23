@@ -21,10 +21,10 @@ def test_select_process_launcher_uses_windows_console_launcher(
     )
     monkeypatch.setattr(
         "meridian.lib.launch.process.runner.can_use_pty",
-        lambda *, output_log_path: True,
+        lambda: True,
     )
 
-    launcher = select_process_launcher(Path("output.jsonl"))
+    launcher = select_process_launcher(None)
 
     assert isinstance(launcher, WindowsConsoleLauncher)
 
@@ -39,10 +39,10 @@ def test_select_process_launcher_non_windows_uses_posix_pty_when_available(
     )
     monkeypatch.setattr(
         "meridian.lib.launch.process.runner.can_use_pty",
-        lambda *, output_log_path: True,
+        lambda: True,
     )
 
-    launcher = select_process_launcher(Path("output.jsonl"))
+    launcher = select_process_launcher(None)
 
     assert isinstance(launcher, PtyProcessLauncher)
 
@@ -57,10 +57,10 @@ def test_select_process_launcher_non_windows_falls_back_to_subprocess(
     )
     monkeypatch.setattr(
         "meridian.lib.launch.process.runner.can_use_pty",
-        lambda *, output_log_path: False,
+        lambda: False,
     )
 
-    launcher = select_process_launcher(Path("output.jsonl"))
+    launcher = select_process_launcher(None)
 
     assert isinstance(launcher, SubprocessProcessLauncher)
 

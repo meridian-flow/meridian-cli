@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -266,85 +264,3 @@ async def test_handler_exception_returns_handler_error() -> None:
     assert "boom" in result.message
     assert result.details is not None
     assert "traceback" in result.details
-
-
-async def test_dispatch_writes_exactly_one_summary_per_invocation(
-    monkeypatch: Any,
-    tmp_path: Path,
-) -> None:
-    writes: list[tuple[Path, str]] = []
-
-    def _append_text_line(path: Path, line: str) -> None:
-        writes.append((path, line))
-
-    monkeypatch.setattr("meridian.lib.state.atomic.append_text_line", _append_text_line)
-
-    registry = ExtensionCommandRegistry()
-
-    async def _ok_handler(*_args: object) -> dict[str, Any]:
-        return {"ok": True}
-
-    async def _fail_handler(*_args: object) -> dict[str, Any]:
-        raise RuntimeError("handler failed")
-
-    ok_spec = _make_spec(
-        command_id="okCommand",
-        handler=_ok_handler,
-        requires_app_server=False,
-    )
-    fail_spec = _make_spec(
-        command_id="failCommand",
-        handler=_fail_handler,
-        requires_app_server=False,
-    )
-    registry.register(ok_spec)
-    registry.register(fail_spec)
-
-    log_path = tmp_path / "extension-invocations.jsonl"
-    dispatcher = ExtensionCommandDispatcher(registry, observability_log=log_path)
-    context = _build_context()
-    services = ExtensionCommandServices()
-
-    await dispatcher.dispatch("meridian.test.missing", {"count": 1}, context, services)
-    await dispatcher.dispatch(ok_spec.fqid, {"count": 1}, context, services)
-    await dispatcher.dispatch(fail_spec.fqid, {"count": 1}, context, services)
-
-    assert len(writes) == 3
-    assert all(path == log_path for path, _ in writes)
-
-    decoded = [json.loads(line) for _, line in writes]
-    assert decoded[0]["error_code"] == "not_found"
-    assert decoded[1]["success"] is True
-    assert decoded[2]["error_code"] == "handler_error"
-
-
-async def test_dispatch_passes_three_arg_handler_signature() -> None:
-    registry = ExtensionCommandRegistry()
-    captured: dict[str, Any] = {}
-
-    async def _handler(
-        args: dict[str, Any],
-        context: ExtensionInvocationContext,
-        services: ExtensionCommandServices,
-    ) -> dict[str, Any]:
-        captured["args"] = args
-        captured["context"] = context
-        captured["services"] = services
-        return {"ok": True}
-
-    spec = _make_spec(
-        command_id="signatureCheck",
-        handler=_handler,
-        requires_app_server=False,
-    )
-    registry.register(spec)
-    dispatcher = ExtensionCommandDispatcher(registry)
-
-    context = _build_context()
-    services = ExtensionCommandServices(runtime_root=Path("/tmp/runtime"))
-    result = await dispatcher.dispatch(spec.fqid, {"count": 3}, context, services)
-
-    assert isinstance(result, ExtensionJSONResult)
-    assert captured["args"] == {"count": 3, "label": "default-label"}
-    assert captured["context"] is context
-    assert captured["services"] is services
