@@ -163,6 +163,7 @@ class CodexConnection(HarnessConnection[CodexLaunchSpec]):
         self._tracer: DebugTracer | None = None
         self._cancel_requested = False
         self._interrupt_in_flight = False
+        self._primary_observer_mode = False
 
     @property
     def state(self) -> ConnectionState:
@@ -202,7 +203,12 @@ class CodexConnection(HarnessConnection[CodexLaunchSpec]):
             return None
         return process.pid
 
-    async def start(self, config: ConnectionConfig, spec: CodexLaunchSpec) -> None:
+    async def start(
+        self,
+        config: ConnectionConfig,
+        spec: CodexLaunchSpec,
+        primary_observer_mode: bool = False,
+    ) -> None:
         if self._state not in {"created", "stopped", "failed"}:
             raise RuntimeError(f"Cannot start CodexConnection from state '{self._state}'")
 
@@ -220,6 +226,7 @@ class CodexConnection(HarnessConnection[CodexLaunchSpec]):
         self._thread_id = None
         self._cancel_requested = False
         self._interrupt_in_flight = False
+        self._primary_observer_mode = primary_observer_mode
 
         host = config.ws_bind_host
         port = config.ws_port if config.ws_port > 0 else _reserve_port(host)
@@ -273,13 +280,14 @@ class CodexConnection(HarnessConnection[CodexLaunchSpec]):
             thread_result = await self._bootstrap_thread(spec)
             self._thread_id = _extract_thread_id(thread_result)
 
-            await self._request(
-                "turn/start",
-                {
-                    "threadId": self._require_thread_id("turn/start"),
-                    "input": _build_text_user_input(config.prompt),
-                },
-            )
+            if not self._primary_observer_mode:
+                await self._request(
+                    "turn/start",
+                    {
+                        "threadId": self._require_thread_id("turn/start"),
+                        "input": _build_text_user_input(config.prompt),
+                    },
+                )
 
             self._transition("connected")
         except Exception:
@@ -626,6 +634,14 @@ class CodexConnection(HarnessConnection[CodexLaunchSpec]):
         method = message.get("method")
         params_obj = message.get("params")
         payload = cast("dict[str, object]", params_obj) if isinstance(params_obj, dict) else {}
+
+        if self._primary_observer_mode:
+            await self._send_jsonrpc_error(
+                request_id,
+                code=-32601,
+                message="Meridian observer does not handle server requests in primary attach mode",
+            )
+            return
 
         if not isinstance(method, str):
             return

@@ -402,7 +402,9 @@ def test_observe_session_id_prefers_current_session_before_primary_detection() -
             started_at_local_iso: str | None,
         ) -> str | None:
             _ = project_root, started_at_epoch, started_at_local_iso
-            raise AssertionError("primary-session detection should not run when current_session_id exists")
+            raise AssertionError(
+                "primary-session detection should not run when current_session_id exists"
+            )
 
     adapter = _Adapter()
     observed = adapter.observe_session_id(

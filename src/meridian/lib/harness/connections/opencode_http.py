@@ -115,6 +115,7 @@ class OpenCodeConnection(HarnessConnection[OpenCodeLaunchSpec]):
         self._tracer: DebugTracer | None = None
         self._cancel_requested = False
         self._interrupt_in_flight = False
+        self._primary_observer_mode = False
 
     @property
     def state(self) -> ConnectionState:
@@ -145,7 +146,12 @@ class OpenCodeConnection(HarnessConnection[OpenCodeLaunchSpec]):
             return None
         return process.pid
 
-    async def start(self, config: ConnectionConfig, spec: OpenCodeLaunchSpec) -> None:
+    async def start(
+        self,
+        config: ConnectionConfig,
+        spec: OpenCodeLaunchSpec,
+        primary_observer_mode: bool = False,
+    ) -> None:
         if self._state != "created":
             raise RuntimeError(f"Cannot start OpenCode connection from state '{self._state}'")
 
@@ -156,6 +162,7 @@ class OpenCodeConnection(HarnessConnection[OpenCodeLaunchSpec]):
         self._tracer = config.debug_tracer
         self._cancel_requested = False
         self._interrupt_in_flight = False
+        self._primary_observer_mode = primary_observer_mode
         self._transition("starting")
 
         startup_timeout = (
@@ -170,7 +177,8 @@ class OpenCodeConnection(HarnessConnection[OpenCodeLaunchSpec]):
                 spec,
                 timeout_seconds=startup_timeout,
             )
-            await self._post_session_message(config.prompt)
+            if not self._primary_observer_mode:
+                await self._post_session_message(config.prompt)
         except Exception:
             self._set_failed()
             await self._cleanup_runtime()

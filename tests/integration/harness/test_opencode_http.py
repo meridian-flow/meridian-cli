@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
+from pathlib import Path
 from typing import get_args, get_origin
 
 import pytest
 
 from meridian.lib.core.types import HarnessId, ModelId, SpawnId
 from meridian.lib.harness.adapter import SpawnParams
+from meridian.lib.harness.connections import opencode_http
 from meridian.lib.harness.connections.base import (
     ConnectionCapabilities,
     ConnectionConfig,
@@ -27,6 +29,9 @@ from meridian.lib.safety.permissions import (
     TieredPermissionResolver,
     UnsafeNoOpPermissionResolver,
 )
+
+OPENCODE_ACTIVITY_IDLE_EVENT = "session.idle"
+OPENCODE_ACTIVITY_ERROR_EVENT = "session.error"
 
 
 class _TestableOpenCodeConnection(OpenCodeConnection):
@@ -49,6 +54,168 @@ class _TestableOpenCodeConnection(OpenCodeConnection):
             return next(self._responses)
         except StopIteration as exc:
             raise AssertionError("Unexpected _post_json call in test") from exc
+
+
+class _FakeProcess:
+    def __init__(self) -> None:
+        self.pid = 9001
+        self.returncode: int | None = None
+
+    def terminate(self) -> None:
+        self.returncode = 0
+
+    def kill(self) -> None:
+        self.returncode = -9
+
+    async def wait(self) -> int:
+        if self.returncode is None:
+            self.returncode = 0
+        return self.returncode
+
+
+class _StartProbeOpenCodeConnection(OpenCodeConnection):
+    def __init__(self) -> None:
+        super().__init__()
+        self.initial_messages: list[str] = []
+        self.launch_calls = 0
+        self.create_session_calls = 0
+
+    async def _launch_process(self, config: ConnectionConfig, spec: OpenCodeLaunchSpec) -> None:
+        _ = config, spec
+        self.launch_calls += 1
+        self._process = _FakeProcess()
+
+    async def _create_session_with_retry(
+        self,
+        spec: OpenCodeLaunchSpec,
+        *,
+        timeout_seconds: float,
+    ) -> str:
+        _ = spec, timeout_seconds
+        self.create_session_calls += 1
+        return "sess-primary-observer"
+
+    async def _post_session_message(self, text: str) -> None:
+        self.initial_messages.append(text)
+
+
+def _build_connection_config(tmp_path: Path) -> ConnectionConfig:
+    return ConnectionConfig(
+        spawn_id=SpawnId("p-open-observer"),
+        harness_id=HarnessId.OPENCODE,
+        prompt="hello from test",
+        project_root=tmp_path,
+        env_overrides={"MERIDIAN_TEST_ENV": "1"},
+    )
+
+
+def test_opencode_activity_event_names_are_pinned() -> None:
+    assert OPENCODE_ACTIVITY_IDLE_EVENT == "session.idle"
+    assert OPENCODE_ACTIVITY_ERROR_EVENT == "session.error"
+
+
+@pytest.mark.parametrize(
+    "event_type",
+    (OPENCODE_ACTIVITY_IDLE_EVENT, OPENCODE_ACTIVITY_ERROR_EVENT),
+)
+def test_opencode_event_from_json_line_pins_activity_transition_events(event_type: str) -> None:
+    connection = OpenCodeConnection()
+    connection._interrupt_in_flight = True
+
+    event = connection._event_from_json_line(
+        json_text=f'{{"type":"{event_type}","sessionID":"sess-activity"}}',
+        raw_text=f'{{"type":"{event_type}","sessionID":"sess-activity"}}',
+    )
+
+    assert event is not None
+    assert event.event_type == event_type
+    assert event.payload == {"type": event_type, "sessionID": "sess-activity"}
+    assert connection._interrupt_in_flight is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("primary_observer_mode", "expected_initial_messages"),
+    ((False, ["hello from test"]), (True, [])),
+)
+async def test_opencode_start_primary_observer_mode_controls_initial_prompt_post(
+    tmp_path: Path,
+    primary_observer_mode: bool,
+    expected_initial_messages: list[str],
+) -> None:
+    connection = _StartProbeOpenCodeConnection()
+
+    await connection.start(
+        _build_connection_config(tmp_path),
+        OpenCodeLaunchSpec(
+            permission_resolver=UnsafeNoOpPermissionResolver(_suppress_warning=True),
+        ),
+        primary_observer_mode=primary_observer_mode,
+    )
+
+    assert connection.state == "connected"
+    assert connection.session_id == "sess-primary-observer"
+    assert connection.launch_calls == 1
+    assert connection.create_session_calls == 1
+    assert connection.initial_messages == expected_initial_messages
+
+    await connection.stop()
+
+
+@pytest.mark.asyncio
+async def test_opencode_launch_process_passes_env_overrides_to_inherit_child_env(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    connection = OpenCodeConnection()
+    config = _build_connection_config(tmp_path)
+    spec = OpenCodeLaunchSpec(
+        permission_resolver=UnsafeNoOpPermissionResolver(_suppress_warning=True),
+    )
+    fake_process = _FakeProcess()
+    captured: dict[str, object] = {}
+
+    def _fake_inherit_child_env(
+        _base_env: Mapping[str, str],
+        overrides: dict[str, str],
+    ) -> dict[str, str]:
+        captured["overrides"] = dict(overrides)
+        return {"MERIDIAN_INHERIT_CALLED": "1", **overrides}
+
+    async def _fake_create_subprocess_exec(
+        *command: str,
+        cwd: str,
+        env: Mapping[str, str],
+        stdout: object,
+        stderr: object,
+    ) -> _FakeProcess:
+        _ = stdout, stderr
+        captured["command"] = list(command)
+        captured["cwd"] = cwd
+        captured["env"] = dict(env)
+        return fake_process
+
+    monkeypatch.setattr(opencode_http, "_find_free_port", lambda: 17777)
+    monkeypatch.setattr(opencode_http, "inherit_child_env", _fake_inherit_child_env)
+    monkeypatch.setattr(
+        opencode_http,
+        "project_opencode_spec_to_serve_command",
+        lambda _spec, host, port: ["opencode", "serve", "--host", host, "--port", str(port)],
+    )
+    monkeypatch.setattr(
+        opencode_http.asyncio,
+        "create_subprocess_exec",
+        _fake_create_subprocess_exec,
+    )
+
+    await connection._launch_process(config, spec)
+
+    assert captured["overrides"] == config.env_overrides
+    assert captured["cwd"] == str(config.project_root)
+    assert captured["env"] == {"MERIDIAN_INHERIT_CALLED": "1", **config.env_overrides}
+    assert connection.subprocess_pid == fake_process.pid
+
+    await connection._cleanup_runtime()
 
 
 @pytest.mark.asyncio
