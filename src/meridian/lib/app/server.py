@@ -24,6 +24,7 @@ from meridian.lib.app.spawn_routes import (
 )
 from meridian.lib.config.project_paths import resolve_project_config_paths
 from meridian.lib.core.lifecycle import create_lifecycle_service
+from meridian.lib.platform import IS_WINDOWS
 from meridian.lib.state.atomic import atomic_write_text
 from meridian.lib.state.paths import resolve_project_paths
 from meridian.lib.streaming.spawn_manager import SpawnManager
@@ -122,7 +123,8 @@ def create_app(
             0o600,
         )
         try:
-            os.fchmod(token_fd, 0o600)  # Defense-in-depth for PID reuse.
+            if not IS_WINDOWS:
+                os.fchmod(token_fd, 0o600)  # Defense-in-depth for PID reuse.
             os.write(token_fd, token.encode("utf-8"))
             os.fsync(token_fd)
         finally:
