@@ -187,6 +187,18 @@ def agent_mode_enabled() -> bool:
     return is_nested_meridian_process()
 
 
+def _get_op_spec_by_cli(group: str, name: str):
+    from meridian.lib.extensions.types import ExtensionSurface
+    from meridian.lib.ops.manifest import get_all_op_specs
+
+    for spec in get_all_op_specs():
+        if ExtensionSurface.CLI not in spec.surfaces:
+            continue
+        if spec.cli_group == group and spec.cli_name == name:
+            return spec
+    return None
+
+
 def _resolve_command_path(argv: Sequence[str]) -> tuple[str | None, str | None]:
     """Resolve CLI command path (group, subcommand) from argv.
 
@@ -199,8 +211,6 @@ def _resolve_command_path(argv: Sequence[str]) -> tuple[str | None, str | None]:
     if resolved_group is None:
         return None, None
     group_index, group = resolved_group
-
-    from meridian.lib.ops.manifest import get_operation_by_cli
 
     # Spawn has a default handler. Only the immediate token after "spawn" can
     # select a real subcommand. Later non-flag tokens can be option values.
@@ -225,8 +235,8 @@ def _resolve_command_path(argv: Sequence[str]) -> tuple[str | None, str | None]:
 
     # Check for single-command groups (cli_name == cli_group)
     if (
-        (subcommand is None or get_operation_by_cli(group, subcommand) is None)
-        and get_operation_by_cli(group, group) is not None
+        (subcommand is None or _get_op_spec_by_cli(group, subcommand) is None)
+        and _get_op_spec_by_cli(group, group) is not None
     ):
         return group, group
 
@@ -243,13 +253,11 @@ def _resolve_output_format_for_command(
     from typing import Literal
 
     from meridian.cli.output import resolve_effective_format
-    from meridian.lib.ops.manifest import get_operation_by_cli
-
     group, subcommand = _resolve_command_path(argv)
 
     agent_default_format: Literal["text", "json"] | None = None
     if group is not None and subcommand is not None:
-        op = get_operation_by_cli(group, subcommand)
+        op = _get_op_spec_by_cli(group, subcommand)
         if op is not None:
             agent_default_format = op.agent_default_format
 

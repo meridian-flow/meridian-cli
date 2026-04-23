@@ -23,13 +23,13 @@ if TYPE_CHECKING:
 from meridian import __version__
 from meridian.lib.core.types import SpawnId
 from meridian.lib.harness.connections.base import (
+    MAX_HARNESS_MESSAGE_BYTES,
     ConnectionCapabilities,
     ConnectionConfig,
     ConnectionNotReady,
     ConnectionState,
     HarnessConnection,
     HarnessEvent,
-    MAX_HARNESS_MESSAGE_BYTES,
     validate_prompt_size,
 )
 from meridian.lib.harness.errors import HarnessBinaryNotFound

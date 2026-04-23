@@ -11,9 +11,10 @@ def register_first_party_commands(registry: ExtensionCommandRegistry) -> None:
         GET_SPAWN_STATS_SPEC,
     )
     from meridian.lib.extensions.commands.workbench import PING_SPEC
-    from meridian.lib.extensions.ops_bridge import register_operations
+    from meridian.lib.ops.manifest import get_all_op_specs
 
     registry.register(ARCHIVE_SPAWN_SPEC)
     registry.register(GET_SPAWN_STATS_SPEC)
     registry.register(PING_SPEC)
-    register_operations(registry)
+    for spec in get_all_op_specs():
+        registry.register(spec)
