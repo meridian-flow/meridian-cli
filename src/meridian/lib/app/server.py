@@ -322,6 +322,15 @@ def create_app(
         http_exception=http_exception,
     )
 
+    # Register KB analysis routes
+    from meridian.lib.app.kb_routes import register_kb_routes
+
+    register_kb_routes(
+        app_obj,
+        project_root=project_paths.project_root,
+        http_exception=http_exception,
+    )
+
     # Register thread inspector routes
     from meridian.lib.app.thread_routes import register_thread_routes
 

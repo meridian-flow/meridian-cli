@@ -125,6 +125,21 @@ workspace_app = App(
     ),
     help_formatter="plain",
 )
+kb_app = App(
+    name="kb",
+    help=(
+        "Knowledge base analysis: document relationships, broken links,\n"
+        "orphaned files, missing backlinks, source coverage."
+    ),
+    help_epilogue=(
+        "Examples:\n\n"
+        "  meridian kb graph\n\n"
+        "  meridian kb graph --source src/\n\n"
+        "  meridian kb graph --source src/ --resolve-symbols\n\n"
+        "  meridian kb check README.md\n"
+    ),
+    help_formatter="plain",
+)
 completion_app = App(name="completion", help="Shell completion helpers", help_formatter="plain")
 
 app.command(spawn_app, name="spawn")
@@ -136,6 +151,7 @@ app.command(models_app, name="models")
 app.command(streaming_app, name="streaming")
 app.command(config_app, name="config")
 app.command(workspace_app, name="workspace")
+app.command(kb_app, name="kb")
 app.command(completion_app, name="completion")
 
 __all__ = [
@@ -145,6 +161,7 @@ __all__ = [
     "config_app",
     "ext_app",
     "hooks_app",
+    "kb_app",
     "models_app",
     "report_app",
     "session_app",
