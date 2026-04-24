@@ -6,7 +6,10 @@ import os
 import subprocess
 import time
 from collections.abc import Mapping
+from contextlib import suppress
 from pathlib import Path
+
+import psutil
 
 from meridian.lib.hooks.types import Hook, HookContext, HookResult
 
@@ -37,6 +40,43 @@ def _as_bytes(data: bytes | str | None) -> bytes:
     if isinstance(data, bytes):
         return data
     return data.encode("utf-8", errors="replace")
+
+
+def _terminate_process_tree(process: subprocess.Popen[bytes], *, grace_secs: float) -> None:
+    """Terminate a hook subprocess and descendants before draining pipes."""
+
+    poll = getattr(process, "poll", None)
+    if callable(poll) and poll() is not None:
+        return
+
+    pid = getattr(process, "pid", None)
+    if not isinstance(pid, int):
+        process.terminate()
+        return
+
+    try:
+        root = psutil.Process(pid)
+    except psutil.NoSuchProcess:
+        return
+
+    children: list[psutil.Process] = []
+    with suppress(psutil.NoSuchProcess, psutil.AccessDenied):
+        children = root.children(recursive=True)
+    tree = [*children, root]
+
+    for proc in tree:
+        with suppress(psutil.NoSuchProcess, psutil.AccessDenied):
+            proc.terminate()
+
+    _, alive = psutil.wait_procs(tree, timeout=grace_secs)
+    if not alive:
+        return
+
+    for proc in alive:
+        with suppress(psutil.NoSuchProcess, psutil.AccessDenied):
+            proc.kill()
+
+    psutil.wait_procs(alive, timeout=1.0)
 
 
 class ExternalHookRunner:
@@ -116,9 +156,9 @@ class ExternalHookRunner:
             stderr = _as_bytes(exc.stderr)
 
             if process is not None:
-                process.terminate()
+                _terminate_process_tree(process, grace_secs=_TERM_GRACE_SECONDS)
                 try:
-                    term_stdout, term_stderr = process.communicate(timeout=_TERM_GRACE_SECONDS)
+                    term_stdout, term_stderr = process.communicate(timeout=1.0)
                 except subprocess.TimeoutExpired as kill_exc:
                     stdout += _as_bytes(kill_exc.stdout)
                     stderr += _as_bytes(kill_exc.stderr)

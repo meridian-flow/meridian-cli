@@ -42,4 +42,5 @@ def test_file_lock_exclusive_creates_lock_and_writes_pid(tmp_path: Path) -> None
 
     with file_lock(lock_path, timeout=1.0, mode="exclusive"):
         assert lock_path.exists()
-        assert lock_path.read_text(encoding="utf-8").strip() == str(os.getpid())
+
+    assert lock_path.read_text(encoding="utf-8").strip() == str(os.getpid())

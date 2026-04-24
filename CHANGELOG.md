@@ -5,6 +5,8 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Fixed
+- Hook timeout cleanup terminates the whole subprocess tree before draining pipes. Windows shell wrappers no longer leave child hooks holding stdout open.
+- Plugin API file-lock contract test reads the PID after releasing the lock, matching Windows exclusive-lock semantics.
 - Smoke tests run CLI subprocesses against the repo project explicitly. Windows no longer burns time resolving `uv run meridian` from each temp repo.
 - Model alias resolution no longer fails dry-run/policy paths when mars reports the target harness binary is unavailable on the host. Explicit mars harness route still used.
 
