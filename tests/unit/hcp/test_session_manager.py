@@ -36,7 +36,9 @@ class FakeSpawnManager:
         spec: object,
         *,
         drain_policy: object | None = None,
+        on_event: object | None = None,
     ) -> object:
+        _ = on_event
         if self.start_error is not None:
             raise self.start_error
         self.started.append((config, spec, drain_policy))

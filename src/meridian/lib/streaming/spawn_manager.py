@@ -6,7 +6,7 @@ import asyncio
 import json
 import logging
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -43,6 +43,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 InjectResultCallback = Callable[[InjectResult], None]
+HarnessEventCallback = Callable[[HarnessEvent], Awaitable[None] | None]
 
 
 @dataclass(frozen=True)
@@ -188,6 +189,7 @@ class SpawnManager:
         spec: ResolvedLaunchSpec,
         *,
         drain_policy: DrainPolicy | None = None,
+        on_event: HarnessEventCallback | None = None,
     ) -> HarnessConnection[Any]:
         """Start one connection and register durable drain/control resources."""
 
@@ -222,6 +224,7 @@ class SpawnManager:
                 connection,
                 tracer,
                 drain_policy=resolved_policy,
+                on_event=on_event,
             )
         )
         control_server = ControlSocketServer(
@@ -260,6 +263,7 @@ class SpawnManager:
         receiver: HarnessConnection[Any],
         tracer: DebugTracer | None = None,
         drain_policy: DrainPolicy | None = None,
+        on_event: HarnessEventCallback | None = None,
     ) -> None:
         """Durably append each harness event and fan out to the active subscriber.
 
@@ -330,6 +334,10 @@ class SpawnManager:
                         self._fan_out_event(spawn_id, event)
                         break
                 terminal_outcome = terminal_event_outcome(event)
+                if on_event is not None:
+                    callback_result = on_event(event)
+                    if callback_result is not None:
+                        await callback_result
                 self._fan_out_event(spawn_id, event)
                 if terminal_outcome is not None:
                     action: DrainAction = policy.classify(terminal_outcome)

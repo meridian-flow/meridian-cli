@@ -9,7 +9,7 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from meridian.lib.core.types import SpawnId
-from meridian.lib.harness.connections.base import ConnectionConfig
+from meridian.lib.harness.connections.base import ConnectionConfig, HarnessEvent
 from meridian.lib.launch.launch_types import ResolvedLaunchSpec
 from meridian.lib.state import session_store, spawn_store
 from meridian.lib.state.atomic import append_text_line
@@ -113,11 +113,15 @@ class HcpSessionManager:
             },
         )
         try:
-            await self._spawn_manager.start_spawn(
+            connection = await self._spawn_manager.start_spawn(
                 config,
                 spec,
                 drain_policy=PersistentDrainPolicy(),
+                on_event=lambda event: self._capture_harness_session_id(c_id, p_id, event),
             )
+            connection_session_id = getattr(connection, "session_id", None)
+            if isinstance(connection_session_id, str) and connection_session_id.strip():
+                self._persist_harness_session_id(c_id, p_id, connection_session_id)
             await self._spawn_manager._start_heartbeat(p_id)  # pyright: ignore[reportPrivateUsage]
         except Exception:
             self._active_processes.pop(c_id, None)
@@ -138,6 +142,36 @@ class HcpSessionManager:
             raise
         self._reset_idle_timer(c_id)
         return c_id, p_id
+
+    def _capture_harness_session_id(
+        self,
+        c_id: str,
+        p_id: SpawnId,
+        event: HarnessEvent,
+    ) -> None:
+        """Persist a harness session ID discovered from stream events."""
+
+        for key in ("session_id", "sessionId"):
+            value = event.payload.get(key)
+            if isinstance(value, str) and value.strip():
+                self._persist_harness_session_id(c_id, p_id, value)
+                return
+
+    def _persist_harness_session_id(
+        self,
+        c_id: str,
+        p_id: SpawnId,
+        harness_session_id: str,
+    ) -> None:
+        normalized = harness_session_id.strip()
+        if not normalized:
+            return
+        session_store.update_session_harness_id(self._runtime_root, c_id, normalized)
+        spawn_store.update_spawn(
+            self._runtime_root,
+            p_id,
+            harness_session_id=normalized,
+        )
 
     async def prompt(self, c_id: str, text: str) -> None:
         """Send a user message to an active chat."""

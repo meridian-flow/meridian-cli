@@ -6,6 +6,7 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 - HCP core skeleton: capabilities, errors, lifecycle types, session manager. App lifespan restores HCP chats.
+- HCP harness adapters for Claude, Codex, OpenCode. HCP chats persist native session IDs from connection or stream events.
 
 ### Fixed
 - HCP chat launch failure now finalizes spawn and stops session. Active HCP chats get heartbeat. Restore skips stopped chats.
