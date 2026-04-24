@@ -39,7 +39,7 @@ def test_compose_prompt_keeps_context_isolated_and_sanitized(tmp_path: Path) -> 
     # Stale report path is stripped
     assert "/tmp/stale.md" not in composed
     # Safe reference path appears in header
-    assert str(safe_ref) in composed
+    assert safe_ref.as_posix() in composed
     # File content is now inlined (new behavior)
     assert "# Reference:" in composed
     # Template variable CTX is substituted in user prompt

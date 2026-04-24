@@ -5,6 +5,9 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Fixed
+- Windows CI path assertions now use Meridian's slash-normalized prompt and hook payload paths.
+- Concurrent `work ensure` metadata initialization now serializes status-file creation before atomic replace.
+- App locator prune test no longer expects POSIX UDS cleanup on Windows.
 - Hook timeout cleanup terminates the whole subprocess tree before draining pipes. Windows shell wrappers no longer leave child hooks holding stdout open.
 - Plugin API file-lock contract test reads the PID after releasing the lock, matching Windows exclusive-lock semantics.
 - Smoke tests run CLI subprocesses against the repo project explicitly. Windows no longer burns time resolving `uv run meridian` from each temp repo.
