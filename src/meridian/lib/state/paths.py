@@ -88,6 +88,27 @@ class RuntimePaths(BaseModel):
     work_archive_dir: Path
     spawns_dir: Path
 
+    @property
+    def chats_dir(self) -> Path:
+        """Return chats directory under state root."""
+
+        return self.root_dir / "chats"
+
+    def chat_history_path(self, c_id: str) -> Path:
+        """Return history.jsonl path for a chat."""
+
+        return self.chats_dir / c_id / "history.jsonl"
+
+    def chat_lifecycle_path(self, c_id: str) -> Path:
+        """Return lifecycle.jsonl path for a chat."""
+
+        return self.chats_dir / c_id / "lifecycle.jsonl"
+
+    def spawn_history_path(self, p_id: str) -> Path:
+        """Return history.jsonl path for a spawn."""
+
+        return self.spawns_dir / p_id / "history.jsonl"
+
     @classmethod
     def from_root_dir(cls, root_dir: Path) -> Self:
         """Build state-root-relative paths from an absolute state directory."""
