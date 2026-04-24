@@ -330,9 +330,11 @@ def _extract_opencode_message_key(info: dict[str, object]) -> str:
 
 
 def _extract_opencode_message_text(info: dict[str, object]) -> tuple[str | None, bool]:
-    delta = _coerce_str(info.get("delta"))
-    if delta is not None:
-        return delta, True
+    # Use raw string for deltas — _coerce_str strips leading spaces that
+    # separate tokens (e.g., " Hello" → "Hello"), destroying word boundaries.
+    raw_delta = info.get("delta")
+    if isinstance(raw_delta, str) and raw_delta != "":
+        return raw_delta, True
 
     text = _coerce_str(info.get("text"))
     if text is not None:

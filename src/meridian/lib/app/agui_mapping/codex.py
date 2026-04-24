@@ -119,8 +119,9 @@ class CodexAGUIMapper:
         return events
 
     def _translate_agent_message_delta(self, payload: dict[str, object]) -> list[BaseEvent]:
-        delta = _coerce_str(payload.get("delta"))
-        if delta is None:
+        raw_delta = payload.get("delta")
+        delta = raw_delta if isinstance(raw_delta, str) else None
+        if delta is None or delta == "":
             logger.warning("Codex item/agentMessage/delta missing delta payload")
             return []
 
