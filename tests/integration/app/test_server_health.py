@@ -61,6 +61,14 @@ def test_health_instance_id_changes_on_restart(tmp_path: Path) -> None:
     assert first_instance_id != second_instance_id
 
 
+def test_lifespan_wires_hcp_session_manager(tmp_path: Path) -> None:
+    app, _ = make_test_app(tmp_path)
+    app = cast("Starlette", app)
+
+    with TestClient(app):
+        assert app.state.hcp_session_manager is not None
+
+
 def test_health_startup_writes_endpoint_descriptor(tmp_path: Path) -> None:
     runtime_root = resolve_runtime_paths(tmp_path).root_dir
     instance_dir = _instance_dir(runtime_root)

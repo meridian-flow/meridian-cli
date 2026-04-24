@@ -4,6 +4,9 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- HCP core skeleton: capabilities, errors, lifecycle types, session manager. App lifespan restores HCP chats.
+
 ## [0.0.44] - 2026-04-24
 
 ### Added

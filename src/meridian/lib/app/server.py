@@ -36,6 +36,7 @@ class _AppState(Protocol):
     """App state payload carrying shared runtime singletons."""
 
     spawn_manager: SpawnManager
+    hcp_session_manager: object
     stream_broadcaster: object
     project_uuid: str
     instance_id: str
@@ -108,7 +109,10 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app_ctx: object) -> AsyncIterator[None]:
+        from meridian.lib.hcp.session_manager import HcpSessionManager
+
         app_ctx_fastapi = cast("_FastAPIApp", app_ctx)
+        hcp_session_manager: HcpSessionManager | None = None
         instance_id = str(uuid.uuid4())
         app_ctx_fastapi.state.instance_id = instance_id
         app_ctx_fastapi.state.project_uuid = project_uuid
@@ -154,12 +158,17 @@ def create_app(
         try:
             if startup_hook is not None:
                 await startup_hook(app_ctx_fastapi)
+            hcp_session_manager = HcpSessionManager(spawn_manager, resolved_runtime_root)
+            await hcp_session_manager.restore_from_stores()
+            app_ctx_fastapi.state.hcp_session_manager = hcp_session_manager
             yield
         finally:
             shutil.rmtree(instance_dir, ignore_errors=True)
             if shutdown_hook is not None:
                 await shutdown_hook(app_ctx_fastapi)
             await spawn_manager.shutdown()
+            if hcp_session_manager is not None:
+                await hcp_session_manager.shutdown()
             if background_finalize_tasks:
                 await asyncio.gather(*tuple(background_finalize_tasks), return_exceptions=True)
 
