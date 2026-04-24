@@ -18,7 +18,7 @@ from meridian.lib.harness.connections.base import (
 )
 from meridian.lib.harness.ids import HarnessId
 from meridian.lib.harness.launch_spec import CodexLaunchSpec
-from meridian.lib.launch.constants import OUTPUT_FILENAME, PRIMARY_META_FILENAME
+from meridian.lib.launch.constants import HISTORY_FILENAME, PRIMARY_META_FILENAME
 from meridian.lib.launch.process import primary_attach as primary_attach_module
 from meridian.lib.launch.process.ports import ChildStartedHook, LaunchedProcess, ProcessLauncher
 from meridian.lib.launch.process.primary_attach import (
@@ -192,8 +192,8 @@ def _read_metadata(spawn_dir: Path) -> dict[str, object]:
     )
 
 
-def _read_output_lines(spawn_dir: Path) -> list[dict[str, object]]:
-    lines = (spawn_dir / OUTPUT_FILENAME).read_text(encoding="utf-8").splitlines()
+def _read_history_lines(spawn_dir: Path) -> list[dict[str, object]]:
+    lines = (spawn_dir / HISTORY_FILENAME).read_text(encoding="utf-8").splitlines()
     return [cast("dict[str, object]", json.loads(line)) for line in lines if line.strip()]
 
 
@@ -316,11 +316,13 @@ async def test_primary_attach_writes_valid_jsonl_events(tmp_path: Path) -> None:
         env={},
     )
 
-    rows = _read_output_lines(spawn_dir)
-    assert [row["type"] for row in rows] == ["turn/started", "turn/completed"]
+    rows = _read_history_lines(spawn_dir)
+    assert [row["event_type"] for row in rows] == ["turn/started", "turn/completed"]
     for row in rows:
         assert isinstance(row["payload"], dict)
-        assert isinstance(row["ts"], float)
+        assert row["harness_id"] == "codex"
+        assert isinstance(row["seq"], int)
+        assert isinstance(row["byte_offset"], int)
 
 
 @pytest.mark.asyncio

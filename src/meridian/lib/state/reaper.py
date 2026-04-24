@@ -19,7 +19,7 @@ from meridian.lib.core.spawn_lifecycle import (
     is_active_spawn_status,
     resolve_reconciled_terminal_state,
 )
-from meridian.lib.launch.constants import OUTPUT_FILENAME
+from meridian.lib.launch.constants import HISTORY_FILENAME, OUTPUT_FILENAME
 from meridian.lib.state.liveness import is_process_alive
 from meridian.lib.state.managed_primary import (
     ManagedPrimaryReconciliationStrategy,
@@ -33,7 +33,13 @@ logger = structlog.get_logger(__name__)
 
 _STARTUP_GRACE_SECS = 15
 _HEARTBEAT_WINDOW_SECS = 120
-_ACTIVITY_ARTIFACTS: tuple[str, ...] = ("heartbeat", OUTPUT_FILENAME, "stderr.log", "report.md")
+_ACTIVITY_ARTIFACTS: tuple[str, ...] = (
+    "heartbeat",
+    HISTORY_FILENAME,
+    OUTPUT_FILENAME,
+    "stderr.log",
+    "report.md",
+)
 
 
 @dataclass(frozen=True)

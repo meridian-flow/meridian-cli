@@ -461,12 +461,18 @@ def extract_session_id_from_artifacts_with_patterns(
         if session_id:
             return session_id
 
+    history_key = ArtifactKey(f"{spawn_id}/{HISTORY_FILENAME}")
     output_key = ArtifactKey(f"{spawn_id}/{OUTPUT_FILENAME}")
-    if not artifacts.exists(output_key):
+    if artifacts.exists(history_key):
+        artifact_name = HISTORY_FILENAME
+        raw_output = artifacts.get(history_key).decode("utf-8", errors="ignore")
+    elif artifacts.exists(output_key):
+        artifact_name = OUTPUT_FILENAME
+        raw_output = artifacts.get(output_key).decode("utf-8", errors="ignore")
+    else:
         return None
 
-    raw_output = artifacts.get(output_key).decode("utf-8", errors="ignore")
-    for payload in _iter_json_lines_artifact(artifacts, spawn_id, OUTPUT_FILENAME):
+    for payload in _iter_json_lines_artifact(artifacts, spawn_id, artifact_name):
         for nested in iter_nested_dicts(payload):
             for key_name in json_keys:
                 value = nested.get(key_name)
