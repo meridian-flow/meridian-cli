@@ -10,7 +10,7 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`ExtensionCommandSpec` augmentation**: `cli_group`, `cli_name`, `agent_default_format`, `sync_handler` fields. `from_op()` factory wraps op-style handlers. Registry gains `get_by_cli()` and `list_for_cli_group()`.
 - **Remote extension invoker**: Shared `RemoteExtensionInvoker` with sync/async methods for CLI and MCP dispatch.
 - **`lib/markdown`** — thin wrapper around `markdown-it-py` for heading, fenced block, link, image, and wikilink extraction.
-- **`lib/kb`** — knowledge base graph analysis: broken link detection, orphan identification, missing backlinks, connected clusters, source coverage via Python AST symbol resolution.
+- **`lib/kg`** — knowledge graph analysis: broken link detection, orphan identification, missing backlinks, connected clusters. `meridian kg graph` and `meridian kg check` commands; `/api/kg/*` HTTP routes.
 - **`lib/mermaid`** — Python wrapper for mermaid diagram validation via bundled JS parser. Node.js preflight, per-block validation with timeout.
 - **`lib/core/depth.py`** — extracted depth helpers from inline usage across CLI, doctor, reaper, and work lifecycle.
 - `lib/core/formatting.py` — shared text formatting (`tabular`, `kv_block`) extracted from CLI layer so ops/catalog models no longer import `cli.format_helpers` (#85).
