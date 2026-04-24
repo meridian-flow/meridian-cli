@@ -22,6 +22,12 @@ from meridian.lib.launch.launch_types import ResolvedLaunchSpec
 from meridian.lib.state import spawn_store
 from meridian.lib.state.atomic import append_text_line
 from meridian.lib.streaming.control_socket import ControlSocketServer
+from meridian.lib.streaming.drain_policy import (
+    TURN_BOUNDARY_EVENT_TYPE,
+    DrainAction,
+    DrainPolicy,
+    SingleTurnDrainPolicy,
+)
 from meridian.lib.streaming.heartbeat import heartbeat_loop
 from meridian.lib.streaming.inject_lock import drop_lock, get_lock
 from meridian.lib.streaming.types import InjectResult
@@ -179,6 +185,8 @@ class SpawnManager:
         self,
         config: ConnectionConfig,
         spec: ResolvedLaunchSpec,
+        *,
+        drain_policy: DrainPolicy | None = None,
     ) -> HarnessConnection[Any]:
         """Start one connection and register durable drain/control resources."""
 
@@ -206,7 +214,15 @@ class SpawnManager:
                 tracer.close()
             raise
 
-        drain_task = asyncio.create_task(self._drain_loop(spawn_id, connection, tracer))
+        resolved_policy = drain_policy if drain_policy is not None else SingleTurnDrainPolicy()
+        drain_task = asyncio.create_task(
+            self._drain_loop(
+                spawn_id,
+                connection,
+                tracer,
+                drain_policy=resolved_policy,
+            )
+        )
         control_server = ControlSocketServer(
             spawn_id=spawn_id,
             socket_path=self._spawn_dir(spawn_id) / "control.sock",
@@ -242,6 +258,7 @@ class SpawnManager:
         spawn_id: SpawnId,
         receiver: HarnessConnection[Any],
         tracer: DebugTracer | None = None,
+        drain_policy: DrainPolicy | None = None,
     ) -> None:
         """Durably append each harness event and fan out to the active subscriber.
 
@@ -257,6 +274,7 @@ class SpawnManager:
         drain_cancelled = False
         drain_error: Exception | None = None
         recorded_terminal_outcome: TerminalEventOutcome | None = None
+        policy = drain_policy if drain_policy is not None else SingleTurnDrainPolicy()
         try:
             async for event in receiver.events():
                 if tracer is not None:
@@ -311,11 +329,14 @@ class SpawnManager:
                         self._fan_out_event(spawn_id, event)
                         break
                 terminal_outcome = terminal_event_outcome(event)
-                if terminal_outcome is not None:
-                    recorded_terminal_outcome = terminal_outcome
                 self._fan_out_event(spawn_id, event)
-                if recorded_terminal_outcome is not None:
-                    break
+                if terminal_outcome is not None:
+                    action: DrainAction = policy.classify(terminal_outcome)
+                    if action.terminate:
+                        recorded_terminal_outcome = terminal_outcome
+                        break
+                    if action.emit_turn_boundary:
+                        await self._fan_out_turn_boundary(spawn_id, terminal_outcome)
         except asyncio.CancelledError:
             drain_cancelled = True
             raise
@@ -624,6 +645,39 @@ class SpawnManager:
         with suppress(Exception):
             await self._append_jsonl(self._output_log_path(spawn_id), envelope)
         self._fan_out_event(spawn_id, terminal_event)
+
+    async def _fan_out_turn_boundary(
+        self,
+        spawn_id: SpawnId,
+        outcome: TerminalEventOutcome,
+    ) -> None:
+        """Emit a synthetic turn boundary event for persistent drain sessions."""
+
+        synthetic = HarnessEvent(
+            event_type=TURN_BOUNDARY_EVENT_TYPE,
+            harness_id="meridian",
+            payload={
+                "status": outcome.status,
+                "exit_code": outcome.exit_code,
+                "synthetic": True,
+            },
+            raw_text=None,
+        )
+        envelope: dict[str, object] = {
+            "event_type": synthetic.event_type,
+            "harness_id": synthetic.harness_id,
+            "payload": synthetic.payload,
+            "synthetic": True,
+        }
+        try:
+            await self._append_jsonl(self._output_log_path(spawn_id), envelope)
+        except Exception as persist_exc:
+            logger.warning(
+                "Failed to persist turn boundary event for spawn %s: %s",
+                spawn_id,
+                persist_exc,
+            )
+        self._fan_out_event(spawn_id, synthetic)
 
     async def shutdown(
         self,

@@ -42,6 +42,7 @@ from meridian.lib.app.agui_mapping.extensions import make_capabilities_event
 from meridian.lib.app.stream import SpawnMultiSubscriberManager
 from meridian.lib.core.types import SpawnId
 from meridian.lib.harness.connections.base import HarnessEvent
+from meridian.lib.streaming.drain_policy import TURN_BOUNDARY_EVENT_TYPE
 from meridian.lib.streaming.signal_canceller import SignalCanceller
 from meridian.lib.streaming.spawn_manager import SpawnManager
 
@@ -201,6 +202,8 @@ async def _outbound_loop(
     heartbeat_state: _HeartbeatState | None = None,
 ) -> None:
     error_emitted = False
+    turn_active = True  # RunStarted is emitted by spawn_websocket.
+
     while True:
         try:
             event = await asyncio.wait_for(
@@ -226,9 +229,20 @@ async def _outbound_loop(
                 return
             continue
         if event is None:
-            if not error_emitted:
+            if turn_active and not error_emitted:
                 await _send_event(websocket, mapper.make_run_finished(spawn_id))
             return
+
+        if event.event_type == TURN_BOUNDARY_EVENT_TYPE:
+            if turn_active and not error_emitted:
+                await _send_event(websocket, mapper.make_run_finished(spawn_id))
+            turn_active = False
+            error_emitted = False
+            continue
+
+        if not turn_active:
+            await _send_event(websocket, mapper.make_run_started(spawn_id))
+            turn_active = True
 
         if tracer is not None:
             tracer.emit(

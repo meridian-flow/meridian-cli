@@ -21,6 +21,7 @@ from meridian.lib.launch.context import build_launch_context
 from meridian.lib.launch.request import LaunchArgvIntent, LaunchRuntime, SpawnRequest
 from meridian.lib.ops.runtime import resolve_runtime_root, resolve_runtime_root_and_config
 from meridian.lib.state.user_paths import get_or_create_project_uuid
+from meridian.lib.streaming.drain_policy import PersistentDrainPolicy
 from meridian.lib.streaming.spawn_manager import SpawnManager
 
 logger = logging.getLogger(__name__)
@@ -40,8 +41,10 @@ def _normalize_harness(raw_harness: str) -> HarnessId:
         raise ValueError(f"unsupported harness '{raw_harness}'. Supported: {supported}") from exc
 
 
-def _should_open_browser(host: str, no_open_browser: bool) -> bool:
-    return not no_open_browser and host in {"127.0.0.1", "localhost"}
+def _should_open_browser(host: str, no_open_browser: bool, tailscale: bool) -> bool:
+    if no_open_browser or tailscale:
+        return False
+    return host in {"127.0.0.1", "localhost"}
 
 
 def run_test_chat(
@@ -52,6 +55,8 @@ def run_test_chat(
     model: str | None = None,
     system_prompt: str | None = None,
     idle_timeout: int = 3600,
+    cors_origins: list[str] | None = None,
+    tailscale: bool = False,
     no_open_browser: bool = False,
     debug: bool = False,
 ) -> None:
@@ -79,13 +84,30 @@ def run_test_chat(
     manager = SpawnManager(runtime_root=runtime_root, project_root=project_root, debug=debug)
     lifecycle_service = create_lifecycle_service(project_root, runtime_root)
 
+    # Resolve CORS origins (tailscale auto-detection + explicit origins).
+    all_origins = list(cors_origins or [])
+    if tailscale:
+        from meridian.cli.app_cmd import _detect_tailscale_origins
+
+        ts_origins = _detect_tailscale_origins(port)
+        if ts_origins:
+            for origin in ts_origins:
+                if origin not in all_origins:
+                    all_origins.append(origin)
+            logger.info("Tailscale origin: %s", ts_origins[0])
+        else:
+            logger.warning(
+                "--tailscale was set but could not detect Tailscale hostname. "
+                "Is Tailscale installed and running? (`tailscale status`)"
+            )
+
     session_holder: dict[str, object] | None = None
     active_spawn_id: SpawnId | None = None
     finalize_task: asyncio.Task[None] | None = None
     idle_task: asyncio.Task[None] | None = None
     last_user_message_at = time.monotonic()
     server: Any | None = None
-    browser_url = f"http://{host}:{port}/test-chat.html"
+    browser_url = f"http://{host}:{port}/"
 
     def mark_user_message() -> None:
         nonlocal last_user_message_at
@@ -171,7 +193,11 @@ def run_test_chat(
         )
 
         try:
-            await manager.start_spawn(config, launch_ctx.spec)
+            await manager.start_spawn(
+                config,
+                launch_ctx.spec,
+                drain_policy=PersistentDrainPolicy(),
+            )
             await manager._start_heartbeat(spawn_id)  # pyright: ignore[reportPrivateUsage]
         except Exception as exc:
             lifecycle_service.finalize(
@@ -194,7 +220,7 @@ def run_test_chat(
         finalize_task = asyncio.create_task(finalize_spawn_when_done(spawn_id))
         idle_task = asyncio.create_task(idle_watch(spawn_id))
 
-        if _should_open_browser(host, no_open_browser):
+        if _should_open_browser(host, no_open_browser, tailscale):
             loop = asyncio.get_running_loop()
             loop.call_soon(webbrowser.open, browser_url)
 
@@ -220,6 +246,7 @@ def run_test_chat(
         transport="tcp",
         host=host,
         port=port,
+        cors_origins=all_origins,
         startup_hook=startup_hook,
         shutdown_hook=shutdown_hook,
         on_user_message=mark_user_message,
