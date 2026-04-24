@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from meridian.lib.core.domain import SpawnStatus
 from meridian.lib.core.spawn_lifecycle import TERMINAL_SPAWN_STATUSES
-from meridian.lib.core.types import HarnessId, SpawnId
+from meridian.lib.core.types import SpawnId
 from meridian.lib.harness.bundle import get_harness_bundle
 from meridian.lib.harness.connections.base import HarnessEvent
 from meridian.lib.harness.errors import HarnessBinaryNotFound
@@ -450,61 +450,6 @@ class SpawnManager:
                     source=source,
                 )
                 await session.connection.send_user_message(message)
-            except Exception as exc:
-                result = InjectResult(success=False, error=str(exc))
-                if on_result is not None:
-                    on_result(result)
-                return result
-
-            result = InjectResult(success=True, inbound_seq=inbound_seq)
-            if on_result is not None:
-                on_result(result)
-            return result
-
-    async def interrupt(
-        self,
-        spawn_id: SpawnId,
-        source: str,
-        on_result: InjectResultCallback | None = None,
-    ) -> InjectResult:
-        """Record and route one interrupt request to the target connection."""
-
-        record = spawn_store.get_spawn(self._runtime_root, spawn_id)
-        if record is not None and record.status in TERMINAL_SPAWN_STATUSES:
-            result = InjectResult(
-                success=False,
-                error=f"spawn not running: {record.status}",
-            )
-            if on_result is not None:
-                on_result(result)
-            return result
-
-        async with get_lock(spawn_id):
-            session = self._sessions.get(spawn_id)
-            if session is None:
-                result = InjectResult(
-                    success=False,
-                    error=f"Spawn {spawn_id} is not active",
-                )
-                if on_result is not None:
-                    on_result(result)
-                return result
-
-            current_turn_id = getattr(session.connection, "current_turn_id", object())
-            if session.connection.harness_id == HarnessId.CODEX and current_turn_id is None:
-                result = InjectResult(success=True, noop=True)
-                if on_result is not None:
-                    on_result(result)
-                return result
-
-            try:
-                inbound_seq = await self._record_inbound(
-                    spawn_id,
-                    action="interrupt",
-                    data={},
-                    source=source,
-                )
-                await session.connection.send_interrupt()
             except Exception as exc:
                 result = InjectResult(success=False, error=str(exc))
                 if on_result is not None:

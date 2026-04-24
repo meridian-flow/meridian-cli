@@ -10,13 +10,12 @@ Client Protocol
 - Server sends: AG-UI events (RunStartedEvent, TextMessageContentEvent, etc.)
 - Server sends: keepalive every 30s ({type:keepalive})
 - Client responds: pong ({type:pong}) or any control message to stay alive
-- Client sends: control messages (user_message, interrupt, cancel, pong)
+- Client sends: control messages (user_message, cancel, pong)
 - Timeout: 90s without any inbound message closes the connection
 
 Control Messages
 ----------------
 - {"type": "user_message", "text": "..."}  - inject user input
-- {"type": "interrupt"}                     - send interrupt signal
 - {"type": "cancel"}                        - request spawn cancellation
 - {"type": "pong"}                          - respond to keepalive
 """
@@ -339,8 +338,6 @@ async def _inbound_loop(
             result = await manager.inject(spawn_id, message=text, source="app_ws")
             if result.success and on_user_message is not None:
                 on_user_message()
-        elif message_type == "interrupt":
-            result = await manager.interrupt(spawn_id, source="app_ws")
         elif message_type == "cancel":
             try:
                 outcome = await SignalCanceller(

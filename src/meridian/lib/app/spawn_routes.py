@@ -72,15 +72,12 @@ class InjectRequest(BaseModel):
     """REST payload for injecting one user message."""
 
     text: str | None = None
-    interrupt: bool = False
 
     @model_validator(mode="after")
     def _exactly_one(self) -> InjectRequest:
         text_set = self.text is not None and self.text.strip() != ""
-        if text_set and self.interrupt:
-            raise ValueError("text and interrupt are mutually exclusive")
-        if not text_set and not self.interrupt:
-            raise ValueError("provide text or interrupt: true")
+        if not text_set:
+            raise ValueError("text is required")
         return self
 
 
@@ -382,20 +379,6 @@ def register_spawn_routes(
         _require_not_finalizing(record)
         _require_active_manager(typed_spawn_id)
 
-        if body.interrupt:
-            result = await spawn_manager.interrupt(typed_spawn_id, source="rest")
-            if not result.success:
-                raise http_exception(
-                    status_code=400,
-                    detail=result.error or "interrupt failed",
-                )
-            response: dict[str, object] = {"ok": True}
-            if result.inbound_seq is not None:
-                response["inbound_seq"] = result.inbound_seq
-            if result.noop:
-                response["noop"] = True
-            return response
-
         text = (body.text or "").strip()
         result = await spawn_manager.inject(typed_spawn_id, text, source="rest")
         if not result.success:
@@ -403,7 +386,7 @@ def register_spawn_routes(
                 status_code=400,
                 detail=result.error or "inject failed",
             )
-        response = {"ok": True}
+        response: dict[str, object] = {"ok": True}
         if result.inbound_seq is not None:
             response["inbound_seq"] = result.inbound_seq
         return response

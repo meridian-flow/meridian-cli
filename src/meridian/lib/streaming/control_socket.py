@@ -121,19 +121,6 @@ class ControlSocketServer:
                 on_result=_on_result,
             )
             return response or self._result_to_response(result)
-        elif message_type == "interrupt":
-            response: dict[str, object] | None = None
-
-            def _on_result(inject_result: InjectResult) -> None:
-                nonlocal response
-                response = self._result_to_response(inject_result)
-
-            result = await self._manager.interrupt(
-                self._spawn_id,
-                source="control_socket",
-                on_result=_on_result,
-            )
-            return response or self._result_to_response(result)
         else:
             return {"ok": False, "error": f"unsupported request type: {message_type}"}
 
@@ -142,8 +129,6 @@ class ControlSocketServer:
         response: dict[str, object]
         if result.success:
             response = {"ok": True}
-            if result.noop:
-                response["noop"] = True
         else:
             response = {"ok": False, "error": result.error or "request failed"}
         if result.inbound_seq is not None:

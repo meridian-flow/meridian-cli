@@ -82,7 +82,6 @@ async def test_wait_for_completion_survives_cleanup_without_private_hooks(
             self.capabilities = ConnectionCapabilities(
                 mid_turn_injection="queue",
                 supports_steer=True,
-                supports_interrupt=True,
                 supports_cancel=True,
                 runtime_model_switch=False,
                 structured_reasoning=False,
@@ -111,9 +110,6 @@ async def test_wait_for_completion_survives_cleanup_without_private_hooks(
 
         async def send_user_message(self, text: str) -> None:
             _ = text
-
-        async def send_interrupt(self) -> None:
-            return None
 
         async def send_cancel(self) -> None:
             return None

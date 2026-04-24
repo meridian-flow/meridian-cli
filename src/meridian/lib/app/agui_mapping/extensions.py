@@ -14,7 +14,6 @@ def make_capabilities_event(caps: ConnectionCapabilities) -> CustomEvent:
         value={
             "midTurnInjection": caps.mid_turn_injection,
             "supportsSteer": caps.supports_steer,
-            "supportsInterrupt": caps.supports_interrupt,
             "supportsCancel": caps.supports_cancel,
             "runtimeModelSwitch": caps.runtime_model_switch,
             "structuredReasoning": caps.structured_reasoning,

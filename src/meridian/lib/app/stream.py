@@ -13,7 +13,7 @@ Meridian has two streaming paths:
 
 **WebSocket (/api/spawns/{id}/ws)** - High-rate per-spawn events
 - Real-time AG-UI protocol events (messages, tool calls, results)
-- Bidirectional control (user_message, interrupt, cancel)
+- Bidirectional control (user_message, cancel)
 - Single-spawn focus for chat/detail views
 - Uses SpawnMultiSubscriberManager for per-spawn fan-out
 

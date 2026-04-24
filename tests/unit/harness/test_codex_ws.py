@@ -89,16 +89,16 @@ def test_codex_ws_update_turn_state_tracks_started_and_completed_events() -> Non
     )
 
     assert connection._current_turn_id == "turn-activity"
-    assert connection._interrupt_in_flight is False
+    assert connection._signal_in_flight is False
 
-    connection._interrupt_in_flight = True
+    connection._signal_in_flight = True
     connection._update_turn_state(
         method=CODEX_TURN_COMPLETED_EVENT,
         payload={"turnId": "turn-activity"},
     )
 
     assert connection._current_turn_id is None
-    assert connection._interrupt_in_flight is False
+    assert connection._signal_in_flight is False
 
 
 @pytest.mark.parametrize("event_type", CODEX_THREAD_ACTIVITY_EVENTS)

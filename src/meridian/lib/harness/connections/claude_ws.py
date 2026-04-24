@@ -72,7 +72,6 @@ class ClaudeConnection(HarnessConnection[ClaudeLaunchSpec]):
     _CAPABILITIES = ConnectionCapabilities(
         mid_turn_injection="queue",
         supports_steer=False,
-        supports_interrupt=True,
         supports_cancel=True,
         runtime_model_switch=False,
         structured_reasoning=True,
@@ -98,7 +97,7 @@ class ClaudeConnection(HarnessConnection[ClaudeLaunchSpec]):
         self._event_stream_started = False
         self._tracer: DebugTracer | None = None
         self._cancel_requested = False
-        self._interrupt_in_flight = False
+        self._signal_in_flight = False
 
     @property
     def state(self) -> ConnectionState:
@@ -139,7 +138,7 @@ class ClaudeConnection(HarnessConnection[ClaudeLaunchSpec]):
         self._spawn_id = config.spawn_id
         self._tracer = config.debug_tracer
         self._cancel_requested = False
-        self._interrupt_in_flight = False
+        self._signal_in_flight = False
         self._set_state("starting")
 
         try:
@@ -164,7 +163,7 @@ class ClaudeConnection(HarnessConnection[ClaudeLaunchSpec]):
 
             await self._cleanup_resources(terminate_process=True)
             self._cancel_requested = False
-            self._interrupt_in_flight = False
+            self._signal_in_flight = False
             self._set_state("stopped")
 
     def health(self) -> bool:
@@ -172,16 +171,8 @@ class ClaudeConnection(HarnessConnection[ClaudeLaunchSpec]):
 
     async def send_user_message(self, text: str) -> None:
         self._ensure_connected()
-        self._interrupt_in_flight = False
+        self._signal_in_flight = False
         await self._send_user_turn(text)
-
-    async def send_interrupt(self) -> None:
-        """Send SIGINT to the Claude subprocess to interrupt the current turn."""
-        if self._interrupt_in_flight:
-            return
-        self._ensure_connected()
-        self._interrupt_in_flight = True
-        await self._signal_process(signal.SIGINT)
 
     async def send_cancel(self) -> None:
         """Signal cancellation by transitioning state and sending SIGINT."""
@@ -192,7 +183,7 @@ class ClaudeConnection(HarnessConnection[ClaudeLaunchSpec]):
             return
         self._ensure_connected()
         self._cancel_requested = True
-        self._interrupt_in_flight = True
+        self._signal_in_flight = True
         if self._state != "stopping":
             self._set_state("stopping")
         await self._signal_process(signal.SIGINT)
@@ -251,7 +242,7 @@ class ClaudeConnection(HarnessConnection[ClaudeLaunchSpec]):
 
                 for event in parsed_events:
                     if event.event_type == "result":
-                        self._interrupt_in_flight = False
+                        self._signal_in_flight = False
                     if self._tracer is not None:
                         self._tracer.emit(
                             "wire",

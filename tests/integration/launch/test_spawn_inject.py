@@ -37,7 +37,7 @@ class _FakeWriter:
         return None
 
 
-def _create_running_spawn_layout_for_interrupt_path(runtime_root: Path, spawn_id: str) -> None:
+def _create_running_spawn_layout(runtime_root: Path, spawn_id: str) -> None:
     spawn_store.start_spawn(
         runtime_root,
         chat_id="c1",
@@ -59,7 +59,7 @@ def _create_running_spawn_layout_for_validation_path(runtime_root: Path, spawn_i
     """Create spawn layout WITHOUT control endpoint.
 
     This tests that validation runs BEFORE endpoint discovery.
-    If validation comes first, we get "provide a message or --interrupt".
+    If validation comes first, we get "message is required".
     If discovery comes first, we get "no control endpoint".
     """
     spawn_store.start_spawn(
@@ -77,7 +77,7 @@ def _create_running_spawn_layout_for_validation_path(runtime_root: Path, spawn_i
     # This proves validation runs before discovery.
 
 
-def test_inject_requires_message_or_interrupt(
+def test_inject_requires_message(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -90,20 +90,20 @@ def test_inject_requires_message_or_interrupt(
     monkeypatch.setattr(spawn_inject, "resolve_runtime_root", lambda _project_root: runtime_root)
 
     with pytest.raises(SystemExit) as exc_info:
-        asyncio.run(spawn_inject.inject_message("p1", None, interrupt=False))
+        asyncio.run(spawn_inject.inject_message("p1", ""))
 
     assert exc_info.value.code == 1
-    assert "provide a message or --interrupt" in capsys.readouterr().err
+    assert "message is required" in capsys.readouterr().err
 
 
-def test_interrupt_inject_allows_self_caller_and_sends_request(
+def test_message_inject_allows_self_caller_and_sends_request(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     runtime_root = tmp_path / ".meridian"
     runtime_root.mkdir(parents=True, exist_ok=True)
-    _create_running_spawn_layout_for_interrupt_path(runtime_root, "p1")
+    _create_running_spawn_layout(runtime_root, "p1")
 
     monkeypatch.setattr(spawn_inject, "resolve_runtime_root_and_config", lambda _: (tmp_path, None))
     monkeypatch.setattr(spawn_inject, "resolve_runtime_root", lambda _project_root: runtime_root)
@@ -124,7 +124,7 @@ def test_interrupt_inject_allows_self_caller_and_sends_request(
 
         monkeypatch.setattr(asyncio, "open_unix_connection", _fake_unix_connect)
 
-    asyncio.run(spawn_inject.inject_message("p1", None, interrupt=True))
+    asyncio.run(spawn_inject.inject_message("p1", "hello"))
 
-    assert writer.writes == [b'{"type":"interrupt"}\n']
-    assert "Interrupt delivered to spawn p1" in capsys.readouterr().out
+    assert writer.writes == [b'{"type":"user_message","text":"hello"}\n']
+    assert "Message delivered to spawn p1" in capsys.readouterr().out

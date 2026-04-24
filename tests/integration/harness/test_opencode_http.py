@@ -120,7 +120,7 @@ def test_opencode_activity_event_names_are_pinned() -> None:
 )
 def test_opencode_event_from_json_line_pins_activity_transition_events(event_type: str) -> None:
     connection = OpenCodeConnection()
-    connection._interrupt_in_flight = True
+    connection._signal_in_flight = True
 
     event = connection._event_from_json_line(
         json_text=f'{{"type":"{event_type}","sessionID":"sess-activity"}}',
@@ -130,7 +130,7 @@ def test_opencode_event_from_json_line_pins_activity_transition_events(event_typ
     assert event is not None
     assert event.event_type == event_type
     assert event.payload == {"type": event_type, "sessionID": "sess-activity"}
-    assert connection._interrupt_in_flight is False
+    assert connection._signal_in_flight is False
 
 
 @pytest.mark.asyncio
@@ -429,7 +429,6 @@ def test_missing_harness_connection_abstract_method_raises_type_error() -> None:
             return ConnectionCapabilities(
                 mid_turn_injection="http_post",
                 supports_steer=False,
-                supports_interrupt=True,
                 supports_cancel=True,
                 runtime_model_switch=False,
                 structured_reasoning=True,
@@ -454,9 +453,6 @@ def test_missing_harness_connection_abstract_method_raises_type_error() -> None:
 
         async def send_user_message(self, text: str) -> None:
             _ = text
-
-        async def send_interrupt(self) -> None:
-            return None
 
         async def events(self):  # type: ignore[no-untyped-def]
             if False:

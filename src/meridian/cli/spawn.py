@@ -719,16 +719,11 @@ def _spawn_inject(
         str,
         Parameter(help="Message text to inject."),
     ] = "",
-    interrupt: Annotated[
-        bool,
-        Parameter(name="--interrupt", help="Send interrupt signal."),
-    ] = False,
 ) -> None:
     asyncio.run(
         inject_message(
             spawn_id,
-            message if message.strip() else None,
-            interrupt=interrupt,
+            message,
         )
     )
 
@@ -768,11 +763,11 @@ def register_spawn_commands(app: App, emit: Emitter) -> tuple[set[str], dict[str
     app.command(
         _spawn_inject,
         name="inject",
-        help="Inject a message or interrupt request into a running streaming spawn.",
+        help="Inject a message into a running streaming spawn.",
     )
     registered.add("spawn.inject")
     descriptions["meridian.spawn.inject"] = (
-        "Inject a message or interrupt request into a running streaming spawn."
+        "Inject a message into a running streaming spawn."
     )
     app.command(
         _spawn_log_removed,

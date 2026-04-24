@@ -13,13 +13,7 @@ class UserMessageControl(TypedDict):
     text: str
 
 
-class InterruptControl(TypedDict):
-    """Request a harness interrupt."""
-
-    type: Literal["interrupt"]
-
-
-ControlMessage = UserMessageControl | InterruptControl
+ControlMessage = UserMessageControl
 
 
 @dataclass(frozen=True)
@@ -28,13 +22,11 @@ class InjectResult:
 
     success: bool
     inbound_seq: int | None = None
-    noop: bool = False
     error: str | None = None
 
 
 __all__ = [
     "ControlMessage",
     "InjectResult",
-    "InterruptControl",
     "UserMessageControl",
 ]

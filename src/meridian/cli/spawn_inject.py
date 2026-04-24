@@ -63,9 +63,7 @@ async def _send_and_receive(
 
 async def inject_message(
     spawn_id: str,
-    message: str | None,
-    *,
-    interrupt: bool = False,
+    message: str,
 ) -> None:
     """Send a control message to a running bidirectional spawn.
 
@@ -85,12 +83,9 @@ async def inject_message(
     if not spawn_dir.exists():
         _fail(f"spawn not found: {normalized_spawn_id}")
 
-    normalized_message = message.strip() if message is not None else ""
-    action_count = int(interrupt) + int(bool(normalized_message))
-    if action_count == 0:
-        _fail("provide a message or --interrupt")
-    if action_count > 1:
-        _fail("message text is mutually exclusive with --interrupt")
+    normalized_message = message.strip()
+    if not normalized_message:
+        _fail("message is required")
 
     # The control socket/port may not be visible immediately after spawn start.
     # Retry briefly to tolerate the startup race.
@@ -106,11 +101,7 @@ async def inject_message(
     else:
         _fail(f"spawn not running: {normalized_spawn_id} has no control endpoint")
 
-    request: dict[str, str]
-    if interrupt:
-        request = {"type": "interrupt"}
-    else:
-        request = {"type": "user_message", "text": normalized_message}
+    request: dict[str, str] = {"type": "user_message", "text": normalized_message}
 
     response_data = b""
     try:
@@ -146,8 +137,7 @@ async def inject_message(
 
     ok = parsed.get("ok")
     if ok is True:
-        action = "Interrupt" if interrupt else "Message"
-        print(f"{action} delivered to spawn {normalized_spawn_id}")
+        print(f"Message delivered to spawn {normalized_spawn_id}")
         return
 
     error_value = parsed.get("error")

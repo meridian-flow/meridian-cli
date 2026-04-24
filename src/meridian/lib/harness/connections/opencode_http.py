@@ -57,7 +57,6 @@ class OpenCodeConnection(HarnessConnection[OpenCodeLaunchSpec]):
     _CAPABILITIES: ClassVar[ConnectionCapabilities] = ConnectionCapabilities(
         mid_turn_injection="http_post",
         supports_steer=False,
-        supports_interrupt=True,
         supports_cancel=True,
         runtime_model_switch=False,
         structured_reasoning=True,
@@ -82,14 +81,6 @@ class OpenCodeConnection(HarnessConnection[OpenCodeLaunchSpec]):
         "/event",
         "/session/{session_id}/events",
     )
-    _INTERRUPT_PATH_TEMPLATES: ClassVar[tuple[str, ...]] = (
-        "/session/{session_id}/abort",
-        "/sessions/{session_id}/abort",
-        "/session/{session_id}/interrupt",
-        "/sessions/{session_id}/interrupt",
-        "/session/{session_id}/cancel",
-        "/sessions/{session_id}/cancel",
-    )
     _CANCEL_PATH_TEMPLATES: ClassVar[tuple[str, ...]] = (
         "/session/{session_id}/abort",
         "/sessions/{session_id}/abort",
@@ -101,7 +92,7 @@ class OpenCodeConnection(HarnessConnection[OpenCodeLaunchSpec]):
     _PATH_RETRY_STATUSES: ClassVar[frozenset[int]] = frozenset((404, 405))
     _PAYLOAD_RETRY_STATUSES: ClassVar[frozenset[int]] = frozenset((400, 415, 422))
     _SUCCESS_STATUSES: ClassVar[frozenset[int]] = frozenset((200, 201, 202, 204))
-    _INTERRUPT_SUCCESS_STATUSES: ClassVar[frozenset[int]] = frozenset((200, 201, 202, 204, 409))
+    _ACTION_SUCCESS_STATUSES: ClassVar[frozenset[int]] = frozenset((200, 201, 202, 204, 409))
     _EVENT_RETRY_DELAY_SECONDS: ClassVar[float] = 0.25
     _STARTUP_TIMEOUT_SECONDS: ClassVar[float] = 30.0
     _STOP_GRACE_SECONDS: ClassVar[float] = 5.0
@@ -123,7 +114,7 @@ class OpenCodeConnection(HarnessConnection[OpenCodeLaunchSpec]):
         self._last_health_ok = False
         self._tracer: DebugTracer | None = None
         self._cancel_requested = False
-        self._interrupt_in_flight = False
+        self._signal_in_flight = False
         self._primary_observer_mode = False
 
     @property
@@ -184,7 +175,7 @@ class OpenCodeConnection(HarnessConnection[OpenCodeLaunchSpec]):
         self._spawn_id = config.spawn_id
         self._tracer = config.debug_tracer
         self._cancel_requested = False
-        self._interrupt_in_flight = False
+        self._signal_in_flight = False
         self._transition("starting")
 
         startup_timeout = (
@@ -228,7 +219,7 @@ class OpenCodeConnection(HarnessConnection[OpenCodeLaunchSpec]):
 
         await self._cleanup_runtime()
         self._cancel_requested = False
-        self._interrupt_in_flight = False
+        self._signal_in_flight = False
         self._transition("stopped")
 
     def health(self) -> bool:
@@ -239,24 +230,8 @@ class OpenCodeConnection(HarnessConnection[OpenCodeLaunchSpec]):
 
     async def send_user_message(self, text: str) -> None:
         self._require_connected()
-        self._interrupt_in_flight = False
+        self._signal_in_flight = False
         await self._post_session_message(text)
-
-    async def send_interrupt(self) -> None:
-        if self._interrupt_in_flight:
-            return
-        self._require_connected()
-        self._interrupt_in_flight = True
-        await self._post_session_action(
-            path_templates=self._INTERRUPT_PATH_TEMPLATES,
-            payload_variants=(
-                {"response": "abort"},
-                {"reason": "interrupt"},
-                {"type": "interrupt"},
-                {},
-            ),
-            accepted_statuses=self._INTERRUPT_SUCCESS_STATUSES,
-        )
 
     async def send_cancel(self) -> None:
         if self._cancel_requested:
@@ -266,7 +241,7 @@ class OpenCodeConnection(HarnessConnection[OpenCodeLaunchSpec]):
             return
         self._require_connected()
         self._cancel_requested = True
-        self._interrupt_in_flight = True
+        self._signal_in_flight = True
         self._transition("stopping")
         await self._post_session_action(
             path_templates=self._CANCEL_PATH_TEMPLATES,
@@ -276,7 +251,7 @@ class OpenCodeConnection(HarnessConnection[OpenCodeLaunchSpec]):
                 {"type": "cancel"},
                 {},
             ),
-            accepted_statuses=self._INTERRUPT_SUCCESS_STATUSES,
+            accepted_statuses=self._ACTION_SUCCESS_STATUSES,
         )
 
     async def events(self) -> AsyncIterator[HarnessEvent]:
@@ -687,7 +662,7 @@ class OpenCodeConnection(HarnessConnection[OpenCodeLaunchSpec]):
         raw_event_type = payload.get("type", event_type_hint or "unknown")
         event_type = raw_event_type if isinstance(raw_event_type, str) else "unknown"
         if event_type in {"session.idle", "session.error"}:
-            self._interrupt_in_flight = False
+            self._signal_in_flight = False
         return HarnessEvent(
             event_type=event_type,
             payload=payload,
@@ -733,7 +708,7 @@ class OpenCodeConnection(HarnessConnection[OpenCodeLaunchSpec]):
         self._event_path = None
         self._last_health_ok = False
         self._cancel_requested = False
-        self._interrupt_in_flight = False
+        self._signal_in_flight = False
         self._close_log_handles()
 
     def _url(self, path: str) -> str:

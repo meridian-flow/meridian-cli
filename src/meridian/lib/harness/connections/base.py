@@ -40,7 +40,6 @@ class ConnectionCapabilities:
 
     mid_turn_injection: Literal["queue", "interrupt_restart", "http_post"]
     supports_steer: bool
-    supports_interrupt: bool
     supports_cancel: bool
     runtime_model_switch: bool
     structured_reasoning: bool
@@ -157,9 +156,6 @@ class HarnessConnection(Generic[SpecT], ABC):
 
     @abstractmethod
     async def send_user_message(self, text: str) -> None: ...
-
-    @abstractmethod
-    async def send_interrupt(self) -> None: ...
 
     @abstractmethod
     async def send_cancel(self) -> None: ...

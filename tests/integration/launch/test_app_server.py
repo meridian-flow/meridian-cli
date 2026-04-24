@@ -25,7 +25,6 @@ class FakeConnection:
     capabilities = ConnectionCapabilities(
         mid_turn_injection="queue",
         supports_steer=True,
-        supports_interrupt=True,
         supports_cancel=True,
         runtime_model_switch=False,
         structured_reasoning=False,

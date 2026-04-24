@@ -72,7 +72,6 @@ class FakeManagedConnection:
         self.capabilities = ConnectionCapabilities(
             mid_turn_injection="interrupt_restart",
             supports_steer=True,
-            supports_interrupt=True,
             supports_cancel=True,
             runtime_model_switch=False,
             structured_reasoning=True,
@@ -141,9 +140,6 @@ class FakeManagedConnection:
 
     async def send_user_message(self, text: str) -> None:
         _ = text
-
-    async def send_interrupt(self) -> None:
-        return None
 
     async def send_cancel(self) -> None:
         return None

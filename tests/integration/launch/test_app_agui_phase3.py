@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import types
-from pathlib import Path
 from typing import Any, cast
 
 import pytest
@@ -11,7 +9,7 @@ import pytest
 from ag_ui.core import RunErrorEvent, RunFinishedEvent, RunStartedEvent
 from meridian.lib.app import agui_mapping as mapping_module
 from meridian.lib.app import ws_endpoint
-from meridian.lib.core.types import HarnessId, SpawnId
+from meridian.lib.core.types import HarnessId
 from meridian.lib.harness.connections.base import HarnessEvent
 
 
@@ -228,41 +226,3 @@ async def test_ws_route_rejects_non_local_origin_before_accept(
     assert spawn_calls == 0
     assert websocket.close_calls == [4403]
     assert websocket.accept_calls == 0
-
-
-@pytest.mark.asyncio
-async def test_inbound_loop_routes_interrupt(tmp_path: Path) -> None:
-    class FakeManager:
-        def __init__(self) -> None:
-            self.runtime_root = tmp_path
-            self.interrupt_calls: list[tuple[SpawnId, str]] = []
-
-        async def inject(self, spawn_id: SpawnId, message: str, source: str = "app_ws") -> object:
-            _ = spawn_id, message, source
-            return types.SimpleNamespace(success=True, error=None, inbound_seq=1)
-
-        async def interrupt(self, spawn_id: SpawnId, source: str = "app_ws") -> object:
-            self.interrupt_calls.append((spawn_id, source))
-            return types.SimpleNamespace(success=True, error=None, inbound_seq=2, noop=False)
-
-    class FakeWebSocket:
-        def __init__(self) -> None:
-            self.frames: list[dict[str, object]] = [
-                {"type": "websocket.receive", "text": '{"type":"interrupt"}'},
-                {"type": "websocket.disconnect"},
-            ]
-            self.payloads: list[dict[str, object]] = []
-
-        async def receive(self) -> dict[str, object]:
-            return self.frames.pop(0)
-
-        async def send_text(self, data: str) -> None:
-            self.payloads.append(cast("dict[str, object]", json.loads(data)))
-
-    manager = FakeManager()
-    websocket = FakeWebSocket()
-
-    await ws_endpoint._inbound_loop(websocket, SpawnId("p1"), cast("Any", manager))
-
-    assert manager.interrupt_calls == [(SpawnId("p1"), "app_ws")]
-    assert websocket.payloads == []
