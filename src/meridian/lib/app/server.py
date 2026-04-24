@@ -166,9 +166,9 @@ def create_app(
             shutil.rmtree(instance_dir, ignore_errors=True)
             if shutdown_hook is not None:
                 await shutdown_hook(app_ctx_fastapi)
-            await spawn_manager.shutdown()
             if hcp_session_manager is not None:
                 await hcp_session_manager.shutdown()
+            await spawn_manager.shutdown()
             if background_finalize_tasks:
                 await asyncio.gather(*tuple(background_finalize_tasks), return_exceptions=True)
 

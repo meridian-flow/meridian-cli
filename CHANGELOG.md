@@ -7,6 +7,9 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 - HCP core skeleton: capabilities, errors, lifecycle types, session manager. App lifespan restores HCP chats.
 
+### Fixed
+- HCP chat launch failure now finalizes spawn and stops session. Active HCP chats get heartbeat. Restore skips stopped chats.
+
 ## [0.0.44] - 2026-04-24
 
 ### Added

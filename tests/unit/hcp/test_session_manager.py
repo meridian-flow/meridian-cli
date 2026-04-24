@@ -14,7 +14,7 @@ from meridian.lib.hcp.errors import HcpError, HcpErrorCategory
 from meridian.lib.hcp.session_manager import HcpSessionManager
 from meridian.lib.hcp.types import ChatState
 from meridian.lib.safety.permissions import UnsafeNoOpPermissionResolver
-from meridian.lib.state import session_store
+from meridian.lib.state import session_store, spawn_store
 from meridian.lib.state.paths import RuntimePaths, resolve_runtime_paths
 from meridian.lib.streaming.types import InjectResult
 
@@ -26,7 +26,9 @@ class FakeSpawnManager:
         self.started: list[tuple[ConnectionConfig, object, object]] = []
         self.injected: list[tuple[SpawnId, str, str]] = []
         self.stopped: list[SpawnId] = []
+        self.heartbeats: list[SpawnId] = []
         self.inject_gate: asyncio.Event | None = None
+        self.start_error: Exception | None = None
 
     async def start_spawn(
         self,
@@ -35,8 +37,13 @@ class FakeSpawnManager:
         *,
         drain_policy: object | None = None,
     ) -> object:
+        if self.start_error is not None:
+            raise self.start_error
         self.started.append((config, spec, drain_policy))
         return object()
+
+    async def _start_heartbeat(self, spawn_id: SpawnId) -> None:
+        self.heartbeats.append(spawn_id)
 
     async def inject(
         self,
@@ -110,6 +117,23 @@ async def test_restore_from_stores_loads_primary_sessions_as_idle(tmp_path: Path
 
 
 @pytest.mark.asyncio
+async def test_restore_from_stores_ignores_stopped_primary_sessions(tmp_path: Path) -> None:
+    manager, _fake, runtime_root = _manager(tmp_path)
+    c_id = session_store.start_session(
+        runtime_root,
+        harness="codex",
+        harness_session_id="s1",
+        model="gpt-test",
+        kind="primary",
+    )
+    session_store.stop_session(runtime_root, c_id)
+
+    await manager.restore_from_stores()
+
+    assert manager.get_chat_state(c_id) is None
+
+
+@pytest.mark.asyncio
 async def test_concurrent_prompt_rejected(tmp_path: Path) -> None:
     manager, fake, _runtime_root = _manager(tmp_path)
     c_id, _p_id = await manager.create_chat(
@@ -130,6 +154,48 @@ async def test_concurrent_prompt_rejected(tmp_path: Path) -> None:
     fake.inject_gate.set()
     await first_prompt
     await manager.close_chat(c_id)
+
+
+@pytest.mark.asyncio
+async def test_create_chat_starts_heartbeat(tmp_path: Path) -> None:
+    manager, fake, _runtime_root = _manager(tmp_path)
+    c_id, p_id = await manager.create_chat(
+        "hello",
+        model="gpt-test",
+        harness="codex",
+        config=_config(tmp_path),
+        spec=_spec(),
+    )
+
+    assert fake.heartbeats == [p_id]
+    await manager.close_chat(c_id)
+
+
+@pytest.mark.asyncio
+async def test_create_chat_cleans_up_session_and_spawn_when_launch_fails(
+    tmp_path: Path,
+) -> None:
+    manager, fake, runtime_root = _manager(tmp_path)
+    fake.start_error = RuntimeError("launch failed")
+
+    with pytest.raises(RuntimeError, match="launch failed"):
+        await manager.create_chat(
+            "hello",
+            model="gpt-test",
+            harness="codex",
+            config=_config(tmp_path),
+            spec=_spec(),
+        )
+
+    record = session_store.get_session_record(runtime_root, "c1")
+    spawn = spawn_store.get_spawn(runtime_root, "p1")
+    assert record is not None
+    assert record.stopped_at is not None
+    assert spawn is not None
+    assert spawn.status == "failed"
+    assert spawn.exit_code == 1
+    assert manager.get_chat_state("c1") == ChatState.IDLE
+    assert manager.get_active_p_id("c1") is None
 
 
 @pytest.mark.asyncio

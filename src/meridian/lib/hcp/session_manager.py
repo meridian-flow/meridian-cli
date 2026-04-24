@@ -39,7 +39,7 @@ class HcpSessionManager:
     async def restore_from_stores(self) -> None:
         """Restore known primary chats from the session store as idle."""
 
-        records = session_store.list_all_session_records(self._runtime_root)
+        records = session_store.list_active_session_records(self._runtime_root)
         for record in records:
             if record.kind != "primary":
                 continue
@@ -118,9 +118,18 @@ class HcpSessionManager:
                 spec,
                 drain_policy=PersistentDrainPolicy(),
             )
+            await self._spawn_manager._start_heartbeat(p_id)  # pyright: ignore[reportPrivateUsage]
         except Exception:
             self._active_processes.pop(c_id, None)
             self._chat_states[c_id] = ChatState.IDLE
+            spawn_store.finalize_spawn(
+                self._runtime_root,
+                p_id,
+                "failed",
+                1,
+                origin="launch_failure",
+            )
+            session_store.stop_session(self._runtime_root, c_id)
             await self._write_lifecycle_event(
                 c_id,
                 "state_change",
