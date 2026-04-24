@@ -31,16 +31,37 @@ class GraphEdge:
     line: int  # source line number
 
 
+def _empty_nodes() -> dict[Path, GraphNode]:
+    return {}
+
+
+def _empty_edges() -> list[GraphEdge]:
+    return []
+
+
+def _empty_paths() -> list[Path]:
+    return []
+
+
+def _empty_path_pairs() -> list[tuple[Path, Path]]:
+    return []
+
+
+def _empty_clusters() -> list[list[Path]]:
+    return []
+
+
 @dataclass
 class AnalysisResult:
     """Complete KG analysis output."""
 
-    nodes: dict[Path, GraphNode] = field(default_factory=dict)
-    edges: list[GraphEdge] = field(default_factory=list)
-    broken_links: list[GraphEdge] = field(default_factory=list)
-    orphans: list[Path] = field(default_factory=list)
-    missing_backlinks: list[tuple[Path, Path]] = field(default_factory=list)
-    clusters: list[list[Path]] = field(default_factory=list)
+    nodes: dict[Path, GraphNode] = field(default_factory=_empty_nodes)
+    edges: list[GraphEdge] = field(default_factory=_empty_edges)
+    broken_links: list[GraphEdge] = field(default_factory=_empty_edges)
+    orphans: list[Path] = field(default_factory=_empty_paths)
+    missing_backlinks: list[tuple[Path, Path]] = field(default_factory=_empty_path_pairs)
+    clusters: list[list[Path]] = field(default_factory=_empty_clusters)
+    external_count: int = 0
 
 
 __all__ = [

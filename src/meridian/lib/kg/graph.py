@@ -5,13 +5,27 @@ from __future__ import annotations
 import os
 from collections import deque
 from pathlib import Path
+from typing import Any, cast
+
+import pathspec
 
 from meridian.lib.kg.types import AnalysisResult, GraphEdge, GraphNode
 from meridian.lib.markdown.extract import extract_file
 from meridian.lib.markdown.types import ExtractedLink
 
 # Directories to skip when walking
-_SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", ".tox"}
+_SKIP_DIRS = {
+    ".git",
+    "node_modules",
+    "__pycache__",
+    ".venv",
+    "venv",
+    ".tox",
+    ".mypy_cache",
+    "dist",
+    "build",
+    ".ruff_cache",
+}
 
 # External URL prefixes — not checked for broken links
 _EXTERNAL_PREFIXES = ("http://", "https://", "mailto:", "#")
@@ -23,6 +37,7 @@ def build_analysis(
     include_backlinks: bool = True,
     include_clusters: bool = True,
     targeted_path: Path | None = None,
+    exclude: list[str] | None = None,
 ) -> AnalysisResult:
     """Build complete KG analysis from a root directory.
 
@@ -44,10 +59,10 @@ def build_analysis(
             md_files = [targeted]
             scan_root = targeted.parent
         else:
-            md_files = _collect_md_files(targeted)
+            md_files = _collect_md_files(targeted, exclude=exclude)
             scan_root = targeted
     else:
-        md_files = _collect_md_files(root)
+        md_files = _collect_md_files(root, exclude=exclude)
         scan_root = root
 
     # Build nodes dict
@@ -61,14 +76,16 @@ def build_analysis(
     edges: list[GraphEdge] = []
     broken_links: list[GraphEdge] = []
     inbound: dict[Path, set[Path]] = {p: set() for p in nodes}
+    external_count = 0
 
     for src_path, node in nodes.items():
         for ref in node.doc.references:
             edge = _make_edge(src_path, ref, nodes)
             edges.append(edge)
 
-            # Check for broken links (only for local links, not external)
-            if not _is_external(ref.target) and not edge.resolved:
+            if _is_external(ref.target):
+                external_count += 1
+            elif not edge.resolved:
                 broken_links.append(edge)
             elif isinstance(edge.dst, Path) and edge.dst in nodes:
                 inbound[edge.dst].add(src_path)
@@ -77,8 +94,8 @@ def build_analysis(
     for target_path, sources in inbound.items():
         nodes[target_path].in_degree = len(sources)
 
-    # Identify orphans (no inbound links)
-    orphans = [p for p, node in nodes.items() if node.in_degree == 0]
+    # Orphan detection removed from output; retain field for compatibility.
+    orphans: list[Path] = []
 
     # Missing backlinks (A→B but no B→A)
     missing_backlinks: list[tuple[Path, Path]] = []
@@ -108,6 +125,7 @@ def build_analysis(
         orphans=orphans,
         missing_backlinks=missing_backlinks,
         clusters=clusters,
+        external_count=external_count,
     )
 
 
@@ -116,15 +134,60 @@ def _is_external(target: str) -> bool:
     return any(target.startswith(prefix) for prefix in _EXTERNAL_PREFIXES)
 
 
-def _collect_md_files(root: Path) -> list[Path]:
-    """Walk directory and collect .md files, skipping common non-content dirs."""
+def _load_kgignore(root: Path) -> pathspec.PathSpec[Any] | None:
+    """Read .kgignore from root dir, return compiled PathSpec or None."""
+    kgignore = root / ".kgignore"
+    if not kgignore.exists():
+        return None
+
+    lines = kgignore.read_text(encoding="utf-8", errors="replace").splitlines()
+    patterns = [
+        line.strip()
+        for line in lines
+        if line.strip() and not line.strip().startswith("#")
+    ]
+    if not patterns:
+        return None
+    return cast(
+        "pathspec.PathSpec[Any]",
+        pathspec.PathSpec.from_lines("gitwildmatch", patterns),  # pyright: ignore[reportUnknownMemberType]
+    )
+
+
+def _collect_md_files(
+    root: Path,
+    *,
+    exclude: list[str] | None = None,
+) -> list[Path]:
+    """Walk directory and collect .md files, applying skip dirs and exclusions."""
+    kgignore_spec = _load_kgignore(root)
+
+    exclude_spec: pathspec.PathSpec[Any] | None = None
+    if exclude:
+        exclude_spec = cast(
+            "pathspec.PathSpec[Any]",
+            pathspec.PathSpec.from_lines("gitwildmatch", exclude),  # pyright: ignore[reportUnknownMemberType]
+        )
+
     md_files: list[Path] = []
     for dirpath, dirnames, filenames in os.walk(root):
         # Prune skipped directories in-place
         dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
+
         for filename in filenames:
-            if filename.endswith(".md"):
-                md_files.append(Path(dirpath) / filename)
+            if not filename.endswith(".md"):
+                continue
+
+            full_path = Path(dirpath) / filename
+            rel = full_path.relative_to(root).as_posix()
+
+            if kgignore_spec and kgignore_spec.match_file(rel):
+                continue
+            if exclude_spec and exclude_spec.match_file(rel):
+                continue
+
+            md_files.append(full_path)
+
     return sorted(md_files)
 
 

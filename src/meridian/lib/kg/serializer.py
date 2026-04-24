@@ -21,6 +21,7 @@ def serialize_analysis(result: AnalysisResult, root: Path) -> dict[str, Any]:
         "root": root.as_posix(),
         "total_files": len(result.nodes),
         "total_links": len(result.edges),
+        "external_count": result.external_count,
         "has_broken_links": len(result.broken_links) > 0,
         "broken_links": [
             {
@@ -41,6 +42,7 @@ def serialize_analysis(result: AnalysisResult, root: Path) -> dict[str, Any]:
         "summary": {
             "total_files": len(result.nodes),
             "total_links": len(result.edges),
+            "external_links": result.external_count,
             "broken_links": len(result.broken_links),
             "orphans": len(result.orphans),
             "missing_backlinks": len(result.missing_backlinks),
@@ -59,6 +61,7 @@ def serialize_check(result: AnalysisResult, path: Path) -> dict[str, Any]:
     return {
         "path": path.as_posix(),
         "total_files": len(result.nodes),
+        "external_count": result.external_count,
         "has_broken_links": len(result.broken_links) > 0,
         "broken_links": [
             {

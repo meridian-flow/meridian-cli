@@ -104,6 +104,7 @@ work_app = App(
 hooks_app = App(name="hooks", help="Hook inspection and execution commands", help_formatter="plain")
 models_app = App(name="models", help="Model catalog commands", help_formatter="plain")
 streaming_app = App(name="streaming", help="Streaming layer commands", help_formatter="plain")
+test_app = App(name="test", help="Focused test and demo commands", help_formatter="plain")
 config_app = App(
     name="config",
     help=(
@@ -128,8 +129,8 @@ workspace_app = App(
 kg_app = App(
     name="kg",
     help=(
-        "Knowledge graph analysis: document relationships, broken links,\n"
-        "orphaned files, missing backlinks, clusters."
+        "Knowledge graph analysis: document relationships, tree topology,\n"
+        "and broken link health."
     ),
     help_epilogue=(
         "Examples:\n\n"
@@ -148,6 +149,7 @@ app.command(work_app, name="work")
 app.command(hooks_app, name="hooks")
 app.command(models_app, name="models")
 app.command(streaming_app, name="streaming")
+app.command(test_app, name="test")
 app.command(config_app, name="config")
 app.command(workspace_app, name="workspace")
 app.command(kg_app, name="kg")
@@ -166,6 +168,7 @@ __all__ = [
     "session_app",
     "spawn_app",
     "streaming_app",
+    "test_app",
     "work_app",
     "workspace_app",
 ]

@@ -2,85 +2,17 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
+from dataclasses import dataclass
 from pathlib import Path
 
 from meridian.lib.kg.types import AnalysisResult
 
+_EXTERNAL_PREFIXES = ("http://", "https://", "mailto:", "#")
 
-def format_report(
-    result: AnalysisResult,
-    root: Path,
-    *,
-    targeted: bool = False,
-) -> str:
-    """Format AnalysisResult as plain-text report.
 
-    Args:
-        result: Analysis result to format
-        root: Root path for relative path display
-        targeted: If True, format as targeted check (single file/dir)
-
-    Returns:
-        Plain text report string
-    """
-    lines: list[str] = []
-
-    # Header
-    lines.append(f"## KG Analysis: {root.as_posix()}")
-    lines.append(f"Files scanned: {len(result.nodes)}")
-    lines.append(f"Total links: {len(result.edges)}")
-    lines.append("")
-
-    # Broken Links section
-    lines.append("## Broken Links")
-    if result.broken_links:
-        for edge in result.broken_links:
-            src_rel = _rel(edge.src, root)
-            target_str = str(edge.dst) if isinstance(edge.dst, str) else _rel(edge.dst, root)
-            lines.append(f"  {src_rel}:{edge.line} -> {target_str} [{edge.kind}]")
-    else:
-        lines.append("  None")
-    lines.append("")
-
-    # Orphaned Files section
-    lines.append("## Orphaned Files")
-    lines.append("  (Documents with no inbound links)")
-    if result.orphans:
-        for orphan in result.orphans:
-            lines.append(f"  - {_rel(orphan, root)}")
-    else:
-        lines.append("  None")
-    lines.append("")
-
-    # Missing Backlinks section (skip for targeted check)
-    if not targeted and result.missing_backlinks:
-        lines.append("## Missing Backlinks")
-        lines.append("  (A links to B, but B does not link back to A)")
-        for src, dst in result.missing_backlinks:
-            lines.append(f"  {_rel(src, root)} -> {_rel(dst, root)}")
-        lines.append("")
-
-    # Connected Clusters section (skip singletons and targeted check)
-    if not targeted and result.clusters:
-        lines.append("## Connected Clusters")
-        lines.append("  (Groups of documents connected by links)")
-        for i, cluster in enumerate(result.clusters, 1):
-            lines.append(f"  Cluster {i} ({len(cluster)} files):")
-            for member in cluster:
-                lines.append(f"    - {_rel(member, root)}")
-        lines.append("")
-
-    # Summary
-    lines.append("## Summary")
-    lines.append(f"  Total files: {len(result.nodes)}")
-    lines.append(f"  Total links: {len(result.edges)}")
-    lines.append(f"  Broken links: {len(result.broken_links)}")
-    lines.append(f"  Orphans: {len(result.orphans)}")
-    if not targeted:
-        lines.append(f"  Missing backlinks: {len(result.missing_backlinks)}")
-        lines.append(f"  Clusters: {len(result.clusters)}")
-
-    return "\n".join(lines)
+def _is_external_str(target: str) -> bool:
+    return any(target.startswith(prefix) for prefix in _EXTERNAL_PREFIXES)
 
 
 def _rel(path: Path, root: Path) -> str:
@@ -91,4 +23,186 @@ def _rel(path: Path, root: Path) -> str:
         return path.as_posix()
 
 
-__all__ = ["format_report"]
+@dataclass
+class _Child:
+    """One outbound link from a node."""
+
+    dst: Path | str  # Path for local, str for external or broken
+    kind: str  # "local" | "external" | "leaf" | "broken"
+    line: int
+
+
+def format_summary(result: AnalysisResult) -> str:
+    """Return compact single-line summary string."""
+    parts = [
+        f"{len(result.nodes)} files",
+        f"{len(result.edges)} links",
+        f"{result.external_count} external",
+        f"{len(result.broken_links)} broken",
+    ]
+    return "  ".join(parts)
+
+
+def format_root_summary(result: AnalysisResult, root: Path) -> str:
+    """Format output for bare 'meridian kg' command."""
+    lines = [
+        f"Knowledge Graph: {root.as_posix()}",
+        f"  {format_summary(result)}",
+        "",
+        "  meridian kg graph           Show link topology tree",
+        "  meridian kg graph --depth 5 Show tree 5 hops deep (default: 3)",
+        "  meridian kg check           Verify broken links, exit 1 if any found",
+    ]
+    return "\n".join(lines)
+
+
+def format_tree(
+    result: AnalysisResult,
+    root: Path,
+    *,
+    depth: int = 3,
+    show_external: bool = False,
+) -> str:
+    """Render link topology tree for kg graph command.
+
+    Args:
+        result: Analysis result from build_analysis().
+        root: Scan root directory for path relativization.
+        depth: Max link-hops to traverse from each tree root. Default 3.
+        show_external: If True, show external URLs as leaf nodes.
+    """
+    outbound: dict[Path, list[_Child]] = defaultdict(list)
+    inbound_count: dict[Path, int] = defaultdict(int)
+
+    for edge in result.edges:
+        dst = edge.dst
+        if isinstance(dst, str) and _is_external_str(dst):
+            if show_external:
+                outbound[edge.src].append(
+                    _Child(dst=dst, kind="external", line=edge.line)
+                )
+        elif isinstance(dst, Path) and dst in result.nodes:
+            outbound[edge.src].append(_Child(dst=dst, kind="local", line=edge.line))
+            inbound_count[dst] += 1
+        elif isinstance(dst, Path) and edge.resolved:
+            # Link target exists on disk but not in our scanned nodes
+            # (e.g., single-file mode). Show as leaf, not expandable.
+            outbound[edge.src].append(_Child(dst=dst, kind="leaf", line=edge.line))
+        else:
+            # Truly broken link
+            dst_str = str(dst)
+            outbound[edge.src].append(_Child(dst=dst_str, kind="broken", line=edge.line))
+
+    all_nodes = set(result.nodes.keys())
+
+    def local_out_count(node: Path) -> int:
+        return sum(1 for c in outbound[node] if c.kind == "local")
+
+    # Single-file mode: that file is the tree root
+    if len(all_nodes) == 1:
+        tree_roots = list(all_nodes)
+    else:
+        tree_roots = sorted(
+            node for node in all_nodes if inbound_count[node] == 0 and local_out_count(node) > 0
+        )
+
+    lines: list[str] = [f"root: {root.as_posix()}", ""]
+    shown: set[Path] = set()
+
+    for root_node in tree_roots:
+        lines.append(_rel(root_node, root))
+        shown.add(root_node)
+        if depth <= 0:
+            continue  # depth 0 = show roots only, no children
+        children = outbound[root_node]
+        for i, child in enumerate(children):
+            is_last = i == len(children) - 1
+            _render_child(child, is_last, "", depth - 1, shown, outbound, root, lines)
+
+    return "\n".join(lines)
+
+
+def _render_child(
+    child: _Child,
+    is_last: bool,
+    prefix: str,
+    depth_remaining: int,
+    shown: set[Path],
+    outbound: dict[Path, list[_Child]],
+    root: Path,
+    lines: list[str],
+) -> None:
+    """Recursively render one child node into lines."""
+    connector = "└──" if is_last else "├──"
+    child_prefix = prefix + ("    " if is_last else "│   ")
+
+    if child.kind == "external":
+        lines.append(f"{prefix}{connector} {child.dst}")
+        return
+
+    if child.kind == "broken":
+        lines.append(f"{prefix}{connector} {child.dst} (not found)")
+        return
+
+    if child.kind == "leaf":
+        # Exists but not in scanned nodes - show as leaf
+        assert isinstance(child.dst, Path)
+        lines.append(f"{prefix}{connector} {_rel(child.dst, root)}")
+        return
+
+    assert isinstance(child.dst, Path)
+    node = child.dst
+    label = _rel(node, root)
+
+    if node in shown:
+        lines.append(f"{prefix}{connector} {label} (already shown)")
+        return
+
+    if depth_remaining <= 0:
+        local_out = sum(1 for c in outbound[node] if c.kind == "local")
+        annotation = f" ({local_out} links hidden)" if local_out else ""
+        lines.append(f"{prefix}{connector} {label}{annotation}")
+        return
+
+    lines.append(f"{prefix}{connector} {label}")
+    shown.add(node)
+    grandchildren = outbound[node]
+    for i, grandchild in enumerate(grandchildren):
+        gc_is_last = i == len(grandchildren) - 1
+        _render_child(
+            grandchild,
+            gc_is_last,
+            child_prefix,
+            depth_remaining - 1,
+            shown,
+            outbound,
+            root,
+            lines,
+        )
+
+
+def format_check_output(result: AnalysisResult, root: Path) -> tuple[str, str]:
+    """Format output for kg check. Returns (stdout, stderr)."""
+    total_files = len(result.nodes)
+    total_links = len(result.edges)
+
+    if not result.broken_links:
+        return f"No broken links ({total_files} files, {total_links} links)", ""
+
+    stdout_lines: list[str] = []
+    for edge in result.broken_links:
+        src_rel = _rel(edge.src, root)
+        target_str = str(edge.dst) if isinstance(edge.dst, str) else _rel(edge.dst, root)
+        stdout_lines.append(f"  {src_rel}:{edge.line} -> {target_str} [{edge.kind}]")
+
+    stdout = "\n".join(stdout_lines)
+    stderr = f"{len(result.broken_links)} broken links ({total_files} files, {total_links} links)"
+    return stdout, stderr
+
+
+__all__ = [
+    "format_check_output",
+    "format_root_summary",
+    "format_summary",
+    "format_tree",
+]
