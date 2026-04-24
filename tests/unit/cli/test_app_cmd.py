@@ -119,6 +119,7 @@ def test_run_app_tcp_forwards_host_port_and_project_uuid(
         "host": "0.0.0.0",
         "port": 7676,
         "allow_unsafe_no_permissions": True,
+        "cors_origins": [],
     }
 
     assert fake_uvicorn.calls == [
