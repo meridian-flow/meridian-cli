@@ -119,8 +119,9 @@ def _validate_requested_model(
             message = f"{message}\n{validation_context}"
         raise ValueError(message) from None
 
-    if resolved.alias:
-        return str(resolved.model_id), None
+    resolved_id = str(resolved.model_id)
+    if resolved_id and resolved_id != normalized:
+        return resolved_id, None
     return normalized, None
 
 
