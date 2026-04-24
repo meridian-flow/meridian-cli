@@ -42,6 +42,8 @@ function toAssistantTurn(activity: ActivityBlockData): AssistantTurn {
 export function SpawnActivityView({ activity }: SpawnActivityViewProps) {
   const bottomRef = useRef<HTMLDivElement | null>(null)
 
+  // Single-turn view for one live spawn column. Test chat uses
+  // ConversationView to accumulate multiple user/assistant turns.
   const turns = useMemo(() => [toAssistantTurn(activity)], [activity])
 
   useEffect(() => {

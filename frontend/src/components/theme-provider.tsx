@@ -62,6 +62,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const root = document.documentElement
     root.classList.toggle("dark", resolved === "dark")
+    root.dataset.theme = resolved
   }, [resolved])
 
   const value = useMemo(

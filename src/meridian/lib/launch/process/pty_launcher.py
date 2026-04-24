@@ -6,22 +6,17 @@ import os
 import signal
 import struct
 import sys
-from contextlib import suppress
+from contextlib import ExitStack, suppress
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, BinaryIO, cast
 
 from meridian.lib.platform import IS_WINDOWS, fcntl, pty, select, termios, tty
 
 from .ports import ChildStartedHook, LaunchedProcess, ProcessLauncher
 
 
-def can_use_pty(*, output_log_path: Path | None) -> bool:
-    return (
-        not IS_WINDOWS
-        and output_log_path is not None
-        and sys.stdin.isatty()
-        and sys.stdout.isatty()
-    )
+def can_use_pty() -> bool:
+    return not IS_WINDOWS and sys.stdin.isatty() and sys.stdout.isatty()
 
 
 def _read_winsize(fd: int) -> bytes | None:
@@ -79,21 +74,24 @@ def _copy_primary_pty_output(
     *,
     child_pid: int,
     master_fd: int,
-    output_log_path: Path,
+    output_log_path: Path | None,
 ) -> int:
     stdin_fd = sys.stdin.fileno()
     stdout_fd = sys.stdout.fileno()
     stdin_open = True
     saved_tty_attrs: Any = None
 
-    output_log_path.parent.mkdir(parents=True, exist_ok=True)
     restore_resize = _install_winsize_forwarding(source_fd=stdout_fd, target_fd=master_fd)
     try:
         if os.isatty(stdin_fd):
             saved_tty_attrs = termios.tcgetattr(stdin_fd)
             tty.setraw(stdin_fd)
+        with ExitStack() as stack:
+            output_handle: BinaryIO | None = None
+            if output_log_path is not None:
+                output_log_path.parent.mkdir(parents=True, exist_ok=True)
+                output_handle = stack.enter_context(output_log_path.open("wb"))
 
-        with output_log_path.open("wb") as output_handle:
             while True:
                 fds = [master_fd]
                 if stdin_open:
@@ -107,8 +105,9 @@ def _copy_primary_pty_output(
                         chunk = b""
                     if not chunk:
                         break
-                    output_handle.write(chunk)
-                    output_handle.flush()
+                    if output_handle is not None:
+                        output_handle.write(chunk)
+                        output_handle.flush()
                     os.write(stdout_fd, chunk)
 
                 if stdin_open and stdin_fd in ready:
@@ -127,7 +126,7 @@ def _copy_primary_pty_output(
 
 
 class PtyProcessLauncher(ProcessLauncher):
-    """Unix PTY launcher with output capture."""
+    """Unix PTY launcher with optional output capture."""
 
     def launch(
         self,
@@ -140,8 +139,6 @@ class PtyProcessLauncher(ProcessLauncher):
     ) -> LaunchedProcess:
         if IS_WINDOWS:
             raise RuntimeError("PTY launcher is not available on Windows")
-        if output_log_path is None:
-            raise ValueError("output_log_path is required for PTY launching")
 
         master_fd, slave_fd = pty.openpty()
         _sync_pty_winsize(source_fd=sys.stdout.fileno(), target_fd=master_fd)
