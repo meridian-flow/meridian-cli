@@ -179,6 +179,18 @@ export class SpawnChannel {
   }
 
   private handleMessage(data: unknown): void {
+    // Handle transport-level keepalive before AG-UI event dispatch.
+    // Server sends {type:"keepalive"} every 30s; we must respond with {type:"pong"}
+    // within 90s or the connection is closed as stale.
+    if (
+      typeof data === "object" &&
+      data !== null &&
+      (data as { type?: string }).type === "keepalive"
+    ) {
+      this.client.send({ type: "pong" })
+      return
+    }
+
     if (!isStreamEvent(data)) {
       // Unknown frame shape — silently drop (or log in dev)
       if (import.meta.env.DEV) {
