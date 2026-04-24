@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, field_validator
 
 if TYPE_CHECKING:
     from meridian.lib.catalog.agent import AgentProfile
+    from meridian.lib.catalog.model_aliases import AliasEntry
     from meridian.lib.config.settings import MeridianConfig
     from meridian.lib.launch.types import LaunchRequest
     from meridian.lib.ops.spawn.models import SpawnCreateInput
@@ -156,6 +157,18 @@ class RuntimeOverrides(BaseModel):
             sandbox=_normalize_optional_string(profile.sandbox),
             approval=_normalize_optional_string(profile.approval),
             autocompact=profile.autocompact,
+        )
+
+    @classmethod
+    def from_alias_entry(cls, alias_entry: AliasEntry | None) -> RuntimeOverrides:
+        if alias_entry is None:
+            return cls()
+        normalized_effort = _normalize_optional_string(alias_entry.default_effort)
+        if normalized_effort == "auto":
+            normalized_effort = None
+        return cls(
+            effort=normalized_effort,
+            autocompact=alias_entry.default_autocompact,
         )
 
     @classmethod

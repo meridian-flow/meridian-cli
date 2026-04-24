@@ -10,12 +10,12 @@ from meridian.lib.harness.launch_spec import CodexLaunchSpec
 from meridian.lib.harness.projections._guards import (
     check_projection_drift as _check_projection_drift,
 )
+from meridian.lib.harness.projections.project_codex_common import (
+    map_codex_approval_policy,
+    map_codex_sandbox_mode,
+    project_codex_mcp_config_flags,
+)
 from meridian.lib.launch.launch_types import PermissionResolver
-
-
-class HarnessCapabilityMismatch(ValueError):
-    """Raised when requested launch semantics cannot be represented on Codex."""
-
 
 _PROJECTED_FIELDS: frozenset[str] = frozenset(
     {
@@ -33,52 +33,6 @@ _PROJECTED_FIELDS: frozenset[str] = frozenset(
 )
 
 _DELEGATED_FIELDS: frozenset[str] = frozenset()
-
-_APPROVAL_POLICY_BY_MODE: dict[str, str | None] = {
-    "default": None,
-    "auto": "on-request",
-    "confirm": "untrusted",
-    "yolo": "never",
-}
-
-_SANDBOX_MODE_BY_MODE: dict[str, str | None] = {
-    "default": None,
-    "read-only": "read-only",
-    "workspace-write": "workspace-write",
-    "danger-full-access": "danger-full-access",
-}
-def map_codex_approval_policy(approval_mode: str) -> str | None:
-    """Map Meridian approval mode to Codex approval policy."""
-
-    if approval_mode not in _APPROVAL_POLICY_BY_MODE:
-        raise HarnessCapabilityMismatch(
-            "Codex cannot express requested approval mode "
-            f"'{approval_mode}' on this CLI/protocol version"
-        )
-    mapped = _APPROVAL_POLICY_BY_MODE[approval_mode]
-    if mapped is None and approval_mode != "default":
-        raise HarnessCapabilityMismatch(
-            "Codex cannot express requested approval mode "
-            f"'{approval_mode}' on this CLI/protocol version"
-        )
-    return mapped
-
-
-def map_codex_sandbox_mode(sandbox_mode: str) -> str | None:
-    """Map Meridian sandbox mode to Codex sandbox mode."""
-
-    if sandbox_mode not in _SANDBOX_MODE_BY_MODE:
-        raise HarnessCapabilityMismatch(
-            "Codex cannot express requested sandbox mode "
-            f"'{sandbox_mode}' on this CLI/protocol version"
-        )
-    mapped = _SANDBOX_MODE_BY_MODE[sandbox_mode]
-    if mapped is None and sandbox_mode != "default":
-        raise HarnessCapabilityMismatch(
-            "Codex cannot express requested sandbox mode "
-            f"'{sandbox_mode}' on this CLI/protocol version"
-        )
-    return mapped
 
 
 def _coerce_permission_flags(raw: object) -> tuple[str, ...]:
@@ -142,29 +96,6 @@ def project_codex_permission_flags(permission_resolver: PermissionResolver) -> t
     return tuple(flags)
 
 
-def project_codex_mcp_config_flags(mcp_tools: Iterable[str]) -> tuple[str, ...]:
-    """Project ``mcp_tools`` to Codex ``-c mcp.servers.*.command=...`` flags."""
-
-    projected: list[str] = []
-    for raw_entry in mcp_tools:
-        entry = raw_entry.strip()
-        if not entry:
-            continue
-        name, separator, command = entry.partition("=")
-        if not separator or not name.strip() or not command.strip():
-            raise ValueError(
-                "Codex mcp_tools entries must be '<name>=<command>'; "
-                f"got {raw_entry!r}"
-            )
-        projected.extend(
-            (
-                "-c",
-                f"mcp.servers.{name.strip()}.command={json.dumps(command.strip())}",
-            )
-        )
-    return tuple(projected)
-
-
 def project_codex_spec_to_cli_args(
     spec: CodexLaunchSpec,
     *,
@@ -216,11 +147,7 @@ _check_projection_drift(
 __all__ = [
     "_DELEGATED_FIELDS",
     "_PROJECTED_FIELDS",
-    "HarnessCapabilityMismatch",
     "_check_projection_drift",
-    "map_codex_approval_policy",
-    "map_codex_sandbox_mode",
-    "project_codex_mcp_config_flags",
     "project_codex_permission_flags",
     "project_codex_spec_to_cli_args",
 ]

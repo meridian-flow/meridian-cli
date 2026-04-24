@@ -857,18 +857,13 @@ def build_launch_context(
     spec = resolve_launch_spec_stage(adapter=harness, run_inputs=run_params, perms=perms)
     override = (runtime.harness_command_override or "").strip()
     argv: tuple[str, ...] = ()
-    if not override:
-        try:
-            argv = build_launch_argv(
-                adapter=harness,
-                run_inputs=run_params,
-                perms=perms,
-                projected_spec=spec,
-            )
-        except Exception:
-            # Streaming/app callers launch from typed specs, not subprocess argv.
-            if runtime.argv_intent != LaunchArgvIntent.SPEC_ONLY:
-                raise
+    if not override and runtime.argv_intent != LaunchArgvIntent.SPEC_ONLY:
+        argv = build_launch_argv(
+            adapter=harness,
+            run_inputs=run_params,
+            perms=perms,
+            projected_spec=spec,
+        )
 
     runtime_ctx = ChildEnvContext.from_environment(
         project_paths=project_paths,

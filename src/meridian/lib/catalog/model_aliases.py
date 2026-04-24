@@ -34,6 +34,8 @@ class AliasEntry(BaseModel):
     model_id: ModelId
     resolved_harness: HarnessId | None = Field(default=None, exclude=True)
     description: str | None = Field(default=None, exclude=True)
+    default_effort: str | None = Field(default=None, exclude=True)
+    default_autocompact: int | None = Field(default=None, exclude=True)
 
     @property
     def harness(self) -> HarnessId:
@@ -59,6 +61,8 @@ def entry(
     model_id: str,
     harness: str | None = None,
     description: str | None = None,
+    default_effort: str | None = None,
+    default_autocompact: int | None = None,
 ) -> AliasEntry:
     resolved_harness: HarnessId | None = None
     if harness:
@@ -69,7 +73,34 @@ def entry(
         model_id=ModelId(model_id),
         resolved_harness=resolved_harness,
         description=description,
+        default_effort=default_effort,
+        default_autocompact=default_autocompact,
     )
+
+
+def _coerce_optional_string(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
+def _coerce_optional_int(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value) if value.is_integer() else None
+    if isinstance(value, str):
+        normalized = value.strip()
+        if not normalized:
+            return None
+        try:
+            return int(normalized)
+        except ValueError:
+            return None
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -299,6 +330,8 @@ def _mars_list_to_entries(aliases_list: list[dict[str, object]]) -> list[AliasEn
         resolved_model = item.get("model_id") or item.get("resolved_model")
         harness = item.get("harness")
         description = item.get("description")
+        default_effort = item.get("default_effort")
+        default_autocompact = item.get("autocompact")
 
         # Skip aliases that didn't resolve to a concrete model ID
         if not isinstance(resolved_model, str) or not resolved_model.strip():
@@ -309,6 +342,8 @@ def _mars_list_to_entries(aliases_list: list[dict[str, object]]) -> list[AliasEn
             model_id=resolved_model.strip(),
             harness=str(harness) if isinstance(harness, str) else None,
             description=str(description) if isinstance(description, str) else None,
+            default_effort=_coerce_optional_string(default_effort),
+            default_autocompact=_coerce_optional_int(default_autocompact),
         ))
 
     return entries
@@ -332,11 +367,15 @@ def _mars_merged_to_entries(merged: dict[str, object]) -> list[AliasEntry]:
         if isinstance(model_id, str) and model_id.strip():
             harness = typed_data.get("harness")
             description = typed_data.get("description")
+            default_effort = typed_data.get("default_effort")
+            default_autocompact = typed_data.get("autocompact")
             entries.append(entry(
                 alias=alias_name,
                 model_id=model_id.strip(),
                 harness=str(harness) if isinstance(harness, str) else None,
                 description=str(description) if isinstance(description, str) else None,
+                default_effort=_coerce_optional_string(default_effort),
+                default_autocompact=_coerce_optional_int(default_autocompact),
             ))
         # Auto-resolve aliases without the cache can't be resolved here
         # — they need mars models list which runs auto-resolve against the cache

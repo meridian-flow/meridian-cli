@@ -11,12 +11,9 @@ from meridian.lib.harness.projections._guards import (
     check_projection_drift as _check_projection_drift,
 )
 from meridian.lib.harness.projections.permission_flags import resolve_permission_flags
+from meridian.lib.harness.projections.projection_errors import HarnessCapabilityMismatch
 
 logger = logging.getLogger(__name__)
-
-
-class HarnessCapabilityMismatch(ValueError):
-    """Raised when requested launch semantics cannot be represented on OpenCode."""
 
 
 _PROJECTED_FIELDS: frozenset[str] = frozenset(

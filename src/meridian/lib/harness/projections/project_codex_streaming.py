@@ -9,7 +9,7 @@ from meridian.lib.harness.launch_spec import CodexLaunchSpec
 from meridian.lib.harness.projections._guards import (
     check_projection_drift as _check_projection_drift,
 )
-from meridian.lib.harness.projections.project_codex_subprocess import (
+from meridian.lib.harness.projections.project_codex_common import (
     HarnessCapabilityMismatch,
     map_codex_approval_policy,
     map_codex_sandbox_mode,

@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Literal
 
 from meridian.lib.catalog.agent import scan_agent_profiles
+from meridian.lib.catalog.model_aliases import AliasEntry
+from meridian.lib.catalog.models import load_merged_aliases
 from meridian.lib.catalog.skill import SkillRegistry
 from meridian.lib.core.domain import SkillContent
 from meridian.lib.launch.reference import (
@@ -156,6 +158,28 @@ def compose_skill_injections(skills: Sequence[SkillContent]) -> str | None:
     return _join_sections(blocks)
 
 
+def _dedupe_fan_out_aliases(
+    alias_keys: Sequence[str],
+    alias_catalog: Mapping[str, AliasEntry],
+) -> list[str]:
+    """Deduplicate alias keys by resolved model id while preserving profile order."""
+
+    deduped: list[str] = []
+    seen_model_ids: set[str] = set()
+    for alias_key in alias_keys:
+        catalog_entry = alias_catalog.get(alias_key)
+        if catalog_entry is None:
+            # Unknown aliases are shown verbatim and are exempt from deduplication.
+            deduped.append(alias_key)
+            continue
+        model_id = str(catalog_entry.model_id)
+        if model_id in seen_model_ids:
+            continue
+        seen_model_ids.add(model_id)
+        deduped.append(alias_key)
+    return deduped
+
+
 def build_agent_inventory_prompt(*, project_root: Path) -> str | None:
     """Render installed agent inventory for launch system context."""
 
@@ -166,6 +190,12 @@ def build_agent_inventory_prompt(*, project_root: Path) -> str | None:
     if not agents:
         return None
 
+    alias_catalog = {
+        alias.alias: alias
+        for alias in load_merged_aliases(project_root=project_root)
+        if alias.alias.strip()
+    }
+
     lines = [
         "# Meridian Agents",
         "",
@@ -175,10 +205,20 @@ def build_agent_inventory_prompt(*, project_root: Path) -> str | None:
     lines.extend(["", "AGENTS"])
     for agent in agents:
         description = agent.description.strip()
-        if description:
-            lines.append(f"- {agent.name}: {description}")
-        else:
-            lines.append(f"- {agent.name}")
+        suffix_parts: list[str] = []
+        if agent.model:
+            suffix_parts.append(f"Model: {agent.model}")
+        if agent.models:
+            fan_out_aliases = _dedupe_fan_out_aliases(
+                list(agent.models.keys()),
+                alias_catalog,
+            )
+            if fan_out_aliases:
+                suffix_parts.append(f"Fan-out: {', '.join(fan_out_aliases)}")
+        line = f"- {agent.name}: {description}" if description else f"- {agent.name}"
+        if suffix_parts:
+            line = f"{line} | {' | '.join(suffix_parts)}"
+        lines.append(line)
 
     return "\n".join(lines).strip()
 

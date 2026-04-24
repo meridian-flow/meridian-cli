@@ -8,9 +8,7 @@ from meridian.lib.harness.launch_spec import OpenCodeLaunchSpec
 from meridian.lib.harness.projections._guards import (
     check_projection_drift as _check_projection_drift,
 )
-from meridian.lib.harness.projections.project_opencode_subprocess import (
-    HarnessCapabilityMismatch,
-)
+from meridian.lib.harness.projections.projection_errors import HarnessCapabilityMismatch
 from meridian.lib.launch.constants import BASE_COMMAND_OPENCODE_STREAMING
 
 logger = logging.getLogger(__name__)

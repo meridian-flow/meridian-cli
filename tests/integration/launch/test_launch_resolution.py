@@ -48,7 +48,7 @@ def _write_minimal_mars_config(project_root: Path) -> None:
             "Spawn helper",
         ),
         (
-            "opencode-gpt-5.3-codex",
+            "gemini-2.5-pro",
             "smoke-tester",
             "claude-sonnet-4",
             "verification",
@@ -241,7 +241,7 @@ def test_opencode_workspace_projection_handles_parent_env_suppression(
         spawn_id="dry-run-opencode-workspace-suppressed",
         request=SpawnRequest(
             prompt="workspace projection",
-            model="opencode-gpt-5.3-codex",
+            model="gemini-2.5-pro",
             harness="opencode",
         ),
         runtime=LaunchRuntime(
@@ -284,7 +284,7 @@ def test_spawn_prepare_opencode_keeps_all_references_inline(
         request=SpawnRequest(
             prompt="task prompt",
             prompt_is_composed=False,
-            model="opencode-gpt-5.3-codex",
+            model="gemini-2.5-pro",
             harness="opencode",
             reference_files=(file_ref.as_posix(), dir_ref.as_posix()),
         ),
@@ -330,7 +330,7 @@ def test_spawn_prepare_opencode_keeps_all_references_inline(
     ("harness", "model"),
     [
         ("codex", "gpt-5.4"),
-        ("opencode", "opencode-gpt-5.3-codex"),
+        ("opencode", "gemini-2.5-pro"),
     ],
 )
 def test_spawn_prepare_non_claude_includes_agent_inventory_inline(

@@ -1,27 +1,59 @@
 """Agent profile parser for `.agents/agents/*.md`."""
 
 import logging
+from collections.abc import Mapping
 from pathlib import Path
 from typing import cast
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from meridian.lib.catalog.skill import files_have_equal_text, split_markdown_frontmatter
 from meridian.lib.config.settings import resolve_project_root
 from meridian.lib.core.overrides import (
     KNOWN_APPROVAL_VALUES,
     KNOWN_EFFORT_VALUES,
+    RuntimeOverrides,
 )
 
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
 
-_AUTOCOMPACT_PCT_MIN = 1
-_AUTOCOMPACT_PCT_MAX = 100
-
 # Re-export under private names for backward compatibility within this module.
 _KNOWN_EFFORT_VALUES = KNOWN_EFFORT_VALUES
 _KNOWN_APPROVAL_VALUES = KNOWN_APPROVAL_VALUES
+
+
+class AgentModelEntry(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="ignore", populate_by_name=True)
+
+    effort: str | None = None
+    autocompact: int | None = None
+
+    @field_validator("effort")
+    @classmethod
+    def _validate_effort(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if normalized not in _KNOWN_EFFORT_VALUES:
+            raise ValueError(
+                f"expected one of {sorted(_KNOWN_EFFORT_VALUES)}"
+            )
+        return normalized
+
+    @field_validator("autocompact", mode="before")
+    @classmethod
+    def _reject_bool_autocompact(cls, value: object) -> object:
+        if isinstance(value, bool):
+            raise ValueError("autocompact must be an integer, not a boolean")
+        return value
+
+    @field_validator("autocompact")
+    @classmethod
+    def _validate_autocompact(cls, value: int | None) -> int | None:
+        if value is None:
+            return None
+        return RuntimeOverrides(autocompact=value).autocompact
 
 
 class AgentProfile(BaseModel):
@@ -41,6 +73,7 @@ class AgentProfile(BaseModel):
     effort: str | None
     approval: str | None = None
     autocompact: int | None = None
+    models: Mapping[str, AgentModelEntry] = Field(default_factory=dict)
     body: str
     path: Path
     raw_content: str
@@ -70,6 +103,47 @@ def _normalize_deduplicated(value: object) -> tuple[str, ...]:
     return tuple(result)
 
 
+def _parse_model_overrides(
+    raw_models: object,
+    *,
+    profile_name: str,
+) -> dict[str, AgentModelEntry]:
+    if raw_models is None:
+        return {}
+    if not isinstance(raw_models, Mapping):
+        logger.warning(
+            "Agent profile '%s' has invalid models field: expected mapping.",
+            profile_name,
+        )
+        return {}
+
+    parsed: dict[str, AgentModelEntry] = {}
+    for raw_key, raw_value in cast("Mapping[object, object]", raw_models).items():
+        key = str(raw_key).strip()
+        if not key:
+            logger.warning(
+                "Agent profile '%s' has empty models key; entry ignored.",
+                profile_name,
+            )
+            continue
+        if not isinstance(raw_value, Mapping):
+            logger.warning(
+                "Agent profile '%s' has invalid models entry for '%s': expected mapping.",
+                profile_name,
+                key,
+            )
+            continue
+        try:
+            parsed[key] = AgentModelEntry.model_validate(raw_value)
+        except ValidationError:
+            logger.warning(
+                "Agent profile '%s' has invalid models entry for '%s'; entry ignored.",
+                profile_name,
+                key,
+            )
+    return parsed
+
+
 def parse_agent_profile(path: Path) -> AgentProfile:
     """Parse a single markdown agent profile file."""
 
@@ -84,6 +158,7 @@ def parse_agent_profile(path: Path) -> AgentProfile:
     effort_value = frontmatter.get("effort")
     approval_value = frontmatter.get("approval")
     autocompact_value = frontmatter.get("autocompact")
+    models_value = frontmatter.get("models")
 
     profile_name = str(name_value).strip() if name_value is not None else path.stem
     sandbox = str(sandbox_value).strip() if sandbox_value is not None else None
@@ -115,17 +190,18 @@ def parse_agent_profile(path: Path) -> AgentProfile:
                 autocompact_value,
             )
             autocompact = None
-        if autocompact is not None and not (
-            _AUTOCOMPACT_PCT_MIN <= autocompact <= _AUTOCOMPACT_PCT_MAX
-        ):
-            logger.warning(
-                "Agent profile '%s' has autocompact %d outside valid range %d-%d.",
-                profile_name,
-                autocompact,
-                _AUTOCOMPACT_PCT_MIN,
-                _AUTOCOMPACT_PCT_MAX,
-            )
-            autocompact = None
+        if autocompact is not None:
+            try:
+                autocompact = RuntimeOverrides(autocompact=autocompact).autocompact
+            except ValueError:
+                logger.warning(
+                    "Agent profile '%s' has autocompact %d outside valid range.",
+                    profile_name,
+                    autocompact,
+                )
+                autocompact = None
+
+    models = _parse_model_overrides(models_value, profile_name=profile_name)
 
     return AgentProfile(
         name=profile_name,
@@ -140,6 +216,7 @@ def parse_agent_profile(path: Path) -> AgentProfile:
         effort=effort,
         approval=approval,
         autocompact=autocompact,
+        models=models,
         body=body,
         path=path.resolve(),
         raw_content=markdown,

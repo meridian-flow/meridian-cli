@@ -9,13 +9,13 @@ from meridian.lib.core.types import HarnessId, SpawnId
 from meridian.lib.harness.connections import codex_ws
 from meridian.lib.harness.connections.base import ConnectionConfig
 from meridian.lib.harness.launch_spec import CodexLaunchSpec
+from meridian.lib.harness.projections.project_codex_common import (
+    HarnessCapabilityMismatch,
+    map_codex_approval_policy,
+)
 from meridian.lib.harness.projections.project_codex_streaming import (
     project_codex_spec_to_appserver_command,
     project_codex_spec_to_thread_request,
-)
-from meridian.lib.harness.projections.project_codex_subprocess import (
-    HarnessCapabilityMismatch,
-    map_codex_approval_policy,
 )
 from meridian.lib.safety.permissions import (
     PermissionConfig,

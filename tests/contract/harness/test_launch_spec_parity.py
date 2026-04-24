@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from meridian.lib.harness.projections.project_codex_subprocess import (
+from meridian.lib.harness.projections.project_codex_common import (
     HarnessCapabilityMismatch,
     map_codex_approval_policy,
 )

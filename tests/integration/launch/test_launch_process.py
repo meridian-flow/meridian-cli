@@ -324,7 +324,7 @@ def test_run_harness_process_writes_inline_primary_projection_manifest(
 
     cases = (
         (HarnessId.CODEX, "gpt-5.4"),
-        (HarnessId.OPENCODE, "opencode-gpt-5.3-codex"),
+        (HarnessId.OPENCODE, "gemini-2.5-pro"),
     )
 
     for harness_id, model in cases:
@@ -553,7 +553,7 @@ def test_run_harness_process_opencode_primary_routes_to_managed_path(
     launch_context, harness_registry = _build_primary_launch_context(
         project_root=project_root,
         harness_id=HarnessId.OPENCODE,
-        model="opencode-gpt-5.3-codex",
+        model="gemini-2.5-pro",
     )
     opencode_adapter = harness_registry.get_subprocess_harness(HarnessId.OPENCODE)
     captured: dict[str, object] = {}
@@ -632,7 +632,7 @@ def test_run_harness_process_opencode_fork_uses_black_box_path(
     launch_context, harness_registry = _build_primary_launch_context(
         project_root=project_root,
         harness_id=HarnessId.OPENCODE,
-        model="opencode-gpt-5.3-codex",
+        model="gemini-2.5-pro",
         session=SessionRequest(
             requested_harness_session_id="source-session",
             continue_chat_id="c17",
