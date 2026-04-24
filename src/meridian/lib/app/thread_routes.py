@@ -10,7 +10,7 @@ All data is read from persisted artifacts so these routes work for completed
 sessions without requiring an active WebSocket connection.
 
 Event IDs and tool-call IDs are encoded as ``{spawn_id}:{line_index}`` —
-stable across restarts because ``output.jsonl`` is append-only.
+stable across restarts because the spawn event log artifact is append-only.
 """
 
 from __future__ import annotations

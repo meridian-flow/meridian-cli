@@ -25,6 +25,7 @@ from meridian.lib.ops.runtime import (
 )
 from meridian.lib.ops.spawn.query import read_spawn_row
 from meridian.lib.state import session_store, spawn_store
+from meridian.lib.state.paths import spawn_output_path
 from meridian.lib.state.primary_meta import (
     is_managed_primary,
     read_primary_harness_session_id,
@@ -528,7 +529,7 @@ def _detect_primary_harness_session_id(
 
 
 def _spawn_output_path(runtime_root: Path, spawn_id: str, *, live_first: bool) -> Path | None:
-    live_path = runtime_root / "spawns" / spawn_id / OUTPUT_FILENAME
+    live_path = spawn_output_path(runtime_root, spawn_id)
     artifact_path = runtime_root / "artifacts" / spawn_id / OUTPUT_FILENAME
     candidates = (live_path, artifact_path) if live_first else (artifact_path, live_path)
     for candidate in candidates:

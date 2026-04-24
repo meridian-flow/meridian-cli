@@ -20,6 +20,7 @@ from meridian.lib.harness.registry import get_default_harness_registry
 from meridian.lib.launch.context import build_launch_context
 from meridian.lib.launch.request import LaunchArgvIntent, LaunchRuntime, SpawnRequest
 from meridian.lib.ops.runtime import resolve_runtime_root, resolve_runtime_root_and_config
+from meridian.lib.state.paths import spawn_output_path
 from meridian.lib.state.user_paths import get_or_create_project_uuid
 from meridian.lib.streaming.drain_policy import PersistentDrainPolicy
 from meridian.lib.streaming.spawn_manager import SpawnManager
@@ -214,7 +215,7 @@ def run_test_chat(
             "harness": harness_id.value,
             "model": normalized_model or "unknown",
             "chat_id": chat_id,
-            "session_log_path": str(runtime_root / "spawns" / str(spawn_id) / "output.jsonl"),
+            "session_log_path": str(spawn_output_path(runtime_root, spawn_id)),
             "capabilities_url": f"/api/spawns/{spawn_id}/ws",
         }
         finalize_task = asyncio.create_task(finalize_spawn_when_done(spawn_id))

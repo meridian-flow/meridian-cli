@@ -21,6 +21,7 @@ from meridian.lib.harness.errors import HarnessBinaryNotFound
 from meridian.lib.launch.launch_types import ResolvedLaunchSpec
 from meridian.lib.state import spawn_store
 from meridian.lib.state.atomic import append_text_line
+from meridian.lib.state.paths import spawn_output_path
 from meridian.lib.streaming.control_socket import ControlSocketServer
 from meridian.lib.streaming.drain_policy import (
     TURN_BOUNDARY_EVENT_TYPE,
@@ -693,7 +694,7 @@ class SpawnManager:
         return self._runtime_root / "spawns" / str(spawn_id)
 
     def _output_log_path(self, spawn_id: SpawnId) -> Path:
-        return self._spawn_dir(spawn_id) / "output.jsonl"
+        return spawn_output_path(self._runtime_root, spawn_id)
 
     def _inbound_log_path(self, spawn_id: SpawnId) -> Path:
         return self._spawn_dir(spawn_id) / "inbound.jsonl"

@@ -17,6 +17,7 @@ from typing import cast
 from meridian.lib.core.domain import TokenUsage
 from meridian.lib.core.types import SpawnId
 from meridian.lib.harness.common import extract_usage_from_artifacts, unwrap_event_payload
+from meridian.lib.launch.constants import OUTPUT_FILENAME
 from meridian.lib.state.artifact_store import LocalStore
 
 _SEP = ":"
@@ -58,7 +59,7 @@ def read_raw_output_lines(artifact_root: Path, spawn_id: str) -> list[dict[str, 
     Lines that fail JSON parsing are silently skipped — they may be partial
     writes from a still-running process.
     """
-    output_path = artifact_root / spawn_id / "output.jsonl"
+    output_path = artifact_root / spawn_id / OUTPUT_FILENAME
     if not output_path.is_file():
         return []
     lines: list[dict[str, object]] = []

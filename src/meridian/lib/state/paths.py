@@ -448,6 +448,16 @@ def heartbeat_path(runtime_root: Path, spawn_id: SpawnId | str) -> Path:
     return RuntimePaths.from_root_dir(runtime_root).spawns_dir / str(spawn_id) / "heartbeat"
 
 
+def spawn_output_path(runtime_root: Path, spawn_id: SpawnId | str) -> Path:
+    """Return output.jsonl path for a spawn (current behavior)."""
+
+    from meridian.lib.launch.constants import OUTPUT_FILENAME
+
+    return (
+        RuntimePaths.from_root_dir(runtime_root).spawns_dir / str(spawn_id) / OUTPUT_FILENAME
+    )
+
+
 def ensure_gitignore(project_root: Path) -> Path:
     """Seed `.meridian/.gitignore` and non-destructively add required tracked entries."""
 

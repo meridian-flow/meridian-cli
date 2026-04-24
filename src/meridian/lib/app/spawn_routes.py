@@ -33,6 +33,7 @@ from meridian.lib.spawn.archive import (
     read_archived_spawns,
 )
 from meridian.lib.state import spawn_store
+from meridian.lib.state.paths import spawn_output_path
 from meridian.lib.streaming.signal_canceller import SignalCanceller
 from meridian.lib.streaming.spawn_manager import SpawnManager
 
@@ -675,7 +676,7 @@ def register_spawn_query_routes(
         if record is None:
             raise http_exception(status_code=404, detail="spawn not found")
 
-        output_path = runtime_root / "spawns" / str(typed_spawn_id) / "output.jsonl"
+        output_path = spawn_output_path(runtime_root, typed_spawn_id)
         if not output_path.exists():
             return []
 

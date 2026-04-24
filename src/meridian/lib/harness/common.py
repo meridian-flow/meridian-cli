@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict
 from meridian.lib.core.domain import TokenUsage
 from meridian.lib.core.types import ArtifactKey, SpawnId
 from meridian.lib.harness.adapter import ArtifactStore, StreamEvent
+from meridian.lib.launch.constants import OUTPUT_FILENAME
 
 # ---------------------------------------------------------------------------
 # Shared helpers (from _common.py)
@@ -336,7 +337,7 @@ def _extract_text(value: object) -> str:
 
 def extract_codex_report(artifacts: ArtifactStore, spawn_id: SpawnId) -> str | None:
     last_message: str | None = None
-    for payload in _iter_json_lines_artifact(artifacts, spawn_id, "output.jsonl"):
+    for payload in _iter_json_lines_artifact(artifacts, spawn_id, OUTPUT_FILENAME):
         event_type = (
             str(payload.get("event_type", payload.get("event", payload.get("type", ""))))
             .strip()
@@ -376,7 +377,7 @@ def extract_claude_report(artifacts: ArtifactStore, spawn_id: SpawnId) -> str | 
     result_text: str | None = None
     assistant_text: str | None = None
 
-    for payload in _iter_json_lines_artifact(artifacts, spawn_id, "output.jsonl"):
+    for payload in _iter_json_lines_artifact(artifacts, spawn_id, OUTPUT_FILENAME):
         event_type = str(payload.get("type", payload.get("event", ""))).strip().lower()
         if event_type == "result":
             candidate = _extract_text(payload.get("result"))
@@ -394,7 +395,7 @@ def extract_claude_report(artifacts: ArtifactStore, spawn_id: SpawnId) -> str | 
 
 def extract_opencode_report(artifacts: ArtifactStore, spawn_id: SpawnId) -> str | None:
     last_message: str | None = None
-    for payload in _iter_json_lines_artifact(artifacts, spawn_id, "output.jsonl"):
+    for payload in _iter_json_lines_artifact(artifacts, spawn_id, OUTPUT_FILENAME):
         event_type = str(payload.get("type", payload.get("event", ""))).strip().lower()
         if event_type != "assistant":
             continue
@@ -414,7 +415,7 @@ def extract_usage_from_artifacts(artifacts: ArtifactStore, spawn_id: SpawnId) ->
         for nested in iter_nested_dicts(payload):
             candidates.append(_candidate_from_payload(nested))
 
-    for payload in _iter_json_lines_artifact(artifacts, spawn_id, "output.jsonl"):
+    for payload in _iter_json_lines_artifact(artifacts, spawn_id, OUTPUT_FILENAME):
         for nested in iter_nested_dicts(payload):
             candidates.append(_candidate_from_payload(nested))
 
@@ -455,12 +456,12 @@ def extract_session_id_from_artifacts_with_patterns(
         if session_id:
             return session_id
 
-    output_key = ArtifactKey(f"{spawn_id}/output.jsonl")
+    output_key = ArtifactKey(f"{spawn_id}/{OUTPUT_FILENAME}")
     if not artifacts.exists(output_key):
         return None
 
     raw_output = artifacts.get(output_key).decode("utf-8", errors="ignore")
-    for payload in _iter_json_lines_artifact(artifacts, spawn_id, "output.jsonl"):
+    for payload in _iter_json_lines_artifact(artifacts, spawn_id, OUTPUT_FILENAME):
         for nested in iter_nested_dicts(payload):
             for key_name in json_keys:
                 value = nested.get(key_name)

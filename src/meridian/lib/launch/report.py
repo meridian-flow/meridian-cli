@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.core.types import SpawnId
 from meridian.lib.harness.adapter import SpawnExtractor
+from meridian.lib.launch.constants import OUTPUT_FILENAME
 from meridian.lib.state.artifact_store import ArtifactStore
 
 from .artifact_io import read_artifact_text
@@ -163,7 +164,7 @@ def extract_or_fallback_report(
             if adapted_text and not _is_terminal_control_frame(adapted_text):
                 return ExtractedReport(content=adapted_text, source="assistant_message")
 
-    output_lines = read_artifact_text(artifacts, spawn_id, "output.jsonl")
+    output_lines = read_artifact_text(artifacts, spawn_id, OUTPUT_FILENAME)
     assistant_message = _extract_last_assistant_message(output_lines)
     assistant_report = assistant_message.strip() if assistant_message else ""
     if not assistant_report or _is_terminal_control_frame(assistant_report):

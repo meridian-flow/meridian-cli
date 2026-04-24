@@ -44,6 +44,7 @@ from meridian.lib.launch.composition import (
 )
 from meridian.lib.launch.constants import (
     BASE_COMMAND_CLAUDE_SUBPROCESS,
+    OUTPUT_FILENAME,
     PRIMARY_BASE_COMMAND_CLAUDE,
 )
 from meridian.lib.launch.launch_types import PreflightResult
@@ -183,7 +184,7 @@ def _read_artifact_text(artifacts: ArtifactStore, spawn_id: SpawnId, name: str) 
 
 
 def _read_output_payloads(artifacts: ArtifactStore, spawn_id: SpawnId) -> list[dict[str, object]]:
-    raw_output = _read_artifact_text(artifacts, spawn_id, "output.jsonl")
+    raw_output = _read_artifact_text(artifacts, spawn_id, OUTPUT_FILENAME)
     payloads: list[dict[str, object]] = []
     for line in raw_output.splitlines():
         stripped = line.strip()

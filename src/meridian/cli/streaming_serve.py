@@ -14,6 +14,7 @@ from meridian.lib.launch.context import build_launch_context
 from meridian.lib.launch.request import LaunchArgvIntent, LaunchRuntime, SpawnRequest
 from meridian.lib.launch.streaming_runner import run_streaming_spawn, signal_coordinator
 from meridian.lib.ops.runtime import resolve_runtime_root, resolve_runtime_root_and_config
+from meridian.lib.state.paths import spawn_output_path
 
 
 async def streaming_serve(
@@ -100,7 +101,7 @@ async def streaming_serve(
         harness_registry=get_default_harness_registry(),
     )
 
-    output_path = runtime_root / "spawns" / str(spawn_id) / "output.jsonl"
+    output_path = spawn_output_path(runtime_root, spawn_id)
     socket_path = runtime_root / "spawns" / str(spawn_id) / "control.sock"
 
     print(f"Started spawn {spawn_id} (harness={harness_id.value})")
