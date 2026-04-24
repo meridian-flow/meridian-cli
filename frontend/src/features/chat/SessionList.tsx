@@ -117,7 +117,7 @@ export function SessionList({ className, dataOverride }: SessionListProps) {
   const selectedChatId = dataOverride?.selectedChatId ?? chat.selectedChat?.chatId ?? null
   const handleSelectChat = dataOverride?.onSelectChat ?? (
     (chatId: string, state: string, activeSpawnId?: string | null) => {
-      chat.selectChat(chatId, state as ChatStateValue, activeSpawnId)
+      chat.selectChat(chatId, state as ChatStateValue, { activeSpawnId })
     }
   )
   const handleSelectSpawn = dataOverride?.onSelectSpawn ?? chat.openSpawn

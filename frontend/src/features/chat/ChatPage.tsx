@@ -110,9 +110,9 @@ function ChatPageContent({
 
   const columnCount = columnState.columns.length
   const hasChatSelected = selectedChat !== null
-  // Show chat thread view when a chat is selected and no columns are open,
-  // OR when no columns are open and no chat is selected (show new-chat prompt).
-  const showThreadView = hasChatSelected && columnCount === 0
+  // Show chat thread view whenever a chat is selected. Columns render
+  // independently below in a split layout when present.
+  const showThreadView = hasChatSelected
 
   return (
     <div
@@ -143,7 +143,37 @@ function ChatPageContent({
         />
 
         {showThreadView ? (
-          <ChatThreadView chatId={selectedChat.chatId} />
+          <div
+            className={cn(
+              "flex min-h-0 flex-1",
+              columnCount > 0 && "gap-0",
+            )}
+          >
+            <ChatThreadView
+              chatId={selectedChat.chatId}
+              className={columnCount > 0 ? "w-1/2 border-r border-border/40" : undefined}
+            />
+            {columnCount > 0 && (
+              <div
+                className="grid min-h-0 flex-1 gap-2 p-2"
+                style={{
+                  gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))`,
+                }}
+              >
+                {columnState.columns.map((spawnId) => (
+                  <ErrorBoundary key={spawnId}>
+                    <ThreadColumn
+                      spawnId={spawnId}
+                      isFocused={columnState.focusedColumn === spawnId}
+                      onClose={() => closeColumn(spawnId)}
+                      onFocus={() => focusColumn(spawnId)}
+                      detailsOverride={threadDetailsOverride?.[spawnId]}
+                    />
+                  </ErrorBoundary>
+                ))}
+              </div>
+            )}
+          </div>
         ) : columnCount === 0 ? (
           <EmptyColumnState sidebarCollapsed={sidebarCollapsed} />
         ) : (
@@ -260,11 +290,10 @@ function EmptyColumnState({ sidebarCollapsed }: { sidebarCollapsed: boolean }) {
   const [composerValue, setComposerValue] = useState("")
 
   const handleNewChat = useCallback(() => {
-    if (!composerValue.trim()) return
-    // Start a new chat — selectChat will open the thread view
-    // once the API responds. For now, we set a placeholder that
-    // the ChatThreadView will pick up as an initial prompt.
-    selectChat("__new__", "active")
+    const text = composerValue.trim()
+    if (!text) return
+    // Pass the initial prompt so ChatThreadView can auto-send it
+    selectChat("__new__", "active", { initialPrompt: text })
   }, [composerValue, selectChat])
 
   return (

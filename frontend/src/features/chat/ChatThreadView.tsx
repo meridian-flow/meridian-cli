@@ -33,6 +33,7 @@ import type { StreamController } from "@/features/threads/transport-types"
 import { useThreadStreaming } from "@/hooks/use-thread-streaming"
 
 import { useChat } from "./ChatContext"
+import { useChatHistory } from "@/features/sessions/hooks/use-chat-history"
 import {
   createChat,
   promptChat,
@@ -40,6 +41,7 @@ import {
   getChat,
   ApiError,
   type ChatDetailResponse,
+  type ChatHistoryEvent,
 } from "@/features/sessions/lib/api"
 
 // ---------------------------------------------------------------------------
@@ -51,6 +53,59 @@ interface ChatMessage {
   role: "user" | "assistant"
   content: string
   timestamp: Date
+}
+
+// ---------------------------------------------------------------------------
+// History → Message transform
+// ---------------------------------------------------------------------------
+
+/**
+ * Convert AG-UI history events into ChatMessage objects.
+ * Events with type "user_message" or "assistant_message" (or the AG-UI
+ * equivalents "TEXT_MESSAGE_START"/"TEXT_MESSAGE_CONTENT") are extracted.
+ */
+function transformHistoryToMessages(events: ChatHistoryEvent[]): ChatMessage[] {
+  const messages: ChatMessage[] = []
+
+  for (const evt of events) {
+    const data = evt.data as Record<string, unknown> | undefined
+    if (!data) continue
+
+    if (evt.type === "user_message" || evt.type === "TEXT_MESSAGE_START") {
+      const role = (data.role as string | undefined) ?? "user"
+      if (role === "user") {
+        messages.push({
+          id: `hist-${evt.seq}`,
+          role: "user",
+          content: String(data.content ?? data.text ?? ""),
+          timestamp: new Date(evt.timestamp),
+        })
+      }
+    } else if (evt.type === "assistant_message") {
+      messages.push({
+        id: `hist-${evt.seq}`,
+        role: "assistant",
+        content: String(data.content ?? data.text ?? ""),
+        timestamp: new Date(evt.timestamp),
+      })
+    } else if (evt.type === "TEXT_MESSAGE_CONTENT") {
+      // AG-UI content delta — aggregate into last assistant message or create new
+      const text = String(data.text ?? data.content ?? "")
+      const last = messages[messages.length - 1]
+      if (last?.role === "assistant" && last.id.startsWith("hist-")) {
+        last.content += text
+      } else {
+        messages.push({
+          id: `hist-${evt.seq}`,
+          role: "assistant",
+          content: text,
+          timestamp: new Date(evt.timestamp),
+        })
+      }
+    }
+  }
+
+  return messages
 }
 
 // ---------------------------------------------------------------------------
@@ -70,11 +125,25 @@ export function ChatThreadView({ chatId, className }: ChatThreadViewProps) {
   const [isSending, setIsSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [composerValue, setComposerValue] = useState("")
+  const didAutoSend = useRef(false)
 
   const bottomRef = useRef<HTMLDivElement | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
 
   const activeSpawnId = selectedChat?.activeSpawnId ?? chatDetail?.active_p_id ?? null
+
+  // --- Issue 3 fix: hydrate history for existing chats ---
+  const { events: historyEvents, isLoading: historyLoading } = useChatHistory(
+    chatId !== "__new__" ? chatId : null,
+  )
+
+  useEffect(() => {
+    if (historyEvents.length === 0) return
+    const hydrated = transformHistoryToMessages(historyEvents)
+    if (hydrated.length > 0) {
+      setMessages(hydrated)
+    }
+  }, [historyEvents])
 
   // Stream the active spawn when one exists
   const { state: streamState, channel } =
@@ -83,6 +152,37 @@ export function ChatThreadView({ chatId, className }: ChatThreadViewProps) {
   const isStreaming = Boolean(streamState.isStreaming)
   const chatState = selectedChat?.chatState ?? chatDetail?.state ?? 'idle'
   const isActive = chatState === 'active' || chatState === 'draining'
+
+  // --- Issue 1 fix: auto-send initial prompt from empty-state composer ---
+  const initialPrompt = selectedChat?.initialPrompt ?? null
+
+  useEffect(() => {
+    if (!initialPrompt || didAutoSend.current) return
+    if (chatId !== "__new__") return
+    didAutoSend.current = true
+
+    // Seed the prompt as a user message and trigger creation
+    const userMsg: ChatMessage = {
+      id: `user-${Date.now()}`,
+      role: "user",
+      content: initialPrompt,
+      timestamp: new Date(),
+    }
+    setMessages((prev) => [...prev, userMsg])
+    setIsCreating(true)
+
+    createChat(initialPrompt)
+      .then((detail) => {
+        setChatDetail(detail)
+        selectChat(detail.chat_id, detail.state, { activeSpawnId: detail.active_p_id })
+      })
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : String(err))
+      })
+      .finally(() => {
+        setIsCreating(false)
+      })
+  }, [initialPrompt, chatId, selectChat])
 
   // Load chat detail on mount
   useEffect(() => {
@@ -150,7 +250,7 @@ export function ChatThreadView({ chatId, className }: ChatThreadViewProps) {
         const detail = await createChat(text)
         setChatDetail(detail)
         // Update context with real chat ID
-        selectChat(detail.chat_id, detail.state, detail.active_p_id)
+        selectChat(detail.chat_id, detail.state, { activeSpawnId: detail.active_p_id })
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err))
       } finally {
@@ -219,6 +319,14 @@ export function ChatThreadView({ chatId, className }: ChatThreadViewProps) {
       {/* Thread area */}
       <ScrollArea className="min-h-0 flex-1">
         <div className="mx-auto flex max-w-3xl flex-col gap-4 px-4 py-6">
+          {/* History loading indicator */}
+          {historyLoading && (
+            <div className="flex items-center gap-2 py-4 text-xs text-muted-foreground">
+              <Spinner className="size-3.5 animate-spin" />
+              <span>Loading conversation...</span>
+            </div>
+          )}
+
           {/* Rendered messages */}
           {messages.map((msg) => (
             <MessageBubble key={msg.id} message={msg} />

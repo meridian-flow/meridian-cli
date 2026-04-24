@@ -35,6 +35,8 @@ export interface ChatSelection {
   chatId: string
   chatState: ApiChatState
   activeSpawnId: string | null
+  /** Initial prompt text carried from the empty-state composer. */
+  initialPrompt: string | null
 }
 
 export interface ColumnState {
@@ -49,8 +51,8 @@ export interface ChatContextValue {
   selectedChat: ChatSelection | null
   /** Column layout state. */
   columnState: ColumnState
-  /** Select a chat. Opens its active spawn as a column if provided. */
-  selectChat: (chatId: string, chatState: ApiChatState, activeSpawnId?: string | null) => void
+  /** Select a chat. Optionally carries an initial prompt for new chats. */
+  selectChat: (chatId: string, chatState: ApiChatState, options?: { activeSpawnId?: string | null; initialPrompt?: string | null }) => void
   /** Clear the selected chat. */
   clearChat: () => void
   /** Update the live state of the selected chat (from WS or polling). */
@@ -134,34 +136,16 @@ export function ChatProvider({ children }: ChatProviderProps) {
   }, [])
 
   const selectChat = useCallback(
-    (chatId: string, chatState: ApiChatState, activeSpawnId?: string | null) => {
+    (chatId: string, chatState: ApiChatState, options?: { activeSpawnId?: string | null; initialPrompt?: string | null }) => {
       setSelectedChat({
         chatId,
         chatState,
-        activeSpawnId: activeSpawnId ?? null,
+        activeSpawnId: options?.activeSpawnId ?? null,
+        initialPrompt: options?.initialPrompt ?? null,
       })
-      // If there's an active spawn, open it as a column
-      if (activeSpawnId) {
-        // Defer to openSpawn to handle LRU eviction etc.
-        // We call it inline here rather than in an effect to avoid an
-        // extra render cycle.
-        setRecency((prevRecency) => {
-          let nextRecency = prevRecency
-          setColumns((prevColumns) => {
-            if (prevColumns.includes(activeSpawnId)) {
-              return prevColumns
-            }
-            if (prevColumns.length < MAX_COLUMNS) {
-              return [...prevColumns, activeSpawnId]
-            }
-            const evictTarget = prevRecency.at(-1) ?? prevColumns[0]
-            nextRecency = prevRecency.filter((id) => id !== evictTarget)
-            return [...prevColumns.filter((id) => id !== evictTarget), activeSpawnId]
-          })
-          return bumpRecency(nextRecency, activeSpawnId)
-        })
-        setFocusedColumn(activeSpawnId)
-      }
+      // Note: we intentionally do NOT auto-open a column here.
+      // The chat thread view renders inline in the main area.
+      // Users can explicitly open spawn columns from the thread if needed.
     },
     [],
   )
