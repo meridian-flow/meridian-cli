@@ -1,0 +1,123 @@
+"""Shared harness history read/write helpers."""
+
+from __future__ import annotations
+
+import json
+from collections.abc import Iterator
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+from meridian.lib.harness.connections.base import HarnessEvent
+from meridian.lib.state.atomic import append_text_line
+
+
+@dataclass(frozen=True)
+class WriteResult:
+    """Result envelope for append attempts."""
+
+    success: bool
+    seq: int = -1
+    error: str | None = None
+
+
+@dataclass
+class HarnessHistoryWriter:
+    """Append-only writer for seq-enveloped raw harness events."""
+
+    history_path: Path
+    _seq: int = field(default=0, init=False)
+    _byte_offset: int = field(default=0, init=False)
+
+    def __post_init__(self) -> None:
+        if not self.history_path.exists():
+            return
+        content = self.history_path.read_bytes()
+        last_complete_line_end = content.rfind(b"\n") + 1
+        self._byte_offset = last_complete_line_end
+        self._seq = content[:last_complete_line_end].count(b"\n")
+        if last_complete_line_end < len(content):
+            with self.history_path.open("r+b") as handle:
+                handle.truncate(last_complete_line_end)
+
+    @property
+    def last_seq(self) -> int:
+        """Last written sequence number (0-indexed)."""
+        if self._seq == 0:
+            return -1
+        return self._seq - 1
+
+    def write(self, event: HarnessEvent) -> WriteResult:
+        """Write one event and return write success metadata."""
+
+        envelope = {
+            "seq": self._seq,
+            "byte_offset": self._byte_offset,
+            "event_type": event.event_type,
+            "harness_id": event.harness_id,
+            "payload": event.payload,
+            "raw_text": event.raw_text,
+        }
+        line = json.dumps(envelope, separators=(",", ":"), sort_keys=True) + "\n"
+
+        try:
+            append_text_line(self.history_path, line)
+        except Exception as exc:  # pragma: no cover - return-path tested
+            return WriteResult(success=False, error=str(exc))
+
+        assigned_seq = self._seq
+        self._seq += 1
+        self._byte_offset += len(line.encode("utf-8"))
+        return WriteResult(success=True, seq=assigned_seq)
+
+
+def iter_history_events(path: Path) -> Iterator[dict[str, Any]]:
+    """Yield seq-enveloped event dictionaries from a history JSONL file."""
+
+    if not path.exists():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        try:
+            payload = json.loads(stripped)
+        except json.JSONDecodeError:
+            # Crash-only tolerance for truncated/corrupt trailing lines.
+            continue
+        if isinstance(payload, dict):
+            yield payload
+
+
+def read_history_range(
+    path: Path,
+    *,
+    start_seq: int = 0,
+    limit: int | None = None,
+) -> list[dict[str, Any]]:
+    """Read a seq range from history.jsonl."""
+
+    events: list[dict[str, Any]] = []
+    for envelope in iter_history_events(path):
+        seq = envelope.get("seq", -1)
+        if not isinstance(seq, int) or seq < start_seq:
+            continue
+        events.append(envelope)
+        if limit is not None and len(events) >= limit:
+            break
+    return events
+
+
+def strip_seq_envelope(envelope: dict[str, Any]) -> dict[str, Any]:
+    """Strip seq metadata and return the raw harness event shape."""
+
+    return {key: value for key, value in envelope.items() if key not in ("seq", "byte_offset")}
+
+
+__all__ = [
+    "HarnessHistoryWriter",
+    "WriteResult",
+    "iter_history_events",
+    "read_history_range",
+    "strip_seq_envelope",
+]
