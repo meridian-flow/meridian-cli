@@ -9,6 +9,7 @@ from typing import Any, cast
 
 import pathspec
 
+from meridian.lib.ignores import load_ignore_patterns
 from meridian.lib.kg.types import AnalysisResult, GraphEdge, GraphNode
 from meridian.lib.markdown.extract import extract_file
 from meridian.lib.markdown.types import ExtractedLink
@@ -134,33 +135,13 @@ def _is_external(target: str) -> bool:
     return any(target.startswith(prefix) for prefix in _EXTERNAL_PREFIXES)
 
 
-def _load_kgignore(root: Path) -> pathspec.PathSpec[Any] | None:
-    """Read .kgignore from root dir, return compiled PathSpec or None."""
-    kgignore = root / ".kgignore"
-    if not kgignore.exists():
-        return None
-
-    lines = kgignore.read_text(encoding="utf-8", errors="replace").splitlines()
-    patterns = [
-        line.strip()
-        for line in lines
-        if line.strip() and not line.strip().startswith("#")
-    ]
-    if not patterns:
-        return None
-    return cast(
-        "pathspec.PathSpec[Any]",
-        pathspec.PathSpec.from_lines("gitwildmatch", patterns),  # pyright: ignore[reportUnknownMemberType]
-    )
-
-
 def _collect_md_files(
     root: Path,
     *,
     exclude: list[str] | None = None,
 ) -> list[Path]:
     """Walk directory and collect .md files, applying skip dirs and exclusions."""
-    kgignore_spec = _load_kgignore(root)
+    kgignore_spec = load_ignore_patterns(root, ".kgignore")
 
     exclude_spec: pathspec.PathSpec[Any] | None = None
     if exclude:

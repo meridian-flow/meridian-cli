@@ -4,6 +4,7 @@ from cyclopts import App
 
 from meridian import __version__
 from meridian.cli.ext_cmd import ext_app
+from meridian.lib.mermaid.validator import detect_tier
 
 # Curated help for agent mode: only commands useful for subagent callers.
 # Not auto-generated — update when adding agent-facing commands.
@@ -35,6 +36,15 @@ Output:
   Agent mode uses per-command defaults: control-plane commands default
   to JSON, read/browse commands default to text. Use --format to override.
 """
+
+
+def _format_mermaid_help() -> str:
+    tier_desc = "@mermaid-js/parser (node)" if detect_tier() == "js" else "python heuristics"
+    return (
+        "Mermaid diagram validation: extract and check diagram syntax in\n"
+        "markdown files and standalone .mmd/.mermaid files.\n\n"
+        f"Active parser: {tier_desc}"
+    )
 
 app = App(
     name="meridian",
@@ -140,6 +150,17 @@ kg_app = App(
     ),
     help_formatter="plain",
 )
+mermaid_app = App(
+    name="mermaid",
+    help=_format_mermaid_help(),
+    help_epilogue=(
+        "Examples:\n\n"
+        "  meridian mermaid check\n\n"
+        "  meridian mermaid check docs/\n\n"
+        "  meridian mermaid check diagram.mmd\n"
+    ),
+    help_formatter="plain",
+)
 completion_app = App(name="completion", help="Shell completion helpers", help_formatter="plain")
 
 app.command(spawn_app, name="spawn")
@@ -153,6 +174,7 @@ app.command(test_app, name="test")
 app.command(config_app, name="config")
 app.command(workspace_app, name="workspace")
 app.command(kg_app, name="kg")
+app.command(mermaid_app, name="mermaid")
 app.command(completion_app, name="completion")
 
 __all__ = [
@@ -163,6 +185,7 @@ __all__ = [
     "ext_app",
     "hooks_app",
     "kg_app",
+    "mermaid_app",
     "models_app",
     "report_app",
     "session_app",

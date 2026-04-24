@@ -25,6 +25,7 @@ from meridian.cli.app_tree import (
     session_app,
     spawn_app,
     streaming_app,
+    test_app,
     work_app,
     workspace_app,
 )
@@ -611,6 +612,7 @@ register_misc_commands(
     app=app,
     completion_app=completion_app,
     streaming_app=streaming_app,
+    test_app=test_app,
     emit=emit,
     get_global_options=get_global_options,
 )
@@ -636,8 +638,10 @@ def _register_group_commands() -> None:
     register_doctor_command(app, emit)
     # kg commands register via @kg_app.command decorators at import time.
     import meridian.cli.kg_cmd as _kg_cmd
+    import meridian.cli.mermaid_cmd as _mermaid_cmd
 
     _ = _kg_cmd
+    _ = _mermaid_cmd
 
 
 def _operation_error_message(exc: Exception) -> str:
