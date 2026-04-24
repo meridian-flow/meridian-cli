@@ -17,9 +17,10 @@ def register_test_chat_routes(
     *,
     session_getter: Callable[[], dict[str, object] | None],
 ) -> None:
-    """Register the test-chat session discovery endpoint."""
+    """Register the test-chat session discovery endpoint and root redirect."""
 
     from fastapi import HTTPException
+    from fastapi.responses import RedirectResponse
 
     typed_app = cast("_FastAPIApp", app)
 
@@ -30,6 +31,11 @@ def register_test_chat_routes(
         return session
 
     typed_app.get("/api/test-chat/session")(get_session)
+
+    async def root_redirect() -> RedirectResponse:
+        return RedirectResponse(url="/test-chat.html", status_code=302)
+
+    typed_app.get("/")(root_redirect)
 
 
 __all__ = ["register_test_chat_routes"]

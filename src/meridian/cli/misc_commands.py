@@ -235,6 +235,26 @@ def register_misc_commands(
                 help="Cancel the spawn and stop the server after N idle seconds. Use 0 to disable.",
             ),
         ] = 3600,
+        cors_origin: Annotated[
+            list[str] | None,
+            Parameter(
+                name="--cors-origin",
+                help=(
+                    "Additional allowed CORS/WebSocket origins "
+                    "(e.g. http://myhost.ts.net:7676). Repeatable."
+                ),
+            ),
+        ] = None,
+        tailscale: Annotated[
+            bool,
+            Parameter(
+                name="--tailscale",
+                help=(
+                    "Auto-detect the local Tailscale hostname and whitelist it "
+                    "as a CORS/WebSocket origin. Skips browser auto-open."
+                ),
+            ),
+        ] = False,
         no_open_browser: Annotated[
             bool,
             Parameter(name="--no-open-browser", help="Print the URL without opening a browser."),
@@ -255,6 +275,8 @@ def register_misc_commands(
             model=model,
             system_prompt=system_prompt,
             idle_timeout=idle_timeout,
+            cors_origins=cors_origin or [],
+            tailscale=tailscale,
             no_open_browser=no_open_browser,
             debug=debug,
         )

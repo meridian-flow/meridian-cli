@@ -256,7 +256,12 @@ export function useTestChatSession(session: TestChatSessionInfo | null) {
           tool: startedToolRef.current,
         })) {
           dispatch({ type: "STREAM_EVENT", event: mapped })
-          if (mapped.type === "RUN_FINISHED" || mapped.type === "RUN_ERROR") {
+
+          // RUN_FINISHED means one turn is done — NOT the session.
+          // Only mark terminal on RUN_ERROR (spawn crashed / was cancelled).
+          // RUN_FINISHED just means the agent finished responding and is
+          // waiting for the next inject.
+          if (mapped.type === "RUN_ERROR") {
             receivedTerminalRef.current = true
           }
         }
