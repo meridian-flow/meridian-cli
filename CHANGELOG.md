@@ -4,6 +4,8 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.0.44] - 2026-04-24
+
 ### Added
 - `meridian models list --all` — delegates to mars, shows all alias-filter candidates.
 - `meridian test chat` — single-spawn browser chat.
