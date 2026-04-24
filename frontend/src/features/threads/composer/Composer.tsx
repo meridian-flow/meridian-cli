@@ -116,7 +116,7 @@ export function Composer({
             }
           }}
           disabled={disabled}
-          placeholder={disabled ? "Spawn unavailable" : "Message the active spawn"}
+          placeholder={disabled ? "Waiting for connection..." : "Type a message..."}
           className="max-h-[220px] min-h-18 resize-none font-editor"
         />
 
