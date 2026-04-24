@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, ClassVar
 
 import pytest
 
@@ -18,22 +17,6 @@ from meridian.lib.hcp.capabilities import (
     OPENCODE_CAPABILITIES,
 )
 from meridian.lib.safety.permissions import UnsafeNoOpPermissionResolver
-
-
-class FakeConnection:
-    started: ClassVar[list[tuple[ConnectionConfig, object]]] = []
-    next_session_id: ClassVar[str] = "session-created"
-
-    def __init__(self) -> None:
-        self._session_id: str | None = None
-
-    @property
-    def session_id(self) -> str | None:
-        return self._session_id
-
-    async def start(self, config: ConnectionConfig, spec: object) -> None:
-        self.started.append((config, spec))
-        self._session_id = self.next_session_id
 
 
 def _config(tmp_path: Path, harness_id: HarnessId) -> ConnectionConfig:
@@ -86,69 +69,44 @@ async def test_claude_create_session_returns_empty_id(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("adapter", "harness_id", "spec", "module_name"),
+    ("adapter", "harness_id", "spec"),
     (
-        (CodexHcpAdapter(), HarnessId.CODEX, _codex_spec(), "meridian.lib.hcp.adapters.codex"),
-        (
-            OpenCodeHcpAdapter(),
-            HarnessId.OPENCODE,
-            _opencode_spec(),
-            "meridian.lib.hcp.adapters.opencode",
-        ),
+        (CodexHcpAdapter(), HarnessId.CODEX, _codex_spec()),
+        (OpenCodeHcpAdapter(), HarnessId.OPENCODE, _opencode_spec()),
     ),
 )
-async def test_create_session_returns_connection_session_id(
+async def test_create_session_returns_empty_id_for_async_extraction(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     adapter: CodexHcpAdapter | OpenCodeHcpAdapter,
     harness_id: HarnessId,
     spec: object,
-    module_name: str,
 ) -> None:
-    FakeConnection.started = []
-    monkeypatch.setattr(f"{module_name}.get_connection_class", lambda _harness_id: FakeConnection)
-
     session_id = await adapter.create_session(_config(tmp_path, harness_id), spec)  # pyright: ignore[reportArgumentType]
 
-    assert session_id == "session-created"
-    assert FakeConnection.started[0][1] is spec
+    assert session_id == ""
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("adapter", "harness_id", "spec", "module_name"),
+    ("adapter", "harness_id", "spec"),
     (
-        (CodexHcpAdapter(), HarnessId.CODEX, _codex_spec(), "meridian.lib.hcp.adapters.codex"),
-        (
-            OpenCodeHcpAdapter(),
-            HarnessId.OPENCODE,
-            _opencode_spec(),
-            "meridian.lib.hcp.adapters.opencode",
-        ),
+        (CodexHcpAdapter(), HarnessId.CODEX, _codex_spec()),
+        (OpenCodeHcpAdapter(), HarnessId.OPENCODE, _opencode_spec()),
     ),
 )
-async def test_resume_populates_continue_session_id(
+async def test_resume_returns_existing_harness_session_id(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     adapter: CodexHcpAdapter | OpenCodeHcpAdapter,
     harness_id: HarnessId,
-    spec: Any,
-    module_name: str,
+    spec: CodexLaunchSpec | OpenCodeLaunchSpec,
 ) -> None:
-    FakeConnection.started = []
-    FakeConnection.next_session_id = "session-resumed"
-    monkeypatch.setattr(f"{module_name}.get_connection_class", lambda _harness_id: FakeConnection)
-
     session_id = await adapter.resume_session(
         "parent-session",
         _config(tmp_path, harness_id),
         spec,
     )
 
-    assert session_id == "session-resumed"
-    started_spec = FakeConnection.started[0][1]
-    assert started_spec is not spec
-    assert started_spec.continue_session_id == "parent-session"
+    assert session_id == "parent-session"
 
 
 @pytest.mark.asyncio

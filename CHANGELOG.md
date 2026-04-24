@@ -10,6 +10,7 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 - HCP chat launch failure now finalizes spawn and stops session. Active HCP chats get heartbeat. Restore skips stopped chats.
+- HCP adapters no longer start harness connections; SpawnManager owns lifecycle.
 
 ## [0.0.44] - 2026-04-24
 

@@ -13,8 +13,8 @@ class HcpCapabilities:
 
 
 CLAUDE_CAPABILITIES = HcpCapabilities(can_fork=True, can_resume=True)
-CODEX_CAPABILITIES = HcpCapabilities(can_resume=True)
-OPENCODE_CAPABILITIES = HcpCapabilities(can_fork=True, can_resume=True)
+CODEX_CAPABILITIES = HcpCapabilities(can_fork=True, can_resume=True)
+OPENCODE_CAPABILITIES = HcpCapabilities(can_fork=False, can_resume=True)
 
 
 __all__ = [

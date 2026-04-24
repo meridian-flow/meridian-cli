@@ -10,7 +10,7 @@ from meridian.lib.launch.launch_types import ResolvedLaunchSpec
 
 
 class HcpAdapter(Protocol):
-    """HCP adapter wraps a harness connection."""
+    """HCP adapter exposes harness chat capabilities and session ID policy."""
 
     @property
     def capabilities(self) -> HcpCapabilities: ...
@@ -20,7 +20,7 @@ class HcpAdapter(Protocol):
         config: ConnectionConfig,
         spec: ResolvedLaunchSpec,
     ) -> str:
-        """Start harness and return harness_session_id."""
+        """Return expected harness_session_id pattern, empty for async extraction."""
         ...
 
     async def resume_session(
@@ -29,7 +29,7 @@ class HcpAdapter(Protocol):
         config: ConnectionConfig,
         spec: ResolvedLaunchSpec,
     ) -> str:
-        """Resume an existing harness session."""
+        """Return harness_session_id for resume spec preparation."""
         ...
 
 

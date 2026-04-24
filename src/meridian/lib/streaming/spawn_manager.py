@@ -335,9 +335,12 @@ class SpawnManager:
                         break
                 terminal_outcome = terminal_event_outcome(event)
                 if on_event is not None:
-                    callback_result = on_event(event)
-                    if callback_result is not None:
-                        await callback_result
+                    try:
+                        callback_result = on_event(event)
+                        if callback_result is not None:
+                            await callback_result
+                    except Exception:
+                        logger.exception("on_event callback failed for %s", spawn_id)
                 self._fan_out_event(spawn_id, event)
                 if terminal_outcome is not None:
                     action: DrainAction = policy.classify(terminal_outcome)

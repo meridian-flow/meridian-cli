@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
-
-from meridian.lib.harness.connections import get_connection_class
-from meridian.lib.harness.connections.base import ConnectionConfig, HarnessConnection
+from meridian.lib.harness.connections.base import ConnectionConfig
 from meridian.lib.hcp.capabilities import CODEX_CAPABILITIES, HcpCapabilities
 from meridian.lib.launch.launch_types import ResolvedLaunchSpec
 
@@ -20,8 +17,8 @@ class CodexHcpAdapter:
         config: ConnectionConfig,
         spec: ResolvedLaunchSpec,
     ) -> str:
-        connection = await _start_connection(config, spec)
-        return connection.session_id or ""
+        _ = config, spec
+        return ""
 
     async def resume_session(
         self,
@@ -29,19 +26,8 @@ class CodexHcpAdapter:
         config: ConnectionConfig,
         spec: ResolvedLaunchSpec,
     ) -> str:
-        spec_with_resume = spec.model_copy(update={"continue_session_id": harness_session_id})
-        connection = await _start_connection(config, spec_with_resume)
-        return connection.session_id or harness_session_id
-
-
-async def _start_connection(
-    config: ConnectionConfig,
-    spec: ResolvedLaunchSpec,
-) -> HarnessConnection[Any]:
-    connection_class = get_connection_class(config.harness_id)
-    connection = connection_class()
-    await connection.start(config, spec)
-    return connection
+        _ = config, spec.model_copy(update={"continue_session_id": harness_session_id})
+        return harness_session_id
 
 
 __all__ = ["CodexHcpAdapter"]
