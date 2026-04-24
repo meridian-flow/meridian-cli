@@ -222,6 +222,7 @@ class OpenCodeConnection(HarnessConnection[OpenCodeLaunchSpec]):
     async def stop(self) -> None:
         if self._state == "stopped":
             return
+        self._primary_observer_mode = False
         if self._state != "stopping":
             self._transition("stopping")
 

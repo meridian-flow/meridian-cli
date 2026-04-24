@@ -337,6 +337,7 @@ class CodexConnection(HarnessConnection[CodexLaunchSpec]):
     async def stop(self) -> None:
         if self._state in {"stopped"}:
             return
+        self._primary_observer_mode = False
 
         if self._state != "failed":
             self._transition("stopping")
