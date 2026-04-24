@@ -5,6 +5,7 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Fixed
+- Smoke tests run CLI subprocesses against the repo project explicitly. Windows no longer burns time resolving `uv run meridian` from each temp repo.
 - Model alias resolution no longer fails dry-run/policy paths when mars reports the target harness binary is unavailable on the host. Explicit mars harness route still used.
 
 ## [0.0.44] - 2026-04-24
