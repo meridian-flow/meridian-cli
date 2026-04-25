@@ -12,6 +12,7 @@ from meridian.lib.launch.constants import HISTORY_FILENAME, OUTPUT_FILENAME, PRI
 from meridian.lib.ops.session_log import (
     SessionLogInput,
     _extract_from_event,
+    _spawn_output_path,
     parse_session_file,
     resolve_target,
     session_log_sync,
@@ -473,6 +474,40 @@ def test_session_log_spawn_missing_harness_session_id_reads_legacy_live_output(
     assert [(message.role, message.content) for message in output.messages] == [
         ("assistant", "legacy live progress")
     ]
+
+
+def test_spawn_output_path_legacy_precedence_with_both_files(tmp_path: Path) -> None:
+    project_root = tmp_path / "repo"
+    project_root.mkdir()
+    runtime_root = resolve_project_runtime_root(project_root)
+    runtime_root.mkdir(parents=True, exist_ok=True)
+
+    _write_spawn_output(
+        runtime_root,
+        "p42",
+        {
+            "event_type": "item/completed",
+            "payload": {"item": {"type": "agentMessage", "text": "legacy live"}},
+        },
+        filename=OUTPUT_FILENAME,
+    )
+    _write_spawn_output(
+        runtime_root,
+        "p42",
+        {
+            "event_type": "item/completed",
+            "payload": {"item": {"type": "agentMessage", "text": "legacy artifact"}},
+        },
+        artifact=True,
+        filename=OUTPUT_FILENAME,
+    )
+
+    assert _spawn_output_path(runtime_root, "p42", live_first=True) == (
+        runtime_root / "spawns" / "p42" / OUTPUT_FILENAME
+    )
+    assert _spawn_output_path(runtime_root, "p42", live_first=False) == (
+        runtime_root / "artifacts" / "p42" / OUTPUT_FILENAME
+    )
 
 
 def test_session_log_active_child_spawn_prefers_live_output(
@@ -1034,6 +1069,52 @@ def test_session_log_completed_managed_primary_falls_back_to_output_when_native_
     assert output.source == "spawn p42 output"
     assert [(message.role, message.content) for message in output.messages] == [
         ("assistant", "managed artifact transcript")
+    ]
+
+
+def test_managed_primary_fallback_to_legacy_output(
+    tmp_path: Path,
+) -> None:
+    project_root = tmp_path / "repo"
+    project_root.mkdir()
+    runtime_root = resolve_project_runtime_root(project_root)
+    runtime_root.mkdir(parents=True, exist_ok=True)
+
+    spawn_store.start_spawn(
+        runtime_root,
+        spawn_id="p42",
+        chat_id="c42",
+        model="gpt-5.4",
+        agent="dev-orchestrator",
+        harness="codex",
+        kind="primary",
+        prompt="do thing",
+        harness_session_id="missing-native-session",
+        status="failed",
+    )
+    _write_primary_meta(runtime_root, "p42")
+    _write_spawn_output(
+        runtime_root,
+        "p42",
+        {
+            "event_type": "item/completed",
+            "harness_id": "codex",
+            "payload": {
+                "item": {"type": "agentMessage", "text": "managed legacy transcript"},
+            },
+        },
+        artifact=True,
+        filename=OUTPUT_FILENAME,
+    )
+
+    output = session_log_sync(
+        SessionLogInput(ref="p42", project_root=project_root.as_posix(), last_n=5)
+    )
+
+    assert output.session_id == "p42"
+    assert output.source == "spawn p42 output"
+    assert [(message.role, message.content) for message in output.messages] == [
+        ("assistant", "managed legacy transcript")
     ]
 
 
