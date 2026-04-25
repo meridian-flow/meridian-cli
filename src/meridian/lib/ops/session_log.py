@@ -17,7 +17,7 @@ from meridian.lib.core.util import FormatContext
 from meridian.lib.harness.registry import get_default_harness_registry
 from meridian.lib.harness.session_detection import infer_harness_from_untracked_session_ref
 from meridian.lib.harness.transcript import TranscriptMessage, text_from_value
-from meridian.lib.launch.constants import HISTORY_FILENAME
+from meridian.lib.launch.constants import HISTORY_FILENAME, OUTPUT_FILENAME
 from meridian.lib.ops.reference import resolve_session_reference
 from meridian.lib.ops.runtime import (
     async_from_sync,
@@ -531,7 +531,16 @@ def _detect_primary_harness_session_id(
 def _spawn_output_path(runtime_root: Path, spawn_id: str, *, live_first: bool) -> Path | None:
     live_path = spawn_output_path(runtime_root, spawn_id)
     artifact_path = runtime_root / "artifacts" / spawn_id / HISTORY_FILENAME
-    candidates = (live_path, artifact_path) if live_first else (artifact_path, live_path)
+    legacy_live_path = runtime_root / "spawns" / spawn_id / OUTPUT_FILENAME
+    legacy_artifact_path = runtime_root / "artifacts" / spawn_id / OUTPUT_FILENAME
+
+    history_candidates = (live_path, artifact_path) if live_first else (artifact_path, live_path)
+    legacy_candidates = (
+        (legacy_live_path, legacy_artifact_path)
+        if live_first
+        else (legacy_artifact_path, legacy_live_path)
+    )
+    candidates = history_candidates + legacy_candidates
     for candidate in candidates:
         if candidate.is_file():
             return candidate
