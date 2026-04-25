@@ -246,6 +246,11 @@ archive = "project/archive/work"
 source = "git"
 remote = "git@github.com:team/kb.git"
 path   = "knowledge"
+
+[context.strategy]
+source = "git"
+remote = "git@github.com:team/docs.git"
+path   = "project/strategy"
 ```
 
 ### Schema
@@ -266,6 +271,16 @@ path   = "knowledge"
 | `source` | str | `"local"` | `"local"` or `"git"` |
 | `remote` | str | — | Git remote URL (required when `source = "git"`) |
 | `path` | str | `".meridian/kb"` | Path to the knowledge base directory |
+
+#### `[context.NAME]`
+
+Arbitrary named context tables are allowed alongside the built-in `work` and `kb` contexts. They support:
+
+| Key | Type | Default | Purpose |
+| --- | ---- | ------- | ------- |
+| `source` | str | `"local"` | `"local"` or `"git"` |
+| `remote` | str | — | Git remote URL (required when `source = "git"`) |
+| `path` | str | — | Path to the context directory, relative to repo or clone root |
 
 When `source = "git"`, Meridian clones the remote into a local cache and resolves paths relative to the clone root. Use `meridian context` to inspect the resolved paths.
 

@@ -81,15 +81,17 @@ See [hooks.md](hooks.md) for event names, builtin hooks, and hook configuration 
 | `meridian context work` | Print the absolute path for the `work` context |
 | `meridian context kb` | Print the absolute path for the `kb` context |
 | `meridian context work.archive` | Print the absolute path for the `work.archive` context |
+| `meridian context NAME` | Print the absolute path for any configured named context |
 | `meridian context --verbose` | Show source, path, and resolved details for each context |
 
 ```bash
 meridian context           # show all resolved context paths
 meridian context work      # print just the work path
+meridian context strategy  # print a configured arbitrary context path
 meridian context --verbose # show source and resolution details
 ```
 
-Context paths can be backed by a local directory (default) or a remote Git repo (cloned and resolved at runtime). Configure in `meridian.toml`:
+Context paths can be backed by a local directory (default) or a remote Git repo (cloned and resolved at runtime). `work` and `kb` are built in; additional `[context.NAME]` tables are arbitrary named contexts. Configure in `meridian.toml`:
 
 ```toml
 [context.work]
@@ -102,6 +104,11 @@ archive = "project/archive/work"
 source = "git"
 remote = "git@github.com:team/kb.git"
 path   = "knowledge"
+
+[context.strategy]
+source = "git"
+remote = "git@github.com:team/docs.git"
+path   = "project/strategy"
 ```
 
 See [configuration.md](configuration.md#context) for the full schema.

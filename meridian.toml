@@ -65,6 +65,11 @@ source = "git"
 remote = "git@github.com:meridian-flow/docs.git"
 path = "meridian-cli/kb"
 
+[context.strategy]
+source = "git"
+remote = "git@github.com:meridian-flow/docs.git"
+path = "voluma-bio/strategy"
+
 # -- Hooks -------------------------------------------------------------------
 # Auto-sync work/kb to the docs repo on spawn and work events
 [[hooks]]

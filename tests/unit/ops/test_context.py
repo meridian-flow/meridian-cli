@@ -149,6 +149,63 @@ def test_context_sync_uses_loaded_config_paths_and_sources(monkeypatch: MonkeyPa
     assert output.kb_source == "local"
 
 
+def test_context_sync_includes_arbitrary_named_contexts(monkeypatch: MonkeyPatch) -> None:
+    project_root = Path("/repo")
+    config = ContextConfig.model_validate(
+        {
+            "strategy": {
+                "source": ContextSourceType.GIT.value,
+                "remote": "git@github.com:team/docs.git",
+                "path": "voluma-bio/strategy",
+            },
+        }
+    )
+
+    def fake_resolve_project_root() -> Path:
+        return project_root
+
+    def fake_load_context_config(_repo: Path) -> ContextConfig:
+        return config
+
+    def fake_resolve_context_paths(
+        _repo: Path,
+        _config: ContextConfig,
+    ) -> ResolvedContextPaths:
+        return ResolvedContextPaths(
+            work_root=Path("/resolved/work"),
+            work_archive=Path("/resolved/archive"),
+            work_source=ContextSourceType.LOCAL,
+            kb_root=Path("/resolved/kb"),
+            kb_source=ContextSourceType.LOCAL,
+            extra={
+                "strategy": (
+                    Path("/home/user/.meridian/git/team-docs/voluma-bio/strategy"),
+                    ContextSourceType.GIT,
+                )
+            },
+        )
+
+    monkeypatch.setattr("meridian.lib.ops.context.resolve_project_root", fake_resolve_project_root)
+    monkeypatch.setattr("meridian.lib.ops.context.load_context_config", fake_load_context_config)
+    monkeypatch.setattr(
+        "meridian.lib.ops.context.resolve_context_paths",
+        fake_resolve_context_paths,
+    )
+
+    output = context_sync(ContextInput())
+
+    assert output.extra_contexts["strategy"].source == "git"
+    assert output.extra_contexts["strategy"].path == "voluma-bio/strategy"
+    assert (
+        output.extra_contexts["strategy"].resolved
+        == "/home/user/.meridian/git/team-docs/voluma-bio/strategy"
+    )
+    assert (
+        output.resolve_name("strategy")
+        == "/home/user/.meridian/git/team-docs/voluma-bio/strategy"
+    )
+
+
 def test_context_output_text_formats_default_and_verbose() -> None:
     output = ContextOutput(
         work_path=".meridian/work",
@@ -159,13 +216,21 @@ def test_context_output_text_formats_default_and_verbose() -> None:
         kb_path=".meridian/kb",
         kb_resolved="/repo/.meridian/kb",
         kb_source="local",
+        extra_contexts={
+            "strategy": {
+                "source": "git",
+                "path": "voluma-bio/strategy",
+                "resolved": "/repo/strategy",
+            }
+        },
     )
 
     assert (
         output.format_text()
         == "work: /repo/.meridian/work (local)\n"
         "  archive: /repo/.meridian/archive/work\n"
-        "kb: /repo/.meridian/kb (local)"
+        "kb: /repo/.meridian/kb (local)\n"
+        "strategy: /repo/strategy (git)"
     )
 
     verbose_output = output.model_copy(update={"render_verbose": True})
@@ -180,7 +245,11 @@ def test_context_output_text_formats_default_and_verbose() -> None:
         "kb:\n"
         "  source: local\n"
         "  path: .meridian/kb\n"
-        "  resolved: /repo/.meridian/kb"
+        "  resolved: /repo/.meridian/kb\n"
+        "strategy:\n"
+        "  source: git\n"
+        "  path: voluma-bio/strategy\n"
+        "  resolved: /repo/strategy"
     )
 
 
@@ -194,18 +263,26 @@ def test_context_output_resolve_name_supports_catalog_paths() -> None:
         kb_path=".meridian/kb",
         kb_resolved="/repo/.meridian/kb",
         kb_source="local",
+        extra_contexts={
+            "strategy": {
+                "source": "git",
+                "path": "voluma-bio/strategy",
+                "resolved": "/repo/strategy",
+            }
+        },
     )
 
     assert output.resolve_name("work") == "/repo/.meridian/work"
     assert output.resolve_name("kb") == "/repo/.meridian/kb"
     assert output.resolve_name("work.archive") == "/repo/.meridian/archive/work"
+    assert output.resolve_name("strategy") == "/repo/strategy"
 
     try:
         output.resolve_name("unknown")
     except KeyError as exc:
         assert (
             str(exc.args[0])
-            == "Unknown context 'unknown'. Expected one of: work, kb, work.archive."
+            == "Unknown context 'unknown'. Expected one of: work, kb, work.archive, strategy."
         )
     else:
         raise AssertionError("Expected KeyError for unknown context lookup")
