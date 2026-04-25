@@ -37,11 +37,13 @@ class CodexAGUIMapper:
         self._run_counter = 0
         self._current_run_id: str | None = None
         self._active_text_message_id: str | None = None
+        self._active_items: dict[str, dict[str, str]] = {}
 
     def make_run_started(self, spawn_id: str) -> RunStartedEvent:
         self._run_counter += 1
         self._current_run_id = f"{spawn_id}-run-{self._run_counter}"
         self._active_text_message_id = None
+        self._active_items = {}
         return RunStartedEvent(thread_id=spawn_id, run_id=self._current_run_id)
 
     def make_run_finished(self, spawn_id: str) -> RunFinishedEvent:
@@ -52,6 +54,7 @@ class CodexAGUIMapper:
             run_id = f"{spawn_id}-run-{self._run_counter}"
         self._current_run_id = None
         self._active_text_message_id = None
+        self._active_items = {}
         return RunFinishedEvent(thread_id=spawn_id, run_id=run_id)
 
     def make_run_error(self, message: str) -> RunErrorEvent:
@@ -86,15 +89,15 @@ class CodexAGUIMapper:
                 return self._translate_tool_lifecycle(event.payload, default_name="WebSearch")
             if event.event_type == "item/mcpToolCall":
                 return self._translate_mcp_tool_call(event.payload)
+            if event.event_type == "item/commandExecution/outputDelta":
+                return self._translate_output_delta(event.payload)
             if event.event_type == "item/started":
                 return self._translate_item_started(event.payload)
             if event.event_type == "item/completed":
                 return self._translate_item_completed(event.payload)
             if event.event_type == "turn/completed":
                 events: list[BaseEvent] = []
-                if self._active_text_message_id is not None:
-                    events.append(TextMessageEndEvent(message_id=self._active_text_message_id))
-                    self._active_text_message_id = None
+                events.extend(self._close_active_text_message())
                 step_name = _coerce_str(event.payload.get("turnId")) or "turn"
                 events.append(StepFinishedEvent(step_name=step_name))
                 return events
@@ -134,17 +137,102 @@ class CodexAGUIMapper:
         events.append(TextMessageContentEvent(message_id=self._active_text_message_id, delta=delta))
         return events
 
-    def _translate_item_started(self, payload: dict[str, object]) -> list[BaseEvent]:
-        _ = payload
-        return []
-
-    def _translate_item_completed(self, payload: dict[str, object]) -> list[BaseEvent]:
-        _ = payload
+    def _close_active_text_message(self) -> list[BaseEvent]:
         if self._active_text_message_id is None:
             return []
         message_id = self._active_text_message_id
         self._active_text_message_id = None
         return [TextMessageEndEvent(message_id=message_id)]
+
+    def _translate_item_started(self, payload: dict[str, object]) -> list[BaseEvent]:
+        item = payload.get("item")
+        if not isinstance(item, dict):
+            return []
+
+        item_dict = cast("dict[str, object]", item)
+        item_type = _coerce_str(item_dict.get("type"))
+        item_id = _coerce_str(item_dict.get("id"))
+
+        if item_type == "commandExecution":
+            if item_id is None:
+                item_id = f"tool-{uuid4()}"
+            command = _coerce_str(item_dict.get("command")) or "CommandExecution"
+            self._active_items[item_id] = {"type": "commandExecution", "tool_call_id": item_id}
+            return [ToolCallStartEvent(tool_call_id=item_id, tool_call_name=command)]
+
+        if item_type == "reasoning":
+            if item_id is None:
+                item_id = f"reasoning-{uuid4()}"
+            message_id = _new_message_id()
+            self._active_items[item_id] = {"type": "reasoning", "message_id": message_id}
+            return [ReasoningMessageStartEvent(message_id=message_id, role="reasoning")]
+
+        return []
+
+    def _translate_item_completed(self, payload: dict[str, object]) -> list[BaseEvent]:
+        item = payload.get("item")
+        if not isinstance(item, dict):
+            return self._close_active_text_message()
+
+        item_dict = cast("dict[str, object]", item)
+        item_type = _coerce_str(item_dict.get("type"))
+        item_id = _coerce_str(item_dict.get("id"))
+
+        if item_type == "commandExecution":
+            if item_id and item_id in self._active_items:
+                del self._active_items[item_id]
+
+            tool_call_id = item_id or f"tool-{uuid4()}"
+            aggregated = item_dict.get("aggregatedOutput")
+            result_content = aggregated if isinstance(aggregated, str) else ""
+
+            return [
+                ToolCallEndEvent(tool_call_id=tool_call_id),
+                ToolCallResultEvent(
+                    message_id=str(uuid4()),
+                    tool_call_id=tool_call_id,
+                    content=result_content,
+                ),
+            ]
+
+        if item_type == "reasoning":
+            events: list[BaseEvent] = []
+
+            if item_id and item_id in self._active_items:
+                info = self._active_items.pop(item_id)
+                message_id = info.get("message_id") or _new_message_id()
+            else:
+                message_id = _new_message_id()
+                events.append(ReasoningMessageStartEvent(message_id=message_id, role="reasoning"))
+
+            content = _extract_reasoning_content(item_dict)
+            if content:
+                events.append(ReasoningMessageContentEvent(message_id=message_id, delta=content))
+
+            events.append(ReasoningMessageEndEvent(message_id=message_id))
+            return events
+
+        if item_type == "agentMessage":
+            return self._close_active_text_message()
+
+        return self._close_active_text_message()
+
+    def _translate_output_delta(self, payload: dict[str, object]) -> list[BaseEvent]:
+        item_id = _coerce_str(payload.get("itemId"))
+        if item_id is None or item_id not in self._active_items:
+            logger.warning("Codex outputDelta for unknown itemId: %s", item_id)
+            return []
+
+        info = self._active_items[item_id]
+        tool_call_id = info.get("tool_call_id")
+        if tool_call_id is None:
+            logger.warning("Codex outputDelta for non-tool item: %s", item_id)
+            return []
+
+        delta = payload.get("delta")
+        delta_str = delta if isinstance(delta, str) else _stringify(delta) if delta else ""
+
+        return [ToolCallArgsEvent(tool_call_id=tool_call_id, delta=delta_str)]
 
     def _translate_reasoning(self, payload: dict[str, object]) -> list[BaseEvent]:
         text = _extract_text(payload)
@@ -267,6 +355,25 @@ def _extract_text(payload: dict[str, object]) -> str | None:
         if rendered_parts:
             return "".join(rendered_parts)
 
+    return None
+
+
+def _extract_reasoning_content(item: dict[str, object]) -> str | None:
+    for key in ("content", "summary"):
+        value = item.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        if isinstance(value, list):
+            parts: list[str] = []
+            for chunk in cast("list[object]", value):
+                if isinstance(chunk, str) and chunk.strip():
+                    parts.append(chunk.strip())
+                elif isinstance(chunk, dict):
+                    text = _coerce_str(cast("dict[str, object]", chunk).get("text"))
+                    if text:
+                        parts.append(text)
+            if parts:
+                return " ".join(parts)
     return None
 
 
