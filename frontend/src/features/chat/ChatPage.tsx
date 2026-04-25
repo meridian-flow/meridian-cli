@@ -54,6 +54,8 @@ function ChatPageContent({ className }: ChatPageProps) {
     }
   }, [selectedChat])
 
+  // Always start in zero state (new chat). Users pick a chat from the sidebar
+  // if they want to continue one — we don't auto-select the first chat.
   useEffect(() => {
     if (isLoading || didInitializeSelection.current || draftMode) return
     if (selectedChat) {
@@ -61,14 +63,10 @@ function ChatPageContent({ className }: ChatPageProps) {
       return
     }
 
-    if (chats.length > 0) {
-      selectChat(chats[0])
-    } else {
-      clearChat()
-      setDraftMode(true)
-    }
+    clearChat()
+    setDraftMode(true)
     didInitializeSelection.current = true
-  }, [isLoading, chats, selectedChat, selectChat, clearChat, draftMode])
+  }, [isLoading, selectedChat, clearChat, draftMode])
 
   // If the selected chat disappears from the list (e.g. deleted server-side),
   // fall back — but never override an active user-initiated draft.
@@ -81,13 +79,9 @@ function ChatPageContent({ className }: ChatPageProps) {
     const stillExists = chats.some((chat) => chat.chat_id === selectedChat.chat_id)
     if (stillExists) return
 
-    if (chats.length > 0) {
-      selectChat(chats[0])
-    } else {
-      clearChat()
-      setDraftMode(true)
-    }
-  }, [isLoading, draftMode, selectedChat, chats, selectChat, clearChat])
+    clearChat()
+    setDraftMode(true)
+  }, [isLoading, draftMode, selectedChat, chats, clearChat])
 
   return (
     <div
