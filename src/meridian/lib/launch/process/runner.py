@@ -260,7 +260,8 @@ def _execute_primary_process(
     """Run managed attach when eligible, otherwise fall back to black-box launch."""
 
     use_managed_backend = (
-        harness_id in {HarnessId.CODEX, HarnessId.OPENCODE} and session_mode != SessionMode.FORK
+        harness_id in {HarnessId.CODEX, HarnessId.OPENCODE}
+        and session_mode == SessionMode.RESUME
     )
     if use_managed_backend:
         try:
@@ -363,11 +364,17 @@ def _finalize_lifecycle_and_observe_session(
             and observed_harness_session_id.strip()
             != initial_persisted_harness_session_id.strip()
         ):
-            logger.warning(
-                "Harness session ID diverged: persisted=%s observed=%s",
-                initial_persisted_harness_session_id,
-                observed_harness_session_id.strip(),
-            )
+            if not initial_persisted_harness_session_id.strip():
+                logger.debug(
+                    "Harness session ID discovered on exit: %s",
+                    observed_harness_session_id.strip(),
+                )
+            else:
+                logger.warning(
+                    "Harness session ID diverged: persisted=%s observed=%s",
+                    initial_persisted_harness_session_id,
+                    observed_harness_session_id.strip(),
+                )
             resolved_harness_session_id = observed_harness_session_id.strip()
             managed.record_harness_session_id(resolved_harness_session_id)
             if primary_spawn_id is not None:
