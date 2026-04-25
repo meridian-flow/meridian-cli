@@ -90,6 +90,29 @@ def iter_history_events(path: Path) -> Iterator[dict[str, Any]]:
             yield payload
 
 
+def iter_history_from_seq(
+    path: Path,
+    *,
+    start_seq: int = 0,
+    limit: int | None = None,
+) -> Iterator[dict[str, Any]]:
+    """Yield events from start_seq, optionally limited.
+
+    Unlike read_history_range(), this is lazy so callers can stream through
+    histories without loading all events into memory.
+    """
+
+    yielded = 0
+    for envelope in iter_history_events(path):
+        seq = envelope.get("seq", -1)
+        if not isinstance(seq, int) or seq < start_seq:
+            continue
+        yield envelope
+        yielded += 1
+        if limit is not None and yielded >= limit:
+            break
+
+
 def read_history_range(
     path: Path,
     *,
@@ -144,6 +167,7 @@ __all__ = [
     "HarnessHistoryWriter",
     "WriteResult",
     "iter_history_events",
+    "iter_history_from_seq",
     "read_history_range",
     "read_spawn_events",
     "strip_seq_envelope",

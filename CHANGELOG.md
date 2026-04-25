@@ -5,6 +5,7 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- AG-UI replay cursor pagination core. Raw seq cursor, lazy history iterator, invalid cursor errors.
 - HCP core skeleton: capabilities, errors, lifecycle types, session manager. App lifespan restores HCP chats.
 - HCP harness adapters for Claude, Codex, OpenCode. HCP chats persist native session IDs from connection or stream events.
 
