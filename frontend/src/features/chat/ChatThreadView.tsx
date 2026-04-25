@@ -7,7 +7,7 @@ import { toast } from "sonner"
 
 import { cn } from "@/lib/utils"
 import { ConversationView } from "./components/ConversationView"
-import type { ChatState as ApiChatState, ChatDetailResponse } from "@/features/sessions/lib/api"
+import type { ChatState as ApiChatState, ChatDetailResponse } from "@/lib/api"
 
 import { useChat } from "./ChatContext"
 import { ChatBanner, type ChatUIState } from "./components/ChatBanner"

@@ -1,3 +1,7 @@
+/**
+ * Backwards-compat re-export — all API types and fetchers now live in
+ * `@/lib/api`. Import from there directly in new code.
+ */
 export {
   ApiError,
   archiveSpawn,
@@ -15,13 +19,14 @@ export {
   getChatSpawns,
   listChats,
   promptChat,
-} from './api'
+} from '@/lib/api'
 export type {
   ChatDetailResponse,
   ChatHistoryEvent,
   ChatHistoryResponse,
   ChatProjection,
   ChatState,
+  CreateChatOptions,
   CreateSpawnPermissions,
   CreateSpawnRequest,
   CreateSpawnResponse,
@@ -30,4 +35,4 @@ export type {
   SpawnProjection,
   SpawnStats,
   WorkProjection,
-} from './api'
+} from '@/lib/api'

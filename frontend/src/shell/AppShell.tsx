@@ -1,15 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { ErrorBoundary } from "@/components/ErrorBoundary"
-import { NewSessionDialog } from "@/components/molecules"
 import { CommandPalette } from "./CommandPalette"
-import { useSpawnStats } from "@/features/sessions/hooks"
-import { createSpawn } from "@/features/sessions/lib"
+import { useSpawnStats } from "@/lib/hooks/use-spawn-stats"
 import { ActivityBar } from "./ActivityBar"
 import { ModeViewport } from "./ModeViewport"
 import { StatusBar, type ShellStatusBarProps, type SpawnCounts } from "./StatusBar"
 import { TopBar } from "./TopBar"
-import { NavigationContext, type NavigationContextValue } from "./NavigationContext"
 import { registerFirstPartyExtensions, registry, useRegistry } from "./registry"
 
 export interface AppShellProps {
@@ -24,24 +21,18 @@ export interface AppShellProps {
   port?: number | null
   /**
    * Optional override for StatusBar counts. When omitted, live stats from
-   * `useSpawnStats` are rendered.
+   * `useSpawnStats` are available to stories but not rendered in the shell.
    */
   counts?: SpawnCounts
 }
 
 /**
- * Root layout. Owns active-mode state, registry bootstrap, and the new-session
- * dialog. The CSS grid places TopBar across the top, StatusBar across the
- * bottom, ActivityBar in the left column, and ModeViewport in the main cell.
+ * Root layout. Owns active-mode state and registry bootstrap. The CSS grid
+ * places TopBar across the top, StatusBar across the bottom, ActivityBar in
+ * the left column, and ModeViewport in the main cell.
  *
  * Data wiring:
- * - StatusBar counts + connection come from `useSpawnStats` (SSE-backed).
- * - NewSessionDialog submits to `POST /api/spawns` via `createSpawn`.
- * - Click-to-chat navigation is provided through `NavigationContext` so the
- *   registry-rendered panels can request mode switches without prop drilling.
- *
- * Explicit `counts`/`connectionStatus` props still win — Storybook and tests
- * rely on that override path.
+ * - StatusBar connection comes from `useSpawnStats` (SSE-backed).
  */
 export function AppShell({
   children,
@@ -50,6 +41,7 @@ export function AppShell({
   port,
   counts,
 }: AppShellProps) {
+  void counts
   const didBootstrap = useRef(false)
   useEffect(() => {
     if (didBootstrap.current) return
@@ -61,7 +53,7 @@ export function AppShell({
   }, [])
 
   const reg = useRegistry()
-  const firstRailId = useMemo(() => reg.getRailItems()[0]?.id ?? "sessions", [reg])
+  const firstRailId = useMemo(() => reg.getRailItems()[0]?.id ?? "chat", [reg])
   const [activeMode, setActiveMode] = useState<string>(firstRailId)
 
   // If rail items arrive after first render (registry bootstrap), adopt the first one.
@@ -70,8 +62,6 @@ export function AppShell({
       setActiveMode(reg.getRailItems()[0].id)
     }
   }, [reg, activeMode])
-
-  const [newSessionOpen, setNewSessionOpen] = useState(false)
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
 
   // Global ⌘K / Ctrl+K toggles the command palette. Attached at the document
@@ -86,161 +76,55 @@ export function AppShell({
     document.addEventListener("keydown", handleKeyDown)
     return () => document.removeEventListener("keydown", handleKeyDown)
   }, [])
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [submitError, setSubmitError] = useState<string | null>(null)
-  // Handoff slot: navigateToChat records the requested spawn here, ChatPage
-  // consumes it on mount/update and calls clearPendingChatSpawnId to reset.
-  const [pendingChatSpawnId, setPendingChatSpawnId] = useState<string | null>(null)
 
-  // Live stats — StatusBar binding. Explicit props still take precedence so
-  // stories can pin specific states.
-  const { stats, connectionStatus: liveConnectionStatus } = useSpawnStats()
-  const liveCounts = useMemo<SpawnCounts | undefined>(
-    () =>
-      stats
-        ? {
-            running: stats.running,
-            queued: stats.queued,
-            succeeded: stats.succeeded,
-            failed: stats.failed,
-          }
-        : undefined,
-    [stats],
-  )
-
-  const effectiveCounts = counts ?? liveCounts
+  // Live connection status for the footer indicator.
+  const { connectionStatus: liveConnectionStatus } = useSpawnStats()
   const effectiveConnectionStatus = connectionStatus ?? liveConnectionStatus
-
-  const handleNewSession = useCallback(
-    async (req: {
-      agent: string | null
-      model: string | null
-      harness: string
-      prompt: string
-      workItem: string | null
-    }) => {
-      setIsSubmitting(true)
-      setSubmitError(null)
-      try {
-        await createSpawn({
-          harness: req.harness,
-          prompt: req.prompt,
-          model: req.model ?? undefined,
-          agent: req.agent ?? undefined,
-          // Backend requires a permissions block. `auto` + `workspace-write`
-          // is the safest default that still lets most agent profiles run;
-          // richer controls belong in the dialog UI when we add them.
-          permissions: { sandbox: "workspace-write", approval: "auto" },
-        })
-        setNewSessionOpen(false)
-        // New spawn surfaces automatically through the SSE → stats refetch path.
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        setSubmitError(message)
-        // eslint-disable-next-line no-console
-        console.error("[shell] createSpawn failed:", err)
-      } finally {
-        setIsSubmitting(false)
-      }
-    },
-    [],
-  )
-
-  const handleNavigateToChat = useCallback((spawnId: string) => {
-    // Record the spawn for ChatPage to consume, then switch modes. The order
-    // matters: setting the pending id before the mode change ensures the
-    // ChatPage mount effect sees a non-null value on its first render.
-    setPendingChatSpawnId(spawnId)
-    setActiveMode("chat")
-  }, [])
-
-  const clearPendingChatSpawnId = useCallback(() => {
-    setPendingChatSpawnId(null)
-  }, [])
-
-  const navigationValue = useMemo<NavigationContextValue>(
-    () => ({
-      navigateToChat: handleNavigateToChat,
-      pendingChatSpawnId,
-      clearPendingChatSpawnId,
-    }),
-    [handleNavigateToChat, pendingChatSpawnId, clearPendingChatSpawnId],
-  )
 
   return (
     <TooltipProvider>
-      <NavigationContext.Provider value={navigationValue}>
-        <div
-          className="grid h-screen w-screen bg-background text-foreground"
-          style={{
-            gridTemplateColumns: "48px 1fr",
-            gridTemplateRows: "44px 1fr 24px",
-          }}
-        >
-          <div style={{ gridColumn: "1 / -1", gridRow: "1" }}>
-            <TopBar
-              workItemName={workItemName}
-              onCommandPalette={() => setCommandPaletteOpen(true)}
-              onOpenSettings={() => console.log("settings")}
-            />
-          </div>
-
-          <div style={{ gridColumn: "1", gridRow: "2" }} className="min-h-0">
-            <ActivityBar
-              activeMode={activeMode}
-              onModeChange={setActiveMode}
-              onNewSession={() => setNewSessionOpen(true)}
-              onOpenSettings={() => console.log("settings")}
-            />
-          </div>
-
-          <div style={{ gridColumn: "2", gridRow: "2" }} className="min-h-0 min-w-0 overflow-hidden">
-            <ErrorBoundary resetKeys={[activeMode]}>
-              {children ?? <ModeViewport activeMode={activeMode} />}
-            </ErrorBoundary>
-          </div>
-
-          <div style={{ gridColumn: "1 / -1", gridRow: "3" }}>
-            <StatusBar
-              counts={effectiveCounts}
-              connectionStatus={effectiveConnectionStatus}
-              port={port}
-            />
-          </div>
+      <div
+        className="grid h-screen w-screen bg-background text-foreground"
+        style={{
+          gridTemplateColumns: "48px 1fr",
+          gridTemplateRows: "44px 1fr 24px",
+        }}
+      >
+        <div style={{ gridColumn: "1 / -1", gridRow: "1" }}>
+          <TopBar
+            workItemName={workItemName}
+            onCommandPalette={() => setCommandPaletteOpen(true)}
+            onOpenSettings={() => console.log("settings")}
+          />
         </div>
 
-        <CommandPalette
-          open={commandPaletteOpen}
-          onOpenChange={setCommandPaletteOpen}
-          onSwitchMode={setActiveMode}
-          onNewSession={() => {
-            setCommandPaletteOpen(false)
-            setNewSessionOpen(true)
-          }}
-        />
+        <div style={{ gridColumn: "1", gridRow: "2" }} className="min-h-0">
+          <ActivityBar
+            activeMode={activeMode}
+            onModeChange={setActiveMode}
+            onOpenSettings={() => console.log("settings")}
+          />
+        </div>
 
-        <NewSessionDialog
-          open={newSessionOpen}
-          onOpenChange={(next) => {
-            setNewSessionOpen(next)
-            if (!next) setSubmitError(null)
-          }}
-          onSubmit={(req) => {
-            void handleNewSession(req)
-          }}
-          isSubmitting={isSubmitting}
-        />
-        {submitError && newSessionOpen ? (
-          // A lightweight inline error surface until the dialog grows its own
-          // error row. Keeps the failure visible without blocking re-submit.
-          <div
-            role="alert"
-            className="pointer-events-none fixed bottom-8 left-1/2 z-50 -translate-x-1/2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive shadow-md"
-          >
-            {submitError}
-          </div>
-        ) : null}
-      </NavigationContext.Provider>
+        <div style={{ gridColumn: "2", gridRow: "2" }} className="min-h-0 min-w-0 overflow-hidden">
+          <ErrorBoundary resetKeys={[activeMode]}>
+            {children ?? <ModeViewport activeMode={activeMode} />}
+          </ErrorBoundary>
+        </div>
+
+        <div style={{ gridColumn: "1 / -1", gridRow: "3" }}>
+          <StatusBar
+            connectionStatus={effectiveConnectionStatus}
+            port={port}
+          />
+        </div>
+      </div>
+
+      <CommandPalette
+        open={commandPaletteOpen}
+        onOpenChange={setCommandPaletteOpen}
+        onSwitchMode={setActiveMode}
+      />
     </TooltipProvider>
   )
 }

@@ -11,7 +11,7 @@ import type { ReactNode } from "react"
 import type {
   ChatProjection,
   ChatState as ApiChatState,
-} from "@/features/sessions/lib/api"
+} from "@/lib/api"
 
 export interface ChatSelection extends ChatProjection {
   initialPrompt: string | null

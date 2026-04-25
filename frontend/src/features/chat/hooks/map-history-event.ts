@@ -11,7 +11,7 @@
  * replaying history produces identical reducer output to live streaming.
  */
 
-import type { ChatHistoryEvent } from "@/features/sessions/lib/api"
+import type { ChatHistoryEvent } from "@/lib/api"
 import type { StreamEvent } from "@/features/activity-stream/streaming/events"
 
 export type StartedSets = {

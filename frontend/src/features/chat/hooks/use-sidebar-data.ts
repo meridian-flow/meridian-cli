@@ -12,7 +12,7 @@ import {
   fetchWorkItems,
   type ChatProjection,
   type WorkProjection,
-} from "@/features/sessions/lib/api"
+} from "@/lib/api"
 
 // ---------------------------------------------------------------------------
 // Types

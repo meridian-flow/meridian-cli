@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 
 import { cn } from "@/lib/utils"
-import { useChatSessions } from "@/features/sessions/hooks/use-chat-sessions"
+import { useChatSessions } from "./hooks/use-chat-sessions"
 
 import { ChatProvider, useChat } from "./ChatContext"
 import { ChatSidebar } from "./ChatSidebar"

@@ -1,48 +1,45 @@
 /**
- * Chat list with SSE-triggered refresh.
+ * Lightweight stats + connection status hook.
  *
- * Fetches all chats on mount and refetches when SSE broadcasts a
- * chat-related event. Debounced identically to useSessions so bursts
- * of events (e.g. a flurry of spawns under one chat) coalesce into
- * a single round-trip.
+ * For the StatusBar — doesn't fetch or hold the spawn list. Reuses the
+ * shared SSE singleton so it costs no extra connection.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { sseClient } from '@/lib/sse'
+import { sseClient, type SSEConnectionStatus } from '@/lib/sse'
 
-import { listChats, type ChatProjection } from '../lib/api'
+import { fetchSpawnStats, type SpawnStats } from '@/lib/api'
 
-export interface UseChatSessionsResult {
-  chats: ChatProjection[]
-  isLoading: boolean
+export interface UseSpawnStatsResult {
+  stats: SpawnStats | null
+  connectionStatus: SSEConnectionStatus
   error: string | null
-  refetch: () => void
 }
 
 const REFETCH_DEBOUNCE_MS = 500
 
-export function useChatSessions(): UseChatSessionsResult {
-  const [chats, setChats] = useState<ChatProjection[]>([])
-  const [isLoading, setIsLoading] = useState<boolean>(true)
+export function useSpawnStats(): UseSpawnStatsResult {
+  const [stats, setStats] = useState<SpawnStats | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [connectionStatus, setConnectionStatus] = useState<SSEConnectionStatus>(
+    sseClient.getStatus(),
+  )
 
   const reqIdRef = useRef(0)
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const load = useCallback(async () => {
     const reqId = ++reqIdRef.current
-    setError(null)
     try {
-      const resp = await listChats()
+      const resp = await fetchSpawnStats()
       if (reqId !== reqIdRef.current) return
-      setChats(resp)
-      setIsLoading(false)
+      setStats(resp)
+      setError(null)
     } catch (err) {
       if (reqId !== reqIdRef.current) return
       const message = err instanceof Error ? err.message : String(err)
       setError(message)
-      setIsLoading(false)
     }
   }, [])
 
@@ -54,33 +51,34 @@ export function useChatSessions(): UseChatSessionsResult {
     }, REFETCH_DEBOUNCE_MS)
   }, [load])
 
-  // Initial load.
   useEffect(() => {
     void load()
   }, [load])
 
-  // SSE live updates — refetch on chat.* or spawn.* events (a new spawn
-  // under a chat may change the chat's state/active_p_id).
   useEffect(() => {
     const unsubscribe = sseClient.subscribe((event) => {
       const raw = event.data
       if (typeof raw !== 'string') return
-      if (!raw.includes('chat') && !raw.includes('spawn')) return
+      if (!raw.includes('spawn')) return
       try {
         const parsed = JSON.parse(raw) as { type?: string }
         const type = parsed?.type
-        if (
-          typeof type === 'string' &&
-          (type.startsWith('chat') || type.startsWith('spawn'))
-        ) {
+        if (typeof type === 'string' && type.startsWith('spawn')) {
           scheduleRefetch()
         }
       } catch {
-        // non-JSON — ignore
+        // ignore
       }
     })
+    const unsubscribeStatus = sseClient.onStatusChange((next) => {
+      setConnectionStatus(next)
+    })
+    // Sync initial status in case it changed between render and subscribe.
+    setConnectionStatus(sseClient.getStatus())
+
     return () => {
       unsubscribe()
+      unsubscribeStatus()
       if (debounceTimerRef.current !== null) {
         clearTimeout(debounceTimerRef.current)
         debounceTimerRef.current = null
@@ -88,9 +86,5 @@ export function useChatSessions(): UseChatSessionsResult {
     }
   }, [scheduleRefetch])
 
-  const refetch = useCallback(() => {
-    void load()
-  }, [load])
-
-  return { chats, isLoading, error, refetch }
+  return { stats, connectionStatus, error }
 }

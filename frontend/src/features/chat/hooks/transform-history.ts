@@ -13,7 +13,7 @@
  *      turn boundaries (backward compat with older chat formats).
  */
 
-import type { ChatHistoryEvent } from "@/features/sessions/lib/api"
+import type { ChatHistoryEvent } from "@/lib/api"
 import type { ConversationEntry } from "../conversation-types"
 import {
   conversationReducer,

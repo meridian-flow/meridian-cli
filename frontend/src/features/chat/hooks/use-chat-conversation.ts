@@ -28,7 +28,7 @@ import {
   type ConversationAction,
   type ConversationState,
 } from "../conversation-reducer"
-import { useChatHistory } from "@/features/sessions/hooks/use-chat-history"
+import { useChatHistory } from "./use-chat-history"
 import {
   createChat,
   promptChat,
@@ -39,7 +39,7 @@ import {
   type ChatState as ApiChatState,
   type ChatDetailResponse,
   type CreateChatOptions,
-} from "@/features/sessions/lib/api"
+} from "@/lib/api"
 
 import { transformHistoryToEntries } from "./transform-history"
 

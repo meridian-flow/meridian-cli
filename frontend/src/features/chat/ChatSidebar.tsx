@@ -1,5 +1,5 @@
 import { Plus, ChatCircleDots, Folder } from "@phosphor-icons/react"
-import type { ChatProjection } from "@/features/sessions/lib/api"
+import type { ChatProjection } from "@/lib/api"
 
 import { ElapsedTime } from "@/components/atoms"
 import { Button } from "@/components/ui/button"

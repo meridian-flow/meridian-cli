@@ -10,7 +10,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   getChatHistory,
   type ChatHistoryEvent,
-} from '../lib/api'
+} from '@/lib/api'
 
 export interface UseChatHistoryResult {
   events: ChatHistoryEvent[]
@@ -66,6 +66,14 @@ export function useChatHistory(
       setError(null)
       return
     }
+
+    // Clear old events immediately before fetching new ones.
+    // This prevents a race where stale events from the previous chat
+    // could be seeded into the new chat by useChatConversation.
+    setEvents([])
+    setHasMore(false)
+    setError(null)
+
     void load()
   }, [chatId, load])
 
