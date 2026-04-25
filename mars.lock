@@ -16,7 +16,6 @@ commit = "2b5163e55f6bee8108b037012c0465c9fa871dbc"
 
 [dependencies.meridian-dev-workflow]
 url = "https://github.com/meridian-flow/meridian-dev-workflow"
-version = "v0.1.6"
 commit = "bca42c73e4c2202de80d5ab561a83024172eefec"
 
 [dependencies.meridian-prompter]
