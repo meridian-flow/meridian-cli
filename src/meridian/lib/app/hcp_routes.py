@@ -140,19 +140,24 @@ def _chat_spawns(runtime_root: Path, c_id: str) -> list[spawn_store.SpawnRecord]
     return spawn_store.list_spawns(runtime_root, filters={"chat_id": c_id})
 
 
-def _chat_history_response(
-    *,
+def _replay_spawns_to_agui(
     raw_events_by_spawn: list[tuple[spawn_store.SpawnRecord, list[dict[str, Any]]]],
-    start_seq: int,
-    limit: int | None,
-) -> dict[str, object]:
+) -> list[dict[str, Any]]:
     agui_events: list[dict[str, Any]] = []
     for spawn, raw_events in raw_events_by_spawn:
         if not spawn.harness:
             continue
         for event in replay_events_to_agui(raw_events, HarnessId(spawn.harness), spawn.id):
             agui_events.append(_agui_event_to_json(event))
+    return agui_events
 
+
+def _chat_history_response(
+    *,
+    agui_events: list[dict[str, Any]],
+    start_seq: int,
+    limit: int | None,
+) -> dict[str, object]:
     bounded_start = max(start_seq, 0)
     bounded_limit = max(limit, 0) if limit is not None else None
     end = None if bounded_limit is None else bounded_start + bounded_limit
@@ -341,7 +346,7 @@ def register_hcp_routes(
             for spawn in _chat_spawns(runtime_root, c_id)
         ]
         return _chat_history_response(
-            raw_events_by_spawn=raw_events_by_spawn,
+            agui_events=_replay_spawns_to_agui(raw_events_by_spawn),
             start_seq=start_seq,
             limit=limit,
         )
@@ -358,13 +363,15 @@ def register_hcp_routes(
         record = spawn_store.get_spawn(runtime_root, SpawnId(p_id))
         if record is None:
             raise http_exception(status_code=404, detail="spawn not found")
-        raw_events = read_history_range(
-            paths.spawn_history_path(p_id),
-            start_seq=start_seq,
-            limit=limit,
-        )
-        agui_events = replay_events_to_agui(raw_events, HarnessId(record.harness or ""), p_id)
-        return [_agui_event_to_json(event) for event in agui_events]
+        raw_events = read_history_range(paths.spawn_history_path(p_id))
+        agui_events = [
+            _agui_event_to_json(event)
+            for event in replay_events_to_agui(raw_events, HarnessId(record.harness or ""), p_id)
+        ]
+        bounded_start = max(start_seq, 0)
+        bounded_limit = max(limit, 0) if limit is not None else None
+        end = None if bounded_limit is None else bounded_start + bounded_limit
+        return agui_events[bounded_start:end]
 
     typed_app.post("/api/chats", status_code=201)(create_chat)
     typed_app.get("/api/chats")(list_chats)

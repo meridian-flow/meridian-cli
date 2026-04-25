@@ -12,6 +12,54 @@ from meridian.lib.harness.connections.base import HarnessEvent
 from meridian.lib.streaming.drain_policy import TURN_BOUNDARY_EVENT_TYPE
 
 
+class AguiReplayTurnState:
+    """Track AG-UI run lifecycle events while replaying harness events."""
+
+    def __init__(self, mapper: Any, spawn_id: str) -> None:
+        self._mapper = mapper
+        self._spawn_id = spawn_id
+        self._turn_active = False
+        self._error_emitted = False
+
+    def start_replay(self) -> BaseEvent:
+        """Start the initial turn for a replay stream."""
+
+        self._turn_active = True
+        self._error_emitted = False
+        return self._mapper.make_run_started(self._spawn_id)
+
+    def process_turn_boundary(self) -> list[BaseEvent]:
+        """Process a synthetic turn boundary and return emitted lifecycle events."""
+
+        events: list[BaseEvent] = []
+        if self._turn_active and not self._error_emitted:
+            events.append(self._mapper.make_run_finished(self._spawn_id))
+        self._turn_active = False
+        self._error_emitted = False
+        return events
+
+    def prepare_regular_event(self) -> list[BaseEvent]:
+        """Return lifecycle events needed before translating a regular event."""
+
+        if self._turn_active:
+            return []
+        self._turn_active = True
+        return [self._mapper.make_run_started(self._spawn_id)]
+
+    def observe_translated_event(self, event: BaseEvent) -> None:
+        """Update turn state after one translated AG-UI event."""
+
+        if getattr(event, "type", None) == "RUN_ERROR":
+            self._error_emitted = True
+
+    def finish_replay(self) -> list[BaseEvent]:
+        """Return terminal lifecycle events for the current replay stream."""
+
+        if self._turn_active and not self._error_emitted:
+            return [self._mapper.make_run_finished(self._spawn_id)]
+        return []
+
+
 def replay_events_to_agui(
     raw_events: list[dict[str, Any]],
     harness_id: HarnessId,
@@ -29,11 +77,9 @@ def replay_events_to_agui(
     """
 
     mapper = get_agui_mapper(harness_id)
+    turn_state = AguiReplayTurnState(mapper, spawn_id)
 
-    yield mapper.make_run_started(spawn_id)
-
-    turn_active = True
-    error_emitted = False
+    yield turn_state.start_replay()
 
     for raw_event in raw_events:
         event = _raw_to_harness_event(raw_event)
@@ -41,23 +87,16 @@ def replay_events_to_agui(
             continue
 
         if event.event_type == TURN_BOUNDARY_EVENT_TYPE:
-            if turn_active and not error_emitted:
-                yield mapper.make_run_finished(spawn_id)
-            turn_active = False
-            error_emitted = False
+            yield from turn_state.process_turn_boundary()
             continue
 
-        if not turn_active:
-            yield mapper.make_run_started(spawn_id)
-            turn_active = True
+        yield from turn_state.prepare_regular_event()
 
         for translated in mapper.translate(event):
             yield translated
-            if getattr(translated, "type", None) == "RUN_ERROR":
-                error_emitted = True
+            turn_state.observe_translated_event(translated)
 
-    if turn_active and not error_emitted:
-        yield mapper.make_run_finished(spawn_id)
+    yield from turn_state.finish_replay()
 
 
 def _raw_to_harness_event(raw: dict[str, Any]) -> HarnessEvent | None:
@@ -103,4 +142,4 @@ def _raw_to_harness_event(raw: dict[str, Any]) -> HarnessEvent | None:
     )
 
 
-__all__ = ["replay_events_to_agui"]
+__all__ = ["AguiReplayTurnState", "replay_events_to_agui"]

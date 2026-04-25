@@ -229,3 +229,32 @@ def test_chat_spawns_and_spawn_history(tmp_path: Path) -> None:
     assert spawns_response.json()[0]["spawn_id"] == "p1"
     assert history_response.status_code == 200
     assert next(event["type"] for event in history_response.json()) == "RUN_STARTED"
+
+
+def test_spawn_history_paginates_in_agui_event_space(tmp_path: Path) -> None:
+    client, _manager, runtime_root = _make_client(tmp_path)
+    _create_chat(client)
+    history_path = RuntimePaths.from_root_dir(runtime_root).spawn_history_path("p1")
+    writer = HarnessHistoryWriter(history_path)
+    writer.write(
+        HarnessEvent(
+            event_type="item/agentMessage",
+            harness_id="codex",
+            payload={"text": "skip"},
+        )
+    )
+    writer.write(
+        HarnessEvent(
+            event_type="item/agentMessage",
+            harness_id="codex",
+            payload={"text": "keep"},
+        )
+    )
+
+    response = client.get("/api/spawns/p1/history", params={"start_seq": 1, "limit": 2})
+
+    assert response.status_code == 200
+    assert [event["type"] for event in response.json()] == [
+        "TEXT_MESSAGE_START",
+        "TEXT_MESSAGE_CONTENT",
+    ]
