@@ -5,7 +5,10 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- `state.retention_days` config key. TTL for stale state pruning: `-1` never prune, `0` prune immediately, positive = days. Default 30. Env var `MERIDIAN_STATE_RETENTION_DAYS`.
+- `meridian doctor --prune` deletes stale spawn artifacts for the current project. `--prune --global` also prunes orphan project dirs machine-wide under `~/.meridian/projects/`.
 - Background doctor cache. `meridian` / `meridian app` launch kicks scan after 24h; next text command shows one-line cleanup hint.
+- Session-scoped `MERIDIAN_HOME` test isolation. Tests no longer leak project dirs into user state.
 - AG-UI replay cursor pagination core. Raw seq cursor, lazy history iterator, invalid cursor errors.
 - HCP core skeleton: capabilities, errors, lifecycle types, session manager. App lifespan restores HCP chats.
 - HCP harness adapters for Claude, Codex, OpenCode. HCP chats persist native session IDs from connection or stream events.

@@ -88,6 +88,7 @@ Canonical keys accepted by `meridian config set/get/reset`:
 | `harness.opencode` | str | Default model for OpenCode harness |
 | `output.show` | array[str] | Stream categories shown |
 | `output.verbosity` | str\|null | `quiet\|normal\|verbose\|debug` |
+| `state.retention_days` | int | TTL for stale state pruning (`-1` = never, `0` = immediate, default `30`) |
 
 Agent profiles are opt-in. When `--agent/-a` is omitted and `primary.agent` is unset, Meridian runs without a predefined profile.
 
@@ -123,6 +124,9 @@ verbosity = "verbose"
 
 [primary]
 autocompact_pct = 70
+
+[state]
+retention_days = 30   # -1 = never prune, 0 = prune immediately
 ```
 
 ## Workspace
@@ -309,6 +313,7 @@ Use `meridian models refresh` to force a cache refresh from the models.dev catal
 - `MERIDIAN_HARNESS_MODEL_CLAUDE`
 - `MERIDIAN_HARNESS_MODEL_CODEX`
 - `MERIDIAN_HARNESS_MODEL_OPENCODE`
+- `MERIDIAN_STATE_RETENTION_DAYS`
 
 ### Guardrails and Secrets
 

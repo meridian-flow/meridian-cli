@@ -147,3 +147,31 @@ Each spawn writes artifacts to the user-level runtime directory, under `~/.merid
 | `projection-manifest.json` | Harness ID and per-category channel routing decisions |
 
 If a spawn directory is missing entirely, the harness crashed before artifacts stabilized — relaunch.
+
+## Stale state accumulating in `~/.meridian/`
+
+Over time, orphan project directories and old spawn artifacts accumulate under `~/.meridian/projects/`. Meridian runs a background health scan on app launch (every 24h) and warns on the next text-mode command if stale state is found.
+
+To inspect what's stale:
+
+```bash
+meridian doctor --global          # scan current project + all projects
+```
+
+To clean up:
+
+```bash
+meridian doctor --prune           # prune stale spawn artifacts (current project)
+meridian doctor --prune --global  # also prune orphan project dirs machine-wide
+```
+
+Pruning respects `state.retention_days` (default 30 days). Configure in `meridian.toml`:
+
+```toml
+[state]
+retention_days = 30   # -1 = never prune, 0 = prune immediately
+```
+
+Or via environment variable: `MERIDIAN_STATE_RETENTION_DAYS=30`.
+
+Active spawns are always protected — pruning never deletes state for running spawns regardless of age.
