@@ -16,7 +16,8 @@ commit = "2b5163e55f6bee8108b037012c0465c9fa871dbc"
 
 [dependencies.meridian-dev-workflow]
 url = "https://github.com/meridian-flow/meridian-dev-workflow"
-commit = "baf9cb2195cda75c5322e3c78bece3c6636a8f8c"
+version = "v0.1.6"
+commit = "bca42c73e4c2202de80d5ab561a83024172eefec"
 
 [dependencies.meridian-prompter]
 url = "https://github.com/meridian-flow/meridian-prompter"
@@ -133,8 +134,8 @@ dest_path = "agents/meridian-subagent.md"
 [items."agents/planner.md"]
 source = "meridian-dev-workflow"
 kind = "agent"
-source_checksum = "sha256:d4e53b72b609795bd5ea120694b83c597eb5386bc0d752ec70329fec55533f64"
-installed_checksum = "sha256:d4e53b72b609795bd5ea120694b83c597eb5386bc0d752ec70329fec55533f64"
+source_checksum = "sha256:048cefb67d70d2834ecf9cf29d1f616f0e9ecb38b755ad9abd672977697747c2"
+installed_checksum = "sha256:048cefb67d70d2834ecf9cf29d1f616f0e9ecb38b755ad9abd672977697747c2"
 dest_path = "agents/planner.md"
 
 [items."agents/prompt-reviewer.md"]
