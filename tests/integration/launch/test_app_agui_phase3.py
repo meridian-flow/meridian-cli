@@ -100,6 +100,50 @@ def test_opencode_message_updated_closes_assistant_message_for_user_role() -> No
     assert _event_types(user_update) == ["TEXT_MESSAGE_END"]
 
 
+def test_claude_assistant_snapshot_translates_all_content_blocks() -> None:
+    mapper = mapping_module.get_agui_mapper(HarnessId.CLAUDE)
+
+    events = mapper.translate(
+        HarnessEvent(
+            event_type="assistant",
+            payload={
+                "message": {
+                    "content": [
+                        {"type": "thinking", "thinking": "\ncheck plan\n"},
+                        {"type": "text", "text": "\nHello\nworld\n"},
+                        {
+                            "type": "tool_use",
+                            "id": "toolu_abc123",
+                            "name": "Read",
+                            "input": {"path": "/foo"},
+                        },
+                    ]
+                }
+            },
+            harness_id=HarnessId.CLAUDE.value,
+        )
+    )
+
+    assert _event_types(events) == [
+        "REASONING_MESSAGE_START",
+        "REASONING_MESSAGE_CONTENT",
+        "REASONING_MESSAGE_END",
+        "TEXT_MESSAGE_START",
+        "TEXT_MESSAGE_CONTENT",
+        "TEXT_MESSAGE_END",
+        "TOOL_CALL_START",
+        "TOOL_CALL_ARGS",
+        "TOOL_CALL_END",
+    ]
+    assert events[1].delta == "\ncheck plan\n"
+    assert events[4].delta == "\nHello\nworld\n"
+    assert events[6].tool_call_id == "toolu_abc123"
+    assert events[6].tool_call_name == "Read"
+    assert events[7].tool_call_id == "toolu_abc123"
+    assert events[7].delta == '{"path": "/foo"}'
+    assert events[8].tool_call_id == "toolu_abc123"
+
+
 @pytest.mark.parametrize(
     "event_type",
     ["server.heartbeat", "server.connected", "sync", "session.diff", "session.updated"],

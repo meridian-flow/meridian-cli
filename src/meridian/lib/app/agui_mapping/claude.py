@@ -101,6 +101,10 @@ class ClaudeAGUIMapper:
         if self._saw_stream_event:
             return []
 
+        content = _extract_assistant_content(payload)
+        if content is not None:
+            return _translate_assistant_content_blocks(content)
+
         text = _extract_assistant_text(payload)
         if text is None:
             return []
@@ -414,6 +418,73 @@ def _extract_delta_text(delta: dict[str, object], *, candidates: tuple[str, ...]
         if isinstance(value, str):
             return value
     return None
+
+
+def _extract_assistant_content(payload: dict[str, object]) -> list[object] | None:
+    content = payload.get("content")
+    if isinstance(content, list):
+        return cast("list[object]", content)
+
+    message_obj = payload.get("message")
+    if not isinstance(message_obj, dict):
+        return None
+
+    message_payload = cast("dict[str, object]", message_obj)
+    nested_content = message_payload.get("content")
+    if isinstance(nested_content, list):
+        return cast("list[object]", nested_content)
+    return None
+
+
+def _translate_assistant_content_blocks(content: list[object]) -> list[BaseEvent]:
+    events: list[BaseEvent] = []
+    for block_obj in content:
+        if not isinstance(block_obj, dict):
+            continue
+
+        block = cast("dict[str, object]", block_obj)
+        block_type = _coerce_str(block.get("type"))
+        if block_type == "text":
+            text = block.get("text")
+            if not isinstance(text, str) or text == "":
+                continue
+            message_id = str(uuid4())
+            events.extend(
+                [
+                    TextMessageStartEvent(message_id=message_id, role="assistant"),
+                    TextMessageContentEvent(message_id=message_id, delta=text),
+                    TextMessageEndEvent(message_id=message_id),
+                ]
+            )
+        elif block_type == "thinking":
+            thinking = block.get("thinking")
+            if not isinstance(thinking, str) or thinking == "":
+                continue
+            message_id = str(uuid4())
+            events.extend(
+                [
+                    ReasoningMessageStartEvent(message_id=message_id, role="reasoning"),
+                    ReasoningMessageContentEvent(message_id=message_id, delta=thinking),
+                    ReasoningMessageEndEvent(message_id=message_id),
+                ]
+            )
+        elif block_type == "tool_use":
+            tool_call_id = _coerce_str(block.get("id")) or f"tool-{uuid4()}"
+            tool_name = _coerce_str(block.get("name")) or "ToolCall"
+            events.extend(
+                [
+                    ToolCallStartEvent(
+                        tool_call_id=tool_call_id,
+                        tool_call_name=tool_name,
+                    ),
+                    ToolCallArgsEvent(
+                        tool_call_id=tool_call_id,
+                        delta=_stringify(block.get("input", {})),
+                    ),
+                    ToolCallEndEvent(tool_call_id=tool_call_id),
+                ]
+            )
+    return events
 
 
 def _extract_assistant_text(payload: dict[str, object]) -> str | None:
