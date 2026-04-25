@@ -269,7 +269,11 @@ def test_locate_all_and_prune_stale_keep_only_live_active_instances(tmp_path: Pa
     assert len(endpoints) == 1
     assert endpoints[0].pid == 1012
     assert endpoints[0].token == "live-token"
-    assert pruned == 2
     assert live_dir.exists()
     assert not dead_dir.exists()
-    assert not stale_uds_dir.exists()
+    if IS_WINDOWS:
+        assert pruned == 1
+        assert stale_uds_dir.exists()
+    else:
+        assert pruned == 2
+        assert not stale_uds_dir.exists()

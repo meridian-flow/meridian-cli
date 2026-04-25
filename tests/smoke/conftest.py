@@ -43,6 +43,7 @@ def _isolated_env() -> dict[str, str]:
     """Minimal env that strips MERIDIAN_* and forces UTF-8."""
     keep = [
         "PATH",
+        "PATHEXT",
         "SYSTEMROOT",
         "WINDIR",
         "COMSPEC",
@@ -56,6 +57,17 @@ def _isolated_env() -> dict[str, str]:
     env["PYTHONUTF8"] = "1"
     env["PYTHONIOENCODING"] = "utf-8"
     return env
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _cli_cmd(*args: str, json_mode: bool) -> list[str]:
+    cmd = ["uv", "run", "--project", str(REPO_ROOT), "meridian"]
+    if json_mode:
+        cmd.append("--json")
+    cmd.extend(args)
+    return cmd
 
 
 @pytest.fixture
@@ -78,10 +90,7 @@ def cli(tmp_path: Path):
         timeout: float = 30.0,
         json_mode: bool = False,
     ) -> CLIResult:
-        cmd = ["uv", "run", "meridian"]
-        if json_mode:
-            cmd.append("--json")
-        cmd.extend(args)
+        cmd = _cli_cmd(*args, json_mode=json_mode)
         merged_env = {**base_env, **(env_override or {})}
         proc = subprocess.run(
             cmd,
@@ -125,10 +134,7 @@ def cli_with_git(tmp_path: Path):
         timeout: float = 30.0,
         json_mode: bool = False,
     ) -> CLIResult:
-        cmd = ["uv", "run", "meridian"]
-        if json_mode:
-            cmd.append("--json")
-        cmd.extend(args)
+        cmd = _cli_cmd(*args, json_mode=json_mode)
         merged_env = {**base_env, **(env_override or {})}
         proc = subprocess.run(
             cmd,

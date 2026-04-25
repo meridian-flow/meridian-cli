@@ -18,6 +18,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
+from meridian.lib.platform.locking import lock_file
 from meridian.lib.state.atomic import atomic_write_text
 from meridian.lib.state.event_store import utc_now_iso
 from meridian.lib.state.paths import RuntimePaths
@@ -356,31 +357,32 @@ def ensure_work_item_metadata(
 
     _migrate_legacy_work_items(runtime_root)
     paths = RuntimePaths.from_root_dir(runtime_root)
-    active_dir, archived_dir = _locate_dirs(paths, normalized)
-    _ensure_not_both_locations(normalized, active_dir, archived_dir)
+    with lock_file(paths.root_dir / "work-store.flock"):
+        active_dir, archived_dir = _locate_dirs(paths, normalized)
+        _ensure_not_both_locations(normalized, active_dir, archived_dir)
 
-    if active_dir is not None:
+        if active_dir is not None:
+            return _work_item_from_dir(
+                active_dir,
+                archived=False,
+                default_status=status,
+                default_description=description,
+            )
+        if archived_dir is not None:
+            return _work_item_from_dir(
+                archived_dir,
+                archived=True,
+                default_description=description,
+            )
+
+        created_dir = _active_dir(paths, normalized)
+        created_dir.mkdir(parents=True, exist_ok=True)
         return _work_item_from_dir(
-            active_dir,
+            created_dir,
             archived=False,
             default_status=status,
             default_description=description,
         )
-    if archived_dir is not None:
-        return _work_item_from_dir(
-            archived_dir,
-            archived=True,
-            default_description=description,
-        )
-
-    created_dir = _active_dir(paths, normalized)
-    created_dir.mkdir(parents=True, exist_ok=True)
-    return _work_item_from_dir(
-        created_dir,
-        archived=False,
-        default_status=status,
-        default_description=description,
-    )
 
 
 def get_work_item(runtime_root: Path, work_id: str) -> WorkItem | None:

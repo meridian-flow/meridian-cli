@@ -151,7 +151,7 @@ def compose_skill_injections(skills: Sequence[SkillContent]) -> str | None:
         content = skill.content.strip()
         if not content:
             continue
-        blocks.append(f"# Skill: {skill.path}\n\n{content}")
+        blocks.append(f"# Skill: {Path(skill.path).as_posix()}\n\n{content}")
 
     if not blocks:
         return None
