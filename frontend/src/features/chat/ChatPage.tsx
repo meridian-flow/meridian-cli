@@ -44,12 +44,13 @@ function ChatPageContent({ className }: ChatPageProps) {
     didInitializeSelection.current = true
   }, [clearChat])
 
-  // Only clear draftMode when a real (non-synthetic) chat is selected by the
-  // user — skip when the selection was triggered by the finished-chat fallback
-  // or when the user explicitly initiated a new-chat draft.
+  // Clear draftMode when a real chat is selected (either from sidebar or after
+  // createChat succeeds and onChatCreated calls selectChat with the new chat).
+  // The __new__ synthetic ID is excluded so the finished-chat fallback doesn't
+  // prematurely exit draft mode.
   useEffect(() => {
-    if (userInitiatedDraft.current) return
     if (selectedChat && selectedChat.chat_id !== "__new__") {
+      userInitiatedDraft.current = false
       setDraftMode(false)
     }
   }, [selectedChat])
