@@ -22,7 +22,7 @@ Primary launch/resume:
 Quick start:
   meridian spawn -m MODEL -p "prompt"   Create a subagent run
   meridian spawn wait ID                Wait for results
-  meridian models list                  See available models
+  meridian mars models list             See available models
 
 Run 'meridian spawn -h' for full usage.
 

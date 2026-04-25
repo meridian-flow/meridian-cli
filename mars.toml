@@ -1,9 +1,10 @@
 [dependencies.meridian-base]
 url = "https://github.com/meridian-flow/meridian-base"
+version = "v0.0.31"
 
 [dependencies.meridian-dev-workflow]
 url = "https://github.com/meridian-flow/meridian-dev-workflow"
-version = "main"
+version = "v0.1.7"
 
 [dependencies.anthropic-skills]
 url = "https://github.com/anthropics/skills"

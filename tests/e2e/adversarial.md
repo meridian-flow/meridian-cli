@@ -43,7 +43,7 @@ fi
 
 ```bash
 if (
-  uv run meridian --json models list >/tmp/meridian-adv-models.json 2>&1 &
+  uv run meridian --json mars models list >/tmp/meridian-adv-models.json 2>&1 &
   uv run meridian --json skills list >/tmp/meridian-adv-skills.json 2>&1 &
   uv run meridian --json spawn list >/tmp/meridian-adv-spawns.json 2>&1 &
   wait
@@ -107,7 +107,7 @@ Add at least three extra experiments that are not listed above. Good targets:
 Reference implementation:
 
 ```bash
-uv run meridian --json --format json models list >/tmp/meridian-adv-mixed-format.out 2>&1
+uv run meridian --json --format json mars models list >/tmp/meridian-adv-mixed-format.out 2>&1
 if uv run meridian --json spawn -a reviewer -p "missing ref" -f /tmp/no-such-ref-file.md --dry-run >/tmp/meridian-adv-missing-ref.out 2>&1; then
   :
 fi

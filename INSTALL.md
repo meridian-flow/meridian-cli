@@ -103,10 +103,10 @@ Run:
 ```bash
 meridian doctor
 meridian mars sync
-meridian models list
+meridian mars models list
 ```
 
 Notes:
-- `meridian models list` may require provider API keys.
+- `meridian mars models list` may require provider API keys.
 - `meridian mars sync` should complete without package resolution errors.
 - Report any failed checks and propose next concrete fix steps.

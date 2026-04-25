@@ -39,6 +39,8 @@ Common `spawn` flags:
 `kind`, `activity`, `managed_backend`, `backend_pid`, `tui_pid`, `backend_port`,
 and `harness_session_id`.
 
+For managed Codex primary startup behavior, see [codex-tui-passthrough.md](codex-tui-passthrough.md).
+
 ## Reports & Sessions
 
 | Command | Description |
@@ -141,7 +143,7 @@ See [extensions.md](extensions.md) for HTTP API and MCP tool details.
 | `meridian config set KEY VALUE` | Set a config value |
 | `meridian config get KEY` | Read a config value |
 | `meridian config reset KEY` | Reset a config value to default |
-| `meridian models list` | Inspect the model catalog |
+| `meridian mars models list` | Inspect the model catalog |
 | `meridian models refresh` | Force-refresh the models.dev cache |
 | `meridian doctor` | Run diagnostics and reconcile orphan state |
 | `meridian serve` | Start the MCP server |

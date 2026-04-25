@@ -23,11 +23,11 @@ All visibility settings are user-configurable in `[model_visibility]` section of
 
 ## 4. Skill for model management
 
-Add a skill in `meridian-base/` teaching agents how to manage models, aliases, descriptions, and filtering via CLI. Replace hardcoded model names in skills (like `review-orchestration`) with references to `meridian models list`.
+Add a skill in `meridian-base/` teaching agents how to manage models, aliases, descriptions, and filtering via CLI. Replace hardcoded model names in skills (like `review-orchestration`) with references to `meridian mars models list`.
 
 ## 5. Fix review-orchestration model references
 
-`meridian-dev-workflow/skills/review-orchestration/SKILL.md` lists specific model names (gpt-5.4, opus, gpt-5.3-codex) in the Model Selection section. Replace with characteristic-based guidance and point to `meridian models list`. Same pattern: guidance should describe model characteristics and point to `meridian models list` instead of hardcoding model IDs.
+`meridian-dev-workflow/skills/review-orchestration/SKILL.md` lists specific model names (gpt-5.4, opus, gpt-5.3-codex) in the Model Selection section. Replace with characteristic-based guidance and point to `meridian mars models list`. Same pattern: guidance should describe model characteristics and point to `meridian mars models list` instead of hardcoding model IDs.
 
 ## ~~6. Fix docs drift~~ (done)
 

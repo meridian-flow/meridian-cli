@@ -4,6 +4,11 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+- `mars-agents` 0.1.18 -> 0.1.19. Mars model listing now uses harness-aware runnable visibility and OpenCode provider/model availability.
+- Background spawn note trimmed. `meridian spawn --bg` now returns a short "Backgrounded. Spawn id: ... Collect later with \`meridian spawn wait\`." hint instead of a long immediate-wait warning.
+- `meridian models list` now fails fast. Use `meridian mars models list`.
+
 ### Added
 - `state.retention_days` config key. TTL for stale state pruning: `-1` never prune, `0` prune immediately, positive = days. Default 30. Env var `MERIDIAN_STATE_RETENTION_DAYS`.
 - `meridian doctor --prune` deletes stale spawn artifacts for the current project. `--prune --global` also prunes orphan project dirs machine-wide under `~/.meridian/projects/`.
@@ -14,6 +19,7 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - HCP harness adapters for Claude, Codex, OpenCode. HCP chats persist native session IDs from connection or stream events.
 
 ### Fixed
+- Fresh managed `meridian codex` attach now waits for rollout `session_meta`, not full bootstrap turn completion.
 - OpenCode `serve` now runs in workspace mode (`OPENCODE_WORKSPACE_ID=meridian`), eliminating SPA catch-all that concatenated HTML to API JSON responses.
 - Claude AG-UI assistant snapshots now emit thinking, tool calls, and exact text newlines.
 - AG-UI replay lazy history scan no longer loads full `history.jsonl`.
@@ -21,8 +27,13 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - HCP chat launch failure now finalizes spawn and stops session. Active HCP chats get heartbeat. Restore skips stopped chats.
 - HCP adapters no longer start harness connections; SpawnManager owns lifecycle.
 - Codex launch spec now carries base, developer, user-turn instruction channels for managed websocket plumbing.
+- Codex subprocess projection inline again, so spawn inventory/report text reaches child prompt.
 - OpenCode streaming now sends system instructions via message `system`, user/context via `parts`.
 - OpenCode HTTP connection: removed dead API path probing (`/sessions`, `/api/health`, cancel/stop variants), HTML workaround code, and speculative payload variants. Paths now match known opencode API surface.
+- OpenCode TUI projection no longer emits `--variant` (only valid for `opencode run`, not the bare TUI command). Was causing `meridian opencode` to exit immediately with help text.
+- OpenCode workspace projection now emits `external_directory` as `{path: "allow"}` object instead of array. Matches opencode's Effect/Zod permission schema.
+- OpenCode and Codex primary launches always use managed backend (`serve` → HTTP API → `attach`). Previously gated to resume-only, which forced fresh launches through black-box TUI path — losing system prompt delivery and session tracking.
+- OpenCode TUI projection no longer emits `--prompt` for interactive launches. System prompt is delivered via managed backend's message system field; user types the first message.
 - Spawn finalization now treats `history.jsonl` as output before legacy `output.jsonl`.
 
 ## [0.0.44] - 2026-04-24

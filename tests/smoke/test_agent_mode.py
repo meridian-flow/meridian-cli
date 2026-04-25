@@ -32,36 +32,23 @@ def test_human_flag_restores_full_help(cli):
         assert visible in text
 
 
-def test_agent_mode_models_list_text(cli, scratch_dir):
-    """Agent mode uses text for read/browse commands like models list."""
-    # Seed mars.toml so models list works
-    mars_content = "[settings]\nmodels_cache_ttl_hours = 24\n"
-    (scratch_dir / "mars.toml").write_text(mars_content, encoding="utf-8")
-
+def test_agent_mode_models_list_redirects_to_mars(cli):
+    """Agent mode gets the same compatibility redirect for models list."""
     result = cli("models", "list", env_override={"MERIDIAN_DEPTH": "1"})
-    result.assert_success()
-
-    # Should be text, not JSON
-    stripped = result.stdout.strip()
-    assert not stripped.startswith("{"), "Expected text output in agent mode"
+    result.assert_failure(1)
+    assert "meridian mars models list" in result.stderr
+    assert not result.stdout.strip()
 
 
-def test_explicit_format_json_overrides_agent_defaults(cli, scratch_dir):
-    """Explicit --format json overrides agent mode defaults."""
-    # Seed mars.toml so models list works
-    mars_content = "[settings]\nmodels_cache_ttl_hours = 24\n"
-    (scratch_dir / "mars.toml").write_text(mars_content, encoding="utf-8")
-
+def test_models_list_redirect_ignores_json_format(cli):
+    """Compatibility stub stays a clear stderr error even with JSON requested."""
     result = cli(
         "--format", "json", "models", "list",
         env_override={"MERIDIAN_DEPTH": "1"}
     )
-    result.assert_success()
-
-    # Each non-empty line should be valid JSON (JSONL format)
-    for line in result.stdout.strip().split("\n"):
-        if line.strip():
-            json.loads(line)  # Should not raise
+    result.assert_failure(1)
+    assert "meridian mars models list" in result.stderr
+    assert not result.stdout.strip()
 
 
 def test_agent_mode_control_plane_json(cli):

@@ -20,7 +20,7 @@ Then confirm with `meridian doctor`.
 Harness routing is determined by model prefix patterns. Check what's resolved:
 
 ```bash
-meridian models list      # see available models and their harnesses
+meridian mars models list # see available models and their harnesses
 meridian config show      # see harness defaults and overrides
 ```
 
@@ -37,6 +37,32 @@ Set a default harness for a model family in `meridian.toml`:
 claude = "claude-opus-4-6"
 codex  = "gpt-5.3-codex"
 ```
+
+## `meridian codex` feels slow at startup
+
+Fresh managed Codex startup is slower than a black-box TUI launch because Meridian must start Codex `app-server`, connect the managed observer, create the thread, materialize the first rollout, and only then attach the real Codex TUI.
+
+This is expected for the managed path. Meridian now shows compact startup telemetry so the delay is visible instead of looking hung.
+
+See [codex-tui-passthrough.md](codex-tui-passthrough.md) for the startup phases and bootstrap rationale.
+
+## Codex managed attach fails instead of falling back
+
+Codex primary is intentionally managed-only. Meridian does not silently fall back to black-box Codex for `meridian codex`, because hidden instruction routing and managed session tracking are the point of that command.
+
+If managed startup fails:
+
+```bash
+meridian spawn show ID
+meridian session log ID
+```
+
+Also inspect the spawn's `stderr.log` artifact if needed. Common failure surfaces are:
+
+- Codex `app-server` startup failure
+- observer connection failure
+- bootstrap turn failure before TUI attach
+- local TUI attach failure after the managed thread is ready
 
 ## Spawn disconnected from earlier work
 

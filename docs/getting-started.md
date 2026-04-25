@@ -10,7 +10,7 @@ Meridian is a coordination layer — it needs at least one harness installed to 
 | Codex CLI   | `gpt-*`, `codex*`, `o3*`, `o4*` | [github.com/openai/codex](https://github.com/openai/codex) |
 | OpenCode    | anything else                   | [opencode.ai](https://opencode.ai) |
 
-**Claude Code** is the primary session harness — it supports system prompt injection and interactive use. Codex and OpenCode work well as spawn targets for delegated tasks.
+**Claude Code** is the most mature primary-session harness. Codex also supports managed primary TUI passthrough, including hidden instruction routing and managed session tracking. See [codex-tui-passthrough.md](codex-tui-passthrough.md).
 
 **Platform**: macOS, Linux, Windows, WSL.
 
@@ -61,7 +61,7 @@ This symlinks `.agents/` into the target directory so harnesses discover the age
 
 ```bash
 meridian config show   # confirm resolved config
-meridian models list   # confirm available models
+meridian mars models list   # confirm available models
 meridian doctor        # check harness connectivity
 ```
 
@@ -86,5 +86,6 @@ Each enabled, existing root is projected to harness launches automatically — `
 
 - [commands.md](commands.md) — full CLI reference
 - [configuration.md](configuration.md) — config keys, model routing, environment variables
+- [codex-tui-passthrough.md](codex-tui-passthrough.md) — managed Codex startup, bootstrap, and attach behavior
 - [hooks.md](hooks.md) — hook events, builtin hooks, and `git-autosync`
 - [plugin-api.md](plugin-api.md) — stable API for hook and plugin authors

@@ -11,12 +11,13 @@ commit = "c2ed24b3e5d412cd0c25197b2bc9af587621fd99"
 
 [dependencies.meridian-base]
 url = "https://github.com/meridian-flow/meridian-base"
-version = "v0.0.29"
-commit = "2b5163e55f6bee8108b037012c0465c9fa871dbc"
+version = "v0.0.31"
+commit = "059745dd023f3279c92ddf399cc4e4595a92ad13"
 
 [dependencies.meridian-dev-workflow]
 url = "https://github.com/meridian-flow/meridian-dev-workflow"
-commit = "bca42c73e4c2202de80d5ab561a83024172eefec"
+version = "v0.1.7"
+commit = "78887ac2a5aa851ac03204c2c596ac4f6262c182"
 
 [dependencies.meridian-prompter]
 url = "https://github.com/meridian-flow/meridian-prompter"
@@ -117,9 +118,9 @@ dest_path = "agents/investigator.md"
 [items."agents/meridian-default-orchestrator.md"]
 source = "meridian-base"
 kind = "agent"
-version = "v0.0.29"
-source_checksum = "sha256:ab010d1e07a135e241f5a6b0c41b9a40c6ccbc94d328f1c0c6e60705d58adb75"
-installed_checksum = "sha256:ab010d1e07a135e241f5a6b0c41b9a40c6ccbc94d328f1c0c6e60705d58adb75"
+version = "v0.0.31"
+source_checksum = "sha256:d0e6c1beabe6366f6ed67146eb39633215aeccdbbaedbf37060b1278abd4fbec"
+installed_checksum = "sha256:d0e6c1beabe6366f6ed67146eb39633215aeccdbbaedbf37060b1278abd4fbec"
 dest_path = "agents/meridian-default-orchestrator.md"
 
 [items."agents/meridian-subagent.md"]
@@ -251,17 +252,16 @@ dest_path = "skills/agent-artifacts"
 [items."skills/agent-creator"]
 source = "meridian-base"
 kind = "skill"
-version = "v0.0.25"
-source_checksum = "sha256:7fbf5aec69d2f865cacab760fad4bf2d736797134003924299d858354f20f1d5"
-installed_checksum = "sha256:7fbf5aec69d2f865cacab760fad4bf2d736797134003924299d858354f20f1d5"
+version = "v0.0.31"
+source_checksum = "sha256:aeced0049a9bae828a3fe0be0e6d267969c7d26665bda33774337be5a4af848c"
+installed_checksum = "sha256:aeced0049a9bae828a3fe0be0e6d267969c7d26665bda33774337be5a4af848c"
 dest_path = "skills/agent-creator"
 
 [items."skills/agent-staffing"]
 source = "meridian-dev-workflow"
 kind = "skill"
-version = "v0.1.1"
-source_checksum = "sha256:ce8ff85db1ad7e61de72042912e86d04695a7276d7b3a2f69c1e86dc2a71b67f"
-installed_checksum = "sha256:ce8ff85db1ad7e61de72042912e86d04695a7276d7b3a2f69c1e86dc2a71b67f"
+source_checksum = "sha256:f026249a0f20d7783aa13ecf70dd9fe06ca9ac84e3befd3deb79732f1e3e2911"
+installed_checksum = "sha256:f026249a0f20d7783aa13ecf70dd9fe06ca9ac84e3befd3deb79732f1e3e2911"
 dest_path = "skills/agent-staffing"
 
 [items."skills/architecture"]
@@ -360,24 +360,25 @@ dest_path = "skills/md-validation"
 [items."skills/meridian-cli"]
 source = "meridian-base"
 kind = "skill"
-version = "v0.0.27"
-source_checksum = "sha256:be427c4b9d61befb6bea80713ec281407bdd124982c0c99eb83a7a12e8b325a2"
-installed_checksum = "sha256:be427c4b9d61befb6bea80713ec281407bdd124982c0c99eb83a7a12e8b325a2"
+version = "v0.0.31"
+source_checksum = "sha256:972f46407ceaaf4e5538b339aebdfe2f90a37dcba84187422ee3fb3b161c2ee7"
+installed_checksum = "sha256:972f46407ceaaf4e5538b339aebdfe2f90a37dcba84187422ee3fb3b161c2ee7"
 dest_path = "skills/meridian-cli"
 
 [items."skills/meridian-privilege-escalation"]
 source = "meridian-base"
 kind = "skill"
-source_checksum = "sha256:e0341d4ed3657d4a4c6a0a96f804376e6f960e3f7f2fd9b91ac8d672ea4e2938"
-installed_checksum = "sha256:e0341d4ed3657d4a4c6a0a96f804376e6f960e3f7f2fd9b91ac8d672ea4e2938"
+version = "v0.0.31"
+source_checksum = "sha256:4e447cfccb17d6ede622a2e084d6b40d18034d6d152b67eea0bedf383ae04831"
+installed_checksum = "sha256:4e447cfccb17d6ede622a2e084d6b40d18034d6d152b67eea0bedf383ae04831"
 dest_path = "skills/meridian-privilege-escalation"
 
 [items."skills/meridian-spawn"]
 source = "meridian-base"
 kind = "skill"
-version = "v0.0.29"
-source_checksum = "sha256:f6310def5f6be98fa84d54dba30d9ccf2e3c6b1f271ff2be91db0a90145b675f"
-installed_checksum = "sha256:f6310def5f6be98fa84d54dba30d9ccf2e3c6b1f271ff2be91db0a90145b675f"
+version = "v0.0.31"
+source_checksum = "sha256:6a87a9451a48a577a40116c3f05baee229904e303b29561a429e1b158f51e0c7"
+installed_checksum = "sha256:6a87a9451a48a577a40116c3f05baee229904e303b29561a429e1b158f51e0c7"
 dest_path = "skills/meridian-spawn"
 
 [items."skills/meridian-work-coordination"]
@@ -471,9 +472,9 @@ dest_path = "skills/skill-artifacts"
 [items."skills/skill-creator"]
 source = "meridian-base"
 kind = "skill"
-version = "v0.0.29"
-source_checksum = "sha256:3521726828aa8e3e758b55b1ac4d73903c0d5d0f85129341ccd3fcebb6486536"
-installed_checksum = "sha256:3521726828aa8e3e758b55b1ac4d73903c0d5d0f85129341ccd3fcebb6486536"
+version = "v0.0.31"
+source_checksum = "sha256:7079a8982f88098efebe859d02430ec97aeb000f9f52db870615ef16563dc6d1"
+installed_checksum = "sha256:7079a8982f88098efebe859d02430ec97aeb000f9f52db870615ef16563dc6d1"
 dest_path = "skills/skill-creator"
 
 [items."skills/smoke-test"]

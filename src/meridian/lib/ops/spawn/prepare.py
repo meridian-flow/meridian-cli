@@ -112,7 +112,7 @@ def _validate_requested_model(
     except ValueError:
         validation_context = _model_validation_context(normalized, project_root=explicit_root)
         message = (
-            f"Unknown model '{normalized}'. Spawn `meridian models list` "
+            f"Unknown model '{normalized}'. Run `meridian mars models list` "
             "to inspect supported models."
         )
         if validation_context:

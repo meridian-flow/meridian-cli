@@ -36,16 +36,12 @@ def test_config_show_exits_zero(cli):
     assert "defaults.model" in result.stdout or "model" in result.stdout
 
 
-def test_models_list_exits_zero(cli, scratch_dir):
-    """meridian models list exits 0 and returns catalog data."""
-    # Seed mars.toml so models list works
-    mars_content = "[settings]\nmodels_cache_ttl_hours = 24\n"
-    (scratch_dir / "mars.toml").write_text(mars_content, encoding="utf-8")
-
+def test_models_list_redirects_to_mars(cli):
+    """meridian models list is a nonzero compatibility stub."""
     result = cli("models", "list")
-    result.assert_success()
-    # Should contain model names or headers
-    assert len(result.stdout) > 10, "models list output too short"
+    result.assert_failure(1)
+    assert "meridian mars models list" in result.stderr
+    assert not result.stdout.strip()
 
 
 def test_doctor_exits_zero(cli):

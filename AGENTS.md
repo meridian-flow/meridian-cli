@@ -42,7 +42,7 @@ Two orchestrators split the dev lifecycle: **dev-orchestrator** handles interact
 
 Use `meridian spawn` (not `uv run meridian spawn`) to hand off tasks to subagents. `uv run meridian` runs from local source, so other agents editing meridian's own code in the same repo can leave it in a half-written state — use it only for smoke-testing local dev changes. The installed `meridian` binary is stable and isolated from in-progress source edits.
 
-For model choice, trust agent profile defaults and check `meridian models list` for the live catalog — don't hardcode model names here.
+For model choice, trust agent profile defaults and check `meridian mars models list` for the live catalog — don't hardcode model names here.
 
 NEVER REVERT CHANGES — always assume it's someone else's work.
 

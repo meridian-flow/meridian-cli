@@ -18,7 +18,6 @@ from meridian.lib.catalog.models import (
     load_discovered_models,
     load_merged_aliases,
     refresh_models_cache,
-    resolve_model,
 )
 from meridian.lib.config.settings import resolve_project_root
 from meridian.lib.core.types import HarnessId, ModelId
@@ -353,15 +352,13 @@ def _build_catalog_model(
     description: str | None = None,
     pinned: bool = False,
 ) -> CatalogModel:
-    try:
-        harness = resolve_model(model_id, project_root=project_root).harness
-    except ValueError:
-        if discovered is not None:
-            harness = discovered.harness
-        elif aliases:
-            harness = aliases[0].harness
-        else:
-            raise
+    _ = project_root
+    if aliases:
+        harness = aliases[0].harness
+    elif discovered is not None:
+        harness = discovered.harness
+    else:
+        raise ValueError(f"Unknown model '{model_id}'. No catalog or alias metadata available.")
 
     sorted_aliases = tuple(sorted(aliases, key=lambda entry: entry.alias))
 

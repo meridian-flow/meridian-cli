@@ -271,7 +271,7 @@ When `source = "git"`, Meridian clones the remote into a local cache and resolve
 
 ## Model Catalog
 
-`meridian models list` shows the current model catalog. Use `--all` to include hidden/superseded models, or `--show-superseded` to see older lineage variants.
+`meridian mars models list` shows the current model catalog. Use `--all` to include hidden/superseded models, or `--show-superseded` to see older lineage variants.
 
 Builtin aliases (`opus`, `sonnet`, `haiku`, `codex`, `gpt`, `gemini`) auto-resolve to the latest model per family. The default list filters aggressively:
 
