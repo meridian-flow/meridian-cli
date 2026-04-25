@@ -40,9 +40,11 @@ function deriveChatUIState(
 export interface ChatThreadViewProps {
   chatId: string
   className?: string
+  /** When false, side effects (WS, fetch, polling) are suppressed. Defaults to true. */
+  isActive?: boolean
 }
 
-export function ChatThreadView({ chatId, className }: ChatThreadViewProps) {
+export function ChatThreadView({ chatId, className, isActive = true }: ChatThreadViewProps) {
   const {
     selectedChat,
     selectChat,
@@ -53,8 +55,9 @@ export function ChatThreadView({ chatId, className }: ChatThreadViewProps) {
 
   const initialPrompt = selectedChat?.initialPrompt ?? null
 
-  // Fetch model catalog for the picker
-  const { catalog } = useModelCatalog()
+  // Fetch model catalog only when this shell is active to avoid N parallel
+  // /api/models requests from cached-but-hidden shells.
+  const { catalog } = useModelCatalog({ enabled: isActive })
 
   // Seed default model selection from catalog when zero-state loads
   useEffect(() => {
@@ -82,8 +85,11 @@ export function ChatThreadView({ chatId, className }: ChatThreadViewProps) {
     error,
     sendMessage: rawSendMessage,
     cancel,
+    virtualizerState,
+    saveVirtualizerState,
   } = useChatConversation({
     chatId,
+    isActive,
     initialPrompt,
     // Pass model selection as createChatOptions for new chats
     createChatOptions: modelSelection
@@ -218,6 +224,8 @@ export function ChatThreadView({ chatId, className }: ChatThreadViewProps) {
           entries={entries}
           currentActivity={currentActivity}
           isConnecting={connectionState === "connecting" || isLoading}
+          initialVirtuosoState={virtualizerState}
+          onSaveVirtuosoState={saveVirtualizerState}
         />
       )}
 

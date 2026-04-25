@@ -36,9 +36,12 @@ import type {
   ChatCommand,
   ChatEvent,
   ChatMachineContext,
+  ChatCacheSnapshot,
   TransitionResult,
 } from "./chat-conversation-types"
 import { useEffectRunner } from "./chat-conversation-effects"
+import { chatCacheStore } from "../chat-cache-store"
+import type { VirtuosoState } from "../chat-cache-store"
 
 // ---------------------------------------------------------------------------
 // Types (public contract — unchanged from the original hook)
@@ -67,6 +70,10 @@ export interface UseChatConversationReturn {
   error: string | null
   sendMessage: (text: string) => Promise<void>
   cancel: () => Promise<void>
+  /** Cached virtualizer snapshot for scroll restoration. */
+  virtualizerState: VirtuosoState | null
+  /** Save virtualizer state back into the cache (called from ConversationView). */
+  saveVirtualizerState: (state: VirtuosoState) => void
 }
 
 // ---------------------------------------------------------------------------
@@ -191,6 +198,28 @@ export function useChatConversation({
   const prevChatIdRef = useRef<string | null>(null)
   const didMount = useRef(false)
 
+  /** Build a ChatCacheSnapshot from a cache entry, or return undefined. */
+  const buildCacheSnapshot = useCallback(
+    (id: string): ChatCacheSnapshot | undefined => {
+      const cached = chatCacheStore.get(id)
+      if (!cached) return undefined
+      const mc = cached.machineContext
+      if (!mc.chatDetail || !mc.chatState) return undefined
+      return {
+        chatId: cached.chatId,
+        chatDetail: mc.chatDetail,
+        chatState: mc.chatState,
+        entries: mc.entries,
+        turnSeq: mc.turnSeq,
+        activeSpawnId: mc.activeSpawnId,
+        isTerminal:
+          mc.phase === "finished" ||
+          mc.phase === "readonly",
+      }
+    },
+    [],
+  )
+
   useEffect(() => {
     if (!isActive) return // Suppress selection while dormant
 
@@ -201,9 +230,12 @@ export function useChatConversation({
       prevChatIdRef.current = chatId
 
       if (chatId === "__new__") {
+        chatCacheStore.setActive(null)
         rawDispatch({ type: "SELECT_ZERO" })
       } else {
-        rawDispatch({ type: "SELECT_CHAT", chatId })
+        chatCacheStore.setActive(chatId)
+        const snapshot = buildCacheSnapshot(chatId)
+        rawDispatch({ type: "SELECT_CHAT", chatId, cached: snapshot })
       }
       return
     }
@@ -216,15 +248,19 @@ export function useChatConversation({
     // Transition from __new__ → real ID means the create succeeded and
     // the machine already has the right state. Don't re-select.
     if (wasNew && chatId !== "__new__") {
+      chatCacheStore.setActive(chatId)
       return
     }
 
     if (chatId === "__new__") {
+      chatCacheStore.setActive(null)
       rawDispatch({ type: "SELECT_ZERO" })
     } else {
-      rawDispatch({ type: "SELECT_CHAT", chatId })
+      chatCacheStore.setActive(chatId)
+      const snapshot = buildCacheSnapshot(chatId)
+      rawDispatch({ type: "SELECT_CHAT", chatId, cached: snapshot })
     }
-  }, [chatId, isActive, rawDispatch])
+  }, [chatId, isActive, rawDispatch, buildCacheSnapshot])
 
   // -----------------------------------------------------------------------
   // Auto-send initial prompt for new chats
@@ -266,6 +302,66 @@ export function useChatConversation({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // -----------------------------------------------------------------------
+  // Write-through — keep cache current on meaningful state changes
+  // -----------------------------------------------------------------------
+
+  // Track the previous context ref to avoid writing identical snapshots.
+  const prevCtxRef = useRef<ChatMachineContext | null>(null)
+
+  useEffect(() => {
+    // Don't cache the draft slot
+    if (chatId === "__new__") return
+    // Don't cache while inactive (frozen context)
+    if (!isActive) return
+    // Only cache once we have real data (past bootstrap)
+    if (
+      ctx.phase === "zero" ||
+      ctx.phase === "creating" ||
+      ctx.phase === "loading"
+    ) {
+      return
+    }
+    // Skip if context reference hasn't changed
+    if (prevCtxRef.current === ctx) return
+    prevCtxRef.current = ctx
+
+    // Preserve the existing virtualizer state in the cache entry
+    const existing = chatCacheStore.getSnapshot().get(chatId)
+    chatCacheStore.set(chatId, {
+      chatId,
+      machineContext: ctx,
+      virtualizer: existing?.virtualizer ?? null,
+      updatedAt: Date.now(),
+    })
+  }, [chatId, ctx, isActive])
+
+  // -----------------------------------------------------------------------
+  // Virtualizer state — read from cache and provide save callback
+  // -----------------------------------------------------------------------
+
+  const virtualizerState = useMemo<VirtuosoState | null>(() => {
+    if (chatId === "__new__") return null
+    const entry = chatCacheStore.getSnapshot().get(chatId)
+    return entry?.virtualizer ?? null
+    // Only compute on chatId change (initial mount / switch), not on every
+    // cache update — the virtualizer consumes this once via restoreStateFrom.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatId])
+
+  const saveVirtualizerState = useCallback(
+    (state: VirtuosoState) => {
+      if (chatId === "__new__") return
+      // Direct mutation — no notify, no re-render. See updateVirtualizerState.
+      const snap = chatCacheStore.getSnapshot()
+      const entry = snap.get(chatId)
+      if (entry) {
+        entry.virtualizer = state
+      }
+    },
+    [chatId],
+  )
 
   // -----------------------------------------------------------------------
   // User actions
@@ -326,5 +422,7 @@ export function useChatConversation({
     error: ctx.error,
     sendMessage,
     cancel,
+    virtualizerState,
+    saveVirtualizerState,
   }
 }

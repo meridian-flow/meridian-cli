@@ -1,5 +1,5 @@
 import { forwardRef, useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react"
-import { Virtuoso, type VirtuosoHandle } from "react-virtuoso"
+import { Virtuoso, type VirtuosoHandle, type StateSnapshot } from "react-virtuoso"
 import { Ban, TriangleAlert } from "lucide-react"
 
 import { cn } from "@/lib/utils"
@@ -9,6 +9,7 @@ import { ActivityBlock } from "@/features/activity-stream"
 import { UserTurnBubble } from "./UserTurnBubble"
 import type { ConversationEntry, UserEntry, AssistantEntry } from "../conversation-types"
 import type { ActivityBlockData } from "@/features/activity-stream/types"
+import type { VirtuosoState } from "../chat-cache-store"
 
 // ---------------------------------------------------------------------------
 // Virtual item model — merges frozen entries + live streaming activity
@@ -71,6 +72,10 @@ interface ConversationViewProps {
   currentActivity: ComponentProps<typeof ActivityBlock>["activity"] | null
   isConnecting: boolean
   className?: string
+  /** Saved virtualizer snapshot for instant scroll restoration. */
+  initialVirtuosoState?: VirtuosoState | null
+  /** Called on unmount to persist the virtualizer scroll position. */
+  onSaveVirtuosoState?: (state: VirtuosoState) => void
 }
 
 export function ConversationView({
@@ -78,6 +83,8 @@ export function ConversationView({
   currentActivity,
   isConnecting,
   className,
+  initialVirtuosoState,
+  onSaveVirtuosoState,
 }: ConversationViewProps) {
   const virtuosoRef = useRef<VirtuosoHandle>(null)
   const [isAtBottom, setIsAtBottom] = useState(true)
@@ -164,6 +171,35 @@ export function ConversationView({
 
   const computeItemKey = useCallback((_index: number, item: VirtualItem) => item.id, [])
 
+  // Save virtualizer scroll position on unmount for cache restoration.
+  // Ref-capture the callback so the cleanup closure always has the latest.
+  const onSaveRef = useRef(onSaveVirtuosoState)
+  onSaveRef.current = onSaveVirtuosoState
+
+  useEffect(() => {
+    return () => {
+      const ref = virtuosoRef.current
+      const saveFn = onSaveRef.current
+      if (!ref || !saveFn) return
+      ref.getState((snapshot: StateSnapshot) => {
+        saveFn({
+          ranges: snapshot.ranges,
+          scrollTop: snapshot.scrollTop,
+        })
+      })
+    }
+  }, [])
+
+  // Convert the cache VirtuosoState to Virtuoso's StateSnapshot for restore.
+  // Memoize on the reference so we only build it once per mount.
+  const restoreState = useMemo<StateSnapshot | undefined>(() => {
+    if (!initialVirtuosoState) return undefined
+    return {
+      ranges: initialVirtuosoState.ranges,
+      scrollTop: initialVirtuosoState.scrollTop,
+    }
+  }, [initialVirtuosoState])
+
   // Empty state — no entries and no live activity
   if (virtualItems.length === 0) {
     return (
@@ -187,6 +223,7 @@ export function ConversationView({
       atBottomStateChange={setIsAtBottom}
       atBottomThreshold={64}
       increaseViewportBy={200}
+      restoreStateFrom={restoreState}
       components={{ Scroller, List, Item }}
       className={cn("min-h-0 flex-1 overflow-y-auto", className)}
     />

@@ -4,8 +4,8 @@ import { cn } from "@/lib/utils"
 import { useChatSessions } from "./hooks/use-chat-sessions"
 
 import { ChatProvider, useChat } from "./ChatContext"
+import { ChatMountPool } from "./ChatMountPool"
 import { ChatSidebar } from "./ChatSidebar"
-import { ChatThreadView } from "./ChatThreadView"
 
 export interface ChatPageProps {
   className?: string
@@ -52,8 +52,8 @@ function ChatPageContent({ className }: ChatPageProps) {
         onNewChat={handleNewChat}
       />
 
-      <main className="min-h-0 min-w-0 flex-1">
-        <ChatThreadView chatId={chatId} className="h-full" />
+      <main className="relative min-h-0 min-w-0 flex-1">
+        <ChatMountPool activeChatId={chatId} />
       </main>
     </div>
   )

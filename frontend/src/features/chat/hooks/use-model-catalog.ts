@@ -152,7 +152,16 @@ function deriveCatalog(wireModels: WireModel[]): ModelCatalog {
 // Hook
 // ---------------------------------------------------------------------------
 
-export function useModelCatalog(): UseModelCatalogReturn {
+export interface UseModelCatalogOptions {
+  /** When false the hook skips fetching and returns null catalog. Defaults to true. */
+  enabled?: boolean
+}
+
+export function useModelCatalog(
+  options: UseModelCatalogOptions = {},
+): UseModelCatalogReturn {
+  const { enabled = true } = options
+
   const [catalog, setCatalog] = useState<ModelCatalog | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -163,6 +172,11 @@ export function useModelCatalog(): UseModelCatalogReturn {
   }, [])
 
   useEffect(() => {
+    if (!enabled) {
+      setIsLoading(false)
+      return
+    }
+
     let cancelled = false
     setIsLoading(true)
     setError(null)
@@ -190,7 +204,7 @@ export function useModelCatalog(): UseModelCatalogReturn {
     return () => {
       cancelled = true
     }
-  }, [refreshKey])
+  }, [refreshKey, enabled])
 
   return useMemo(
     () => ({ catalog, isLoading, error, refresh }),
