@@ -137,3 +137,72 @@ def test_agent_root_help_restricted_surface_contract() -> None:
         "opencode",
     ):
         assert hidden not in normalized_help
+
+
+def test_main_prints_cached_doctor_warning_for_text_command(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.delenv("MERIDIAN_DEPTH", raising=False)
+    monkeypatch.setattr(cli_main, "maybe_bootstrap_runtime_state", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        cli_main,
+        "consume_doctor_cache_warning",
+        lambda: "meridian doctor: 1 other warning.",
+    )
+    monkeypatch.setattr(cli_main, "maybe_start_background_doctor_scan", lambda: False)
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli_main.main(["doctor", "--help"])
+
+    assert exc_info.value.code == 0
+    assert "meridian doctor: 1 other warning." in capsys.readouterr().err
+
+
+def test_main_suppresses_cached_doctor_warning_for_json_command(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.delenv("MERIDIAN_DEPTH", raising=False)
+    monkeypatch.setattr(cli_main, "maybe_bootstrap_runtime_state", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        cli_main,
+        "consume_doctor_cache_warning",
+        lambda: "meridian doctor: 1 other warning.",
+    )
+    monkeypatch.setattr(cli_main, "maybe_start_background_doctor_scan", lambda: False)
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli_main.main(["--format", "json", "doctor", "--help"])
+
+    assert exc_info.value.code == 0
+    assert "meridian doctor:" not in capsys.readouterr().err
+
+
+def test_main_starts_background_doctor_scan_only_for_app_launch_paths(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("MERIDIAN_DEPTH", raising=False)
+    monkeypatch.setattr(cli_main, "maybe_bootstrap_runtime_state", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(cli_main, "consume_doctor_cache_warning", lambda: None)
+    starts: list[str] = []
+    monkeypatch.setattr(
+        cli_main,
+        "maybe_start_background_doctor_scan",
+        lambda: starts.append("started") or True,
+    )
+
+    cli_main._GLOBAL_OPTIONS.set(None)
+    with pytest.raises(SystemExit) as dry_run_exit:
+        cli_main.main(["--dry-run"])
+    assert dry_run_exit.value.code == 0
+    cli_main._GLOBAL_OPTIONS.set(None)
+    with pytest.raises(SystemExit) as exc_info:
+        cli_main.main(["doctor", "--help"])
+    cli_main._GLOBAL_OPTIONS.set(None)
+    with pytest.raises(SystemExit) as help_exit:
+        cli_main.main(["--help"])
+
+    assert exc_info.value.code == 0
+    assert help_exit.value.code == 0
+    assert starts == ["started"]

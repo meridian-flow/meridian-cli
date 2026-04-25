@@ -73,6 +73,10 @@ from meridian.cli.session_cmd import register_session_commands
 from meridian.cli.workspace_cmd import register_workspace_commands
 from meridian.lib.core.depth import is_nested_meridian_process
 from meridian.lib.core.sink import OutputSink
+from meridian.lib.ops.doctor_cache import (
+    consume_doctor_cache_warning,
+    maybe_start_background_doctor_scan,
+)
 from meridian.lib.ops.mars import check_upgrade_availability, format_upgrade_availability
 from meridian.lib.ops.spawn.api import SpawnActionOutput, SpawnDetailOutput, SpawnWaitMultiOutput
 from meridian.server.main import run_server
@@ -270,6 +274,13 @@ def _is_spawn_background_request(argv: Sequence[str]) -> bool:
     if group != "spawn" or subcommand not in {"create", "continue"}:
         return False
     return "--background" in argv or "--bg" in argv
+
+
+def _is_doctor_scan_launch_path(argv: Sequence[str]) -> bool:
+    token = _bootstrap_first_positional_token(argv)
+    return (
+        token is None and not any(arg in {"--help", "-h", "--version"} for arg in argv)
+    ) or token == "app"
 
 
 def _interactive_terminal_attached() -> bool:
@@ -750,6 +761,15 @@ def main(argv: Sequence[str] | None = None) -> None:
     token = _GLOBAL_OPTIONS.set(options)
     try:
         with temporary_config_env(options.config_file):
+            if (
+                options.output.format == "text"
+                and not effective_agent_mode
+                and not is_nested_meridian_process()
+                and (warning := consume_doctor_cache_warning())
+            ):
+                print(warning, file=sys.stderr)
+            if _is_doctor_scan_launch_path(cleaned_args) and not is_nested_meridian_process():
+                maybe_start_background_doctor_scan()
             try:
                 app(cleaned_args)
             except SystemExit:
