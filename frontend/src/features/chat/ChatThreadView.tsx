@@ -6,7 +6,7 @@ import {
 import { toast } from "sonner"
 
 import { cn } from "@/lib/utils"
-import { ConversationView } from "@/features/threads/components/ConversationView"
+import { ConversationView } from "./components/ConversationView"
 import type { ChatState as ApiChatState, ChatDetailResponse } from "@/features/sessions/lib/api"
 
 import { useChat } from "./ChatContext"

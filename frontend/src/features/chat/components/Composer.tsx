@@ -14,7 +14,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import type { StreamController } from "@/features/threads/transport-types"
+import type { StreamController } from "../transport-types"
 
 import type { ModelSelection } from "../ChatContext"
 import type { ModelCatalog } from "../hooks/use-model-catalog"

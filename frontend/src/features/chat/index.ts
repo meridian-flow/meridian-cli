@@ -1,5 +1,31 @@
 // Barrel exports for the chat feature.
 
+// Conversation types
+export type {
+  AssistantStatus,
+  UserEntry,
+  AssistantEntry,
+  ConversationEntry,
+} from "./conversation-types"
+
+// Conversation reducer
+export type { ConversationState, ConversationAction } from "./conversation-reducer"
+export {
+  conversationReducer,
+  createInitialConversationState,
+  createAssistantState,
+  activityHasContent,
+  freezeAssistant,
+  appendFrozen,
+} from "./conversation-reducer"
+
+// Transport types
+export type { StreamController } from "./transport-types"
+
+// Conversation components
+export { ConversationView } from "./components/ConversationView"
+export { UserTurnBubble } from "./components/UserTurnBubble"
+
 export { ChatPage } from "./ChatPage"
 export type { ChatPageProps } from "./ChatPage"
 export type { ChatContextValue, ChatSelection, ModelSelection } from "./ChatContext"

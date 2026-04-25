@@ -14,12 +14,12 @@
  */
 
 import type { ChatHistoryEvent } from "@/features/sessions/lib/api"
-import type { ConversationEntry } from "@/features/threads/conversation-types"
+import type { ConversationEntry } from "../conversation-types"
 import {
   conversationReducer,
   createInitialConversationState,
   type ConversationState,
-} from "@/features/threads/conversation-reducer"
+} from "../conversation-reducer"
 import {
   mapHistoryEventToStreamEvents,
   createStartedSets,

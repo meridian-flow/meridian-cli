@@ -19,15 +19,15 @@ import {
   type WsState,
 } from "@/lib/ws"
 import { mapWsEventToStreamEvents } from "@/features/activity-stream/streaming/map-ws-event"
-import type { StreamController } from "@/features/threads/transport-types"
-import type { ConversationEntry } from "@/features/threads/conversation-types"
+import type { StreamController } from "../transport-types"
+import type { ConversationEntry } from "../conversation-types"
 import type { ActivityBlockData } from "@/features/activity-stream/types"
 import {
   conversationReducer,
   createInitialConversationState,
   type ConversationAction,
   type ConversationState,
-} from "@/features/threads/conversation-reducer"
+} from "../conversation-reducer"
 import { useChatHistory } from "@/features/sessions/hooks/use-chat-history"
 import {
   createChat,

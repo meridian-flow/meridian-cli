@@ -15,7 +15,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import type { ConnectionCapabilities } from "@/lib/ws"
-import type { StreamController } from "../transport-types"
+import type { StreamController } from "@/features/chat/transport-types"
 
 interface ComposerProps {
   controller: StreamController | null

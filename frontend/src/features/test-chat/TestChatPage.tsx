@@ -3,7 +3,7 @@ import { RotateCcw, TriangleAlert } from "lucide-react"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import { Composer } from "@/features/threads/composer/Composer"
+import { Composer } from "./Composer"
 
 import { ConversationView } from "./ConversationView"
 import { TestChatHeader } from "./TestChatHeader"
