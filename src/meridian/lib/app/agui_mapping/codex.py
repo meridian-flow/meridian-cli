@@ -183,13 +183,14 @@ class CodexAGUIMapper:
             if item_id and item_id in self._active_items:
                 info = self._active_items.pop(item_id)
                 tool_call_id = info.get("tool_call_id")
+            elif item_id:
+                tool_call_id = item_id
 
             if tool_call_id is None:
                 tool_call_id = f"tool-{uuid4()}"
-                if item_id is None:
-                    logger.warning(
-                        "Codex item/completed missing item.id; lifecycle IDs will not match"
-                    )
+                logger.warning(
+                    "Codex item/completed missing item.id; lifecycle IDs will not match"
+                )
 
             aggregated = item_dict.get("aggregatedOutput")
             result_content = aggregated if isinstance(aggregated, str) else ""
