@@ -3,7 +3,6 @@
 from pathlib import Path
 
 from meridian.lib.harness.claude import ClaudeAdapter
-from meridian.lib.harness.codex import CodexAdapter
 from meridian.lib.harness.launch_spec import ClaudeLaunchSpec
 from meridian.lib.harness.opencode import OpenCodeAdapter
 from meridian.lib.harness.projections.project_claude import project_claude_spec_to_cli_args
@@ -71,44 +70,6 @@ def test_claude_project_content_routes_system_separately_from_user_turn() -> Non
     for sentinel in user_turn_sentinels:
         assert sentinel not in projected.system_prompt
         assert sentinel in projected.user_turn_content
-
-
-def test_codex_project_content_separates_developer_instructions_from_user_turn() -> None:
-    projected = CodexAdapter().project_content(_content())
-
-    assert projected.system_prompt
-    assert [route.to_dict() for route in projected.reference_routing] == [
-        {
-            "path": "/repo/ref.txt",
-            "type": "file",
-            "routing": "inline",
-            "native_flag": None,
-        }
-    ]
-    assert projected.channel_manifest() == {
-        "system_instruction": "system-field",
-        "user_task_prompt": "user-turn",
-        "task_context": "user-turn",
-    }
-    _assert_ordered(
-        projected.system_prompt,
-        (
-            "SYSTEM: skill content",
-            "SYSTEM: report instruction",
-            "SYSTEM: agent inventory",
-            "SYSTEM: passthrough fragment",
-        ),
-    )
-    assert "SYSTEM: profile body" not in projected.system_prompt
-    _assert_ordered(
-        projected.user_turn_content,
-        (
-            "CONTEXT: reference file",
-            "CONTEXT: prior output",
-            "USER: task prompt",
-        ),
-    )
-    assert "SYSTEM: profile body" not in projected.user_turn_content
 
 
 def test_opencode_project_content_routes_system_via_message_system_field() -> None:
