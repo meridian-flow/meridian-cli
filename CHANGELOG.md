@@ -8,6 +8,7 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `mars-agents` 0.1.18 -> 0.1.19. Mars model listing now uses harness-aware runnable visibility and OpenCode provider/model availability.
 - Background spawn note trimmed. `meridian spawn --bg` now returns a short "Backgrounded. Spawn id: ... Collect later with \`meridian spawn wait\`." hint instead of a long immediate-wait warning.
 - `meridian models list` now fails fast. Use `meridian mars models list`.
+- Codex managed primary stabilized. `meridian codex` fresh, resume, and fork sessions all use managed `app-server` path — no silent black-box fallback. Fresh sessions gate TUI attach on rollout materialization (`session_meta` present, not full turn completion). Startup telemetry phases shown on stderr: `Starting Codex app-server...` → `Connecting managed observer...` → `Creating fresh Codex thread...` → `Materializing rollout...` → `Attaching Codex TUI...`. Managed startup failure is loud — not silent. See [codex-tui-passthrough.md](docs/codex-tui-passthrough.md).
 
 ### Added
 - `state.retention_days` config key. TTL for stale state pruning: `-1` never prune, `0` prune immediately, positive = days. Default 30. Env var `MERIDIAN_STATE_RETENTION_DAYS`.
