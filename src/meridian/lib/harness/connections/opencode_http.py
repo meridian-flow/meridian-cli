@@ -19,6 +19,7 @@ from urllib.parse import urlparse
 if TYPE_CHECKING:
     from meridian.lib.observability.debug_tracer import DebugTracer
 
+from meridian.lib.core.telemetry import StartupPhase, StartupPhaseEmitter
 from meridian.lib.core.types import SpawnId
 from meridian.lib.harness.connections.base import (
     ConnectionCapabilities,
@@ -63,6 +64,14 @@ class OpenCodeConnection(HarnessConnection[OpenCodeLaunchSpec]):
         runtime_model_switch=False,
         structured_reasoning=True,
         supports_primary_observer=True,
+        supported_startup_phases=frozenset(
+            phase.value
+            for phase in (
+                StartupPhase.WAITING_FOR_CONNECTION,
+                StartupPhase.INITIALIZING_SESSION,
+                StartupPhase.HARNESS_READY,
+            )
+        ),
     )
     _STATE_TRANSITIONS: ClassVar[dict[ConnectionState, frozenset[ConnectionState]]] = {
         "created": frozenset(("starting", "stopping", "failed")),
@@ -112,6 +121,7 @@ class OpenCodeConnection(HarnessConnection[OpenCodeLaunchSpec]):
         self._cancel_requested = False
         self._signal_in_flight = False
         self._primary_observer_mode = False
+        self._startup_emitter: StartupPhaseEmitter | None = None
 
     @property
     def state(self) -> ConnectionState:
@@ -170,6 +180,7 @@ class OpenCodeConnection(HarnessConnection[OpenCodeLaunchSpec]):
         self._config = config
         self._spawn_id = config.spawn_id
         self._tracer = config.debug_tracer
+        self._startup_emitter = StartupPhaseEmitter(str(config.spawn_id))
         self._cancel_requested = False
         self._signal_in_flight = False
         self._transition("starting")
@@ -182,6 +193,7 @@ class OpenCodeConnection(HarnessConnection[OpenCodeLaunchSpec]):
 
         try:
             await self._launch_process(config, spec)
+            self._emit_startup_phase(StartupPhase.WAITING_FOR_CONNECTION)
             self._session_id = await self._create_session_with_retry(
                 spec,
                 timeout_seconds=startup_timeout,
@@ -194,6 +206,7 @@ class OpenCodeConnection(HarnessConnection[OpenCodeLaunchSpec]):
             raise
 
         self._transition("connected")
+        self._emit_startup_phase(StartupPhase.HARNESS_READY)
         self._last_health_ok = True
 
     async def start_observer(
@@ -378,6 +391,7 @@ class OpenCodeConnection(HarnessConnection[OpenCodeLaunchSpec]):
             await asyncio.sleep(0.2)
 
     async def _create_session(self, spec: OpenCodeLaunchSpec) -> str:
+        self._emit_startup_phase(StartupPhase.INITIALIZING_SESSION)
         payload = project_opencode_spec_to_session_payload(spec)
         payload_variants: tuple[dict[str, object], ...] = (payload, {}) if payload else ({},)
 
@@ -763,6 +777,11 @@ class OpenCodeConnection(HarnessConnection[OpenCodeLaunchSpec]):
             raise RuntimeError(f"Invalid OpenCode state transition: {self._state} -> {next_state}")
         trace_state_change(self._tracer, "opencode", self._state, next_state)
         self._state = next_state
+
+    def _emit_startup_phase(self, phase: StartupPhase) -> None:
+        emitter = self._startup_emitter
+        if emitter is not None:
+            emitter.emit(phase)
 
 
 def _parse_response_body(text_body: str) -> object | None:

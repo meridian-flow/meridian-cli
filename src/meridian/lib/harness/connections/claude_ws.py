@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Final, cast
 if TYPE_CHECKING:
     from meridian.lib.observability.debug_tracer import DebugTracer
 
+from meridian.lib.core.telemetry import StartupPhase, StartupPhaseEmitter
 from meridian.lib.core.types import SpawnId
 from meridian.lib.harness.connections.base import (
     ConnectionCapabilities,
@@ -75,6 +76,13 @@ class ClaudeConnection(HarnessConnection[ClaudeLaunchSpec]):
         supports_cancel=True,
         runtime_model_switch=False,
         structured_reasoning=True,
+        supported_startup_phases=frozenset(
+            phase.value
+            for phase in (
+                StartupPhase.WAITING_FOR_CONNECTION,
+                StartupPhase.HARNESS_READY,
+            )
+        ),
     )
     _ALLOWED_TRANSITIONS: Final[dict[ConnectionState, set[ConnectionState]]] = {
         "created": {"starting", "stopping", "stopped", "failed"},
@@ -98,6 +106,7 @@ class ClaudeConnection(HarnessConnection[ClaudeLaunchSpec]):
         self._tracer: DebugTracer | None = None
         self._cancel_requested = False
         self._signal_in_flight = False
+        self._startup_emitter: StartupPhaseEmitter | None = None
 
     @property
     def state(self) -> ConnectionState:
@@ -137,6 +146,7 @@ class ClaudeConnection(HarnessConnection[ClaudeLaunchSpec]):
         self._config = config
         self._spawn_id = config.spawn_id
         self._tracer = config.debug_tracer
+        self._startup_emitter = StartupPhaseEmitter(str(config.spawn_id))
         self._cancel_requested = False
         self._signal_in_flight = False
         self._set_state("starting")
@@ -144,6 +154,7 @@ class ClaudeConnection(HarnessConnection[ClaudeLaunchSpec]):
         try:
             await self._check_claude_version()
             await self._start_subprocess(config, spec)
+            self._emit_startup_phase(StartupPhase.WAITING_FOR_CONNECTION)
             await self._send_user_turn(config.prompt)
             self._set_state("connected")
         except Exception:
@@ -239,6 +250,7 @@ class ClaudeConnection(HarnessConnection[ClaudeLaunchSpec]):
                         yield self._error_event(detail, raw_text=raw_text)
                         return
                     self._protocol_validated = True
+                    self._emit_startup_phase(StartupPhase.HARNESS_READY)
 
                 for event in parsed_events:
                     if event.event_type == "result":
@@ -460,6 +472,11 @@ class ClaudeConnection(HarnessConnection[ClaudeLaunchSpec]):
             harness_id=_HARNESS_NAME,
             raw_text=raw_text,
         )
+
+    def _emit_startup_phase(self, phase: StartupPhase) -> None:
+        emitter = self._startup_emitter
+        if emitter is not None:
+            emitter.emit(phase)
 
 
 __all__ = ["ClaudeConnection"]

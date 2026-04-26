@@ -147,14 +147,8 @@ class PrimaryAttachLauncher:
         try:
             telemetry.update(_startup_phase_message(self._connection, spec))
 
-            def _update_startup_telemetry(message: str) -> None:
-                telemetry.update(message)
-
             config = await self._start_primary_observer_connection_with_retry(
-                config=replace(
-                    config,
-                    startup_telemetry_hook=_update_startup_telemetry,
-                ),
+                config=config,
                 spec=spec,
             )
             connection_started = True

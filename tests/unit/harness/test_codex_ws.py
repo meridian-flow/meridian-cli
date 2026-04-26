@@ -269,9 +269,6 @@ async def test_codex_ws_primary_observer_emits_startup_phases(
         prompt="hello from test",
         project_root=tmp_path,
         env_overrides={},
-        startup_telemetry_hook=lambda _message: pytest.fail(
-            "Codex adapter should use typed StartupPhaseEmitter, not string hook"
-        ),
     )
     spec = CodexLaunchSpec(
         permission_resolver=UnsafeNoOpPermissionResolver(_suppress_warning=True),
