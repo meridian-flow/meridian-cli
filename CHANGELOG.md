@@ -3,6 +3,12 @@
 Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [SemVer](https://semver.org/). Versions `0.0.6` through `0.0.25` in git history only — changelog fell stale, resumed at `[Unreleased]`.
 
 ## [Unreleased]
+### Added
+- Arbitrary named contexts. Define `[context.<name>]` in `meridian.toml` for custom context roots. `meridian context <name>` resolves and displays. `ContextEntryOutput` model exposes source, path, resolved fields.
+- Frontend chat: multi-column spawn view, chat composer with submit/clear, thread activity tracking, session list sidebar, spawn header with streaming controls, ChatContext LRU eviction, conversation effects refactor.
+
+### Fixed
+- Context query error message now lists all available context names including extra contexts.
 
 ## [0.0.45] - 2026-04-25
 
