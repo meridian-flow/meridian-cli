@@ -11,6 +11,11 @@ from typing import TYPE_CHECKING, Any, cast
 
 from meridian.lib.core.domain import SpawnStatus
 from meridian.lib.core.lifecycle import SpawnLifecycleService
+from meridian.lib.core.telemetry import (
+    LifecycleObserver,
+    LifecycleObserverTier,
+    SpawnEventCounter,
+)
 from meridian.lib.core.types import SpawnId
 from meridian.lib.state import spawn_store
 from meridian.lib.state.liveness import is_process_alive
@@ -93,6 +98,11 @@ class SpawnApplicationService:
         self._lifecycle = lifecycle_service
         self._spawn_manager = spawn_manager
         self._locks = KeyedLockRegistry()
+        self._event_counter = SpawnEventCounter()
+        self._observers: dict[LifecycleObserverTier, list[LifecycleObserver]] = {
+            LifecycleObserverTier.DIAGNOSTIC: [],
+            LifecycleObserverTier.POLICY: [],
+        }
 
     # ---- Query Helpers ----
 
