@@ -530,8 +530,10 @@ def mark_spawn_running(
     with lock_file(paths.spawns_flock):
         records = reduce_events(resolved_repository.read_events())
         record = records.get(str(spawn_id))
-        changed = record is None or record.status != "running"
-        if record is not None and record.status not in {"unknown", "running"}:
+        if record is None:
+            return False
+        changed = record.status != "running"
+        if record.status not in {"unknown", "running"}:
             _validate_transition(cast("SpawnStatus", record.status), "running")
         event = SpawnUpdateEvent(
             id=str(spawn_id),

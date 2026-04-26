@@ -8,6 +8,7 @@ from meridian.lib.state.spawn_store import (
     get_spawn,
     list_spawns,
     mark_finalizing,
+    mark_spawn_running,
     record_spawn_exited,
     start_spawn,
     update_spawn,
@@ -205,6 +206,16 @@ def test_mark_finalizing_state_machine_enforces_running_only(tmp_path: Path) -> 
         row = get_spawn(runtime_root, spawn_id)
         assert row is not None
         assert row.status == start_status
+
+
+def test_mark_spawn_running_missing_id_does_not_create_phantom_row(
+    tmp_path: Path,
+) -> None:
+    runtime_root = _state_root(tmp_path)
+
+    assert mark_spawn_running(runtime_root, "p-missing") is False
+    assert get_spawn(runtime_root, "p-missing") is None
+    assert list_spawns(runtime_root) == []
 
 
 def test_mark_finalizing_concurrent_race_only_one_writer_wins(tmp_path: Path) -> None:
