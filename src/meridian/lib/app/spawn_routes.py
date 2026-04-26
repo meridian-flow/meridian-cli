@@ -22,9 +22,7 @@ from meridian.lib.app.http_types import HTTPExceptionCallable
 from meridian.lib.config.project_paths import ProjectConfigPaths
 from meridian.lib.core.lifecycle import SpawnLifecycleService
 from meridian.lib.core.spawn_lifecycle import TERMINAL_SPAWN_STATUSES
-from meridian.lib.core.spawn_service import (
-    SpawnApplicationService,  # noqa: F401  # pyright: ignore[reportUnusedImport]
-)
+from meridian.lib.core.spawn_service import SpawnApplicationService
 from meridian.lib.core.types import HarnessId, SpawnId
 from meridian.lib.harness.connections.base import ConnectionConfig
 from meridian.lib.harness.registry import get_default_harness_registry
@@ -37,7 +35,6 @@ from meridian.lib.spawn.archive import (
 )
 from meridian.lib.state import spawn_store
 from meridian.lib.state.history import read_spawn_events, strip_seq_envelope
-from meridian.lib.streaming.signal_canceller import SignalCanceller
 from meridian.lib.streaming.spawn_manager import SpawnManager
 
 if TYPE_CHECKING:
@@ -165,7 +162,11 @@ def register_spawn_routes(
 ) -> None:
     """Register spawn-related routes on the FastAPI app."""
 
-    # Phase 0B: SpawnApplicationService will be wired here in a later subphase.
+    spawn_service = SpawnApplicationService(
+        runtime_root,
+        lifecycle_service,
+        spawn_manager=spawn_manager,
+    )
     typed_app = cast("_FastAPIApp", app)
 
     async def reserve_spawn_id(
@@ -398,15 +399,8 @@ def register_spawn_routes(
 
     async def cancel_spawn(spawn_id: str) -> dict[str, object]:
         typed_spawn_id = _validate_spawn_id(spawn_id)
-        record = _require_spawn(typed_spawn_id)
-        if spawn_is_terminal(record.status):
-            raise http_exception(
-                status_code=409,
-                detail=f"spawn already terminal: {record.status}",
-            )
-        canceller = SignalCanceller(runtime_root=runtime_root, manager=spawn_manager)
         try:
-            outcome = await canceller.cancel(typed_spawn_id)
+            outcome = await spawn_service.cancel(typed_spawn_id)
         except ValueError as exc:
             raise http_exception(status_code=404, detail="spawn not found") from exc
         if outcome.already_terminal:

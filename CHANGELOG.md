@@ -9,6 +9,7 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Frontend chat: multi-column spawn view, chat composer with submit/clear, thread activity tracking, session list sidebar, spawn header with streaming controls, ChatContext LRU eviction, conversation effects refactor.
 
 ### Changed
+- Spawn cancel now uses one application service for CLI and HTTP; managed primary cancel behavior shared across both surfaces.
 - `scripts/release.sh` now keeps pytest output visible during pre-release checks, so long full-suite runs no longer look hung.
 - Pyright warning cleanup across CLI, state, app, and launch code. Type-check baseline now clean: `0 errors, 0 warnings`.
 

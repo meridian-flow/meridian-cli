@@ -2,20 +2,15 @@
 
 import asyncio
 import time
-from datetime import UTC, datetime
 from pathlib import Path
-from typing import cast
 
 from meridian.lib.config.settings import load_config
 from meridian.lib.core.context import RuntimeContext
 from meridian.lib.core.depth import max_depth_reached
-from meridian.lib.core.domain import SpawnStatus
 from meridian.lib.core.lifecycle import create_lifecycle_service
 from meridian.lib.core.sink import NullSink, OutputSink
 from meridian.lib.core.spawn_lifecycle import ACTIVE_SPAWN_STATUSES, is_active_spawn_status
-from meridian.lib.core.spawn_service import (
-    SpawnApplicationService,  # noqa: F401  # pyright: ignore[reportUnusedImport]
-)
+from meridian.lib.core.spawn_service import CancelOutcome, SpawnApplicationService
 from meridian.lib.core.types import SpawnId
 from meridian.lib.launch.request import SessionRequest
 from meridian.lib.ops.reference import ResolvedSessionReference, resolve_session_reference
@@ -29,15 +24,10 @@ from meridian.lib.ops.runtime import (
 )
 from meridian.lib.ops.work_attachment import ensure_explicit_work_item
 from meridian.lib.state import session_store, spawn_store
-from meridian.lib.state.liveness import is_process_alive
-from meridian.lib.state.managed_primary import terminate_managed_primary_processes
 from meridian.lib.state.paths import resolve_project_paths
 from meridian.lib.state.primary_meta import (
-    PrimaryMetadata,
-    read_primary_metadata,
     read_primary_surface_metadata,
 )
-from meridian.lib.streaming.signal_canceller import CancelOutcome, SignalCanceller
 from meridian.lib.utils.time import minutes_to_seconds
 
 from .execute import (
@@ -534,137 +524,9 @@ async def spawn_files(
     return await asyncio.to_thread(spawn_files_sync, payload, ctx=ctx, sink=sink)
 
 
-_MANAGED_CANCEL_GRACE_SECS = 5.0
-_MANAGED_CANCEL_FALLBACK_WAIT_SECS = 1.0
-_MANAGED_CANCEL_POLL_SECS = 0.1
-
-
-def _started_at_epoch(started_at: str | None) -> float | None:
-    normalized = (started_at or "").strip()
-    if not normalized:
-        return None
-    if normalized.endswith("Z"):
-        normalized = f"{normalized[:-1]}+00:00"
-    try:
-        parsed = datetime.fromisoformat(normalized)
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=UTC)
-    return parsed.timestamp()
-
-
-def _coerce_cancel_status(status: str) -> SpawnStatus:
-    if status in {"queued", "running", "finalizing", "succeeded", "failed", "cancelled"}:
-        return cast("SpawnStatus", status)
-    return "failed"
-
-
-def _cancel_outcome_from_row(
-    row: spawn_store.SpawnRecord,
-    *,
-    already_terminal: bool = False,
-) -> CancelOutcome:
-    status = _coerce_cancel_status(row.status)
-    return CancelOutcome(
-        status=status,
-        origin=row.terminal_origin or "cancel",
-        exit_code=(
-            row.exit_code
-            if row.exit_code is not None
-            else (143 if status == "cancelled" else 1)
-        ),
-        already_terminal=already_terminal,
-        finalizing=status == "finalizing",
-    )
-
-
-async def _wait_for_terminal_spawn(
-    runtime_root: Path,
-    spawn_id: str,
-    *,
-    grace_seconds: float,
-) -> spawn_store.SpawnRecord | None:
-    deadline = time.monotonic() + max(0.0, grace_seconds)
-    while True:
-        current = spawn_store.get_spawn(runtime_root, spawn_id)
-        if current is not None and _spawn_is_terminal(current.status):
-            return current
-        now = time.monotonic()
-        if now >= deadline:
-            return None
-        await asyncio.sleep(min(_MANAGED_CANCEL_POLL_SECS, deadline - now))
-
-
-async def _cancel_managed_primary_spawn(
-    runtime_root: Path,
-    spawn_id: str,
-    row: spawn_store.SpawnRecord,
-    primary_metadata: PrimaryMetadata,
-) -> tuple[CancelOutcome, spawn_store.SpawnRecord]:
-    if _spawn_is_terminal(row.status):
-        return _cancel_outcome_from_row(row, already_terminal=True), row
-
-    started_epoch = _started_at_epoch(row.started_at)
-    launcher_pid = primary_metadata.launcher_pid
-    launcher_alive = (
-        launcher_pid is not None
-        and is_process_alive(launcher_pid, created_after_epoch=started_epoch)
-    )
-    if launcher_alive:
-        terminate_managed_primary_processes(
-            primary_metadata,
-            started_epoch=started_epoch,
-            include_launcher=True,
-            include_runtime_children=False,
-        )
-    else:
-        terminate_managed_primary_processes(
-            primary_metadata,
-            started_epoch=started_epoch,
-            include_launcher=False,
-        )
-
-    latest = await _wait_for_terminal_spawn(
-        runtime_root,
-        spawn_id,
-        grace_seconds=_MANAGED_CANCEL_GRACE_SECS,
-    )
-    if latest is None and launcher_alive:
-        terminate_managed_primary_processes(
-            primary_metadata,
-            started_epoch=started_epoch,
-            include_launcher=False,
-        )
-        latest = await _wait_for_terminal_spawn(
-            runtime_root,
-            spawn_id,
-            grace_seconds=_MANAGED_CANCEL_FALLBACK_WAIT_SECS,
-        )
-
-    if latest is None:
-        lifecycle = create_lifecycle_service(runtime_root.parent, runtime_root)
-        if not lifecycle.mark_finalizing(spawn_id):
-            lifecycle.finalize(
-                spawn_id,
-                "failed",
-                1,
-                origin="cancel",
-                error="cancel_timeout",
-            )
-        latest = spawn_store.get_spawn(runtime_root, spawn_id) or row
-
-    return _cancel_outcome_from_row(latest), latest
-
-
-def _spawn_cancel_output_from_outcome(
-    *,
-    spawn_id: str,
-    outcome: CancelOutcome,
-    row: spawn_store.SpawnRecord,
-) -> SpawnActionOutput:
+def _spawn_cancel_output_from_outcome(outcome: CancelOutcome) -> SpawnActionOutput:
     if outcome.already_terminal:
-        message = f"Spawn '{spawn_id}' is already {outcome.status}."
+        message = f"Spawn '{outcome.spawn_id}' is already {outcome.status}."
     elif outcome.finalizing:
         message = (
             "Spawn did not terminate within grace; reaper will reconcile."
@@ -674,18 +536,17 @@ def _spawn_cancel_output_from_outcome(
     elif outcome.status == "cancelled":
         message = "Spawn cancelled."
     else:
-        message = f"Spawn '{spawn_id}' is {outcome.status}."
+        message = f"Spawn '{outcome.spawn_id}' is {outcome.status}."
 
     return SpawnActionOutput(
         command="spawn.cancel",
         status=outcome.status,
-        spawn_id=spawn_id,
+        spawn_id=outcome.spawn_id,
         message=message,
-        model=row.model,
-        harness_id=row.harness,
+        model=outcome.model,
+        harness_id=outcome.harness,
         exit_code=outcome.exit_code,
     )
-
 
 def _normalize_work_filter(work: str | None) -> str | None:
     normalized = (work or "").strip()
@@ -727,28 +588,10 @@ async def _spawn_cancel_impl(
     project_root, _ = resolve_runtime_root_and_config(payload.project_root)
     spawn_id = resolve_spawn_reference(project_root, payload.spawn_id)
     runtime_root = resolve_runtime_root(project_root)
-    row = spawn_store.get_spawn(runtime_root, spawn_id)
-    if row is None:
-        raise ValueError(f"Spawn '{spawn_id}' not found")
-
-    primary_metadata = read_primary_metadata(runtime_root, spawn_id)
-    if primary_metadata is not None and primary_metadata.managed_backend:
-        managed_outcome, managed_row = await _cancel_managed_primary_spawn(
-            runtime_root,
-            spawn_id,
-            row,
-            primary_metadata,
-        )
-        latest = spawn_store.get_spawn(runtime_root, spawn_id) or managed_row
-        return _spawn_cancel_output_from_outcome(
-            spawn_id=spawn_id,
-            outcome=managed_outcome,
-            row=latest,
-        )
-
-    canceller = SignalCanceller(runtime_root=runtime_root)
+    lifecycle_service = create_lifecycle_service(project_root, runtime_root)
+    spawn_service = SpawnApplicationService(runtime_root, lifecycle_service)
     try:
-        outcome = await canceller.cancel(SpawnId(spawn_id))
+        outcome = await spawn_service.cancel(SpawnId(spawn_id))
     except RuntimeError as exc:
         return SpawnActionOutput(
             command="spawn.cancel",
@@ -756,17 +599,9 @@ async def _spawn_cancel_impl(
             spawn_id=spawn_id,
             message=f"Cancel failed: {exc}",
             error=str(exc),
-            model=row.model,
-            harness_id=row.harness,
             exit_code=1,
         )
-
-    latest = spawn_store.get_spawn(runtime_root, spawn_id) or row
-    return _spawn_cancel_output_from_outcome(
-        spawn_id=spawn_id,
-        outcome=outcome,
-        row=latest,
-    )
+    return _spawn_cancel_output_from_outcome(outcome)
 
 
 def spawn_cancel_all_sync(
