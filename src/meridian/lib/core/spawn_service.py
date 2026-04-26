@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -12,6 +13,7 @@ from typing import TYPE_CHECKING, Any, cast
 from meridian.lib.core.domain import SpawnStatus
 from meridian.lib.core.lifecycle import SpawnLifecycleService
 from meridian.lib.core.telemetry import (
+    LifecycleEvent,
     LifecycleObserver,
     LifecycleObserverTier,
     SpawnEventCounter,
@@ -31,6 +33,7 @@ if TYPE_CHECKING:
 _WAIT_POLL_INTERVAL_SECS = 0.1
 _MANAGED_CANCEL_GRACE_SECS = 5.0
 _MANAGED_CANCEL_FALLBACK_WAIT_SECS = 1.0
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -99,10 +102,46 @@ class SpawnApplicationService:
         self._spawn_manager = spawn_manager
         self._locks = KeyedLockRegistry()
         self._event_counter = SpawnEventCounter()
-        self._observers: dict[LifecycleObserverTier, list[LifecycleObserver]] = {
-            LifecycleObserverTier.DIAGNOSTIC: [],
-            LifecycleObserverTier.POLICY: [],
-        }
+        self._observers: list[tuple[LifecycleObserver, LifecycleObserverTier]] = []
+
+    def register_observer(
+        self,
+        observer: LifecycleObserver,
+        tier: LifecycleObserverTier = LifecycleObserverTier.DIAGNOSTIC,
+    ) -> None:
+        """Register a lifecycle observer.
+
+        Diagnostic observers are best-effort: exceptions are logged and
+        swallowed. Policy observers are part of the control path: exceptions
+        propagate so they can veto a transition before commit.
+        """
+        self._observers.append((observer, tier))
+
+    def _notify_observers(self, event: LifecycleEvent) -> None:
+        """Dispatch a lifecycle event to registered observers by tier.
+
+        Policy observers run first and may veto by raising. Diagnostic
+        observers run after policy observers and cannot veto.
+        """
+        policy_observers = [
+            observer
+            for observer, tier in self._observers
+            if tier == LifecycleObserverTier.POLICY
+        ]
+        diagnostic_observers = [
+            observer
+            for observer, tier in self._observers
+            if tier == LifecycleObserverTier.DIAGNOSTIC
+        ]
+
+        for observer in policy_observers:
+            observer.on_event(event)
+
+        for observer in diagnostic_observers:
+            try:
+                observer.on_event(event)
+            except Exception:
+                logger.exception("Diagnostic observer failed for event %s", event.event)
 
     # ---- Query Helpers ----
 

@@ -167,6 +167,8 @@ def register_spawn_routes(
         lifecycle_service,
         spawn_manager=spawn_manager,
     )
+    # Phase 0C.2 registration seam: register debug/stream observers here when
+    # MERIDIAN_DEBUG support lands in 0C.3. No observers are emitted yet.
     typed_app = cast("_FastAPIApp", app)
 
     async def reserve_spawn_id(

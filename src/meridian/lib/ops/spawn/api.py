@@ -590,6 +590,8 @@ async def _spawn_cancel_impl(
     runtime_root = resolve_runtime_root(project_root)
     lifecycle_service = create_lifecycle_service(project_root, runtime_root)
     spawn_service = SpawnApplicationService(runtime_root, lifecycle_service)
+    # Phase 0C.2 registration seam: register debug observers here when
+    # MERIDIAN_DEBUG support lands in 0C.3. No observers are emitted yet.
     try:
         outcome = await spawn_service.cancel(SpawnId(spawn_id))
     except RuntimeError as exc:

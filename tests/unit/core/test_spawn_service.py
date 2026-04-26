@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
 from meridian.lib.core.lifecycle import SpawnLifecycleService
 from meridian.lib.core.spawn_service import SpawnApplicationService
+from meridian.lib.core.telemetry import LifecycleEvent, LifecycleObserverTier
 from meridian.lib.core.types import SpawnId
 from meridian.lib.state import spawn_store
 from meridian.lib.state.paths import RuntimePaths
@@ -26,6 +29,105 @@ def _start_running_spawn(lifecycle: SpawnLifecycleService) -> SpawnId:
             status="running",
         )
     )
+
+
+def _event() -> LifecycleEvent:
+    return LifecycleEvent(
+        event="spawn.running",
+        spawn_id="p1",
+        harness_id="codex",
+        model="model-1",
+        agent="coder",
+        ts=datetime.now(UTC),
+        seq=1,
+    )
+
+
+class _RecordingObserver:
+    def __init__(
+        self,
+        label: str,
+        calls: list[str],
+        *,
+        exc: Exception | None = None,
+    ) -> None:
+        self._label = label
+        self._calls = calls
+        self._exc = exc
+
+    def on_event(self, event: LifecycleEvent) -> None:
+        _ = event
+        self._calls.append(self._label)
+        if self._exc is not None:
+            raise self._exc
+
+
+def test_register_observer_defaults_to_diagnostic(tmp_path: Path) -> None:
+    lifecycle = SpawnLifecycleService(tmp_path)
+    service = SpawnApplicationService(tmp_path, lifecycle)
+    calls: list[str] = []
+
+    service.register_observer(_RecordingObserver("diagnostic", calls))
+
+    service._notify_observers(_event())
+
+    assert calls == ["diagnostic"]
+
+
+def test_policy_observers_run_before_diagnostic(tmp_path: Path) -> None:
+    lifecycle = SpawnLifecycleService(tmp_path)
+    service = SpawnApplicationService(tmp_path, lifecycle)
+    calls: list[str] = []
+
+    service.register_observer(_RecordingObserver("diagnostic-1", calls))
+    service.register_observer(
+        _RecordingObserver("policy", calls),
+        LifecycleObserverTier.POLICY,
+    )
+    service.register_observer(_RecordingObserver("diagnostic-2", calls))
+
+    service._notify_observers(_event())
+
+    assert calls == ["policy", "diagnostic-1", "diagnostic-2"]
+
+
+def test_policy_observer_exception_propagates_and_vetoes_diagnostic(
+    tmp_path: Path,
+) -> None:
+    lifecycle = SpawnLifecycleService(tmp_path)
+    service = SpawnApplicationService(tmp_path, lifecycle)
+    calls: list[str] = []
+
+    service.register_observer(
+        _RecordingObserver("policy", calls, exc=RuntimeError("veto")),
+        LifecycleObserverTier.POLICY,
+    )
+    service.register_observer(_RecordingObserver("diagnostic", calls))
+
+    with pytest.raises(RuntimeError, match="veto"):
+        service._notify_observers(_event())
+
+    assert calls == ["policy"]
+
+
+def test_diagnostic_observer_exception_is_logged_and_swallowed(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    lifecycle = SpawnLifecycleService(tmp_path)
+    service = SpawnApplicationService(tmp_path, lifecycle)
+    calls: list[str] = []
+
+    service.register_observer(
+        _RecordingObserver("diagnostic-fail", calls, exc=RuntimeError("boom")),
+    )
+    service.register_observer(_RecordingObserver("diagnostic-ok", calls))
+
+    with caplog.at_level(logging.ERROR, logger="meridian.lib.core.spawn_service"):
+        service._notify_observers(_event())
+
+    assert calls == ["diagnostic-fail", "diagnostic-ok"]
+    assert "Diagnostic observer failed for event spawn.running" in caplog.text
 
 
 @pytest.mark.asyncio
