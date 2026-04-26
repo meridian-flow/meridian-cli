@@ -22,6 +22,9 @@ from meridian.lib.app.http_types import HTTPExceptionCallable
 from meridian.lib.config.project_paths import ProjectConfigPaths
 from meridian.lib.core.lifecycle import SpawnLifecycleService
 from meridian.lib.core.spawn_lifecycle import TERMINAL_SPAWN_STATUSES
+from meridian.lib.core.spawn_service import (
+    SpawnApplicationService,  # noqa: F401  # pyright: ignore[reportUnusedImport]
+)
 from meridian.lib.core.types import HarnessId, SpawnId
 from meridian.lib.harness.connections.base import ConnectionConfig
 from meridian.lib.harness.registry import get_default_harness_registry
@@ -162,6 +165,7 @@ def register_spawn_routes(
 ) -> None:
     """Register spawn-related routes on the FastAPI app."""
 
+    # Phase 0B: SpawnApplicationService will be wired here in a later subphase.
     typed_app = cast("_FastAPIApp", app)
 
     async def reserve_spawn_id(

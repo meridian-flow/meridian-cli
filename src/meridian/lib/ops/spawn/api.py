@@ -13,6 +13,9 @@ from meridian.lib.core.domain import SpawnStatus
 from meridian.lib.core.lifecycle import create_lifecycle_service
 from meridian.lib.core.sink import NullSink, OutputSink
 from meridian.lib.core.spawn_lifecycle import ACTIVE_SPAWN_STATUSES, is_active_spawn_status
+from meridian.lib.core.spawn_service import (
+    SpawnApplicationService,  # noqa: F401  # pyright: ignore[reportUnusedImport]
+)
 from meridian.lib.core.types import SpawnId
 from meridian.lib.launch.request import SessionRequest
 from meridian.lib.ops.reference import ResolvedSessionReference, resolve_session_reference
@@ -73,6 +76,7 @@ from .query import (
     resolve_spawn_references,
 )
 
+# Phase 0B: SpawnApplicationService will be wired into CLI/MCP operations in a later subphase.
 _WAIT_PROGRESS_INTERVAL_SECS = 5.0
 
 
