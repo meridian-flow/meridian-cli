@@ -20,8 +20,9 @@ from meridian.lib.core.child_env import build_child_env_overrides
 from meridian.lib.core.context import RuntimeContext
 from meridian.lib.core.depth import current_meridian_depth, max_depth_reached
 from meridian.lib.core.domain import Spawn, SpawnStatus
-from meridian.lib.core.lifecycle import create_lifecycle_service
+from meridian.lib.core.lifecycle import SpawnLifecycleService, create_lifecycle_service
 from meridian.lib.core.sink import OutputSink
+from meridian.lib.core.spawn_service import SpawnApplicationService
 from meridian.lib.core.types import HarnessId, ModelId, SpawnId
 from meridian.lib.launch.artifact_io import write_projection_artifacts
 from meridian.lib.launch.context import build_launch_context
@@ -71,6 +72,29 @@ _BACKGROUND_RUNTIME_ARTIFACTS = (
     _BACKGROUND_STDERR_FILENAME,
     _BG_WORKER_REQUEST_FILENAME,
 )
+
+
+def _complete_spawn_sync(
+    *,
+    runtime_root: Path,
+    lifecycle_service: SpawnLifecycleService,
+    spawn_id: SpawnId,
+    status: str,
+    exit_code: int,
+    origin: str,
+    **metrics: Any,
+) -> bool:
+    """Run the async shared finalization seam from synchronous launch paths."""
+
+    return asyncio.run(
+        SpawnApplicationService(runtime_root, lifecycle_service).complete_spawn(
+            spawn_id,
+            status,
+            exit_code,
+            origin=origin,
+            **metrics,
+        )
+    )
 
 
 class _SpawnContext(BaseModel):
@@ -692,8 +716,10 @@ def execute_spawn_background(
             ),
         )
     except Exception as exc:
-        lifecycle_service.finalize(
-            str(context.spawn.spawn_id),
+        _complete_spawn_sync(
+            runtime_root=context.runtime_root,
+            lifecycle_service=lifecycle_service,
+            spawn_id=context.spawn.spawn_id,
             status="failed",
             exit_code=1,
             origin="launch_failure",
@@ -750,8 +776,10 @@ def execute_spawn_background(
                 **_build_detached_popen_kwargs(),
             )
     except OSError as exc:
-        lifecycle_service.finalize(
-            str(context.spawn.spawn_id),
+        _complete_spawn_sync(
+            runtime_root=context.runtime_root,
+            lifecycle_service=lifecycle_service,
+            spawn_id=context.spawn.spawn_id,
             status="failed",
             exit_code=1,
             origin="launch_failure",
@@ -1019,8 +1047,11 @@ def _background_worker_main(
             launch_request = _load_bg_worker_request(log_dir)
         except Exception as exc:
             error = f"Failed to load background worker request: {exc}"
-            create_lifecycle_service(project_root, runtime_root).finalize(
-                str(spawn_id),
+            lifecycle_service = create_lifecycle_service(project_root, runtime_root)
+            _complete_spawn_sync(
+                runtime_root=runtime_root,
+                lifecycle_service=lifecycle_service,
+                spawn_id=spawn_id,
                 status="failed",
                 exit_code=1,
                 origin="launch_failure",

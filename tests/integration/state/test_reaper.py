@@ -584,15 +584,15 @@ def test_spawn_cancel_managed_primary_signals_launcher_first(
         spawn_id=spawn_id,
     )
     monkeypatch.setattr(
-        "meridian.lib.ops.spawn.api.is_process_alive",
+        "meridian.lib.core.spawn_service.is_process_alive",
         lambda pid, created_after_epoch=None: pid == 7001,
     )
     monkeypatch.setattr(
         "meridian.lib.state.managed_primary.is_process_alive",
         lambda pid, created_after_epoch=None: pid in {7001, 7002, 7003},
     )
-    monkeypatch.setattr("meridian.lib.ops.spawn.api._MANAGED_CANCEL_GRACE_SECS", 0.01)
-    monkeypatch.setattr("meridian.lib.ops.spawn.api._MANAGED_CANCEL_FALLBACK_WAIT_SECS", 0.01)
+    monkeypatch.setattr("meridian.lib.core.spawn_service._MANAGED_CANCEL_GRACE_SECS", 0.01)
+    monkeypatch.setattr("meridian.lib.core.spawn_service._MANAGED_CANCEL_FALLBACK_WAIT_SECS", 0.01)
     sent_signals: list[tuple[int, int]] = []
     monkeypatch.setattr(
         "meridian.lib.state.managed_primary.os.kill",
@@ -633,15 +633,15 @@ def test_spawn_cancel_managed_primary_without_launcher_directly_terminates_backe
         spawn_id=spawn_id,
     )
     monkeypatch.setattr(
-        "meridian.lib.ops.spawn.api.is_process_alive",
+        "meridian.lib.core.spawn_service.is_process_alive",
         lambda *_args, **_kwargs: False,
     )
     monkeypatch.setattr(
         "meridian.lib.state.managed_primary.is_process_alive",
         lambda pid, created_after_epoch=None: pid in {7102, 7103},
     )
-    monkeypatch.setattr("meridian.lib.ops.spawn.api._MANAGED_CANCEL_GRACE_SECS", 0.01)
-    monkeypatch.setattr("meridian.lib.ops.spawn.api._MANAGED_CANCEL_FALLBACK_WAIT_SECS", 0.01)
+    monkeypatch.setattr("meridian.lib.core.spawn_service._MANAGED_CANCEL_GRACE_SECS", 0.01)
+    monkeypatch.setattr("meridian.lib.core.spawn_service._MANAGED_CANCEL_FALLBACK_WAIT_SECS", 0.01)
     sent_signals: list[tuple[int, int]] = []
     monkeypatch.setattr(
         "meridian.lib.state.managed_primary.os.kill",
@@ -686,15 +686,15 @@ def test_spawn_cancel_managed_primary_queued_converges_to_terminal(
         spawn_id=spawn_id,
     )
     monkeypatch.setattr(
-        "meridian.lib.ops.spawn.api.is_process_alive",
+        "meridian.lib.core.spawn_service.is_process_alive",
         lambda *_args, **_kwargs: False,
     )
     monkeypatch.setattr(
         "meridian.lib.state.managed_primary.is_process_alive",
         lambda *_args, **_kwargs: False,
     )
-    monkeypatch.setattr("meridian.lib.ops.spawn.api._MANAGED_CANCEL_GRACE_SECS", 0.01)
-    monkeypatch.setattr("meridian.lib.ops.spawn.api._MANAGED_CANCEL_FALLBACK_WAIT_SECS", 0.01)
+    monkeypatch.setattr("meridian.lib.core.spawn_service._MANAGED_CANCEL_GRACE_SECS", 0.01)
+    monkeypatch.setattr("meridian.lib.core.spawn_service._MANAGED_CANCEL_FALLBACK_WAIT_SECS", 0.01)
     sent_signals: list[tuple[int, int]] = []
     monkeypatch.setattr(
         "meridian.lib.state.managed_primary.os.kill",

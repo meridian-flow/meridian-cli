@@ -9,6 +9,7 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from meridian.lib.core.lifecycle import SpawnLifecycleService, create_lifecycle_service
+from meridian.lib.core.spawn_service import SpawnApplicationService
 from meridian.lib.core.types import SpawnId
 from meridian.lib.harness.connections.base import ConnectionConfig, HarnessEvent
 from meridian.lib.launch.launch_types import ResolvedLaunchSpec
@@ -35,6 +36,11 @@ class HcpSessionManager:
         self._lifecycle_service = lifecycle_service or create_lifecycle_service(
             spawn_manager.project_root,
             runtime_root,
+        )
+        self._spawn_service = SpawnApplicationService(
+            runtime_root,
+            self._lifecycle_service,
+            spawn_manager=spawn_manager,
         )
         self._idle_timeout = idle_timeout_secs
         self._active_processes: dict[str, SpawnId] = {}
@@ -133,7 +139,7 @@ class HcpSessionManager:
         except Exception:
             self._active_processes.pop(c_id, None)
             self._chat_states[c_id] = ChatState.IDLE
-            self._lifecycle_service.finalize(
+            await self._spawn_service.complete_spawn(
                 p_id,
                 "failed",
                 1,

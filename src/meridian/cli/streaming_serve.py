@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from meridian.lib.core.domain import SpawnStatus
 from meridian.lib.core.lifecycle import create_lifecycle_service
+from meridian.lib.core.spawn_service import SpawnApplicationService
 from meridian.lib.core.types import HarnessId, SpawnId
 from meridian.lib.harness.connections.base import ConnectionConfig
 from meridian.lib.harness.registry import get_default_harness_registry
@@ -47,6 +48,7 @@ async def streaming_serve(
     runtime_root = resolve_runtime_root(project_root)
     start_monotonic = time.monotonic()
     lifecycle = create_lifecycle_service(project_root, runtime_root)
+    spawn_service = SpawnApplicationService(runtime_root, lifecycle)
     spawn_id = SpawnId(
         lifecycle.start(
             chat_id=str(uuid4()),
@@ -128,8 +130,8 @@ async def streaming_serve(
         raise
     finally:
         with signal_coordinator().mask_sigterm():
-            lifecycle.finalize(
-                str(spawn_id),
+            await spawn_service.complete_spawn(
+                spawn_id,
                 status=outcome_status,
                 exit_code=outcome_exit_code,
                 origin="launcher",

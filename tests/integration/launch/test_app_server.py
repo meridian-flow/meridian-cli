@@ -153,10 +153,10 @@ async def test_app_server_create_spawn_background_finalizer_writes_finalize(
     assert response["spawn_id"] == "p1"
 
     completion_ready.set()
-    await _wait_until(lambda: len(_read_spawn_events(runtime_root)) == 2)
+    await _wait_until(lambda: len(_read_spawn_events(runtime_root)) == 3)
 
     events = _read_spawn_events(runtime_root)
-    assert [event["event"] for event in events] == ["start", "finalize"]
+    assert [event["event"] for event in events] == ["start", "update", "finalize"]
     assert events[-1]["status"] == "succeeded"
     assert events[-1]["exit_code"] == 0
     assert events[-1]["duration_secs"] == 2.5
@@ -254,6 +254,6 @@ async def test_app_server_start_spawn_failure_tags_launch_failure_origin(
     assert exc_info.value.status_code == 400
     assert str(exc_info.value.detail) == "start failed"
     events = _read_spawn_events(runtime_root)
-    assert [event["event"] for event in events] == ["start", "finalize"]
+    assert [event["event"] for event in events] == ["start", "update", "finalize"]
     assert events[-1]["status"] == "failed"
     assert events[-1]["origin"] == "launch_failure"

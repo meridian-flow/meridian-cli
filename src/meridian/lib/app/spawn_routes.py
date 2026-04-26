@@ -219,14 +219,16 @@ def register_spawn_routes(
         outcome = await spawn_manager.wait_for_completion(spawn_id)
         if outcome is None:
             return
-        lifecycle_service.finalize(
-            str(spawn_id),
+        finalized = await spawn_service.complete_spawn(
+            spawn_id,
             outcome.status,
             outcome.exit_code,
             origin="runner",
             duration_secs=outcome.duration_secs,
             error=outcome.error,
         )
+        if not finalized:
+            return
         _broadcast(
             "spawn.finalized",
             {
@@ -326,8 +328,8 @@ def register_spawn_routes(
             connection = await spawn_manager.start_spawn(config, launch_ctx.spec)
             await spawn_manager._start_heartbeat(spawn_id)  # pyright: ignore[reportPrivateUsage]
         except Exception as exc:
-            lifecycle_service.finalize(
-                str(spawn_id),
+            await spawn_service.complete_spawn(
+                spawn_id,
                 "failed",
                 1,
                 origin="launch_failure",

@@ -20,6 +20,7 @@ from meridian.lib.core.spawn_lifecycle import (
     has_durable_report_completion,
     resolve_execution_terminal_state,
 )
+from meridian.lib.core.spawn_service import SpawnApplicationService
 from meridian.lib.core.types import HarnessId, SpawnId
 from meridian.lib.harness.claude_preflight import ensure_claude_session_accessible
 from meridian.lib.harness.connections import get_connection_class
@@ -341,12 +342,17 @@ def _finalize_lifecycle_and_observe_session(
     )
     if primary_spawn_id is not None:
         duration = max(0.0, time.monotonic() - primary_started) if primary_started > 0.0 else None
-        lifecycle_service.finalize(
-            primary_spawn_id,
-            status,
-            resolved_exit_code,
-            origin="launcher",
-            duration_secs=duration,
+        asyncio.run(
+            SpawnApplicationService(
+                runtime_root,
+                lifecycle_service,
+            ).complete_spawn(
+                primary_spawn_id,
+                status,
+                resolved_exit_code,
+                origin="launcher",
+                duration_secs=duration,
+            )
         )
     try:
         observed_harness_session_id = None

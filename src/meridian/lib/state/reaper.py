@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import signal
 import time
@@ -19,6 +20,8 @@ from meridian.lib.core.spawn_lifecycle import (
     is_active_spawn_status,
     resolve_reconciled_terminal_state,
 )
+from meridian.lib.core.spawn_service import SpawnApplicationService
+from meridian.lib.core.types import SpawnId
 from meridian.lib.launch.constants import HISTORY_FILENAME, OUTPUT_FILENAME
 from meridian.lib.state.liveness import is_process_alive
 from meridian.lib.state.managed_primary import (
@@ -236,12 +239,15 @@ def _finalize_and_log(
     runtime_root: Path, record: SpawnRecord, *, status: SpawnStatus, exit_code: int,
     error: str | None, reason: str, snapshot: ArtifactSnapshot, now: float
 ) -> SpawnRecord:
-    if not create_lifecycle_service(runtime_root.parent, runtime_root).finalize(
-        record.id,
-        status,
-        exit_code,
-        origin="reconciler",
-        error=error,
+    lifecycle_service = create_lifecycle_service(runtime_root.parent, runtime_root)
+    if not asyncio.run(
+        SpawnApplicationService(runtime_root, lifecycle_service).complete_spawn(
+            SpawnId(record.id),
+            status,
+            exit_code,
+            origin="reconciler",
+            error=error,
+        )
     ):
         return record
     inactivity_secs = (

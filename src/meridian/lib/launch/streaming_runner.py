@@ -23,6 +23,7 @@ from meridian.lib.core.spawn_lifecycle import (
     has_durable_report_completion,
     resolve_execution_terminal_state,
 )
+from meridian.lib.core.spawn_service import SpawnApplicationService
 from meridian.lib.core.types import HarnessId, SpawnId
 from meridian.lib.harness.adapter import StreamEvent
 from meridian.lib.harness.bundle import get_harness_bundle
@@ -1157,26 +1158,17 @@ async def execute_with_streaming(
                 terminated_after_completion=terminated_after_completion,
             )
             with signal_coordinator().mask_sigterm():
-                marked_finalizing = lifecycle_service.mark_finalizing(str(run.spawn_id))
-                if marked_finalizing:
-                    try:
-                        resolved_heartbeat_touch()
-                    except Exception:
-                        logger.warning(
-                            "Failed to touch heartbeat after entering finalizing; "
-                            "proceeding with terminal finalize.",
-                            spawn_id=str(run.spawn_id),
-                            harness_id=str(harness.id),
-                            exc_info=True,
-                        )
-                else:
-                    logger.info(
-                        "Runner finalizing CAS miss; continuing with terminal finalize.",
-                        spawn_id=str(run.spawn_id),
-                        harness_id=str(harness.id),
-                    )
-                lifecycle_service.finalize(
-                    str(run.spawn_id),
+                spawn_service = SpawnApplicationService(
+                    runtime_root,
+                    lifecycle_service,
+                    spawn_manager=manager,
+                )
+                current_record = spawn_service.get_spawn(run.spawn_id)
+                will_mark_finalizing = (
+                    current_record is not None and current_record.status != "finalizing"
+                )
+                finalized = await spawn_service.complete_spawn(
+                    run.spawn_id,
                     status,
                     exit_code,
                     origin="runner",
@@ -1192,6 +1184,23 @@ async def execute_with_streaming(
                     ),
                     error=failure_reason,
                 )
+                if finalized and will_mark_finalizing:
+                    try:
+                        resolved_heartbeat_touch()
+                    except Exception:
+                        logger.warning(
+                            "Failed to touch heartbeat after entering finalizing; "
+                            "terminal finalize already written.",
+                            spawn_id=str(run.spawn_id),
+                            harness_id=str(harness.id),
+                            exc_info=True,
+                        )
+                elif not finalized:
+                    logger.info(
+                        "Runner finalize skipped; spawn already terminal or missing.",
+                        spawn_id=str(run.spawn_id),
+                        harness_id=str(harness.id),
+                    )
     finally:
         pass
 

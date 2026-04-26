@@ -44,7 +44,8 @@ async def test_streaming_serve_shutdown_finalizes_once_as_cancelled(
 
     assert helper_calls == [("p1", str(runtime_root))]
     events = _read_spawn_events(runtime_root)
-    assert [event["event"] for event in events] == ["start", "finalize"]
+    assert [event["event"] for event in events] == ["start", "update", "finalize"]
+    assert events[1]["status"] == "finalizing"
     assert events[-1]["status"] == "cancelled"
 
     row = get_spawn(runtime_root, "p1")
@@ -75,7 +76,8 @@ async def test_streaming_serve_start_failure_finalizes_failed_once(
         await streaming_serve_module.streaming_serve("codex", "hello")
 
     events = _read_spawn_events(runtime_root)
-    assert [event["event"] for event in events] == ["start", "finalize"]
+    assert [event["event"] for event in events] == ["start", "update", "finalize"]
+    assert events[1]["status"] == "finalizing"
     assert events[-1]["status"] == "failed"
     assert events[-1]["error"] == "boom"
 

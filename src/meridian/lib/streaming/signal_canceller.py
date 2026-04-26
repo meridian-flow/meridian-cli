@@ -7,6 +7,7 @@ import json
 import os
 import signal
 import time
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -15,7 +16,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from meridian.lib.core.domain import SpawnStatus
-from meridian.lib.core.lifecycle import create_lifecycle_service
 from meridian.lib.core.spawn_lifecycle import TERMINAL_SPAWN_STATUSES
 from meridian.lib.core.types import SpawnId
 from meridian.lib.platform import IS_WINDOWS
@@ -48,10 +48,12 @@ class SignalCanceller:
         runtime_root: Path,
         grace_seconds: float = 5.0,
         manager: SpawnManager | None = None,
+        complete_spawn: Callable[..., Awaitable[bool]] | None = None,
     ) -> None:
         self._runtime_root = runtime_root
         self._grace_seconds = grace_seconds
         self._manager = manager
+        self._complete_spawn = complete_spawn
 
     async def cancel(self, spawn_id: SpawnId) -> CancelOutcome:
         record = spawn_store.get_spawn(self._runtime_root, spawn_id)
@@ -84,10 +86,21 @@ class SignalCanceller:
     ) -> CancelOutcome:
         runner_pid = self._resolve_runner_pid(record)
         if runner_pid is None:
-            finalized = create_lifecycle_service(
-                self._runtime_root.parent, self._runtime_root
-            ).cancel(
-                spawn_id, 130, error="cancelled"
+            complete_spawn = self._complete_spawn
+            if complete_spawn is None:
+                from meridian.lib.core.lifecycle import SpawnLifecycleService
+                from meridian.lib.core.spawn_service import SpawnApplicationService
+
+                complete_spawn = SpawnApplicationService(
+                    self._runtime_root,
+                    SpawnLifecycleService(self._runtime_root),
+                ).complete_spawn
+            finalized = await complete_spawn(
+                spawn_id,
+                "cancelled",
+                130,
+                origin="cancel",
+                error="cancelled",
             )
             latest = spawn_store.get_spawn(self._runtime_root, spawn_id)
             if latest is not None and _is_terminal(latest.status):

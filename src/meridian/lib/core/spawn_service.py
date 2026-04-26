@@ -7,7 +7,7 @@ import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from meridian.lib.core.domain import SpawnStatus
 from meridian.lib.core.lifecycle import SpawnLifecycleService
@@ -43,7 +43,14 @@ class CancelOutcome:
 
 
 class KeyedLockRegistry:
-    """In-process keyed lock registry for spawn serialization."""
+    """In-process keyed lock registry for spawn serialization.
+
+    This registry is intentionally scoped to one ``SpawnApplicationService``
+    instance. Multiple service instances in the same process do not share these
+    locks; cross-instance and cross-process safety comes from the spawn store's
+    file-level locking. A process-wide shared service/registry may reduce local
+    races later, but Phase 0 treats this as a best-effort per-instance guard.
+    """
 
     def __init__(self) -> None:
         self._locks: dict[str, asyncio.Lock] = {}
@@ -126,8 +133,29 @@ class SpawnApplicationService:
             if self.is_terminal(record.status):
                 return _cancel_outcome_from_record(str(spawn_id), record, already_terminal=True)
 
-            if record.status == "finalizing":
-                terminal = await self._wait_for_terminal(spawn_id, timeout=5.0)
+            is_finalizing = record.status == "finalizing"
+            from meridian.lib.state.primary_meta import read_primary_metadata
+
+            primary_metadata = read_primary_metadata(self._runtime_root, str(spawn_id))
+
+            if not is_finalizing:
+                if primary_metadata is not None and primary_metadata.managed_backend:
+                    return await self._cancel_managed_primary(spawn_id, record, primary_metadata)
+
+                from meridian.lib.streaming.signal_canceller import SignalCanceller
+
+                signal_outcome = await SignalCanceller(
+                    runtime_root=self._runtime_root,
+                    manager=self._spawn_manager,
+                    complete_spawn=self._complete_spawn_unlocked,
+                ).cancel(spawn_id)
+                latest = self.get_spawn(spawn_id) or record
+                return _cancel_outcome_from_signal(str(spawn_id), signal_outcome, latest)
+
+        if is_finalizing:
+            terminal = await self._wait_for_terminal(spawn_id, timeout=5.0)
+            lock = await self._locks.acquire(str(spawn_id))
+            async with lock:
                 latest = terminal or self.get_spawn(spawn_id) or record
                 return _cancel_outcome_from_record(
                     str(spawn_id),
@@ -135,21 +163,7 @@ class SpawnApplicationService:
                     already_terminal=terminal is not None,
                     finalizing=terminal is None,
                 )
-
-            from meridian.lib.state.primary_meta import read_primary_metadata
-
-            primary_metadata = read_primary_metadata(self._runtime_root, str(spawn_id))
-            if primary_metadata is not None and primary_metadata.managed_backend:
-                return await self._cancel_managed_primary(spawn_id, record, primary_metadata)
-
-            from meridian.lib.streaming.signal_canceller import SignalCanceller
-
-            signal_outcome = await SignalCanceller(
-                runtime_root=self._runtime_root,
-                manager=self._spawn_manager,
-            ).cancel(spawn_id)
-            latest = self.get_spawn(spawn_id) or record
-            return _cancel_outcome_from_signal(str(spawn_id), signal_outcome, latest)
+        raise RuntimeError("unreachable cancel state")
 
     async def _wait_for_terminal(
         self,
@@ -261,8 +275,47 @@ class SpawnApplicationService:
         duration_secs: float | None = None,
         **metrics: object,
     ) -> bool:
-        """Finalize a spawn. Full implementation in 0B.3."""
-        raise NotImplementedError("Implemented in 0B.3")
+        """Finalize a spawn through the shared idempotent terminal seam.
+
+        Returns True when this call performed the first terminal transition.
+        Returns False when the spawn is missing or already terminal.
+        """
+        lock = await self._locks.acquire(str(spawn_id))
+        async with lock:
+            return await self._complete_spawn_unlocked(
+                spawn_id,
+                status,
+                exit_code,
+                origin=origin,
+                duration_secs=duration_secs,
+                **metrics,
+            )
+
+    async def _complete_spawn_unlocked(
+        self,
+        spawn_id: SpawnId,
+        status: str,
+        exit_code: int,
+        *,
+        origin: str,
+        duration_secs: float | None = None,
+        **metrics: object,
+    ) -> bool:
+        record = self.get_spawn(spawn_id)
+        if record is None or self.is_terminal(record.status):
+            return False
+
+        if record.status != "finalizing":
+            self._lifecycle.mark_finalizing(str(spawn_id))
+
+        return self._lifecycle.finalize(
+            str(spawn_id),
+            cast("SpawnStatus", status),
+            exit_code,
+            origin=cast("SpawnOrigin", origin),
+            duration_secs=duration_secs,
+            **cast("dict[str, Any]", metrics),
+        )
 
 
 def _cancel_outcome_from_signal(
