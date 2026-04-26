@@ -214,7 +214,28 @@ class SpawnApplicationService:
             )
 
         if latest is None:
-            if not self._lifecycle.mark_finalizing(str(spawn_id)):
+            latest = self.get_spawn(spawn_id) or record
+            if latest.status == "finalizing":
+                return _cancel_outcome_from_record(str(spawn_id), latest, finalizing=True)
+            if self.is_terminal(latest.status):
+                return _cancel_outcome_from_record(
+                    str(spawn_id),
+                    latest,
+                    already_terminal=True,
+                )
+
+            if self._lifecycle.mark_finalizing(str(spawn_id)):
+                latest = self.get_spawn(spawn_id) or latest
+            else:
+                latest = self.get_spawn(spawn_id) or latest
+                if latest.status == "finalizing":
+                    return _cancel_outcome_from_record(str(spawn_id), latest, finalizing=True)
+                if self.is_terminal(latest.status):
+                    return _cancel_outcome_from_record(
+                        str(spawn_id),
+                        latest,
+                        already_terminal=True,
+                    )
                 self._lifecycle.finalize(
                     str(spawn_id),
                     "failed",
@@ -222,9 +243,13 @@ class SpawnApplicationService:
                     origin="cancel",
                     error="cancel_timeout",
                 )
-            latest = self.get_spawn(spawn_id) or record
+                latest = self.get_spawn(spawn_id) or latest
 
-        return _cancel_outcome_from_record(str(spawn_id), latest)
+        return _cancel_outcome_from_record(
+            str(spawn_id),
+            latest,
+            finalizing=latest.status == "finalizing",
+        )
 
     async def complete_spawn(
         self,

@@ -286,6 +286,7 @@ def create_app(
     from meridian.lib.app.stream import SpawnMultiSubscriberManager, register_stream_routes
     from meridian.lib.app.work_routes import register_work_routes
     from meridian.lib.app.ws_endpoint import register_ws_routes
+    from meridian.lib.core.spawn_service import SpawnApplicationService
     from meridian.lib.core.types import SpawnId
     from meridian.lib.extensions.context import (
         ExtensionCommandServices,
@@ -312,6 +313,11 @@ def create_app(
         runtime_root=runtime_root,
     )
     multi_sub_manager = SpawnMultiSubscriberManager(spawn_manager)
+    ws_spawn_service = SpawnApplicationService(
+        runtime_root,
+        lifecycle_service,
+        spawn_manager=spawn_manager,
+    )
 
     # Register spawn routes
     register_spawn_routes(
@@ -396,6 +402,7 @@ def create_app(
         validate_spawn_id=_validate_spawn_id_wrapper,
         extra_origins=extra_origins,
         on_user_message=on_user_message,
+        spawn_service=ws_spawn_service,
     )
 
     # Register extension discovery + invoke routes before static mount.

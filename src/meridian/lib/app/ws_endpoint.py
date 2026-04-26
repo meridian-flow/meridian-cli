@@ -39,10 +39,10 @@ from meridian.lib.app.agui_mapping import get_agui_mapper
 from meridian.lib.app.agui_mapping.base import AGUIMapper
 from meridian.lib.app.agui_mapping.extensions import make_capabilities_event
 from meridian.lib.app.stream import SpawnMultiSubscriberManager
+from meridian.lib.core.spawn_service import SpawnApplicationService
 from meridian.lib.core.types import SpawnId
 from meridian.lib.harness.connections.base import HarnessEvent
 from meridian.lib.streaming.drain_policy import TURN_BOUNDARY_EVENT_TYPE
-from meridian.lib.streaming.signal_canceller import SignalCanceller
 from meridian.lib.streaming.spawn_manager import SpawnManager
 
 if TYPE_CHECKING:
@@ -119,6 +119,7 @@ async def spawn_websocket(
     manager: SpawnManager,
     multi_sub_manager: SpawnMultiSubscriberManager | None = None,
     on_user_message: Callable[[], None] | None = None,
+    spawn_service: SpawnApplicationService | None = None,
     replay: bool = False,
 ) -> None:
     """Bridge one active spawn's fan-out stream to one WebSocket client."""
@@ -195,6 +196,7 @@ async def spawn_websocket(
                 tracer,
                 heartbeat_state=heartbeat_state,
                 on_user_message=on_user_message,
+                spawn_service=spawn_service,
                 replay_state=replay_state,
             )
         )
@@ -342,6 +344,7 @@ async def _inbound_loop(
     tracer: DebugTracer | None = None,
     heartbeat_state: _HeartbeatState | None = None,
     on_user_message: Callable[[], None] | None = None,
+    spawn_service: SpawnApplicationService | None = None,
     replay_state: _ReplayState | None = None,
 ) -> None:
     while True:
@@ -412,11 +415,11 @@ async def _inbound_loop(
             if result.success and on_user_message is not None:
                 on_user_message()
         elif message_type == "cancel":
+            if spawn_service is None:
+                await _send_error(websocket, "cancel service unavailable")
+                continue
             try:
-                outcome = await SignalCanceller(
-                    runtime_root=manager.runtime_root,
-                    manager=manager,
-                ).cancel(spawn_id)
+                outcome = await spawn_service.cancel(spawn_id)
             except ValueError as exc:
                 await _send_error(websocket, str(exc))
                 continue
@@ -464,6 +467,7 @@ def register_ws_routes(
     validate_spawn_id: Callable[[str], SpawnId] | None = None,
     extra_origins: list[str] | None = None,
     on_user_message: Callable[[], None] | None = None,
+    spawn_service: SpawnApplicationService | None = None,
 ) -> None:
     """Register WebSocket routes for app streaming APIs."""
 
@@ -507,6 +511,7 @@ def register_ws_routes(
                 manager,
                 multi_sub_manager=multi_sub_manager,
                 on_user_message=on_user_message,
+                spawn_service=spawn_service,
                 replay=replay,
             )
         except Exception as exc:
