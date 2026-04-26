@@ -15,10 +15,10 @@ from meridian.lib.config.project_config_state import (
     ProjectConfigState,
     resolve_project_config_state,
 )
+from meridian.lib.config.project_root import resolve_project_root
 from meridian.lib.config.settings import (
     MeridianConfig,
     PrimaryConfig,
-    resolve_project_root,
 )
 from meridian.lib.config.workspace import WorkspaceFinding
 from meridian.lib.context import auto_migrate_contexts

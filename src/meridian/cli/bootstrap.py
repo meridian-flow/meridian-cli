@@ -305,7 +305,7 @@ def maybe_bootstrap_runtime_state(argv: Sequence[str], *, agent_mode: bool) -> N
     if agent_mode:
         return
     try:
-        from meridian.lib.config.settings import resolve_project_root
+        from meridian.lib.config.project_root import resolve_project_root
         from meridian.lib.context import auto_migrate_contexts
         from meridian.lib.ops.config import ensure_runtime_state_bootstrap_sync
         from meridian.lib.state.paths import resolve_project_paths

@@ -10,7 +10,7 @@ from typing import NamedTuple, cast
 
 from pydantic import BaseModel, ConfigDict
 
-from meridian.lib.config.settings import resolve_project_root
+from meridian.lib.config.project_root import resolve_project_root
 from meridian.lib.core.context import RuntimeContext
 from meridian.lib.core.types import HarnessId
 from meridian.lib.core.util import FormatContext

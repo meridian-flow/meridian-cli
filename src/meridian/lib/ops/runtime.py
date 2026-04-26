@@ -9,7 +9,8 @@ from typing import Any, ParamSpec, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from meridian.lib.config.settings import MeridianConfig, load_config, resolve_project_root
+from meridian.lib.config.project_root import resolve_project_root
+from meridian.lib.config.settings import MeridianConfig, load_config
 from meridian.lib.core.context import RuntimeContext
 from meridian.lib.core.sink import NullSink, OutputSink
 from meridian.lib.state.artifact_store import LocalStore

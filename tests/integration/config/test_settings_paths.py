@@ -3,7 +3,8 @@ from pathlib import Path
 import pytest
 
 from meridian.lib.config.project_config_state import resolve_project_config_state
-from meridian.lib.config.settings import load_config, resolve_project_root
+from meridian.lib.config.project_root import resolve_project_root
+from meridian.lib.config.settings import load_config
 
 
 def test_resolve_project_root_prefers_agents_skills_ancestor(

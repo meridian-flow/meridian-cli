@@ -7,7 +7,8 @@ import structlog
 from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.catalog.models import load_discovered_models, load_merged_aliases, resolve_model
-from meridian.lib.config.settings import MeridianConfig, load_config, resolve_project_root
+from meridian.lib.config.project_root import resolve_project_root
+from meridian.lib.config.settings import MeridianConfig, load_config
 from meridian.lib.core.context import RuntimeContext
 from meridian.lib.harness.registry import HarnessRegistry, get_default_harness_registry
 from meridian.lib.launch.context import build_launch_context

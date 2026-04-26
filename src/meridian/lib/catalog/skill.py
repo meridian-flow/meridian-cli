@@ -5,7 +5,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
-from meridian.lib.config.settings import resolve_project_root
+from meridian.lib.config.project_root import resolve_project_root
 from meridian.lib.core.domain import IndexReport, SkillContent, SkillManifest
 
 logger = logging.getLogger(__name__)

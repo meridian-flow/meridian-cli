@@ -9,7 +9,7 @@ from typing import cast
 from pydantic import BaseModel, ConfigDict, Field
 
 from meridian.lib.config.context_config import ArbitraryContextConfig, ContextConfig
-from meridian.lib.config.settings import resolve_project_root
+from meridian.lib.config.project_root import resolve_project_root
 from meridian.lib.context.resolver import resolve_context_paths
 from meridian.lib.core.resolved_context import ResolvedContext
 from meridian.lib.core.util import FormatContext

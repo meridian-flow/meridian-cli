@@ -13,7 +13,7 @@ from meridian.cli.ext_registration import register_extension_cli_group
 from meridian.cli.main import agent_mode_enabled, current_output_sink, get_global_options
 from meridian.cli.spawn_inject import inject_message
 from meridian.cli.utils import missing_fork_session_error, parse_csv_list
-from meridian.lib.config.settings import resolve_project_root
+from meridian.lib.config.project_root import resolve_project_root
 from meridian.lib.core.domain import SpawnStatus
 from meridian.lib.core.spawn_lifecycle import ACTIVE_SPAWN_STATUSES
 from meridian.lib.extensions.registry import get_first_party_registry

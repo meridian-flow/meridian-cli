@@ -10,7 +10,8 @@ from meridian.lib.config.project_config_state import (
     ProjectConfigState,
     resolve_project_config_state,
 )
-from meridian.lib.config.settings import MeridianConfig, load_config, resolve_user_config_path
+from meridian.lib.config.project_root import resolve_user_config_path
+from meridian.lib.config.settings import MeridianConfig, load_config
 from meridian.lib.config.workspace import (
     WorkspaceFinding,
     WorkspaceSnapshot,

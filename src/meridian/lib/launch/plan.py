@@ -3,7 +3,8 @@
 import os
 from pathlib import Path
 
-from meridian.lib.config.settings import MeridianConfig, load_config, resolve_project_root
+from meridian.lib.config.project_root import resolve_project_root
+from meridian.lib.config.settings import MeridianConfig, load_config
 from meridian.lib.state.paths import resolve_project_runtime_root_for_write
 
 from .request import (

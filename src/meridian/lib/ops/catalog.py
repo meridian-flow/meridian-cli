@@ -19,7 +19,7 @@ from meridian.lib.catalog.models import (
     load_merged_aliases,
     refresh_models_cache,
 )
-from meridian.lib.config.settings import resolve_project_root
+from meridian.lib.config.project_root import resolve_project_root
 from meridian.lib.core.types import HarnessId, ModelId
 from meridian.lib.core.util import FormatContext
 from meridian.lib.ops.runtime import async_from_sync

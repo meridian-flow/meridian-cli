@@ -8,7 +8,7 @@ from typing import cast
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from meridian.lib.catalog.skill import files_have_equal_text, split_markdown_frontmatter
-from meridian.lib.config.settings import resolve_project_root
+from meridian.lib.config.project_root import resolve_project_root
 from meridian.lib.core.overrides import (
     KNOWN_APPROVAL_VALUES,
     KNOWN_EFFORT_VALUES,

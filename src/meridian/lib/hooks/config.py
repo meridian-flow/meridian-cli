@@ -11,10 +11,8 @@ from pathlib import Path
 from typing import cast, get_args
 
 from meridian.lib.config.project_config_state import resolve_project_config_state
-from meridian.lib.config.settings import (
-    normalize_hooks_array,
-    resolve_user_config_path,
-)
+from meridian.lib.config.project_root import resolve_user_config_path
+from meridian.lib.config.settings import normalize_hooks_array
 from meridian.lib.hooks.builtin_registry import (
     BUILTIN_HOOK_REGISTRY,
     get_default_events,

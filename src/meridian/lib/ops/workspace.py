@@ -7,7 +7,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.config.project_paths import resolve_project_config_paths
-from meridian.lib.config.settings import resolve_project_root
+from meridian.lib.config.project_root import resolve_project_root
 from meridian.lib.core.util import FormatContext
 from meridian.lib.ops.runtime import async_from_sync
 from meridian.lib.state.atomic import atomic_write_text

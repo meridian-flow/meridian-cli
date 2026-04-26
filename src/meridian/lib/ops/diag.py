@@ -6,7 +6,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
-from meridian.lib.config.settings import resolve_project_root
+from meridian.lib.config.project_root import resolve_project_root
 from meridian.lib.core.depth import is_root_side_effect_process
 from meridian.lib.core.spawn_lifecycle import is_active_spawn_status
 from meridian.lib.core.util import FormatContext

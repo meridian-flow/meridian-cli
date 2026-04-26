@@ -1,10 +1,9 @@
 """Project-root Meridian path helpers."""
 
+import os
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
-
-from meridian.lib.state.paths import resolve_runtime_paths
 
 PROJECT_ROOT_IGNORE_TARGETS: tuple[str, ...] = (
     "workspace.local.toml",
@@ -30,7 +29,13 @@ class ProjectConfigPaths(BaseModel):
     def workspace_local_toml(self) -> Path:
         """Return local workspace topology path `<state-root-parent>/workspace.local.toml`."""
 
-        return resolve_runtime_paths(self.project_root).root_dir.parent / "workspace.local.toml"
+        override = os.getenv("MERIDIAN_RUNTIME_DIR", "").strip()
+        if not override:
+            return self.project_root / "workspace.local.toml"
+
+        candidate = Path(override).expanduser()
+        runtime_root = candidate if candidate.is_absolute() else self.project_root / candidate
+        return runtime_root.parent / "workspace.local.toml"
 
     @property
     def meridian_local_toml(self) -> Path:

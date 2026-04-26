@@ -27,7 +27,7 @@ from meridian.lib.catalog.model_policy import (
     is_default_visible_model,
     pattern_fallback_harness,
 )
-from meridian.lib.config.settings import resolve_project_root
+from meridian.lib.config.project_root import resolve_project_root
 from meridian.lib.core.types import HarnessId, ModelId
 from meridian.lib.state.atomic import atomic_write_text
 from meridian.lib.state.paths import resolve_cache_dir

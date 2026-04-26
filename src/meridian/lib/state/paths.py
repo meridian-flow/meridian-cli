@@ -9,6 +9,7 @@ from typing import Self, cast
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from meridian.lib.config.context_config import ContextConfig
+from meridian.lib.config.project_root import resolve_user_config_path
 from meridian.lib.core.types import SpawnId
 from meridian.lib.state.atomic import atomic_write_text
 from meridian.lib.state.user_paths import (
@@ -202,8 +203,6 @@ def _context_config_paths(
     project_config: Path | None = None,
     local_config: Path | None = None,
 ) -> tuple[Path | None, Path, Path]:
-    from meridian.lib.config.settings import resolve_user_config_path
-
     return (
         resolve_user_config_path(user_config),
         project_config or (project_root / "meridian.toml"),
