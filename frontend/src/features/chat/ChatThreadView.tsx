@@ -7,7 +7,6 @@ import { toast } from "sonner"
 
 import { cn } from "@/lib/utils"
 import { ConversationView } from "./components/ConversationView"
-import type { ChatState as ApiChatState, ChatDetailResponse } from "@/lib/api"
 
 import { useChat } from "./ChatContext"
 import { ChatBanner, type ChatUIState } from "./components/ChatBanner"
@@ -15,22 +14,35 @@ import { Composer } from "./components/Composer"
 import { ZeroStateGreeting } from "./components/ZeroStateGreeting"
 import { useChatConversation } from "./hooks/use-chat-conversation"
 import { useModelCatalog } from "./hooks/use-model-catalog"
+import type { ChatPhase } from "./hooks/chat-conversation-types"
 
 // ---------------------------------------------------------------------------
-// UI state derivation
+// UI state derivation — derives from machine phase, NOT backend fields.
+//
+// The machine's phase is the single source of truth for lifecycle state.
+// Previous code inspected chatDetail.launch_mode and chatState (backend
+// fields), which caused mismatches during bootstrap, reconnect, and
+// failed-bootstrap recovery. (#110, #109-partial)
 // ---------------------------------------------------------------------------
 
-function deriveChatUIState(
-  chatId: string,
-  chatDetail: ChatDetailResponse | null,
-  chatState: ApiChatState | null,
-): ChatUIState {
-  if (chatId === "__new__") return "zero"
-  if (!chatDetail) return "loading" // detail still fetching — disable composer
-  if (chatDetail.launch_mode && chatDetail.launch_mode !== "app") return "readonly"
-  if (chatState === "closed") return "finished"
-  if (chatState === "active" || chatState === "draining") return "active"
-  return "idle"
+function deriveChatUIState(phase: ChatPhase, isReadOnly: boolean): ChatUIState {
+  switch (phase) {
+    case "zero":
+    case "creating":
+      return "zero"
+    case "loading":
+      return "loading"
+    case "connecting":
+    case "streaming":
+      return "active"
+    case "readonly":
+      return "readonly"
+    case "finished":
+      return "finished"
+    case "idle":
+      // An idle readonly chat (no active spawn) shows as readonly
+      return isReadOnly ? "readonly" : "idle"
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -59,8 +71,10 @@ export function ChatThreadView({ chatId, className, isActive = true }: ChatThrea
   // /api/models requests from cached-but-hidden shells.
   const { catalog } = useModelCatalog({ enabled: isActive })
 
-  // Seed default model selection from catalog when zero-state loads
+  // Seed default model selection from catalog when zero-state loads.
+  // Guard with isActive so dormant shells don't mutate global selection (#109).
   useEffect(() => {
+    if (!isActive) return
     if (modelSelection === null && catalog?.defaultModel) {
       setModelSelection({
         modelId: catalog.defaultModel.modelId,
@@ -68,7 +82,7 @@ export function ChatThreadView({ chatId, className, isActive = true }: ChatThrea
         displayName: catalog.defaultModel.displayName,
       })
     }
-  }, [catalog, modelSelection, setModelSelection])
+  }, [catalog, modelSelection, setModelSelection, isActive])
 
   const {
     entries,
@@ -79,9 +93,12 @@ export function ChatThreadView({ chatId, className, isActive = true }: ChatThrea
     isSending,
     connectionState,
     controller,
-    chatState,
     chatDetail,
     activeSpawnId,
+    phase,
+    accessMode,
+    composerEnabled,
+    cancelVisible: _cancelVisible,
     error,
     sendMessage: rawSendMessage,
     cancel,
@@ -102,9 +119,10 @@ export function ChatThreadView({ chatId, className, isActive = true }: ChatThrea
     },
   })
 
-  const uiState = deriveChatUIState(chatId, chatDetail, chatState)
+  const uiState = deriveChatUIState(phase, accessMode === "readonly")
 
-  const composerDisabled = isCreating || isSending || uiState === "readonly" || uiState === "loading"
+  // Use the machine's canonical sendability signal, not a UI-state heuristic.
+  const composerDisabled = !composerEnabled
   const threadTitle = selectedChat?.title ?? "New chat"
   const threadModel = chatDetail?.model ?? null
   const threadHarness = useMemo(() => {

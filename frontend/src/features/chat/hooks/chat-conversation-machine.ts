@@ -571,6 +571,9 @@ function reduceDetailLoaded(
           activeSpawnId,
           accessMode,
           streamGeneration,
+          // Reset: new spawn discovered via revalidation — clear the
+          // previous spawn's terminal flag so stream events flow.
+          terminalSeen: false,
         },
         commands,
       )
@@ -681,6 +684,49 @@ function reduceHistoryFailed(
 }
 
 /**
+ * Merge backend history with any existing optimistic entries.
+ *
+ * During the __new__ → real chatId handoff (#108), the machine holds
+ * optimistic user entries from SEND_MESSAGE that may not yet appear in
+ * the backend history. A naive replacement drops them. This merge:
+ *
+ * 1. Starts from the history entries (backend is authoritative).
+ * 2. Appends any optimistic user entries from ctx.entries that are NOT
+ *    already represented in history (matched by trimmed text content).
+ *
+ * The result preserves the user's visible message while avoiding
+ * duplicates once the backend catches up.
+ */
+function mergeWithOptimisticEntries(
+  historyEntries: ConversationEntry[],
+  existingEntries: ConversationEntry[],
+): ConversationEntry[] {
+  // Fast path: no existing entries to preserve
+  if (existingEntries.length === 0) return historyEntries
+
+  // Collect text of all user entries from history for dedup
+  const historyUserTexts = new Set<string>()
+  for (const entry of historyEntries) {
+    if (entry.kind === "user") {
+      historyUserTexts.add(entry.text.trim())
+    }
+  }
+
+  // Find optimistic user entries not yet in history
+  const optimistic: ConversationEntry[] = []
+  for (const entry of existingEntries) {
+    if (entry.kind === "user" && !historyUserTexts.has(entry.text.trim())) {
+      optimistic.push(entry)
+    }
+  }
+
+  if (optimistic.length === 0) return historyEntries
+
+  // Prepend optimistic user entries before history (they were sent first)
+  return [...optimistic, ...historyEntries]
+}
+
+/**
  * Both detail and history are loaded — resolve the target phase and
  * emit any follow-up commands (WS connect, replay fetch).
  */
@@ -692,6 +738,9 @@ function resolveBootstrap(
   const commands: ChatCommand[] = []
   const { phase, accessMode } = resolveBootstrapPhase(detail)
 
+  // Merge history with any existing optimistic entries (#108)
+  const mergedEntries = mergeWithOptimisticEntries(historyEntries, ctx.entries)
+
   let nextCtx: ChatMachineContext = {
     ...ctx,
     phase,
@@ -699,8 +748,8 @@ function resolveBootstrap(
     chatDetail: detail,
     chatState: detail.state,
     activeSpawnId: detail.active_p_id ?? null,
-    entries: historyEntries,
-    turnSeq: historyEntries.length,
+    entries: mergedEntries,
+    turnSeq: mergedEntries.length,
     bootstrap: { ...EMPTY_BOOTSTRAP }, // Clear bootstrap tracking
     error: null,
   }
@@ -754,6 +803,10 @@ function reduceCreateSucceeded(
     streamGeneration,
     pendingOp: null,
     error: null,
+    // Defensive reset: createSucceeded originates from zero→creating where
+    // terminalSeen should already be false, but reset explicitly to prevent
+    // edge cases if the context was seeded from a cached terminal chat.
+    terminalSeen: false,
   }
 
   // Connect to the spawn
@@ -808,6 +861,9 @@ function reducePromptSucceeded(
     activeSpawnId: detail.active_p_id ?? ctx.activeSpawnId,
     pendingOp: null,
     error: null,
+    // Reset: terminalSeen is spawn-scoped — a new spawn is starting,
+    // so the previous spawn's terminal flag must not block its events.
+    terminalSeen: false,
   }
 
   if (detail.active_p_id) {
@@ -924,6 +980,9 @@ function reduceContinueSucceeded(
     streamGeneration,
     pendingOp: null,
     error: null,
+    // Reset: terminalSeen is spawn-scoped — a new spawn is starting,
+    // so the previous spawn's terminal flag must not block its events.
+    terminalSeen: false,
   }
 
   if (detail.active_p_id) {

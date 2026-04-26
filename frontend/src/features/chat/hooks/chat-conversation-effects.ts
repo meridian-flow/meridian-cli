@@ -49,6 +49,8 @@ export interface EffectRunnerCallbacks {
 export interface EffectRunnerOptions {
   createChatOptions?: CreateChatOptions
   callbacks?: EffectRunnerCallbacks
+  /** When false, external callbacks (onChatCreated) are suppressed. */
+  isActiveRef?: { current: boolean }
 }
 
 export interface EffectRunnerHandle {
@@ -167,9 +169,13 @@ export function useEffectRunner(
     createChat(prompt, createOpts)
       .then((detail) => {
         emit({ type: "CREATE_SUCCEEDED", detail, generation })
-        // Gate callback on generation — a newer create may have superseded this one
+        // Gate callback on generation AND isActive — a newer create may have
+        // superseded this one, or the shell may have gone dormant (#109).
         if (generation === currentCreateGenerationRef.current) {
-          optionsRef.current.callbacks?.onChatCreated?.(detail)
+          const isActive = optionsRef.current.isActiveRef?.current ?? true
+          if (isActive) {
+            optionsRef.current.callbacks?.onChatCreated?.(detail)
+          }
         }
       })
       .catch((err) => {
@@ -231,8 +237,14 @@ export function useEffectRunner(
     replay: boolean,
     generation: number,
   ) {
-    // Tear down prior channel
-    destroyChannel()
+    // Clean handoff: capture the old channel and wire up the new one
+    // BEFORE destroying the old. This prevents a race where the old
+    // channel's synchronous onClose callback (fired during destroy)
+    // could interfere with state between teardown and creation. The
+    // old channel's callbacks capture a stale generation, so any
+    // events they emit are harmlessly dropped by the reducer.
+    const oldChannel = channelRef.current
+    channelRef.current = null
 
     // Fresh dedup sets for the new connection
     startedSetsRef.current = freshStartedSets()
@@ -270,6 +282,9 @@ export function useEffectRunner(
 
     channel.connect()
     channelRef.current = channel
+
+    // Tear down old channel AFTER new one is wired up
+    oldChannel?.destroy()
   }
 
   function executeFetchReplay(spawnId: string, generation: number) {

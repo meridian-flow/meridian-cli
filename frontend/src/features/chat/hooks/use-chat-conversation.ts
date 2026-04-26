@@ -37,6 +37,8 @@ import type {
   ChatEvent,
   ChatMachineContext,
   ChatCacheSnapshot,
+  ChatPhase,
+  AccessMode,
   TransitionResult,
 } from "./chat-conversation-types"
 import { useEffectRunner } from "./chat-conversation-effects"
@@ -67,6 +69,14 @@ export interface UseChatConversationReturn {
   chatState: ApiChatState | null
   chatDetail: ChatDetailResponse | null
   activeSpawnId: string | null
+  /** Machine phase — single source of truth for lifecycle state. */
+  phase: ChatPhase
+  /** Access mode — interactive vs readonly. */
+  accessMode: AccessMode
+  /** Whether the composer should be enabled (machine canonical signal). */
+  composerEnabled: boolean
+  /** Whether the cancel button should be visible. */
+  cancelVisible: boolean
   error: string | null
   sendMessage: (text: string) => Promise<void>
   cancel: () => Promise<void>
@@ -162,6 +172,11 @@ export function useChatConversation({
   const isActiveRef = useRef(isActive)
   isActiveRef.current = isActive
 
+  // Phase ref — read by the selection effect to allow re-selection after
+  // failed bootstrap (#110-recovery) without adding ctx to its deps.
+  const phaseRef = useRef(ctx.phase)
+  phaseRef.current = ctx.phase
+
   const gatedDispatch = useCallback(
     (event: ChatEvent) => {
       if (!isActiveRef.current) return // Drop events while inactive
@@ -173,12 +188,15 @@ export function useChatConversation({
   // ---- Effect runner ----
   // Uses gatedDispatch so async callbacks from destroyed channels
   // (WS_CLOSED, in-flight fetch responses) are silently dropped
-  // when the conversation is inactive.
+  // when the conversation is inactive. isActiveRef gates external
+  // callbacks (onChatCreated) so dormant shells don't mutate
+  // global selection (#109).
   const effectRunner = useEffectRunner(gatedDispatch, {
     createChatOptions,
     callbacks: {
       onChatCreated: (detail) => onChatCreatedRef.current?.(detail),
     },
+    isActiveRef,
   })
 
   // ---- Active state transitions (deactivation + reactivation) ----
@@ -267,8 +285,12 @@ export function useChatConversation({
       return
     }
 
-    // Subsequent chatId changes
-    if (prevChatIdRef.current === chatId) return
+    // Subsequent chatId changes.
+    // Allow re-selection of the same chatId when the machine fell back to
+    // "zero" phase after a failed bootstrap (#110-recovery). Without this,
+    // re-clicking the same chat in the sidebar is a no-op.
+    const sameId = prevChatIdRef.current === chatId
+    if (sameId && phaseRef.current !== "zero") return
     const wasNew = prevChatIdRef.current === "__new__"
     prevChatIdRef.current = chatId
 
@@ -452,6 +474,10 @@ export function useChatConversation({
     chatState: ctx.chatState,
     chatDetail: ctx.chatDetail,
     activeSpawnId: ctx.activeSpawnId,
+    phase: ctx.phase,
+    accessMode: ctx.accessMode,
+    composerEnabled: derived.composerEnabled,
+    cancelVisible: derived.cancelVisible,
     error: ctx.error,
     sendMessage,
     cancel,
