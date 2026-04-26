@@ -29,9 +29,14 @@ class KeyedLockRegistry:
             return self._locks[key]
 
     async def release(self, key: str) -> None:
-        """Clean up lock when no longer needed."""
-        async with self._registry_lock:
-            self._locks.pop(key, None)
+        """Keep lock mappings for the process lifetime.
+
+        Removing a key can race with waiters that already hold the old lock
+        instance, allowing a later caller to create a second lock for the same
+        key and break per-key serialization. The registry is in-process and
+        spawn keys are bounded enough that retaining locks is the safer tradeoff.
+        """
+        _ = key
 
 
 class SpawnApplicationService:
