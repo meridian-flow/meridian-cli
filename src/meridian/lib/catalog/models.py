@@ -17,6 +17,7 @@ from meridian.lib.catalog.model_aliases import (
     AliasEntry,
     load_mars_aliases,
     load_mars_descriptions,
+    run_mars_models_list_all,
     run_mars_models_resolve,
 )
 from meridian.lib.catalog.model_policy import (
@@ -44,7 +45,7 @@ def load_merged_aliases(project_root: Path | None = None) -> list[AliasEntry]:
 def resolve_model(name_or_alias: str, project_root: Path | None = None) -> AliasEntry:
     """Resolve alias to model id, or pass through a direct model identifier.
 
-    Resolution: mars resolve -> pattern fallback for raw model IDs -> hard error.
+    Resolution: mars resolve -> lazy exact-ID guard -> pattern fallback for raw model IDs.
     Mars is always present (bundled with meridian).
     """
 
@@ -52,46 +53,92 @@ def resolve_model(name_or_alias: str, project_root: Path | None = None) -> Alias
     if not normalized:
         raise ValueError("Model identifier must not be empty.")
 
-    # Step 1: Try mars resolve (alias + harness in one call)
+    def exact_id_alias_entry(model: dict[str, object]) -> AliasEntry:
+        harness: object = model.get("harness")
+        resolved_harness: HarnessId | None = None
+        if isinstance(harness, str) and harness.strip():
+            with suppress(ValueError):
+                resolved_harness = HarnessId(harness.strip())
+        if resolved_harness is None:
+            resolved_harness = pattern_fallback_harness(normalized)
+
+        description = model.get("description")
+        return AliasEntry(
+            alias="",
+            model_id=ModelId(normalized),
+            resolved_harness=resolved_harness,
+            description=description.strip() if isinstance(description, str) else None,
+        )
+
+    def find_exact_id_match() -> dict[str, object] | None:
+        for model in run_mars_models_list_all(project_root) or []:
+            model_id = model.get("id")
+            if not isinstance(model_id, str) or model_id.strip() != normalized:
+                continue
+            return model
+        return None
+
+    def mars_alias_entry(
+        mars_result: dict[str, object],
+        resolved_model_id: str,
+    ) -> AliasEntry:
+        harness = mars_result.get("harness")
+        resolved_harness: HarnessId | None = None
+        if isinstance(harness, str) and harness.strip():
+            with suppress(ValueError):
+                resolved_harness = HarnessId(harness.strip())
+
+        if resolved_harness is None:
+            # Mars resolved the alias but didn't provide harness -> pattern fallback
+            resolved_harness = pattern_fallback_harness(resolved_model_id)
+
+        raw_default_effort = mars_result.get("default_effort")
+        raw_default_autocompact = mars_result.get("autocompact")
+        default_effort = (
+            raw_default_effort.strip()
+            if isinstance(raw_default_effort, str) and raw_default_effort.strip()
+            else None
+        )
+        default_autocompact = (
+            raw_default_autocompact
+            if isinstance(raw_default_autocompact, int)
+            and not isinstance(raw_default_autocompact, bool)
+            else None
+        )
+
+        return AliasEntry(
+            alias=str(mars_result.get("name", "") or ""),
+            model_id=ModelId(resolved_model_id),
+            resolved_harness=resolved_harness,
+            description=str(mars_result.get("description", "") or "") or None,
+            default_effort=default_effort,
+            default_autocompact=default_autocompact,
+        )
+
+    # Step 1: Try mars resolve (alias + harness in one call) before the
+    # expensive all-models exact-ID guard.
     mars_result = run_mars_models_resolve(normalized, project_root)
     if mars_result is not None:
         model_id = mars_result.get("model_id")
-        harness = mars_result.get("harness")
-
         if isinstance(model_id, str) and model_id.strip():
-            resolved_harness: HarnessId | None = None
-            if isinstance(harness, str) and harness.strip():
-                with suppress(ValueError):
-                    resolved_harness = HarnessId(harness.strip())
+            resolved_model_id = model_id.strip()
 
-            if resolved_harness is None:
-                # Mars resolved the alias but didn't provide harness -> pattern fallback
-                resolved_harness = pattern_fallback_harness(model_id.strip())
+            if resolved_model_id == normalized:
+                return mars_alias_entry(mars_result, resolved_model_id)
 
-            raw_default_effort = mars_result.get("default_effort")
-            raw_default_autocompact = mars_result.get("autocompact")
-            default_effort = (
-                raw_default_effort.strip()
-                if isinstance(raw_default_effort, str) and raw_default_effort.strip()
-                else None
-            )
-            default_autocompact = (
-                raw_default_autocompact
-                if isinstance(raw_default_autocompact, int)
-                and not isinstance(raw_default_autocompact, bool)
-                else None
-            )
+            # mars can prefix-match literal IDs (for example gpt-5.4 ->
+            # gpt-5.4-mini). Only pay for all-model discovery when mars
+            # resolved to a different ID and the literal exact-ID guard matters.
+            exact_id_match = find_exact_id_match()
+            if exact_id_match is not None:
+                return exact_id_alias_entry(exact_id_match)
 
-            return AliasEntry(
-                alias=str(mars_result.get("name", "") or ""),
-                model_id=ModelId(model_id.strip()),
-                resolved_harness=resolved_harness,
-                description=str(mars_result.get("description", "") or "") or None,
-                default_effort=default_effort,
-                default_autocompact=default_autocompact,
-            )
+            return mars_alias_entry(mars_result, resolved_model_id)
 
-    # Step 2: Raw model ID -> pattern-based harness fallback
+    # Step 2: Raw model ID -> pattern-based harness fallback. Do not call the
+    # expensive all-model exact-ID guard when mars cannot resolve the input; the
+    # guard only exists for mars prefix-match collisions where mars returned a
+    # different model ID than the literal input.
     resolved_harness = pattern_fallback_harness(normalized)
     return AliasEntry(alias="", model_id=ModelId(normalized), resolved_harness=resolved_harness)
 

@@ -13,6 +13,14 @@ from meridian.lib.catalog.models import resolve_model
 from meridian.lib.core.types import HarnessId
 
 
+def _mock_mars_list_all(project_root: object = None) -> list[dict[str, object]]:
+    _ = project_root
+    return [
+        {"id": "gpt-5.4", "harness": "codex", "description": "GPT-5.4"},
+        {"id": "gpt-5.4-mini", "harness": "codex", "description": "GPT-5.4 mini"},
+    ]
+
+
 def test_resolve_model_returns_concrete_model_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -65,6 +73,105 @@ def test_resolve_model_copies_alias_defaults_from_mars(
     assert result.alias == "gpt"
     assert result.default_effort == "low"
     assert result.default_autocompact == 65
+
+
+def test_resolve_model_exact_full_model_id_beats_mars_prefix_match(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "meridian.lib.catalog.models.run_mars_models_list_all",
+        _mock_mars_list_all,
+    )
+
+    def mock_mars_resolve(
+        name: str, project_root: object = None
+    ) -> dict[str, object] | None:
+        if name == "gpt-5.4":
+            return {
+                "name": "gpt-5.4",
+                "model_id": "gpt-5.4-mini",
+                "harness": "codex",
+                "source": "alias_prefix",
+            }
+        return None
+
+    monkeypatch.setattr(
+        "meridian.lib.catalog.models.run_mars_models_resolve",
+        mock_mars_resolve,
+    )
+
+    result = resolve_model("gpt-5.4")
+
+    assert str(result.model_id) == "gpt-5.4"
+    assert result.alias == ""
+    assert result.harness == HarnessId.CODEX
+
+
+def test_resolve_model_skips_exact_id_guard_when_mars_cannot_resolve(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    list_all_calls = 0
+
+    def mock_mars_resolve(
+        name: str, project_root: object = None
+    ) -> dict[str, object] | None:
+        _ = name, project_root
+        return None
+
+    def fail_if_called(project_root: object = None) -> list[dict[str, object]]:
+        nonlocal list_all_calls
+        _ = project_root
+        list_all_calls += 1
+        return [{"id": "gpt-5.4", "harness": "codex"}]
+
+    monkeypatch.setattr(
+        "meridian.lib.catalog.models.run_mars_models_resolve",
+        mock_mars_resolve,
+    )
+    monkeypatch.setattr(
+        "meridian.lib.catalog.models.run_mars_models_list_all",
+        fail_if_called,
+    )
+
+    result = resolve_model("gpt-5.4")
+
+    assert str(result.model_id) == "gpt-5.4"
+    assert list_all_calls == 0
+
+
+def test_resolve_model_exact_full_model_id_preserves_mars_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "meridian.lib.catalog.models.run_mars_models_list_all",
+        _mock_mars_list_all,
+    )
+
+    def mock_mars_resolve(
+        name: str, project_root: object = None
+    ) -> dict[str, object] | None:
+        if name == "gpt-5.4":
+            return {
+                "name": "gpt-5.4",
+                "model_id": "gpt-5.4",
+                "harness": "codex",
+                "default_effort": "medium",
+                "autocompact": 70,
+            }
+        return None
+
+    monkeypatch.setattr(
+        "meridian.lib.catalog.models.run_mars_models_resolve",
+        mock_mars_resolve,
+    )
+
+    result = resolve_model("gpt-5.4")
+
+    assert str(result.model_id) == "gpt-5.4"
+    assert result.alias == "gpt-5.4"
+    assert result.harness == HarnessId.CODEX
+    assert result.default_effort == "medium"
+    assert result.default_autocompact == 70
 
 
 def test_resolve_model_keeps_unavailable_explicit_harness_from_mars(

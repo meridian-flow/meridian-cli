@@ -15,6 +15,7 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Codex startup telemetry now emits canonical typed phases via lifecycle observers, not string callback messages.
 - `scripts/release.sh` now keeps pytest output visible during pre-release checks, so long full-suite runs no longer look hung.
 - Pyright warning cleanup across CLI, state, app, and launch code. Type-check baseline now clean: `0 errors, 0 warnings`.
+- Launch policy model resolve now one-pass carry-through. Reuse one resolved alias entry for harness pick, final model, same-layer compatibility check, and model defaults.
 
 ### Fixed
 - Failure sentinels now write after terminal state persists. Stale `failure.json` ignored unless spawn still `failed`.

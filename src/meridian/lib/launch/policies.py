@@ -11,7 +11,7 @@ from meridian.lib.catalog.models import load_merged_aliases
 from meridian.lib.catalog.models import resolve_model as resolve_model_entry
 from meridian.lib.config.settings import MeridianConfig
 from meridian.lib.core.overrides import RuntimeOverrides, resolve
-from meridian.lib.core.types import HarnessId, ModelId
+from meridian.lib.core.types import HarnessId
 from meridian.lib.harness.adapter import SubprocessHarness
 from meridian.lib.harness.registry import HarnessRegistry
 
@@ -19,7 +19,6 @@ from .prompt import dedupe_skill_names
 from .resolve import (
     ResolvedSkills,
     load_agent_profile_with_fallback,
-    resolve_harness,
     resolve_skills_from_profile,
 )
 
@@ -35,16 +34,10 @@ class ResolvedPolicies:
     warning: str | None = None
 
 
-def _derive_harness_from_model(model_str: str, *, project_root: Path) -> HarnessId:
-    """Derive harness from model when no layer specifies harness."""
-
-    resolved = resolve_model_entry(model_str, project_root=project_root)
-    return resolved.harness
-
-
 def _resolve_final_model(
     *,
     layer_model: str | None,
+    resolved_entry: AliasEntry | None,
     harness_id: HarnessId,
     config: MeridianConfig,
     project_root: Path,
@@ -52,17 +45,18 @@ def _resolve_final_model(
     """Resolve final model string after harness is known."""
 
     if layer_model:
-        try:
-            catalog_entry = resolve_model_entry(layer_model, project_root=project_root)
-            return str(catalog_entry.model_id), catalog_entry
-        except ValueError:
-            return layer_model, None
+        if resolved_entry is not None:
+            return str(resolved_entry.model_id), resolved_entry
+        return layer_model, None
+
     harness_default = config.default_model_for_harness(str(harness_id))
-    if harness_default:
-        return harness_default, None
-    if config.default_model:
-        return config.default_model, None
-    return "", None
+    fallback_model = harness_default or config.default_model or ""
+    if not fallback_model:
+        return "", None
+    try:
+        return fallback_model, resolve_model_entry(fallback_model, project_root=project_root)
+    except ValueError:
+        return fallback_model, None
 
 
 def _first_set_layer_index(
@@ -112,6 +106,10 @@ def _resolve_model_overrides(
     if selected_alias and selected_alias in profile.models:
         return _entry_to_overrides(profile.models[selected_alias]), None
 
+    selected_model_id = str(selected_entry.model_id)
+    if selected_model_id in profile.models:
+        return _entry_to_overrides(profile.models[selected_model_id]), None
+
     matched_keys: list[str] = []
     for key in profile.models:
         catalog_entry = alias_catalog.get(key)
@@ -132,6 +130,34 @@ def _resolve_model_overrides(
             f"{', '.join(matched_keys[1:])}."
         )
     return _entry_to_overrides(profile.models[winner]), warning
+
+
+def _validate_same_layer_harness_override(
+    *,
+    final_model: str,
+    selected_entry: AliasEntry | None,
+    harness_id: HarnessId,
+    harness_registry: HarnessRegistry,
+) -> None:
+    supported_primary_harnesses = tuple(
+        harness_id_candidate
+        for harness_id_candidate in harness_registry.ids()
+        if harness_registry.get(harness_id_candidate).capabilities.supports_primary_launch
+    )
+    supported_primary_set = set(supported_primary_harnesses)
+    if harness_id not in supported_primary_set:
+        supported_text = ", ".join(str(harness) for harness in supported_primary_harnesses)
+        raise ValueError(
+            f"Unsupported harness '{harness_id}'. Expected one of: {supported_text}."
+        )
+
+    if selected_entry is None:
+        return
+    if harness_id != selected_entry.harness:
+        raise ValueError(
+            f"Harness '{harness_id}' is incompatible with model '{final_model}' "
+            f"(routes to '{selected_entry.harness}')."
+        )
 
 
 def resolve_policies(
@@ -158,6 +184,14 @@ def resolve_policies(
     profile_overrides = RuntimeOverrides.from_agent_profile(profile)
     full_layers = (*layers, profile_overrides, config_overrides)
     resolved = resolve(*full_layers)
+    resolved_entry: AliasEntry | None = None
+    model_resolution_error: ValueError | None = None
+    if resolved.model:
+        try:
+            resolved_entry = resolve_model_entry(resolved.model, project_root=project_root)
+        except ValueError as exc:
+            model_resolution_error = exc
+
     model_layer_index = _first_set_layer_index(full_layers, "model")
     harness_layer_index = _first_set_layer_index(full_layers, "harness")
     pre_profile_layer_count = len(layers)
@@ -171,14 +205,18 @@ def resolve_policies(
     if resolved.harness:
         harness_id = HarnessId(resolved.harness)
     elif resolved.model:
-        harness_id = _derive_harness_from_model(resolved.model, project_root=project_root)
+        if model_resolution_error is not None:
+            raise model_resolution_error
+        assert resolved_entry is not None
+        harness_id = resolved_entry.harness
     else:
         harness_id = HarnessId(configured_default_harness or "claude")
 
     if resolved.model and model_set_in_pre_profile_layers and harness_from_profile_or_config:
-        model_derived_harness = _derive_harness_from_model(
-            resolved.model, project_root=project_root
-        )
+        if model_resolution_error is not None:
+            raise model_resolution_error
+        assert resolved_entry is not None
+        model_derived_harness = resolved_entry.harness
         if harness_id != model_derived_harness:
             harness_id = model_derived_harness
 
@@ -192,6 +230,7 @@ def resolve_policies(
 
     final_model, resolved_model_entry = _resolve_final_model(
         layer_model=resolved.model,
+        resolved_entry=resolved_entry,
         harness_id=harness_id,
         config=config,
         project_root=project_root,
@@ -204,16 +243,15 @@ def resolve_policies(
         and model_layer_index < pre_profile_layer_count
     )
     if final_model and user_explicit_same_precedence:
-        resolve_harness(
-            model=ModelId(final_model),
-            harness_override=str(harness_id),
+        if model_resolution_error is not None:
+            raise model_resolution_error
+        _validate_same_layer_harness_override(
+            final_model=final_model,
+            selected_entry=resolved_model_entry,
+            harness_id=harness_id,
             harness_registry=harness_registry,
-            project_root=project_root,
         )
-
     selected_entry: AliasEntry | None = resolved_model_entry
-    if final_model and selected_entry is None:
-        selected_entry = resolve_model_entry(final_model, project_root=project_root)
 
     alias_catalog = _to_alias_map(load_merged_aliases(project_root))
     model_overrides, model_warning = _resolve_model_overrides(

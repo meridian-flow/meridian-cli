@@ -5,7 +5,7 @@ import pytest
 from meridian.lib.catalog.model_aliases import AliasEntry
 from meridian.lib.config.settings import MeridianConfig
 from meridian.lib.core.overrides import RuntimeOverrides
-from meridian.lib.core.types import HarnessId
+from meridian.lib.core.types import HarnessId, ModelId
 from meridian.lib.harness.registry import get_default_harness_registry
 from meridian.lib.launch.context import build_launch_context
 from meridian.lib.launch.plan import (
@@ -45,7 +45,7 @@ def _mock_alias(
 ) -> AliasEntry:
     return AliasEntry(
         alias=alias,
-        model_id=model_id,
+        model_id=ModelId(model_id),
         resolved_harness=harness,
         default_effort=default_effort,
         default_autocompact=default_autocompact,
@@ -58,18 +58,24 @@ def _patch_alias_resolution(
     resolved_entries: dict[str, AliasEntry],
     catalog_entries: list[AliasEntry] | None = None,
 ) -> None:
-    monkeypatch.setattr(
-        "meridian.lib.launch.policies.resolve_model_entry",
-        lambda name, project_root=None: resolved_entries.get(
+    def resolve_entry(name: str, project_root: Path | None = None) -> AliasEntry:
+        _ = project_root
+        return resolved_entries.get(
             name,
             _mock_alias(alias="", model_id=name),
-        ),
+        )
+
+    def list_entries(project_root: Path | None = None) -> list[AliasEntry]:
+        _ = project_root
+        return catalog_entries if catalog_entries is not None else list(resolved_entries.values())
+
+    monkeypatch.setattr(
+        "meridian.lib.launch.policies.resolve_model_entry",
+        resolve_entry,
     )
     monkeypatch.setattr(
         "meridian.lib.launch.policies.load_merged_aliases",
-        lambda project_root=None: (
-            catalog_entries if catalog_entries is not None else list(resolved_entries.values())
-        ),
+        list_entries,
     )
 
 
@@ -181,6 +187,32 @@ def test_resolve_policies_errors_on_same_layer_user_harness_model_conflict(tmp_p
             project_root=tmp_path,
             layers=(
                 RuntimeOverrides(model="claude-haiku-4-5", harness="codex"),
+                RuntimeOverrides(),
+            ),
+            config_overrides=RuntimeOverrides(),
+            config=MeridianConfig(),
+            harness_registry=get_default_harness_registry(),
+            configured_default_harness="codex",
+        )
+
+
+def test_resolve_policies_errors_on_invalid_same_layer_user_model_with_harness(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_minimal_mars_config(tmp_path)
+
+    def reject_model(name: str, project_root: Path | None = None) -> AliasEntry:
+        _ = project_root
+        raise ValueError(f"Invalid model '{name}'.")
+
+    monkeypatch.setattr("meridian.lib.launch.policies.resolve_model_entry", reject_model)
+
+    with pytest.raises(ValueError, match="Invalid model 'bad-model'"):
+        resolve_policies(
+            project_root=tmp_path,
+            layers=(
+                RuntimeOverrides(model="bad-model", harness="codex"),
                 RuntimeOverrides(),
             ),
             config_overrides=RuntimeOverrides(),
@@ -387,6 +419,100 @@ def test_resolve_policies_exact_alias_match_beats_model_id_fallback(
     assert policies.warning is None
 
 
+def test_resolve_policies_cli_alias_does_not_double_resolve_final_model(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_minimal_mars_config(tmp_path)
+    _write_agent_profile(
+        tmp_path,
+        name="architect",
+        frontmatter=(
+            "name: architect\n"
+            "model: gpt-5.4\n"
+            "effort: high\n"
+        ),
+    )
+
+    calls: list[str] = []
+
+    def resolve_once(name: str, project_root: Path | None = None) -> AliasEntry:
+        _ = project_root
+        calls.append(name)
+        if name == "gpt":
+            return _mock_alias(alias="gpt", model_id="gpt-5.4")
+        if name == "gpt-5.4":
+            return _mock_alias(alias="", model_id="gpt-5.4-mini")
+        return _mock_alias(alias="", model_id=name)
+
+    def list_gpt_alias(project_root: Path | None = None) -> list[AliasEntry]:
+        _ = project_root
+        return [_mock_alias(alias="gpt", model_id="gpt-5.4")]
+
+    monkeypatch.setattr("meridian.lib.launch.policies.resolve_model_entry", resolve_once)
+    monkeypatch.setattr(
+        "meridian.lib.launch.policies.load_merged_aliases",
+        list_gpt_alias,
+    )
+
+    policies = resolve_policies(
+        project_root=tmp_path,
+        layers=(RuntimeOverrides(agent="architect", model="gpt"), RuntimeOverrides()),
+        config_overrides=RuntimeOverrides(),
+        config=MeridianConfig(),
+        harness_registry=get_default_harness_registry(),
+        configured_default_harness="codex",
+    )
+
+    assert policies.model == "gpt-5.4"
+    assert "gpt-5.4" not in calls
+
+
+def test_resolve_policies_model_id_entry_wins_over_generic_profile_effort(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_minimal_mars_config(tmp_path)
+    _write_agent_profile(
+        tmp_path,
+        name="dev-orchestrator",
+        frontmatter=(
+            "name: dev-orchestrator\n"
+            "harness: claude\n"
+            "effort: high\n"
+            "models:\n"
+            "  gpt-5.5:\n"
+            "    effort: medium\n"
+        ),
+    )
+
+    aliases = {
+        "gpt55": _mock_alias(alias="gpt55", model_id="gpt-5.5"),
+        "gpt-5.5": _mock_alias(alias="", model_id="gpt-5.5"),
+    }
+    _patch_alias_resolution(
+        monkeypatch,
+        resolved_entries=aliases,
+        catalog_entries=[aliases["gpt55"]],
+    )
+
+    policies = resolve_policies(
+        project_root=tmp_path,
+        layers=(
+            RuntimeOverrides(agent="dev-orchestrator", model="gpt55", harness="codex"),
+            RuntimeOverrides(),
+        ),
+        config_overrides=RuntimeOverrides(),
+        config=MeridianConfig(),
+        harness_registry=get_default_harness_registry(),
+        configured_default_harness="claude",
+    )
+
+    assert policies.model == "gpt-5.5"
+    assert policies.harness == HarnessId.CODEX
+    assert policies.resolved_overrides.effort == "medium"
+
+
 def test_resolve_policies_profile_effort_blocks_alias_default(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -559,3 +685,46 @@ def test_resolve_policies_no_overrides_at_any_layer_yields_none(
 
     assert policies.resolved_overrides.effort is None
     assert policies.resolved_overrides.autocompact is None
+
+
+def test_resolve_policies_temporary_gate_resolves_layer_model_at_most_once(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # TEMPORARY GATE TEST: remove after Phase 1 ships.
+    _write_minimal_mars_config(tmp_path)
+    _write_agent_profile(
+        tmp_path,
+        name="architect",
+        frontmatter=(
+            "name: architect\n"
+            "model: gpt-5.4\n"
+        ),
+    )
+
+    calls: list[str] = []
+
+    def resolve_once(name: str, project_root: Path | None = None) -> AliasEntry:
+        _ = project_root
+        calls.append(name)
+        if name == "gpt":
+            return _mock_alias(alias="gpt", model_id="gpt-5.4")
+        return _mock_alias(alias="", model_id=name)
+
+    monkeypatch.setattr("meridian.lib.launch.policies.resolve_model_entry", resolve_once)
+    monkeypatch.setattr(
+        "meridian.lib.launch.policies.load_merged_aliases",
+        lambda project_root=None: [_mock_alias(alias="gpt", model_id="gpt-5.4")],
+    )
+
+    policies = resolve_policies(
+        project_root=tmp_path,
+        layers=(RuntimeOverrides(agent="architect", model="gpt"), RuntimeOverrides()),
+        config_overrides=RuntimeOverrides(),
+        config=MeridianConfig(),
+        harness_registry=get_default_harness_registry(),
+        configured_default_harness="codex",
+    )
+
+    assert policies.model == "gpt-5.4"
+    assert calls.count("gpt") <= 1
