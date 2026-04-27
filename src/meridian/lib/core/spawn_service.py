@@ -146,6 +146,9 @@ class SpawnApplicationService:
 
     def get_spawn_failure(self, spawn_id: SpawnId) -> SpawnFailure | None:
         """Read the failure sentinel for a spawn, if it exists."""
+        record = self.get_spawn(spawn_id)
+        if record is None or record.status != "failed":
+            return None
         sentinel_path = (
             RuntimePaths.from_root_dir(self._runtime_root).spawns_dir
             / str(spawn_id)

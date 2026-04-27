@@ -213,8 +213,18 @@ async def test_codex_ws_primary_observer_emits_startup_phases(
     )
 
     class _RecordingStartupPhaseEmitter:
-        def __init__(self, spawn_id: str) -> None:
+        def __init__(
+            self,
+            spawn_id: str,
+            *,
+            harness_id: str = "",
+            model: str | None = None,
+            agent: str | None = None,
+        ) -> None:
             assert spawn_id == "p123"
+            assert harness_id == "codex"
+            assert model == "gpt-test"
+            assert agent is None
 
         def emit(self, phase: StartupPhase) -> None:
             phases.append(phase)
@@ -271,6 +281,7 @@ async def test_codex_ws_primary_observer_emits_startup_phases(
         env_overrides={},
     )
     spec = CodexLaunchSpec(
+        model="gpt-test",
         permission_resolver=UnsafeNoOpPermissionResolver(_suppress_warning=True),
     )
 
@@ -280,6 +291,73 @@ async def test_codex_ws_primary_observer_emits_startup_phases(
         StartupPhase.LAUNCHING_SUBPROCESS,
         StartupPhase.WAITING_FOR_CONNECTION,
         StartupPhase.INITIALIZING_SESSION,
+        StartupPhase.INITIALIZING_SESSION,
+        StartupPhase.HARNESS_READY,
+    ]
+
+    await connection._cleanup_resources(mark_stopped=False)
+
+
+@pytest.mark.asyncio
+async def test_codex_ws_non_observer_emits_startup_phases(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    connection = codex_ws.CodexConnection()
+    fake_process = _FakeProcess()
+    phases: list[StartupPhase] = []
+
+    class _RecordingStartupPhaseEmitter:
+        def __init__(self, _spawn_id: str, **_context: object) -> None:
+            return None
+
+        def emit(self, phase: StartupPhase) -> None:
+            phases.append(phase)
+
+    async def _fake_create_subprocess_exec(*_args: object, **_kwargs: object) -> _FakeProcess:
+        return fake_process
+
+    async def _fake_connect_with_retry(*_args: object, **_kwargs: object) -> _FakeWebSocket:
+        return _FakeWebSocket()
+
+    async def _fake_request(
+        method: str,
+        _params: dict[str, object],
+        timeout_seconds: float | None = None,
+    ) -> dict[str, object]:
+        _ = timeout_seconds
+        if method == "turn/start":
+            return {"turnId": "turn-1"}
+        return {}
+
+    async def _fake_notify(_method: str) -> None:
+        return None
+
+    async def _fake_bootstrap_thread(_spec: CodexLaunchSpec) -> dict[str, object]:
+        return {"threadId": "thread-1"}
+
+    async def _fake_read_messages_loop() -> None:
+        return None
+
+    monkeypatch.setattr(codex_ws.asyncio, "create_subprocess_exec", _fake_create_subprocess_exec)
+    monkeypatch.setattr(codex_ws, "StartupPhaseEmitter", _RecordingStartupPhaseEmitter)
+    monkeypatch.setattr(connection, "_connect_with_retry", _fake_connect_with_retry)
+    monkeypatch.setattr(connection, "_request", _fake_request)
+    monkeypatch.setattr(connection, "_notify", _fake_notify)
+    monkeypatch.setattr(connection, "_bootstrap_thread", _fake_bootstrap_thread)
+    monkeypatch.setattr(connection, "_read_messages_loop", _fake_read_messages_loop)
+
+    await connection.start(
+        _build_connection_config(tmp_path),
+        CodexLaunchSpec(
+            model="gpt-test",
+            permission_resolver=UnsafeNoOpPermissionResolver(_suppress_warning=True),
+        ),
+    )
+
+    assert phases == [
+        StartupPhase.LAUNCHING_SUBPROCESS,
+        StartupPhase.WAITING_FOR_CONNECTION,
         StartupPhase.INITIALIZING_SESSION,
         StartupPhase.HARNESS_READY,
     ]

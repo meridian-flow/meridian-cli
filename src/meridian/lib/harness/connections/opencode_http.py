@@ -180,7 +180,12 @@ class OpenCodeConnection(HarnessConnection[OpenCodeLaunchSpec]):
         self._config = config
         self._spawn_id = config.spawn_id
         self._tracer = config.debug_tracer
-        self._startup_emitter = StartupPhaseEmitter(str(config.spawn_id))
+        self._startup_emitter = StartupPhaseEmitter(
+            str(config.spawn_id),
+            harness_id=config.harness_id.value,
+            model=spec.model,
+            agent=spec.agent_name,
+        )
         self._cancel_requested = False
         self._signal_in_flight = False
         self._transition("starting")

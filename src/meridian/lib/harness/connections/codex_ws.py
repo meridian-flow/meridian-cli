@@ -263,7 +263,12 @@ class CodexConnection(HarnessConnection[CodexLaunchSpec]):
 
         self._transition("starting")
         self._spawn_id = config.spawn_id
-        self._startup_emitter = StartupPhaseEmitter(str(config.spawn_id))
+        self._startup_emitter = StartupPhaseEmitter(
+            str(config.spawn_id),
+            harness_id=config.harness_id.value,
+            model=spec.model,
+            agent=None,
+        )
         self._tracer = config.debug_tracer
         self._config = config
         self._launch_spec = spec
@@ -843,8 +848,6 @@ class CodexConnection(HarnessConnection[CodexLaunchSpec]):
         return _DEFAULT_CONNECT_TIMEOUT_SECONDS
 
     def _emit_startup_phase(self, phase: StartupPhase) -> None:
-        if not self._primary_observer_mode:
-            return
         emitter = self._startup_emitter
         if emitter is None:
             return

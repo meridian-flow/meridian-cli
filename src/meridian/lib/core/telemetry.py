@@ -105,8 +105,18 @@ class StartupPhaseEmitter:
     per-spawn sequence counter.
     """
 
-    def __init__(self, spawn_id: str) -> None:
+    def __init__(
+        self,
+        spawn_id: str,
+        *,
+        harness_id: str = "",
+        model: str | None = None,
+        agent: str | None = None,
+    ) -> None:
         self._spawn_id = spawn_id
+        self._harness_id = harness_id
+        self._model = model or ""
+        self._agent = agent
 
     def emit(self, phase: StartupPhase, metadata: dict[str, Any] | None = None) -> None:
         """Emit a startup phase signal."""
@@ -120,9 +130,9 @@ class StartupPhaseEmitter:
         event = LifecycleEvent(
             event=phase.value,
             spawn_id=self._spawn_id,
-            harness_id="",
-            model="",
-            agent=None,
+            harness_id=self._harness_id,
+            model=self._model,
+            agent=self._agent,
             ts=signal.ts,
             seq=signal.seq,
             payload=signal.metadata,

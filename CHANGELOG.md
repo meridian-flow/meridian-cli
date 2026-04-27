@@ -17,6 +17,8 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Pyright warning cleanup across CLI, state, app, and launch code. Type-check baseline now clean: `0 errors, 0 warnings`.
 
 ### Fixed
+- Failure sentinels now write after terminal state persists. Stale `failure.json` ignored unless spawn still `failed`.
+- Startup telemetry now carries harness/model/agent context and Codex emits phases outside observer mode too.
 - Context query error message now lists all available context names including extra contexts.
 
 ## [0.0.45] - 2026-04-25

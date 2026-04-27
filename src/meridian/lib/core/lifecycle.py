@@ -311,23 +311,6 @@ class SpawnLifecycleService:
         clock: Clock | None = None,
     ) -> bool:
         """Finalize a spawn and dispatch spawn.finalized for persisted terminal writes."""
-        existing = spawn_store.get_spawn(
-            self._runtime_root, spawn_id, repository=self._repository
-        )
-        if status == "failed" and (
-            existing is None or existing.status not in _TERMINAL_STATUS_VALUES
-        ):
-            _write_failure_sentinel(
-                self._runtime_root,
-                spawn_id,
-                SpawnFailure(
-                    spawn_id=spawn_id,
-                    ts=datetime.now(tz=UTC),
-                    exit_code=exit_code,
-                    reason=error or origin,
-                    metadata={"origin": origin},
-                ),
-            )
         # Authoritative transition write still happens in spawn_store.
         outcome = spawn_store.finalize_spawn(
             self._runtime_root,
@@ -345,6 +328,20 @@ class SpawnLifecycleService:
             repository=self._repository,
         )
         if outcome.wrote and outcome.snapshot is not None:
+            if outcome.snapshot.status == "failed":
+                _write_failure_sentinel(
+                    self._runtime_root,
+                    spawn_id,
+                    SpawnFailure(
+                        spawn_id=spawn_id,
+                        ts=datetime.now(tz=UTC),
+                        exit_code=outcome.snapshot.exit_code,
+                        reason=outcome.snapshot.error
+                        or outcome.snapshot.terminal_origin
+                        or origin,
+                        metadata={"origin": outcome.snapshot.terminal_origin or origin},
+                    ),
+                )
             event = self._build_event_from_record("spawn.finalized", outcome.snapshot)
             self._dispatch(event)
             self._emit_telemetry_event_for_record(
