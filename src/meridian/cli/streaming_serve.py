@@ -3,15 +3,12 @@
 from __future__ import annotations
 
 import time
-from uuid import uuid4
 
 from meridian.lib.core.domain import SpawnStatus
 from meridian.lib.core.lifecycle import create_lifecycle_service
 from meridian.lib.core.spawn_service import SpawnApplicationService
-from meridian.lib.core.types import HarnessId, SpawnId
-from meridian.lib.harness.connections.base import ConnectionConfig
+from meridian.lib.core.types import HarnessId
 from meridian.lib.harness.registry import get_default_harness_registry
-from meridian.lib.launch.context import build_launch_context
 from meridian.lib.launch.request import LaunchArgvIntent, LaunchRuntime, SpawnRequest
 from meridian.lib.launch.streaming_runner import run_streaming_spawn, signal_coordinator
 from meridian.lib.ops.runtime import resolve_runtime_root, resolve_runtime_root_and_config
@@ -49,41 +46,8 @@ async def streaming_serve(
     start_monotonic = time.monotonic()
     lifecycle = create_lifecycle_service(project_root, runtime_root)
     spawn_service = SpawnApplicationService(runtime_root, lifecycle)
-    spawn_id = SpawnId(
-        lifecycle.start(
-            chat_id=str(uuid4()),
-            model=normalized_model or "unknown",
-            agent=normalized_agent or "unknown",
-            harness=harness_id.value,
-            kind="streaming",
-            prompt=prompt,
-            launch_mode="foreground",
-            status="running",
-        )
-    )
 
-    tracer = None
-    if debug:
-        from meridian.lib.observability.debug_tracer import DebugTracer
-
-        spawn_dir = runtime_root / "spawns" / str(spawn_id)
-        tracer = DebugTracer(
-            spawn_id=str(spawn_id),
-            debug_path=spawn_dir / "debug.jsonl",
-            echo_stderr=True,
-        )
-
-    config = ConnectionConfig(
-        spawn_id=spawn_id,
-        harness_id=harness_id,
-        prompt=prompt,
-        project_root=project_root,
-        env_overrides={},
-        debug_tracer=tracer,
-    )
-
-    # I-2: route spec resolution through the factory rather than constructing
-    # permission resolvers or calling adapter.resolve_launch_spec() directly.
+    # Build request and runtime BEFORE allocating spawn ID (SEAM-1)
     spawn_req = SpawnRequest(
         prompt=normalized_prompt,
         model=normalized_model,
@@ -96,17 +60,59 @@ async def streaming_serve(
         project_paths_project_root=project_root.as_posix(),
         project_paths_execution_cwd=project_root.as_posix(),
     )
-    launch_ctx = build_launch_context(
-        spawn_id=str(spawn_id),
+
+    tracer = None
+    if debug:
+        from meridian.lib.observability.debug_tracer import DebugTracer
+
+        # Tracer needs spawn_id, but we need tracer for prepare_spawn.
+        # Solution: defer tracer creation until after prepare_spawn, then
+        # update connection_config if needed. Or pass it into prepare_spawn.
+        # For now, pass debug_tracer=None and create it after.
+        tracer = None  # Will set after we have spawn_id
+
+    # Resolve-before-persist: prepare_spawn builds launch context first,
+    # then atomically creates the row with real metadata (SEAM-1, SEAM-2)
+    # ConnectionConfig projected from LaunchContext (DS-002)
+    prepared = await spawn_service.prepare_spawn(
         request=spawn_req,
         runtime=launch_runtime,
         harness_registry=get_default_harness_registry(),
+        kind="streaming",
+        launch_mode="foreground",
+        initial_status="running",
     )
+    spawn_id = prepared.spawn_id
+    connection_config = prepared.connection_config
+    launch_ctx = prepared.launch_context
+
+    # Now create debug tracer with actual spawn_id if requested
+    if debug:
+        from meridian.lib.observability.debug_tracer import DebugTracer
+
+        spawn_dir = runtime_root / "spawns" / str(spawn_id)
+        tracer = DebugTracer(
+            spawn_id=str(spawn_id),
+            debug_path=spawn_dir / "debug.jsonl",
+            echo_stderr=True,
+        )
+        # Update connection_config with tracer - need to create a new one
+        # since ConnectionConfig is frozen
+        from meridian.lib.harness.connections.base import ConnectionConfig
+
+        connection_config = ConnectionConfig(
+            spawn_id=connection_config.spawn_id,
+            harness_id=connection_config.harness_id,
+            prompt=connection_config.prompt,
+            project_root=connection_config.project_root,
+            env_overrides=connection_config.env_overrides,
+            debug_tracer=tracer,
+        )
 
     output_path = spawn_output_path(runtime_root, spawn_id)
     socket_path = runtime_root / "spawns" / str(spawn_id) / "control.sock"
 
-    print(f"Started spawn {spawn_id} (harness={harness_id.value})")
+    print(f"Started spawn {spawn_id} (harness={prepared.resolved_harness})")
     print(f"Control socket: {socket_path}")
     print(f"Events: {output_path}")
 
@@ -115,7 +121,7 @@ async def streaming_serve(
     failure_message: str | None = None
     try:
         outcome = await run_streaming_spawn(
-            config=config,
+            config=connection_config,
             spec=launch_ctx.spec,
             runtime_root=runtime_root,
             project_root=project_root,
