@@ -273,6 +273,10 @@ def register_hcp_routes(
         )
 
     async def create_chat(body: ChatCreateRequest) -> ChatDetailResponse:
+        """Create a new HCP chat.
+
+        DS-002: ConnectionConfig.env_overrides projected from LaunchContext.
+        """
         prompt = body.prompt.strip()
         if not prompt:
             raise http_exception(status_code=400, detail="prompt is required")
@@ -293,13 +297,8 @@ def register_hcp_routes(
         agent = body.agent.strip()
         skills = tuple(skill.strip() for skill in body.skills if skill.strip())
         spawn_id = spawn_store.next_spawn_id(runtime_root)
-        config = ConnectionConfig(
-            spawn_id=spawn_id,
-            harness_id=harness_id,
-            prompt=prompt,
-            project_root=resolved_project_paths.execution_cwd,
-            env_overrides={},
-        )
+
+        # Build launch context FIRST to get resolved metadata and env_overrides
         spawn_req = SpawnRequest(
             prompt=prompt,
             model=model,
@@ -321,14 +320,28 @@ def register_hcp_routes(
             harness_registry=get_default_harness_registry(),
         )
 
+        # DS-002: Project ConnectionConfig from LaunchContext (not empty env_overrides)
+        config = ConnectionConfig(
+            spawn_id=spawn_id,
+            harness_id=harness_id,
+            prompt=launch_ctx.resolved_request.prompt,
+            project_root=launch_ctx.child_cwd,
+            env_overrides=dict(launch_ctx.env_overrides),
+            system=launch_ctx.resolved_request.agent_metadata.get("appended_system_prompt"),
+        )
+
+        # Use resolved values from launch_ctx where available
+        resolved_model = (launch_ctx.resolved_request.model or "").strip() or model
+        resolved_agent = (launch_ctx.resolved_request.agent or "").strip() or agent
+
         try:
             c_id, _p_id = await _manager().create_chat(
                 prompt,
-                model=model,
+                model=resolved_model,
                 harness=harness_id.value,
                 config=config,
                 spec=launch_ctx.spec,
-                agent=agent,
+                agent=resolved_agent,
                 skills=skills,
                 execution_cwd=resolved_project_paths.execution_cwd.as_posix(),
             )
