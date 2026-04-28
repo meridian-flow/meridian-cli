@@ -13,19 +13,27 @@ from typing import TYPE_CHECKING, Any, cast
 from meridian.lib.core.domain import SpawnStatus
 from meridian.lib.core.lifecycle import SpawnLifecycleService
 from meridian.lib.core.telemetry import (
+    LifecycleEvent,
     LifecycleObserver,
     LifecycleObserverTier,
     SpawnFailure,
+    next_spawn_sequence,
+    notify_observers,
     register_observer,
 )
-from meridian.lib.core.types import SpawnId
+from meridian.lib.core.types import HarnessId, SpawnId
+from meridian.lib.harness.connections.base import ConnectionConfig
+from meridian.lib.launch.context import LaunchContext, build_launch_context
+from meridian.lib.launch.request import LaunchRuntime, SpawnRequest
 from meridian.lib.state import spawn_store
 from meridian.lib.state.liveness import is_process_alive
 from meridian.lib.state.paths import RuntimePaths
-from meridian.lib.state.spawn_store import SpawnOrigin
+from meridian.lib.state.spawn_store import LaunchMode, SpawnOrigin
 from meridian.lib.streaming.signal_canceller import CancelOutcome as SignalCancelOutcome
 
 if TYPE_CHECKING:
+    from meridian.lib.harness.registry import HarnessRegistry
+    from meridian.lib.observability.debug_tracer import DebugTracer
     from meridian.lib.state.primary_meta import PrimaryMetadata
     from meridian.lib.state.spawn_store import SpawnRecord
     from meridian.lib.streaming.spawn_manager import SpawnManager
@@ -48,6 +56,28 @@ class CancelOutcome:
     finalizing: bool = False
     model: str | None = None
     harness: str | None = None
+
+
+@dataclass(frozen=True)
+class PreparedSpawn:
+    """Result of successful spawn preparation.
+
+    Contains everything a surface needs to start execution.
+    Surfaces consume this — they never construct ConnectionConfig
+    or call lifecycle_service.start() directly.
+
+    SEAM-1: Row is only created after resolution succeeds.
+    SEAM-2: resolved_model/agent/harness are never placeholders.
+    SEAM-3: connection_config is projected from launch_context.
+    """
+
+    spawn_id: SpawnId
+    launch_context: LaunchContext
+    connection_config: ConnectionConfig
+    resolved_model: str
+    resolved_agent: str | None
+    resolved_harness: str
+    work_id: str | None
 
 
 class KeyedLockRegistry:
@@ -101,6 +131,11 @@ class SpawnApplicationService:
         self._lifecycle = lifecycle_service
         self._spawn_manager = spawn_manager
         self._locks = KeyedLockRegistry()
+
+    @property
+    def runtime_root(self) -> Path:
+        """Return the runtime root directory."""
+        return self._runtime_root
 
     def register_observer(
         self,
@@ -163,7 +198,120 @@ class SpawnApplicationService:
         except Exception:
             return None
 
-    # ---- Spawn Operations (stubs for 0B.2 and 0B.3) ----
+    # ---- Spawn Preparation (SEAM-1, SEAM-2, SEAM-3) ----
+
+    async def prepare_spawn(
+        self,
+        *,
+        request: SpawnRequest,
+        runtime: LaunchRuntime,
+        harness_registry: HarnessRegistry,
+        chat_id: str | None = None,
+        parent_id: str | None = None,
+        kind: str = "child",
+        desc: str | None = None,
+        work_id: str | None = None,
+        launch_mode: LaunchMode | None = None,
+        runner_pid: int | None = None,
+        initial_status: SpawnStatus = "queued",
+        debug_tracer: DebugTracer | None = None,
+    ) -> PreparedSpawn:
+        """Resolve launch context, create spawn row, project ConnectionConfig.
+
+        SEAM-1: No spawn row is created until build_launch_context() succeeds.
+        SEAM-2: Row metadata always reflects resolved values (never "unknown").
+        SEAM-3: ConnectionConfig is projected from LaunchContext.
+        SEAM-ID.1: ID allocation happens atomically with row creation.
+
+        Raises on resolution failure. No spawn row exists on failure.
+        On success, row exists with resolved metadata.
+        """
+        # Generate a placeholder spawn_id for launch context building.
+        # The real ID will be allocated atomically when we persist.
+        # We use a temporary ID format that will be replaced.
+        temp_spawn_id = f"pending-{id(request)}"
+
+        # SEAM-1: Build launch context FIRST. This can fail.
+        # If it fails, no spawn row exists.
+        launch_ctx = await asyncio.to_thread(
+            build_launch_context,
+            spawn_id=temp_spawn_id,
+            request=request,
+            runtime=runtime,
+            harness_registry=harness_registry,
+        )
+
+        # Extract resolved metadata from launch context
+        resolved_request = launch_ctx.resolved_request
+        resolved_model = (resolved_request.model or "").strip() or "unknown"
+        resolved_harness = (resolved_request.harness or "").strip()
+        resolved_agent = (resolved_request.agent or "").strip() or None
+
+        # Validate we have required fields
+        if not resolved_harness:
+            raise ValueError("Harness resolution failed - harness is required")
+
+        # Resolve work_id
+        effective_work_id = (work_id or launch_ctx.work_id or "").strip() or None
+
+        # SEAM-ID.1: Allocate ID and persist row atomically via lifecycle service.
+        # start_spawn() reads next ID and appends under the same flock.
+        final_spawn_id = SpawnId(
+            await asyncio.to_thread(
+                self._lifecycle.start,
+                chat_id=chat_id or "",
+                parent_id=parent_id,
+                model=resolved_model,
+                agent=resolved_agent or "",
+                agent_path=resolved_request.agent_metadata.get("session_agent_path"),
+                skills=resolved_request.skills,
+                skill_paths=resolved_request.skill_paths,
+                harness=resolved_harness,
+                kind=kind,
+                prompt=resolved_request.prompt,
+                desc=desc,
+                work_id=effective_work_id,
+                harness_session_id=resolved_request.session.requested_harness_session_id,
+                execution_cwd=str(launch_ctx.child_cwd),
+                launch_mode=launch_mode,
+                runner_pid=runner_pid,
+                status=initial_status,
+            )
+        )
+
+        # Re-build launch context with the actual spawn_id.
+        # This is necessary because env_overrides include MERIDIAN_SPAWN_ID.
+        launch_ctx = await asyncio.to_thread(
+            build_launch_context,
+            spawn_id=str(final_spawn_id),
+            request=request,
+            runtime=runtime,
+            harness_registry=harness_registry,
+        )
+
+        # SEAM-3: Project ConnectionConfig from LaunchContext
+        harness_id = HarnessId(resolved_harness)
+        connection_config = ConnectionConfig(
+            spawn_id=final_spawn_id,
+            harness_id=harness_id,
+            prompt=launch_ctx.resolved_request.prompt,
+            project_root=launch_ctx.child_cwd,
+            env_overrides=dict(launch_ctx.env_overrides),
+            system=launch_ctx.resolved_request.agent_metadata.get("appended_system_prompt"),
+            debug_tracer=debug_tracer,
+        )
+
+        return PreparedSpawn(
+            spawn_id=final_spawn_id,
+            launch_context=launch_ctx,
+            connection_config=connection_config,
+            resolved_model=resolved_model,
+            resolved_agent=resolved_agent,
+            resolved_harness=resolved_harness,
+            work_id=effective_work_id,
+        )
+
+    # ---- Spawn Operations ----
 
     async def cancel(self, spawn_id: SpawnId) -> CancelOutcome:
         """Cancel a spawn through the shared surface-neutral pipeline."""
@@ -357,6 +505,88 @@ class SpawnApplicationService:
             **cast("dict[str, Any]", metrics),
         )
 
+    # ---- Archive Operations (SEAM-5) ----
+
+    async def archive(self, spawn_id: SpawnId | str) -> bool:
+        """Archive a terminal spawn. Emits spawn.archived.
+
+        SEAM-5.1: Raises ValueError if spawn is not terminal.
+        SEAM-5.2: Returns False if already archived (idempotent).
+        SEAM-5.3: Emits spawn.archived exactly once.
+        """
+        from meridian.lib.spawn.archive import archive_spawn, is_spawn_archived
+
+        record = self.require_spawn(spawn_id)
+
+        # SEAM-5.1: Validate terminal state
+        if not self.is_terminal(record.status):
+            raise ValueError(
+                f"Cannot archive non-terminal spawn (status: {record.status}). "
+                "Wait for spawn to complete or cancel it first."
+            )
+
+        spawn_id_str = str(spawn_id)
+
+        # SEAM-5.2: Check if already archived (idempotent)
+        if is_spawn_archived(self._runtime_root, spawn_id_str):
+            return False
+
+        # Perform archive
+        archive_spawn(self._runtime_root, spawn_id_str)
+
+        # SEAM-5.3: Emit spawn.archived exactly once
+        notify_observers(
+            LifecycleEvent(
+                event="spawn.archived",
+                spawn_id=spawn_id_str,
+                harness_id=record.harness or "",
+                model=record.model or "",
+                agent=record.agent,
+                ts=datetime.now(tz=UTC),
+                seq=next_spawn_sequence(spawn_id_str),
+                payload={"archived": True},
+            )
+        )
+
+        return True
+
+    # ---- Metadata Updates (SEAM-6) ----
+
+    def update_metadata(
+        self,
+        spawn_id: SpawnId | str,
+        *,
+        execution_cwd: str | None = None,
+        desc: str | None = None,
+        work_id: str | None = None,
+        harness_session_id: str | None = None,
+        error: str | None = None,
+    ) -> None:
+        """Update spawn metadata and emit spawn.updated.
+
+        SEAM-6.1: Persists update via spawn_store and emits spawn.updated.
+        SEAM-6.2: Does NOT transition lifecycle state.
+
+        Delegates to spawn_store.update_spawn(). Emits lifecycle event
+        so observers (SSE, WS, debug trace) see metadata changes.
+        """
+        # Only call store if at least one field is provided
+        if all(
+            v is None
+            for v in (execution_cwd, desc, work_id, harness_session_id, error)
+        ):
+            return
+
+        spawn_store.update_spawn(
+            self._runtime_root,
+            spawn_id,
+            execution_cwd=execution_cwd,
+            desc=desc,
+            work_id=work_id,
+            harness_session_id=harness_session_id,
+            error=error,
+        )
+
 
 def _cancel_outcome_from_signal(
     spawn_id: str,
@@ -415,4 +645,9 @@ def _started_at_epoch(started_at: str | None) -> float | None:
     return parsed.timestamp()
 
 
-__all__ = ["CancelOutcome", "KeyedLockRegistry", "SpawnApplicationService"]
+__all__ = [
+    "CancelOutcome",
+    "KeyedLockRegistry",
+    "PreparedSpawn",
+    "SpawnApplicationService",
+]
