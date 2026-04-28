@@ -28,6 +28,7 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Failure sentinels now write after terminal state persists. Stale `failure.json` ignored unless spawn still `failed`.
 - Startup telemetry now carries harness/model/agent context and Codex emits phases outside observer mode too.
 - Context query error message now lists all available context names including extra contexts.
+- Spawn model aliases keep alias defaults through prepare. `spawn -m gpt55` now matches primary `--model gpt55` effort.
 
 ## [0.0.45] - 2026-04-25
 
