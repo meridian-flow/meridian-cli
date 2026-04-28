@@ -11,7 +11,6 @@ import re
 import time
 from collections.abc import Callable
 from dataclasses import asdict
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, cast
 from uuid import uuid4
@@ -25,19 +24,17 @@ from meridian.lib.core.lifecycle import SpawnLifecycleService
 from meridian.lib.core.spawn_lifecycle import TERMINAL_SPAWN_STATUSES
 from meridian.lib.core.spawn_service import SpawnApplicationService
 from meridian.lib.core.telemetry import (
-    LifecycleEvent,
-    next_spawn_sequence,
-    notify_observers,
     register_debug_trace_observer,
 )
 from meridian.lib.core.types import HarnessId, SpawnId
-from meridian.lib.harness.connections.base import ConnectionConfig
 from meridian.lib.harness.registry import get_default_harness_registry
-from meridian.lib.launch.context import build_launch_context
-from meridian.lib.launch.request import LaunchArgvIntent, LaunchRuntime, SpawnRequest
+from meridian.lib.launch.request import (
+    LaunchArgvIntent,
+    LaunchCompositionSurface,
+    LaunchRuntime,
+    SpawnRequest,
+)
 from meridian.lib.spawn.archive import (
-    archive_spawn,
-    is_spawn_archived,
     read_archived_spawns,
 )
 from meridian.lib.state import spawn_store
@@ -177,29 +174,8 @@ def register_spawn_routes(
     register_debug_trace_observer()
     typed_app = cast("_FastAPIApp", app)
 
-    async def reserve_spawn_id(
-        *,
-        chat_id: str,
-        model: str,
-        agent: str,
-        harness: str,
-        prompt: str,
-    ) -> SpawnId:
-        async with spawn_id_lock:
-            return SpawnId(
-                await asyncio.to_thread(
-                    lifecycle_service.start,
-                    chat_id=chat_id,
-                    model=model,
-                    agent=agent,
-                    harness=harness,
-                    kind="streaming",
-                    prompt=prompt,
-                    launch_mode="app",
-                    runner_pid=os.getpid(),
-                    status="running",
-                )
-            )
+    # Note: reserve_spawn_id() is removed per R02 - prepare_spawn() handles
+    # ID allocation atomically with row creation.
 
     def _validate_spawn_id(raw: str) -> SpawnId:
         return validate_spawn_id(raw, http_exception)
@@ -249,6 +225,12 @@ def register_spawn_routes(
         )
 
     async def create_spawn(body: SpawnCreateRequest) -> dict[str, object]:
+        """Create a spawn using the shared prepared-launch seam.
+
+        SEAM-1: No spawn row on composition failure.
+        SEAM-2: Row metadata reflects resolved values.
+        SEAM-3: ConnectionConfig projected from LaunchContext.
+        """
         prompt = body.prompt.strip()
         if not prompt:
             raise http_exception(
@@ -296,22 +278,10 @@ def register_spawn_routes(
                     detail="permissions.approval is required",
                 )
 
-        spawn_id = await reserve_spawn_id(
-            chat_id=str(uuid4()),
-            model=(body.model.strip() if body.model is not None else "") or "unknown",
-            agent=(body.agent.strip() if body.agent is not None else "") or "unknown",
-            harness=harness_id.value,
-            prompt=prompt,
-        )
-        config = ConnectionConfig(
-            spawn_id=spawn_id,
-            harness_id=harness_id,
-            prompt=prompt,
-            project_root=project_paths.execution_cwd,
-            env_overrides={},
-        )
+        # Build SpawnRequest for composition
         spawn_req = SpawnRequest(
             prompt=prompt,
+            prompt_is_composed=False,  # Let prepare_spawn compose
             model=body.model.strip() if body.model and body.model.strip() else None,
             harness=harness_id.value,
             agent=body.agent.strip() if body.agent else None,
@@ -320,24 +290,44 @@ def register_spawn_routes(
         )
         launch_runtime = LaunchRuntime(
             argv_intent=LaunchArgvIntent.SPEC_ONLY,
+            composition_surface=LaunchCompositionSurface.SPAWN_PREPARE,
             unsafe_no_permissions=unsafe_no_permissions,
             runtime_root=runtime_root.as_posix(),
             project_paths_project_root=project_paths.project_root.as_posix(),
             project_paths_execution_cwd=project_paths.execution_cwd.as_posix(),
         )
-        launch_ctx = build_launch_context(
-            spawn_id=str(spawn_id),
-            request=spawn_req,
-            runtime=launch_runtime,
-            harness_registry=get_default_harness_registry(),
-        )
 
+        # SEAM-1/2/3: Use prepare_spawn() for resolve-before-persist
+        # This ensures no row exists on composition failure, metadata is resolved,
+        # and ConnectionConfig is projected from LaunchContext.
         try:
-            connection = await spawn_manager.start_spawn(config, launch_ctx.spec)
-            await spawn_manager._start_heartbeat(spawn_id)  # pyright: ignore[reportPrivateUsage]
+            prepared = await spawn_service.prepare_spawn(
+                request=spawn_req,
+                runtime=launch_runtime,
+                harness_registry=get_default_harness_registry(),
+                chat_id=str(uuid4()),
+                launch_mode="app",
+                runner_pid=os.getpid(),
+                initial_status="running",
+            )
+        except ValueError as exc:
+            # Resolution failed - no spawn row exists (SEAM-1)
+            raise http_exception(
+                status_code=400,
+                detail=str(exc),
+            ) from exc
+
+        # Start the spawn using the projected ConnectionConfig
+        try:
+            connection = await spawn_manager.start_spawn(
+                prepared.connection_config,
+                prepared.launch_context.spec,
+            )
+            await spawn_manager._start_heartbeat(prepared.spawn_id)  # pyright: ignore[reportPrivateUsage]
         except Exception as exc:
+            # SEAM-4.2: Backend start failure - finalize the prepared row
             await spawn_service.complete_spawn(
-                spawn_id,
+                prepared.spawn_id,
                 "failed",
                 1,
                 origin="launch_failure",
@@ -347,21 +337,22 @@ def register_spawn_routes(
                 status_code=400,
                 detail=str(exc),
             ) from exc
-        finalize_task = asyncio.create_task(_background_finalize(spawn_id))
+
+        finalize_task = asyncio.create_task(_background_finalize(prepared.spawn_id))
         background_finalize_tasks.add(finalize_task)
         finalize_task.add_done_callback(background_finalize_tasks.discard)
 
         _broadcast(
             "spawn.created",
             {
-                "spawn_id": str(config.spawn_id),
+                "spawn_id": str(prepared.spawn_id),
                 "harness": connection.harness_id.value,
                 "state": connection.state,
             },
         )
 
         return {
-            "spawn_id": str(config.spawn_id),
+            "spawn_id": str(prepared.spawn_id),
             "harness": connection.harness_id.value,
             "state": connection.state,
             "capabilities": asdict(connection.capabilities),
@@ -431,40 +422,30 @@ def register_spawn_routes(
         }
 
     async def archive_spawn_route(spawn_id: str) -> dict[str, object]:
-        """Archive a terminal spawn (soft-hide from default list views)."""
+        """Archive a terminal spawn using the shared service.
+
+        SEAM-5: Archive with terminal validation and idempotent behavior.
+        """
         typed_spawn_id = _validate_spawn_id(spawn_id)
-        record = _require_spawn(typed_spawn_id)
-        
-        # Only allow archiving terminal spawns
-        if not spawn_is_terminal(record.status):
-            raise http_exception(
-                status_code=409,
-                detail=f"Cannot archive non-terminal spawn (status: {record.status}). "
-                       "Wait for spawn to complete or cancel it first.",
-            )
-        
-        # Check if already archived
-        if is_spawn_archived(runtime_root, str(typed_spawn_id)):
+
+        try:
+            archived = await spawn_service.archive(typed_spawn_id)
+        except ValueError as exc:
+            # Terminal validation failed or spawn not found
+            error_msg = str(exc)
+            if "not found" in error_msg.lower():
+                raise http_exception(status_code=404, detail="spawn not found") from exc
+            raise http_exception(status_code=409, detail=error_msg) from exc
+
+        if not archived:
+            # Already archived (idempotent)
             return {
                 "ok": True,
                 "spawn_id": str(typed_spawn_id),
                 "archived": True,
                 "noop": True,
             }
-        
-        archive_spawn(runtime_root, str(typed_spawn_id))
-        notify_observers(
-            LifecycleEvent(
-                event="spawn.archived",
-                spawn_id=str(typed_spawn_id),
-                harness_id=record.harness or "",
-                model=record.model or "",
-                agent=record.agent,
-                ts=datetime.now(tz=UTC),
-                seq=next_spawn_sequence(str(typed_spawn_id)),
-                payload={"archived": True},
-            )
-        )
+
         _broadcast(
             "spawn.archived",
             {
@@ -472,7 +453,7 @@ def register_spawn_routes(
                 "archived": True,
             },
         )
-        
+
         return {
             "ok": True,
             "spawn_id": str(typed_spawn_id),
@@ -481,27 +462,27 @@ def register_spawn_routes(
 
     async def fork_spawn(spawn_id: str, body: ForkRequest) -> dict[str, object]:
         """Fork a spawn to create a new session branching from this point.
-        
+
         Currently returns 501 Not Implemented as fork requires harness adapter
         integration which is outside the scope of the initial app backend.
         """
         _ = body  # Unused for now
         typed_spawn_id = _validate_spawn_id(spawn_id)
         record = _require_spawn(typed_spawn_id)
-        
+
         # Check that spawn has a harness session ID (required for fork)
         if not record.harness_session_id:
             raise http_exception(
                 status_code=400,
                 detail="Spawn has no harness session — cannot fork.",
             )
-        
+
         # Fork requires harness adapter integration which is complex
         # Return 501 for now with a clear message
         raise http_exception(
             status_code=501,
             detail="Spawn fork via REST API is not yet implemented. "
-                   "Use `meridian spawn --fork` from CLI instead.",
+            "Use `meridian spawn --fork` from CLI instead.",
         )
 
     typed_app.post("/api/spawns")(create_spawn)
@@ -514,6 +495,7 @@ def register_spawn_routes(
 
 
 # ---- Cursor Helpers ----
+
 
 def _encode_cursor(spawn_id: str, created_at: str) -> str:
     """Encode pagination cursor from spawn ID and timestamp."""
@@ -690,7 +672,7 @@ def register_spawn_query_routes(
     ) -> list[dict[str, object]]:
         """Get events from a spawn's history.jsonl."""
         typed_spawn_id = validate_spawn_id(spawn_id, http_exception)
-        
+
         # Check spawn exists
         record = spawn_store.get_spawn(runtime_root, typed_spawn_id)
         if record is None:
