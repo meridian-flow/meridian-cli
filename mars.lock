@@ -16,8 +16,8 @@ commit = "059745dd023f3279c92ddf399cc4e4595a92ad13"
 
 [dependencies.meridian-dev-workflow]
 url = "https://github.com/meridian-flow/meridian-dev-workflow"
-version = "v0.1.7"
-commit = "78887ac2a5aa851ac03204c2c596ac4f6262c182"
+version = "v0.1.8"
+commit = "26d0ded6ae44ab368903686f3049d0cc5ea70824"
 
 [dependencies.meridian-prompter]
 url = "https://github.com/meridian-flow/meridian-prompter"
@@ -69,8 +69,9 @@ dest_path = "agents/design-writer.md"
 [items."agents/dev-orchestrator.md"]
 source = "meridian-dev-workflow"
 kind = "agent"
-source_checksum = "sha256:8578f9a8c6807a01881286e2609adc1139a72e96c4418169498ea38ffcbf1ba0"
-installed_checksum = "sha256:8578f9a8c6807a01881286e2609adc1139a72e96c4418169498ea38ffcbf1ba0"
+version = "v0.1.8"
+source_checksum = "sha256:291f7ff1887861200093dafe5d87956944c8ee6175a698bc2c25127bec32a62d"
+installed_checksum = "sha256:291f7ff1887861200093dafe5d87956944c8ee6175a698bc2c25127bec32a62d"
 dest_path = "agents/dev-orchestrator.md"
 
 [items."agents/explorer.md"]
