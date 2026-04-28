@@ -13,7 +13,7 @@ from meridian.lib.core.spawn_service import SpawnApplicationService
 from meridian.lib.core.types import SpawnId
 from meridian.lib.harness.connections.base import ConnectionConfig, HarnessEvent
 from meridian.lib.launch.launch_types import ResolvedLaunchSpec
-from meridian.lib.state import session_store, spawn_store
+from meridian.lib.state import session_store
 from meridian.lib.state.atomic import append_text_line
 from meridian.lib.state.paths import RuntimePaths
 from meridian.lib.streaming.drain_policy import PersistentDrainPolicy
@@ -175,15 +175,13 @@ class HcpSessionManager:
         p_id: SpawnId,
         harness_session_id: str,
     ) -> None:
+        """Persist harness session ID to both session and spawn stores (SEAM-6)."""
         normalized = harness_session_id.strip()
         if not normalized:
             return
         session_store.update_session_harness_id(self._runtime_root, c_id, normalized)
-        spawn_store.update_spawn(
-            self._runtime_root,
-            p_id,
-            harness_session_id=normalized,
-        )
+        # Route through spawn_service for lifecycle event dispatch
+        self._spawn_service.update_metadata(p_id, harness_session_id=normalized)
 
     async def prompt(self, c_id: str, text: str) -> None:
         """Send a user message to an active chat."""
