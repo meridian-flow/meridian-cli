@@ -140,3 +140,18 @@ def test_only_unfenced_findings_reported_when_fences_present(tmp_path):
         ("conflict_marker", 11),
         ("conflict_marker", 13),
     ]
+
+
+def test_blockquoted_fence_suppresses_findings(tmp_path):
+    content = "\n".join(
+        [
+            "# Notes",
+            "> ```",
+            "> [!FLAG]",
+            "> <<<<<<< HEAD",
+            "> ```",
+            "",
+        ]
+    )
+
+    assert _findings(tmp_path, content) == []
