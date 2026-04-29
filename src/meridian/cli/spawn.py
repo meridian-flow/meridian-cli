@@ -649,13 +649,23 @@ def _spawn_wait(
     emit: Any,
     spawn_ids: Annotated[
         tuple[str, ...],
-        Parameter(name="spawn_id", help="Spawn IDs to wait for."),
-    ],
+        Parameter(name="spawn_id", help="Spawn IDs to wait for (omit to wait for all pending)."),
+    ] = (),
     timeout: Annotated[
         float | None,
         Parameter(
             name="--timeout",
-            help="Maximum wait time in minutes before timing out.",
+            help="Hard timeout in minutes. Overrides checkpoint behavior.",
+        ),
+    ] = None,
+    timeout_secs: Annotated[
+        float | None,
+        Parameter(
+            name="--timeout-secs",
+            help=(
+                "Cache-preserving yield interval in seconds (default: 240). "
+                "Exits cleanly when reached."
+            ),
         ),
     ] = None,
     verbose: Annotated[
@@ -678,6 +688,8 @@ def _spawn_wait(
         SpawnWaitInput(
             spawn_ids=spawn_ids,
             timeout=timeout,
+            timeout_secs=timeout_secs,
+            timeout_explicit=timeout is not None,
             verbose=verbose,
             quiet=quiet,
             include_report_body=report,
@@ -685,6 +697,8 @@ def _spawn_wait(
         sink=current_output_sink(),
     )
     emit(result)
+    if result.checkpoint:
+        return
     if result.any_failed:
         raise SystemExit(1)
 

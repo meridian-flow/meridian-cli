@@ -284,7 +284,8 @@ def test_spawn_background_implicit_text_returns_text_without_event_noise(
     output = captured.out
     assert "Spawn running." in output
     assert "p123" in output
-    assert "Collect later with `meridian spawn wait`." in output
+    assert "After spawning all subagents, you MUST run:" in output
+    assert "  meridian spawn wait" in output
 
 
 def test_spawn_background_explicit_json_preserves_rich_wire_and_events(

@@ -713,7 +713,12 @@ def _spawn_is_terminal(status: str) -> bool:
     return status not in ACTIVE_SPAWN_STATUSES
 
 
-def _normalize_wait_spawn_ids(payload: SpawnWaitInput) -> tuple[str, ...]:
+def _resolve_wait_targets(
+    payload: SpawnWaitInput,
+    runtime_root: Path,
+    ctx: RuntimeContext,
+) -> tuple[str, ...]:
+    """Resolve explicit wait IDs or discover pending spawns for the current chat."""
     candidates: list[str] = []
     for spawn_id in payload.spawn_ids:
         normalized = spawn_id.strip()
@@ -723,10 +728,70 @@ def _normalize_wait_spawn_ids(payload: SpawnWaitInput) -> tuple[str, ...]:
     if payload.spawn_id is not None and payload.spawn_id.strip():
         candidates.append(payload.spawn_id.strip())
 
-    deduped = tuple(dict.fromkeys(candidates))
-    if not deduped:
-        raise ValueError("At least one spawn_id is required")
-    return deduped
+    if candidates:
+        return tuple(dict.fromkeys(candidates))
+
+    chat_id = (ctx.chat_id or "").strip()
+    if not chat_id:
+        raise ValueError(
+            "No-arg wait requires MERIDIAN_CHAT_ID "
+            "(run from inside a meridian session)"
+        )
+
+    self_spawn_id = str(ctx.spawn_id) if ctx.spawn_id else None
+    pending = _discover_pending_spawns(runtime_root, chat_id, exclude_spawn_id=self_spawn_id)
+    return tuple(row.id for row in pending)
+
+
+def _discover_pending_spawns(
+    runtime_root: Path,
+    chat_id: str,
+    *,
+    exclude_spawn_id: str | None = None,
+) -> list[spawn_store.SpawnRecord]:
+    """Discover all active spawns for a given chat ID."""
+    from meridian.lib.state.reaper import reconcile_spawns
+
+    all_spawns = reconcile_spawns(runtime_root, spawn_store.list_spawns(runtime_root))
+    pending = [
+        row
+        for row in all_spawns
+        if (row.chat_id or "").strip() == chat_id
+        and row.status in ACTIVE_SPAWN_STATUSES
+        and row.id != exclude_spawn_id
+    ]
+    pending.sort(key=lambda row: row.id)
+    return pending
+
+
+def _emit_wait_set(
+    spawn_ids: tuple[str, ...],
+    project_root: Path,
+    *,
+    chat_id: str | None = None,
+    sink: OutputSink,
+) -> None:
+    """Print the wait set table before blocking."""
+    rows: list[tuple[str, str, str]] = []
+    for spawn_id in spawn_ids:
+        row = read_spawn_row(project_root, spawn_id)
+        desc = (row.desc or "").strip() if row else ""
+        status = row.status if row else "unknown"
+        rows.append((spawn_id, status, desc))
+
+    header = f"Waiting for {len(rows)} pending spawn(s)"
+    if chat_id:
+        header += f" for chat {chat_id}"
+    header += ":"
+
+    lines = [header]
+    for spawn_id, status, desc in rows:
+        line = f"  {spawn_id}  {status}"
+        if desc:
+            line += f"  {desc}"
+        lines.append(line)
+
+    sink.status("\n".join(lines))
 
 
 def _build_wait_multi_output(results: tuple[SpawnDetailOutput, ...]) -> SpawnWaitMultiOutput:
@@ -794,14 +859,49 @@ def spawn_wait_sync(
     sink: OutputSink | None = None,
 ) -> SpawnWaitMultiOutput:
     active_sink = sink or NullSink()
+    resolved_context = runtime_context(ctx)
     project_root, config = resolve_runtime_root_and_config_for_read(payload.project_root)
-    spawn_ids = resolve_spawn_references(project_root, _normalize_wait_spawn_ids(payload))
+    runtime_root = resolve_runtime_root_for_read(project_root)
+    has_explicit_ids = bool(payload.spawn_ids) or bool(
+        payload.spawn_id is not None and payload.spawn_id.strip()
+    )
+    spawn_ids = _resolve_wait_targets(payload, runtime_root, resolved_context)
+    wait_chat_id: str | None = None
+    if not has_explicit_ids:
+        wait_chat_id = (resolved_context.chat_id or "").strip() or None
+
+    if not spawn_ids:
+        chat_display = wait_chat_id or "current chat"
+        active_sink.status(f"No pending spawns for chat {chat_display}.")
+        return SpawnWaitMultiOutput(
+            spawns=(),
+            total_runs=0,
+            succeeded_runs=0,
+            failed_runs=0,
+            cancelled_runs=0,
+            any_failed=False,
+        )
+
+    if has_explicit_ids:
+        spawn_ids = resolve_spawn_references(project_root, spawn_ids)
+
+    _emit_wait_set(spawn_ids, project_root, chat_id=wait_chat_id, sink=active_sink)
+
     timeout_minutes = (
         payload.timeout if payload.timeout is not None else config.wait_timeout_minutes
     )
     timeout_seconds = minutes_to_seconds(timeout_minutes) or 0.0
+    checkpoint_seconds = (
+        payload.timeout_secs
+        if payload.timeout_secs is not None
+        else config.wait_checkpoint_seconds
+    )
     started = time.monotonic()
-    deadline = started + max(timeout_seconds, 0.0)
+    hard_deadline = started + max(timeout_seconds, 0.0)
+    use_checkpoint = not payload.timeout_explicit
+    checkpoint_deadline = (
+        started + max(checkpoint_seconds, 0.0) if use_checkpoint else None
+    )
     poll = (
         payload.poll_interval_secs
         if payload.poll_interval_secs is not None
@@ -842,7 +942,44 @@ def spawn_wait_sync(
             return _build_wait_multi_output(details)
 
         now = time.monotonic()
-        if now >= deadline:
+        if checkpoint_deadline is not None and now >= checkpoint_deadline:
+            pending_ids = tuple(sorted(pending))
+            checkpoint_rows: list[spawn_store.SpawnRecord] = []
+            for spawn_id in spawn_ids:
+                if spawn_id in completed_rows:
+                    checkpoint_rows.append(completed_rows[spawn_id])
+                    continue
+                row = read_spawn_row(project_root, spawn_id)
+                if row is not None:
+                    checkpoint_rows.append(row)
+            checkpoint_details = tuple(
+                detail_from_row(
+                    project_root=project_root,
+                    row=row,
+                    include_report_body=payload.include_report_body,
+                )
+                for row in checkpoint_rows
+            )
+            return SpawnWaitMultiOutput(
+                spawns=checkpoint_details,
+                total_runs=len(spawn_ids),
+                succeeded_runs=sum(
+                    1 for detail in checkpoint_details if detail.status == "succeeded"
+                ),
+                failed_runs=sum(1 for detail in checkpoint_details if detail.status == "failed"),
+                cancelled_runs=sum(
+                    1 for detail in checkpoint_details if detail.status == "cancelled"
+                ),
+                any_failed=any(
+                    detail.status in {"failed", "cancelled"} for detail in checkpoint_details
+                ),
+                checkpoint=True,
+                checkpoint_pending_ids=pending_ids,
+                checkpoint_chat_id=wait_chat_id,
+                checkpoint_elapsed_secs=now - started,
+            )
+
+        if now >= hard_deadline:
             elapsed = now - started
             raise TimeoutError(_build_wait_timeout_message(pending, elapsed))
         if now >= next_progress:

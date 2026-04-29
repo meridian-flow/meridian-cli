@@ -22,7 +22,16 @@ def _truncate_cell(value: str, *, max_chars: int) -> str:
 
 
 def _background_wait_note(spawn_id: str) -> str:
-    return f"Backgrounded. Spawn id: {spawn_id}.\nCollect later with `meridian spawn wait`."
+    return (
+        f"Background spawn submitted.\n"
+        f"Spawn id: {spawn_id}\n"
+        f"\n"
+        f"After spawning all subagents, you MUST run:\n"
+        f"\n"
+        f"  meridian spawn wait\n"
+        f"\n"
+        f"This waits for all pending spawns for this chat."
+    )
 
 
 class SpawnCreateInput(BaseModel):
@@ -91,7 +100,7 @@ class SpawnActionOutput(BaseModel):
                 wire["note"] = _background_wait_note(self.spawn_id)
                 wire["terminal"] = False
                 wire["wait_required"] = True
-                wire["wait_command"] = f"meridian spawn wait {self.spawn_id}"
+                wire["wait_command"] = "meridian spawn wait"
         if self.forked_from is not None:
             wire["forked_from"] = self.forked_from
         if self.duration_secs is not None:
@@ -140,7 +149,7 @@ class SpawnActionOutput(BaseModel):
             wire["note"] = _background_wait_note(self.spawn_id)
             wire["terminal"] = False
             wire["wait_required"] = True
-            wire["wait_command"] = f"meridian spawn wait {self.spawn_id}"
+            wire["wait_command"] = "meridian spawn wait"
         if self.warning is not None:
             wire["warning"] = self.warning
         return wire
@@ -155,7 +164,12 @@ class SpawnActionOutput(BaseModel):
         if self.spawn_id:
             lines.append(f"Spawn id: {self.spawn_id}")
             if self.background and self.status == "running":
-                lines.append("Collect later with `meridian spawn wait`.")
+                lines.append("")
+                lines.append("After spawning all subagents, you MUST run:")
+                lines.append("")
+                lines.append("  meridian spawn wait")
+                lines.append("")
+                lines.append("This waits for all pending spawns for this chat.")
         if self.forked_from:
             lines.append(f"Forked from: {self.forked_from}")
         if self.model and self.harness_id:
@@ -659,6 +673,8 @@ class SpawnWaitInput(BaseModel):
     # Compatibility alias for MCP clients that still send `spawn_id`.
     spawn_id: str | None = None
     timeout: float | None = None
+    timeout_secs: float | None = None
+    timeout_explicit: bool = False
     poll_interval_secs: float | None = None
     verbose: bool = False
     quiet: bool = False
@@ -675,6 +691,10 @@ class SpawnWaitMultiOutput(BaseModel):
     failed_runs: int
     cancelled_runs: int
     any_failed: bool
+    checkpoint: bool = False
+    checkpoint_pending_ids: tuple[str, ...] = ()
+    checkpoint_chat_id: str | None = None
+    checkpoint_elapsed_secs: float | None = None
     # Compatibility fields for single-run callers.
     spawn_id: str | None = None
     status: str | None = None
@@ -682,6 +702,8 @@ class SpawnWaitMultiOutput(BaseModel):
 
     def format_text(self, ctx: FormatContext | None = None) -> str:
         """Render waited spawns, expanding report content when available."""
+        if self.checkpoint:
+            return self._format_checkpoint_text()
         if len(self.spawns) == 1:
             return self.spawns[0].format_text(ctx)
 
@@ -709,6 +731,32 @@ class SpawnWaitMultiOutput(BaseModel):
             return table
         return f"{table}\n\n" + "\n\n".join(report_sections)
 
+    def _format_checkpoint_text(self) -> str:
+        if self.checkpoint_elapsed_secs is None:
+            elapsed = ""
+        elif self.checkpoint_elapsed_secs >= 60:
+            elapsed = f" after {self.checkpoint_elapsed_secs / 60:.0f}m"
+        else:
+            elapsed = f" after {self.checkpoint_elapsed_secs:.0f}s"
+        lines = [f"Wait checkpoint{elapsed}. Still pending:"]
+        for sid in self.checkpoint_pending_ids:
+            detail = next((spawn for spawn in self.spawns if spawn.spawn_id == sid), None)
+            status = detail.status if detail else "unknown"
+            desc = (detail.desc or "").strip() if detail else ""
+            line = f"  {sid}  {status}"
+            if desc:
+                line += f"  {desc}"
+            lines.append(line)
+        lines.append("")
+        if self.checkpoint_chat_id:
+            lines.append("Run `meridian spawn wait` again to continue.")
+        elif self.checkpoint_pending_ids:
+            ids_str = " ".join(self.checkpoint_pending_ids)
+            lines.append(f"Run `meridian spawn wait {ids_str}` again to continue.")
+        else:
+            lines.append("Run `meridian spawn wait` again to continue.")
+        return "\n".join(lines)
+
     def to_cli_wire(self) -> dict[str, object]:
         """Sparse wire projection. Includes spawn summaries, not full details."""
         wire: dict[str, object] = {
@@ -718,6 +766,13 @@ class SpawnWaitMultiOutput(BaseModel):
             "cancelled_runs": self.cancelled_runs,
             "any_failed": self.any_failed,
         }
+        if self.checkpoint:
+            wire["checkpoint"] = True
+            wire["checkpoint_pending_ids"] = list(self.checkpoint_pending_ids)
+            if self.checkpoint_elapsed_secs is not None:
+                wire["checkpoint_elapsed_secs"] = round(self.checkpoint_elapsed_secs, 2)
+            if self.checkpoint_chat_id:
+                wire["checkpoint_chat_id"] = self.checkpoint_chat_id
         # Compatibility fields for single-run callers
         if self.spawn_id is not None:
             wire["spawn_id"] = self.spawn_id

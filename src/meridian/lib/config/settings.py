@@ -125,6 +125,7 @@ def _parse_file_scalar(*, field_name: str, raw_value: object, source: str) -> ob
         "kill_grace_minutes",
         "guardrail_timeout_minutes",
         "wait_timeout_minutes",
+        "wait_checkpoint_seconds",
     }
 
     if field_name in int_fields:
@@ -616,6 +617,7 @@ def _normalize_toml_payload(
             "guardrail_timeout_minutes": "guardrail_timeout_minutes",
             "wait_minutes": "wait_timeout_minutes",
             "wait_timeout_minutes": "wait_timeout_minutes",
+            "wait_checkpoint_seconds": "wait_checkpoint_seconds",
         },
     }
     top_level_aliases: dict[str, str] = {
@@ -625,6 +627,7 @@ def _normalize_toml_payload(
         "kill_grace_minutes": "kill_grace_minutes",
         "guardrail_timeout_minutes": "guardrail_timeout_minutes",
         "wait_timeout_minutes": "wait_timeout_minutes",
+        "wait_checkpoint_seconds": "wait_checkpoint_seconds",
         "model": "default_model",
         "default_harness": "default_harness",
     }
@@ -727,6 +730,7 @@ def _env_alias_overrides(project_root: Path) -> dict[str, object]:
             "float",
         ),
         ("MERIDIAN_WAIT_TIMEOUT_MINUTES", ("wait_timeout_minutes",), "float"),
+        ("MERIDIAN_WAIT_CHECKPOINT_SECONDS", ("wait_checkpoint_seconds",), "float"),
         ("MERIDIAN_DEFAULT_MODEL", ("default_model",), "str"),
         ("MERIDIAN_DEFAULT_HARNESS", ("default_harness",), "str"),
         ("MERIDIAN_HARNESS_MODEL_CLAUDE", ("harness", "claude"), "str"),
@@ -952,6 +956,7 @@ class MeridianConfig(BaseSettings):
     kill_grace_minutes: float = 2.0 / 60.0
     guardrail_timeout_minutes: float = 0.5
     wait_timeout_minutes: float = 30.0
+    wait_checkpoint_seconds: float = 240.0
     default_model: str = ""
     default_harness: str = "codex"
 

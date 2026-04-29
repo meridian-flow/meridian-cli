@@ -21,7 +21,7 @@ Primary launch/resume:
 
 Quick start:
   meridian spawn -m MODEL -p "prompt"   Create a subagent run
-  meridian spawn wait ID                Wait for results
+  meridian spawn wait                   Wait for results
   meridian mars models list             See available models
 
 Run 'meridian spawn -h' for full usage.
@@ -76,7 +76,7 @@ spawn_app = App(
         '  meridian spawn -m gpt-5.3-codex -p "Fix the bug in auth.py"\n\n'
         '  meridian spawn -m claude-sonnet-4-6 -p "Review" -f src/main.py\n\n'
         '  meridian spawn --fork c123 -p "Continue this thread with a branch"\n\n'
-        "  meridian spawn wait SPAWN_ID\n"
+        "  meridian spawn wait\n"
     ),
     help_formatter="plain",
 )
