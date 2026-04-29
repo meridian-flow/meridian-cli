@@ -45,3 +45,10 @@ def test_non_flowchart_has_no_warnings() -> None:
 def test_multiple_edges_on_same_line() -> None:
     warnings = check_ox_edge(_target("graph TD\nA ---obackend; B ---xservice"), "flowchart")
     assert len(warnings) == 2
+
+
+def test_ox_edge_skips_directive_body() -> None:
+    """ox-edge should NOT warn on content inside %%{init: }%% blocks."""
+    target = _target("%%{init: {\n  'theme': '---obackend'\n} }%%\nflowchart LR\n    A --> B\n")
+    warnings = check_ox_edge(target, "flowchart")
+    assert warnings == []

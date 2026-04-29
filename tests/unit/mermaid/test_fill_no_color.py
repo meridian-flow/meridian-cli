@@ -35,3 +35,10 @@ def test_class_def_does_not_trigger() -> None:
 def test_line_inside_init_block_does_not_trigger() -> None:
     content = "graph TD\n%%{init:\nstyle NodeA fill:#abc\n}%%"
     assert check_fill_no_color(_target(content), "flowchart") == []
+
+
+def test_fill_no_color_ignores_stroke_color() -> None:
+    """stroke-color should not count as text color."""
+    target = _target("flowchart LR\n    A --> B\n    style A fill:#abc,stroke-color:#000\n")
+    warnings = check_fill_no_color(target, "flowchart")
+    assert len(warnings) == 1

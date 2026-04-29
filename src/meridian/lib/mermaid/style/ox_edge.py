@@ -6,6 +6,7 @@ import re
 
 from meridian.lib.mermaid.scanner import DiagramTarget
 from meridian.lib.mermaid.style.line_map import content_line_to_file_line
+from meridian.lib.mermaid.style.preprocess import iter_diagram_lines
 from meridian.lib.mermaid.style.types import StyleWarning, WarningCategory
 
 OX_EDGE_CATEGORY = WarningCategory(
@@ -24,10 +25,7 @@ def check_ox_edge(target: DiagramTarget, diagram_type: str | None) -> list[Style
         return []
 
     warnings: list[StyleWarning] = []
-    for content_line, raw_line in enumerate(target.content.split("\n"), start=1):
-        line = raw_line.rstrip("\r")
-        if line.lstrip().startswith("%%"):
-            continue
+    for content_line, line in iter_diagram_lines(target.content):
         for match in _OX_EDGE_RE.finditer(line):
             token = _edge_token(line, match.start())
             warnings.append(

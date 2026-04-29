@@ -37,3 +37,10 @@ def test_quoted_end_label_does_not_trigger() -> None:
 
 def test_non_flowchart_has_no_warnings() -> None:
     assert check_bare_end(_target("sequenceDiagram\nA --> end"), "sequence") == []
+
+
+def test_bare_end_skips_frontmatter() -> None:
+    """bare-end should NOT warn on 'end' in YAML frontmatter."""
+    target = _target("---\ntitle: end\n---\nflowchart LR\n    A --> B\n")
+    warnings = check_bare_end(target, "flowchart")
+    assert warnings == []

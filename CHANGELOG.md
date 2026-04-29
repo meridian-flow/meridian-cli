@@ -33,6 +33,7 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Prompt package deps unpinned in `mars.toml`; `meridian-dev-workflow` lock now v0.1.8.
 
 ### Fixed
+- Mermaid style checks skip YAML frontmatter and directive bodies; `fill-no-color` no longer treats `stroke-color:` as text color.
 - `meridian doctor` active-spawn warning now post-reconcile. Warning only lists genuinely live sessions, not stale rows just repaired. Same-run `--prune` can now clean artifacts that became eligible after reconciliation. Cached summary no longer suggests `--prune --global` when only live sessions remain.
 - Failure sentinels now write after terminal state persists. Stale `failure.json` ignored unless spawn still `failed`.
 - Startup telemetry now carries harness/model/agent context and Codex emits phases outside observer mode too.

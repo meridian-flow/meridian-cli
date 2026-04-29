@@ -6,6 +6,7 @@ import re
 
 from meridian.lib.mermaid.scanner import DiagramTarget
 from meridian.lib.mermaid.style.line_map import content_line_to_file_line
+from meridian.lib.mermaid.style.preprocess import iter_diagram_lines
 from meridian.lib.mermaid.style.types import StyleWarning, WarningCategory
 
 FILL_NO_COLOR_CATEGORY = WarningCategory(
@@ -16,6 +17,7 @@ FILL_NO_COLOR_CATEGORY = WarningCategory(
 )
 
 _STYLE_FILL_RE = re.compile(r"^\s*style\s+(\S+)\s+.*fill:")
+_TEXT_COLOR_RE = re.compile(r"(?<![a-z-])color:")
 _QUOTED_RE = re.compile(r"(['\"])(?:\\.|(?!\1).)*\1")
 
 
@@ -23,26 +25,10 @@ def check_fill_no_color(target: DiagramTarget, diagram_type: str | None) -> list
     """Warn on inline style fill declarations without explicit text color."""
     del diagram_type
     warnings: list[StyleWarning] = []
-    in_init = False
-
-    for content_line, raw_line in enumerate(target.content.split("\n"), start=1):
-        line = raw_line.rstrip("\r")
-        stripped = line.strip()
-
-        if in_init:
-            if stripped.endswith("}%%"):
-                in_init = False
-            continue
-        if stripped.startswith("%%{init:"):
-            if not stripped.endswith("}%%"):
-                in_init = True
-            continue
-        if stripped.startswith("%%"):
-            continue
-
+    for content_line, line in iter_diagram_lines(target.content):
         line_without_quotes = _QUOTED_RE.sub("", line)
         match = _STYLE_FILL_RE.search(line_without_quotes)
-        if match is None or "color:" in line_without_quotes:
+        if match is None or _TEXT_COLOR_RE.search(line_without_quotes) is not None:
             continue
 
         node_id = match.group(1)
