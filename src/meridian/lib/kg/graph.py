@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from collections import deque
 from pathlib import Path
 from typing import Any, cast
@@ -40,6 +41,7 @@ _EXTERNAL_PREFIXES = ("http://", "https://", "mailto:", "#")
 _CONFLICT_START = "<<<<<<<"
 _CONFLICT_SEPARATOR = "======="
 _CONFLICT_END = ">>>>>>>"
+_FENCE_RE = re.compile(r"^( {0,3})(`{3,}|~{3,})(.*)?$")
 
 
 def build_analysis(
@@ -196,7 +198,32 @@ def _scan_file_findings(path: Path, warning_severity: FindingSeverity) -> list[C
         return findings
 
     in_conflict = False
+    in_fence = False
+    fence_char = ""
+    fence_len = 0
     for line_number, line in enumerate(lines, start=1):
+        fence_match = _FENCE_RE.match(line)
+        if in_fence:
+            if fence_match:
+                fence = fence_match.group(2)
+                trailing = fence_match.group(3) or ""
+                if (
+                    fence.startswith(fence_char)
+                    and len(fence) >= fence_len
+                    and trailing.strip() == ""
+                ):
+                    in_fence = False
+                    fence_char = ""
+                    fence_len = 0
+            continue
+
+        if fence_match:
+            fence = fence_match.group(2)
+            in_fence = True
+            fence_char = fence[0]
+            fence_len = len(fence)
+            continue
+
         if "[!FLAG]" in line:
             findings.append(
                 CheckFinding(
