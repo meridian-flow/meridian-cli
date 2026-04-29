@@ -926,7 +926,12 @@ def spawn_wait_sync(
         for spawn_id in tuple(pending):
             row = read_spawn_row(project_root, spawn_id)
             if row is None:
-                raise ValueError(f"Spawn '{spawn_id}' not found")
+                if has_explicit_ids:
+                    raise ValueError(f"Spawn '{spawn_id}' not found")
+                # No-arg discovery is chat-scoped: if a discovered spawn vanishes while
+                # waiting, treat it as resolved instead of failing unrelated waits.
+                pending.discard(spawn_id)
+                continue
 
             if _spawn_is_terminal(row.status):
                 completed_rows[spawn_id] = row
@@ -940,6 +945,7 @@ def spawn_wait_sync(
                     include_report_body=payload.include_report_body,
                 )
                 for spawn_id in spawn_ids
+                if spawn_id in completed_rows
             )
             return _build_wait_multi_output(details)
 

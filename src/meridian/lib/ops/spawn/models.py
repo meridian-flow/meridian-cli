@@ -30,7 +30,8 @@ def _background_wait_note(spawn_id: str) -> str:
         f"\n"
         f"  meridian spawn wait\n"
         f"\n"
-        f"This waits for all pending spawns for this chat."
+        f"This waits for all pending spawns for this chat.\n"
+        f"Or wait for this spawn only: meridian spawn wait {spawn_id}"
     )
 
 
@@ -170,6 +171,7 @@ class SpawnActionOutput(BaseModel):
                 lines.append("  meridian spawn wait")
                 lines.append("")
                 lines.append("This waits for all pending spawns for this chat.")
+                lines.append(f"Or wait for this spawn only: meridian spawn wait {self.spawn_id}")
         if self.forked_from:
             lines.append(f"Forked from: {self.forked_from}")
         if self.model and self.harness_id:
@@ -704,6 +706,8 @@ class SpawnWaitMultiOutput(BaseModel):
         """Render waited spawns, expanding report content when available."""
         if self.checkpoint:
             return self._format_checkpoint_text()
+        if not self.spawns:
+            return ""
         if len(self.spawns) == 1:
             return self.spawns[0].format_text(ctx)
 
