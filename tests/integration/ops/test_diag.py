@@ -1,6 +1,7 @@
 """Doctor warning regressions."""
 
 import os
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -88,7 +89,7 @@ def _run_doctor_without_upgrade_noise(
     [
         ("missing_skills_directories", "missing_skills_directories", ()),
         ("missing_agent_profile_directories", "missing_agent_profile_directories", ()),
-        ("active_spawns_present", "active_spawns_present", ("spawn_ids",)),
+        ("live_active_spawns_remain", "live_active_spawns_remain", ("spawn_ids",)),
     ],
 )
 def test_doctor_warning_shape_for_non_mars_warnings(
@@ -103,7 +104,7 @@ def test_doctor_warning_shape_for_non_mars_warnings(
         _create_agent_skill_dirs(project_root, create_agents_dir=True, create_skills_dir=False)
     elif trigger == "missing_agent_profile_directories":
         _create_agent_skill_dirs(project_root, create_agents_dir=False, create_skills_dir=True)
-    elif trigger == "active_spawns_present":
+    elif trigger == "live_active_spawns_remain":
         _create_agent_skill_dirs(project_root)
         _seed_active_spawn(project_root)
     else:  # pragma: no cover - defensive
@@ -168,6 +169,57 @@ def test_doctor_repairs_orphan_runs_when_depth_is_clearly_root(
     assert "orphan_runs" in result.repaired
     runtime_root = resolve_project_runtime_root_for_write(project_root)
     assert spawn_store.get_spawn(runtime_root, spawn_id).status == "failed"
+
+
+def test_doctor_live_active_warning_uses_post_repair_spawns(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_root = _create_project_root(tmp_path)
+    _create_agent_skill_dirs(project_root)
+    stale_spawn_id = _seed_active_spawn(project_root, started_at="2020-01-01T00:00:00Z")
+    live_spawn_id = _seed_active_spawn(project_root, started_at=datetime.now(UTC).isoformat())
+    monkeypatch.delenv("MERIDIAN_DEPTH", raising=False)
+    monkeypatch.setattr(
+        diag,
+        "check_upgrade_availability",
+        lambda *_args, **_kwargs: mars_ops.UpgradeAvailability(),
+    )
+
+    result = doctor_sync(DoctorInput(project_root=project_root.as_posix()))
+
+    assert "orphan_runs" in result.repaired
+    warning = _warning_by_code(result, "live_active_spawns_remain")
+    assert warning.payload == {"spawn_ids": [live_spawn_id]}
+    assert all(warning.code != "active_spawns_present" for warning in result.warnings)
+    runtime_root = resolve_project_runtime_root_for_write(project_root)
+    assert spawn_store.get_spawn(runtime_root, stale_spawn_id).status == "failed"
+
+
+def test_doctor_prune_can_remove_artifact_after_same_run_reconcile(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_root = _create_project_root(tmp_path)
+    _create_agent_skill_dirs(project_root)
+    stale_spawn_id = _seed_active_spawn(project_root, started_at="2020-01-01T00:00:00Z")
+    runtime_root = resolve_project_runtime_root_for_write(project_root)
+    stale_artifact_dir = runtime_root / "spawns" / stale_spawn_id
+    _write_text(stale_artifact_dir / "history.jsonl", '{"event":"start"}\n')
+    _write_text(stale_artifact_dir / "report.md", "done\n")
+    _set_tree_mtime(stale_artifact_dir, 1_600_000_000.0)
+    monkeypatch.delenv("MERIDIAN_DEPTH", raising=False)
+    monkeypatch.setattr(
+        diag,
+        "check_upgrade_availability",
+        lambda *_args, **_kwargs: mars_ops.UpgradeAvailability(),
+    )
+
+    result = doctor_sync(DoctorInput(project_root=project_root.as_posix(), prune=True))
+
+    assert "orphan_runs" in result.repaired
+    assert result.pruned_spawn_artifacts >= 1
+    assert not stale_artifact_dir.exists()
 
 
 def test_doctor_reports_no_warnings_when_conditions_are_clear(

@@ -106,12 +106,23 @@ def doctor_sync(payload: DoctorInput) -> DoctorOutput:
     project_root = surface.project_root
     ensure_runtime_state_bootstrap_sync(project_root)
     runtime_root = resolve_runtime_root(project_root)
+    retention_days = surface.resolved_config.state.retention_days
+    now = time.time()
+
+    repaired: list[str] = []
+    stale_locks = _repair_stale_session_locks(project_root)
+    if stale_locks > 0:
+        repaired.append("stale_session_locks")
+
+    if is_root_side_effect_process():
+        orphan_runs = _repair_orphan_runs(project_root)
+        if orphan_runs > 0:
+            repaired.append("orphan_runs")
+
     spawns = spawn_store.list_spawns(runtime_root)
     active_spawn_ids = {
         spawn.id for spawn in spawns if is_active_spawn_status(spawn.status)
     }
-    retention_days = surface.resolved_config.state.retention_days
-    now = time.time()
     orphan_project_dirs = (
         scan_orphan_project_dirs(get_user_home(), retention_days, now)
         if payload.global_
@@ -126,7 +137,6 @@ def doctor_sync(payload: DoctorInput) -> DoctorOutput:
 
     pruned_orphan_dirs = 0
     pruned_spawn_artifacts = 0
-    repaired: list[str] = []
     if payload.prune:
         pruned_orphan_dirs = prune_orphan_project_dirs(orphan_project_dirs)
         pruned_spawn_artifacts = prune_stale_spawn_artifacts(stale_spawn_artifacts)
@@ -134,15 +144,6 @@ def doctor_sync(payload: DoctorInput) -> DoctorOutput:
             repaired.append("orphan_project_dirs")
         if pruned_spawn_artifacts > 0:
             repaired.append("spawn_artifacts")
-
-    stale_locks = _repair_stale_session_locks(project_root)
-    if stale_locks > 0:
-        repaired.append("stale_session_locks")
-
-    if is_root_side_effect_process():
-        orphan_runs = _repair_orphan_runs(project_root)
-        if orphan_runs > 0:
-            repaired.append("orphan_runs")
 
     agents_dir = project_root / ".agents" / "agents"
     skills_dir = project_root / ".agents" / "skills"
@@ -248,8 +249,11 @@ def doctor_sync(payload: DoctorInput) -> DoctorOutput:
     if running:
         warnings.append(
             DoctorWarning(
-                code="active_spawns_present",
-                message="Active spawns still present: " + ", ".join(running),
+                code="live_active_spawns_remain",
+                message=(
+                    "Live active spawns remain after reconciliation and were not pruned: "
+                    + ", ".join(running)
+                ),
                 payload={"spawn_ids": running},
             )
         )

@@ -107,11 +107,9 @@ def summarize_doctor_output(output: DoctorOutput, *, now: datetime | None = None
     ]
     message = ""
     if parts:
-        message = (
-            "meridian doctor: "
-            + ", ".join(parts)
-            + ". Run 'meridian doctor --prune --global' to clean up."
-        )
+        message = "meridian doctor: " + ", ".join(parts) + "."
+        if stale_orphan_dirs > 0 or stale_spawn_artifacts > 0:
+            message += " Run 'meridian doctor --prune --global' to clean up."
     return DoctorCache(
         scanned_at=(_utc_now() if now is None else now).isoformat(),
         stale_orphan_dirs=stale_orphan_dirs,

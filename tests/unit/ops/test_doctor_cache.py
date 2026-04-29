@@ -72,6 +72,28 @@ def test_summarize_doctor_output_formats_cached_one_liner() -> None:
     )
 
 
+def test_summarize_doctor_output_does_not_suggest_prune_for_live_only_warning() -> None:
+    output = DoctorOutput(
+        ok=False,
+        project_root="/repo",
+        runs_checked=1,
+        agents_dir="/repo/.agents/agents",
+        skills_dir="/repo/.agents/skills",
+        warnings=(
+            DoctorWarning(
+                code="live_active_spawns_remain",
+                message="Live active spawns remain after reconciliation and were not pruned: p1",
+                payload={"spawn_ids": ["p1"]},
+            ),
+        ),
+    )
+
+    cache = doctor_cache.summarize_doctor_output(output)
+
+    assert cache.message == "meridian doctor: 1 other warning."
+    assert "Run 'meridian doctor --prune --global' to clean up." not in cache.message
+
+
 def test_consume_doctor_cache_warning_marks_cache_displayed(tmp_path: Path) -> None:
     cache_path = tmp_path / "doctor-cache.json"
     cache = doctor_cache.DoctorCache(
@@ -155,7 +177,4 @@ def test_run_background_doctor_scan_once_writes_summary(
 
     assert len(written) == 1
     assert written[0].warning_count == 1
-    assert written[0].message == (
-        "meridian doctor: 1 other warning. "
-        "Run 'meridian doctor --prune --global' to clean up."
-    )
+    assert written[0].message == "meridian doctor: 1 other warning."
