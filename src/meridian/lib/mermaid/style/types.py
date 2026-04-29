@@ -47,3 +47,6 @@ class CheckResult:
     warnings: list[StyleWarning] = field(default_factory=lambda: list[StyleWarning]())
     suppressed_warnings: list[StyleWarning] = field(default_factory=lambda: list[StyleWarning]())
     style_options: StyleCheckOptions = field(default_factory=StyleCheckOptions)
+
+
+__all__ = ["CheckResult", "StyleCheckOptions", "StyleWarning", "WarningCategory"]

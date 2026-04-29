@@ -14,3 +14,6 @@ def content_line_to_file_line(target: DiagramTarget, content_line: int) -> int:
     if target.source == "fenced-block":
         return target.start_line + content_line
     return content_line
+
+
+__all__ = ["content_line_to_file_line"]

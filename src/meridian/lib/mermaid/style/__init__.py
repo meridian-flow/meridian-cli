@@ -25,29 +25,30 @@ def run_style_checks(
 
     Pre-parse checks run on ALL targets (valid and invalid).
     Post-parse checks run only on targets that passed syntax validation.
-    Warnings are deduplicated against syntax errors for the same line.
+    Pre-parse warnings are deduplicated against syntax errors for the same block.
     Skips categories in options.disabled_categories.
     """
     if not options.enabled:
         return [], []
 
     result_by_location = {(result.file, result.line): result for result in validation_results}
-    syntax_error_lines = {
-        (result.file, result.line) for result in validation_results if not result.valid
-    }
 
     raw_warnings: list[StyleWarning] = []
 
     for target in targets:
         validation_result = result_by_location.get((target.rel, target.start_line))
         diagram_type = validation_result.diagram_type if validation_result else None
+        block_has_error = validation_result is not None and not validation_result.valid
 
         for category, check in _PRE_PARSE:
             if _should_skip_category(category, diagram_type, options):
                 continue
-            raw_warnings.extend(check(target, diagram_type))
+            warnings = check(target, diagram_type)
+            if block_has_error:
+                continue
+            raw_warnings.extend(warnings)
 
-        if validation_result is None or not validation_result.valid:
+        if validation_result is None or block_has_error:
             continue
 
         for category, check in _POST_PARSE:
@@ -58,8 +59,6 @@ def run_style_checks(
     active_warnings: list[StyleWarning] = []
     suppressed_warnings: list[StyleWarning] = []
     for warning in raw_warnings:
-        if (warning.file, warning.line) in syntax_error_lines:
-            continue
         if warning.suppressed:
             suppressed_warnings.append(warning)
         else:
@@ -85,7 +84,6 @@ def _should_skip_category(
 
 
 __all__ = [
-    "CheckFn",
     "get_all_categories",
     "run_style_checks",
 ]
