@@ -155,3 +155,34 @@ def test_blockquoted_fence_suppresses_findings(tmp_path):
     )
 
     assert _findings(tmp_path, content) == []
+
+
+def test_invalid_backtick_info_string_does_not_suppress(tmp_path):
+    """Backtick fence whose info string contains backticks is invalid per CommonMark."""
+    content = "\n".join(
+        [
+            "# Notes",
+            "``` info`bad",
+            "[!FLAG]",
+            "```",
+            "",
+        ]
+    )
+    findings = _findings(tmp_path, content)
+    # The invalid opener is not a fence, so [!FLAG] on line 3 should be detected
+    assert ("flag_block", 3) in findings
+
+
+def test_unclosed_fence_suppresses_to_eof(tmp_path):
+    """Unclosed fence extends to EOF — all subsequent lines are fenced."""
+    content = "\n".join(
+        [
+            "# Notes",
+            "```",
+            "[!FLAG]",
+            "<<<<<<< HEAD",
+            "=======",
+            ">>>>>>> branch",
+        ]
+    )
+    assert _findings(tmp_path, content) == []
