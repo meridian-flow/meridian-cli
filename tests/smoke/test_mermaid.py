@@ -67,3 +67,131 @@ def test_mermaid_check_cwd_default(cli, scratch_dir):
 
     result = cli("mermaid", "check")
     result.assert_success()
+
+
+def test_mermaid_check_emits_style_warnings(cli, scratch_dir):
+    """Style warnings appear in output but exit 0."""
+    content = """# Test
+
+```mermaid
+flowchart LR
+    API ---obackend
+```
+"""
+    (scratch_dir / "warn.md").write_text(content, encoding="utf-8")
+
+    result = cli("mermaid", "check", str(scratch_dir))
+
+    result.assert_success()
+    assert "warning[ox-edge]" in result.stdout
+
+
+def test_mermaid_check_strict_exits_nonzero(cli, scratch_dir):
+    """--strict makes style warnings cause exit 1."""
+    content = """# Test
+
+```mermaid
+flowchart LR
+    API ---obackend
+```
+"""
+    (scratch_dir / "warn.md").write_text(content, encoding="utf-8")
+
+    result = cli("mermaid", "check", str(scratch_dir), "--strict")
+
+    assert result.returncode == 1
+
+
+def test_mermaid_check_no_style_suppresses(cli, scratch_dir):
+    """--no-style suppresses all style warnings."""
+    content = """# Test
+
+```mermaid
+flowchart LR
+    API ---obackend
+```
+"""
+    (scratch_dir / "warn.md").write_text(content, encoding="utf-8")
+
+    result = cli("mermaid", "check", str(scratch_dir), "--no-style")
+
+    result.assert_success()
+    assert "warning" not in result.stdout
+
+
+def test_mermaid_check_disable_category(cli, scratch_dir):
+    """--disable ox-edge suppresses only that category."""
+    content = """# Test
+
+```mermaid
+flowchart LR
+    API ---obackend
+```
+"""
+    (scratch_dir / "warn.md").write_text(content, encoding="utf-8")
+
+    result = cli("mermaid", "check", str(scratch_dir), "--disable", "ox-edge")
+
+    result.assert_success()
+    assert "warning[ox-edge]" not in result.stdout
+
+
+def test_mermaid_check_json_includes_warnings(cli, scratch_dir):
+    """JSON output includes warnings array."""
+    import json
+
+    content = """# Test
+
+```mermaid
+flowchart LR
+    API ---obackend
+```
+"""
+    (scratch_dir / "warn.md").write_text(content, encoding="utf-8")
+
+    result = cli("mermaid", "check", str(scratch_dir), "--format", "json")
+
+    result.assert_success()
+    data = json.loads(result.stdout)
+    assert "warnings" in data
+    assert "total_warnings" in data
+
+
+def test_mermaid_check_clean_file_no_warnings(cli, scratch_dir):
+    """Clean diagram produces no warnings."""
+    content = """# Clean
+
+```mermaid
+flowchart LR
+    A --> B --> C
+```
+"""
+    (scratch_dir / "clean.md").write_text(content, encoding="utf-8")
+
+    result = cli("mermaid", "check", str(scratch_dir))
+
+    result.assert_success()
+    assert "warning" not in result.stdout
+
+
+def test_mermaid_check_syntax_error_and_warnings(cli, scratch_dir):
+    """Both syntax errors and style warnings are reported; exit 1 from error."""
+    content = """# Mixed
+
+```mermaid
+flowchart LR
+    API ---obackend
+```
+
+```mermaid
+foobar
+    broken syntax
+```
+"""
+    (scratch_dir / "mixed.md").write_text(content, encoding="utf-8")
+
+    result = cli("mermaid", "check", str(scratch_dir))
+
+    assert result.returncode == 1
+    assert "warning[ox-edge]" in result.stdout
+    assert "invalid block(s) found" in result.stderr

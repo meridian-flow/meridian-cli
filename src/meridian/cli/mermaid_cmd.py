@@ -31,7 +31,10 @@ Commands:
 Options:
   --depth N      Limit directory traversal depth
   --exclude PAT  Exclude paths matching glob pattern (repeatable)
-  --format FMT   Output format: text (default) or json"""
+  --format FMT   Output format: text (default) or json
+  --strict       Treat style warnings as errors
+  --no-style     Disable style checks (syntax only)
+  --disable CAT  Disable comma-separated warning categories"""
     )
     raise SystemExit(0)
 
@@ -55,11 +58,26 @@ def cmd_mermaid_check(
         str,
         Parameter(name="--format", help="Output format: text (default) or json."),
     ] = "text",
+    strict: Annotated[
+        bool,
+        Parameter(name="--strict", help="Treat style warnings as errors (exit 1)."),
+    ] = False,
+    no_style: Annotated[
+        bool,
+        Parameter(name="--no-style", help="Disable style checks (syntax only)."),
+    ] = False,
+    disable: Annotated[
+        str | None,
+        Parameter(name="--disable", help="Comma-separated warning categories to disable."),
+    ] = None,
 ) -> None:
     """Check mermaid diagram syntax. Exit 0 if clean, exit 1 if errors found."""
     from meridian.cli.main import get_global_options
     from meridian.lib.mermaid.report import format_check_output
+    from meridian.lib.mermaid.scanner import collect_targets
     from meridian.lib.mermaid.serializer import serialize_check
+    from meridian.lib.mermaid.style import get_all_categories, run_style_checks
+    from meridian.lib.mermaid.style.types import CheckResult, StyleCheckOptions
 
     resolved = path.resolve()
     if not resolved.exists():
@@ -72,20 +90,58 @@ def cmd_mermaid_check(
     )
     result = validate_path(resolved, opts=opts)
 
+    disabled_categories = _parse_disabled_categories(disable)
+    known_categories = {category.id for category in get_all_categories()}
+    for category in sorted(disabled_categories - known_categories):
+        print(f"unknown warning category: {category}", file=sys.stderr)
+
+    style_options = StyleCheckOptions(
+        enabled=not no_style,
+        strict=strict,
+        disabled_categories=disabled_categories,
+    )
+
+    root = resolved if resolved.is_dir() else resolved.parent
+    targets = collect_targets(
+        resolved,
+        root,
+        depth=opts.depth,
+        exclude=opts.exclude if opts.exclude else None,
+    )
+    active_warnings, suppressed_warnings = run_style_checks(targets, result.results, style_options)
+    check_result = CheckResult(
+        validation=result,
+        warnings=active_warnings,
+        suppressed_warnings=suppressed_warnings,
+        style_options=style_options,
+    )
+
     effective_fmt = "json" if get_global_options().output.format == "json" else fmt
 
     if effective_fmt == "json":
         import json
 
-        print(json.dumps(serialize_check(result, resolved), indent=2))
+        print(json.dumps(serialize_check(check_result, resolved), indent=2))
     else:
-        stdout, stderr = format_check_output(result)
+        stdout, stderr = format_check_output(check_result)
         if stdout:
             print(stdout)
         if stderr:
             print(stderr, file=sys.stderr)
 
-    raise SystemExit(1 if result.has_errors else 0)
+    has_errors = check_result.validation.has_errors
+    has_warnings = len(check_result.warnings) > 0
+
+    exit_code = 1 if has_errors or (check_result.style_options.strict and has_warnings) else 0
+
+    raise SystemExit(exit_code)
+
+
+def _parse_disabled_categories(disable: str | None) -> set[str]:
+    """Parse comma-separated style warning categories."""
+    if not disable:
+        return set()
+    return {category.strip() for category in disable.split(",") if category.strip()}
 
 
 __all__ = [

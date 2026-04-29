@@ -4,6 +4,12 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 ### Added
+- `meridian mermaid check` style warnings: ox-edge, bare-end, fill-no-color
+- `--strict` flag: treat warnings as errors
+- `--no-style` flag: disable style checks
+- `--disable` flag: suppress specific warning categories
+- Inline suppression via `%% mermaid-check-ignore` comments
+- JSON output includes warnings array and counts
 - Failed spawn sentinel. Terminal `failed` transition writes `failure.json`; app service can read it back.
 - Lifecycle telemetry event model, observer protocol, event names, and per-spawn sequence counter skeleton for future spawn observer hooks.
 - `scripts/quality-issues.sh` helper. Lists open quality/immediate GitHub issues, skips `future`, groups by priority: high, medium, low, unprioritized.

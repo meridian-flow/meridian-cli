@@ -72,8 +72,8 @@ def test_public_import_paths_work() -> None:
     assert content_line_to_file_line is not None
 
 
-def test_get_all_categories_returns_empty_list_for_foundation_phase() -> None:
+def test_get_all_categories_returns_registered_categories_for_warning_phase() -> None:
     categories = get_all_categories()
 
     assert isinstance(categories, list)
-    assert categories == []
+    assert {category.id for category in categories} == {"bare-end", "ox-edge", "fill-no-color"}
