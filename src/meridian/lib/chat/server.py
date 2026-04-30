@@ -6,33 +6,29 @@ import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
-from meridian.lib.chat.backend_acquisition import BackendAcquisition
-from meridian.lib.chat.checkpoint import CheckpointService
-from meridian.lib.chat.command_handler import ChatCommandHandler
 from meridian.lib.chat.commands import ChatCommand, CommandResult
-from meridian.lib.chat.event_index import ChatEventIndex
-from meridian.lib.chat.event_log import ChatEventLog
-from meridian.lib.chat.event_pipeline import ChatEventPipeline
-from meridian.lib.chat.protocol import CHAT_EXITED, CHAT_STARTED, ChatEvent, utc_now_iso
+from meridian.lib.chat.protocol import utc_now_iso
 from meridian.lib.chat.replay import ReplayService
-from meridian.lib.chat.session_service import ChatSessionService
-from meridian.lib.chat.ws_fanout import WebSocketFanOut
-from meridian.lib.state.paths import RuntimePaths
+from meridian.lib.chat.runtime import ChatRuntime
 from meridian.lib.state.user_paths import get_user_home
+
+if TYPE_CHECKING:
+    from meridian.lib.chat.backend_acquisition import BackendAcquisition
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    recover_chats()
-    for pipeline in _state.pipelines.values():
-        pipeline.start()
-    yield
+    await _runtime.start()
+    try:
+        yield
+    finally:
+        await _runtime.stop()
 
 
 app = FastAPI(lifespan=lifespan)
@@ -72,10 +68,6 @@ class StateResponse(BaseModel):
     state: str
 
 
-class ErrorResponse(BaseModel):
-    detail: str
-
-
 class _UnavailableAcquisition:
     async def acquire(
         self,
@@ -88,31 +80,11 @@ class _UnavailableAcquisition:
         raise RuntimeError("chat backend acquisition is not configured")
 
 
-class ChatServerState:
-    def __init__(
-        self,
-        runtime_root: Path,
-        backend_acquisition: BackendAcquisition,
-        project_root: Path,
-    ) -> None:
-        self.runtime_root = runtime_root
-        self.project_root = project_root
-        self.paths = RuntimePaths.from_root_dir(runtime_root)
-        self.backend_acquisition = backend_acquisition
-        self.sessions: dict[str, ChatSessionService] = {}
-        self.event_logs: dict[str, ChatEventLog] = {}
-        self.event_indexes: dict[str, ChatEventIndex] = {}
-        self.fanouts: dict[str, WebSocketFanOut] = {}
-        self.pipelines: dict[str, ChatEventPipeline] = {}
-        self.checkpoints: dict[str, CheckpointService] = {}
-        self.checkpoint_lock = asyncio.Lock()
-
-    @property
-    def handler(self) -> ChatCommandHandler:
-        return ChatCommandHandler(self.sessions, self.pipelines, self.checkpoints)
-
-
-_state = ChatServerState(get_user_home(), _UnavailableAcquisition(), Path.cwd())
+_runtime = ChatRuntime(
+    runtime_root=get_user_home(),
+    project_root=Path.cwd(),
+    backend_acquisition=_UnavailableAcquisition(),
+)
 
 
 def configure(
@@ -123,117 +95,21 @@ def configure(
 ) -> None:
     """Configure process-local chat server dependencies."""
 
-    global _state
-    _state = ChatServerState(
-        runtime_root or get_user_home(),
-        backend_acquisition or _UnavailableAcquisition(),
-        project_root or Path.cwd(),
+    global _runtime
+    _runtime = ChatRuntime(
+        runtime_root=runtime_root or get_user_home(),
+        project_root=project_root or Path.cwd(),
+        backend_acquisition=backend_acquisition or _UnavailableAcquisition(),
     )
-    recover_chats()
-
-
-def recover_chats() -> None:
-    """Rebuild in-memory registry from persisted chat event logs."""
-
-    chats_dir = _state.paths.chats_dir
-    if not chats_dir.exists():
-        return
-    for history_path in chats_dir.glob("*/history.jsonl"):
-        chat_id = history_path.parent.name
-        if chat_id in _state.event_logs:
-            continue
-        event_log = ChatEventLog(history_path)
-        events = list(event_log.read_all())
-        if not events:
-            continue
-        _state.event_logs[chat_id] = event_log
-        event_index = _load_event_index(chat_id)
-        event_index.rebuild_from_log(event_log)
-        if any(event.type == CHAT_EXITED for event in events):
-            continue
-        session = ChatSessionService(chat_id, _state.backend_acquisition)
-        _state.sessions[chat_id] = session
-        fanout = WebSocketFanOut()
-        _state.fanouts[chat_id] = fanout
-        pipeline = ChatEventPipeline(
-            chat_id, event_log, session, event_index=event_index, fanout=fanout
-        )
-        checkpoint = CheckpointService(
-            _state.project_root,
-            pipeline,
-            chat_registry=_active_chat_count,
-            checkpoint_lock=_state.checkpoint_lock,
-        )
-        pipeline.set_turn_completed_callback(
-            lambda event, service=checkpoint: _checkpoint_turn(service, event)
-        )
-        _start_pipeline_if_running_loop(pipeline)
-        _state.pipelines[chat_id] = pipeline
-        _state.checkpoints[chat_id] = checkpoint
-        last_state = _state_from_events(events)
-        if last_state in {"active", "draining"}:
-            _ = event_log.append(
-                ChatEvent(
-                    type="runtime.error",
-                    seq=0,
-                    chat_id=chat_id,
-                    execution_id=_last_execution_id(events),
-                    timestamp=utc_now_iso(),
-                    payload={"reason": "backend_lost_after_restart"},
-                )
-            )
-
-
-def get_chat_pipeline(chat_id: str) -> ChatEventPipeline | None:
-    """Return the live pipeline for a configured chat, when present."""
-
-    return _state.pipelines.get(chat_id)
-
-
-def _active_chat_count() -> int:
-    return sum(1 for session in _state.sessions.values() if session.state != "closed")
 
 
 @app.post("/chat", response_model=CreateChatResponse)
 async def create_chat(body: CreateChatRequest) -> CreateChatResponse:
-    _ = body
-    chat_id = f"c-{uuid4().hex}"
-    event_log = ChatEventLog(_state.paths.chat_history_path(chat_id))
-    event_index = _load_event_index(chat_id)
-    session = ChatSessionService(chat_id, _state.backend_acquisition)
-    fanout = WebSocketFanOut()
-    pipeline = ChatEventPipeline(
-        chat_id, event_log, session, event_index=event_index, fanout=fanout
+    view = await _runtime.create_chat(
+        model=body.model,
+        harness=body.harness,
     )
-    checkpoint = CheckpointService(
-        _state.project_root,
-        pipeline,
-        chat_registry=_active_chat_count,
-        checkpoint_lock=_state.checkpoint_lock,
-    )
-    pipeline.set_turn_completed_callback(
-        lambda event, service=checkpoint: _checkpoint_turn(service, event)
-    )
-    pipeline.start()
-
-    _state.event_logs[chat_id] = event_log
-    _state.event_indexes[chat_id] = event_index
-    _state.sessions[chat_id] = session
-    _state.fanouts[chat_id] = fanout
-    _state.pipelines[chat_id] = pipeline
-    _state.checkpoints[chat_id] = checkpoint
-
-    await pipeline.ingest(
-        ChatEvent(
-            type=CHAT_STARTED,
-            seq=0,
-            chat_id=chat_id,
-            execution_id="",
-            timestamp=utc_now_iso(),
-        )
-    )
-    await pipeline.drain()
-    return CreateChatResponse(chat_id=chat_id, state=session.state)
+    return CreateChatResponse(chat_id=view.chat_id, state=view.state)
 
 
 @app.post("/chat/{chat_id}/msg", response_model=CommandResult)
@@ -268,40 +144,27 @@ async def revert_checkpoint(chat_id: str, body: RevertRequest) -> CommandResult:
 
 @app.post("/chat/{chat_id}/close", response_model=CommandResult)
 async def close_chat(chat_id: str) -> CommandResult:
-    result = await _dispatch_rest(chat_id, "close", {})
-    if result.status == "accepted":
-        pipeline = _state.pipelines.get(chat_id)
-        if pipeline is not None:
-            await pipeline.drain()
-        _state.fanouts.pop(chat_id, None)
-    return result
+    return await _dispatch_rest(chat_id, "close", {})
 
 
 @app.get("/chat/{chat_id}/state", response_model=StateResponse)
 async def get_chat_state(chat_id: str) -> StateResponse:
-    session = _state.sessions.get(chat_id)
-    if session is not None:
-        return StateResponse(chat_id=chat_id, state=session.state)
-    event_log = _state.event_logs.get(chat_id) or _load_event_log(chat_id)
-    if event_log is None:
-        raise HTTPException(status_code=404, detail="chat_not_found")
-    events = list(event_log.read_all())
-    if any(event.type == CHAT_EXITED for event in events):
-        return StateResponse(chat_id=chat_id, state="closed")
-    return StateResponse(chat_id=chat_id, state="idle")
+    state = _runtime.get_state(chat_id)
+    if state is not None:
+        return StateResponse(chat_id=chat_id, state=state)
+    raise HTTPException(status_code=404, detail="chat_not_found")
 
 
 @app.websocket("/ws/chat/{chat_id}")
 async def ws_chat(websocket: WebSocket, chat_id: str) -> None:
     await websocket.accept()
-    event_log = _state.event_logs.get(chat_id) or _load_event_log(chat_id)
-    if event_log is None:
+    stream_source = _runtime.get_stream_source(chat_id)
+    if stream_source is None:
         await websocket.close(code=4004, reason="chat_not_found")
         return
     send_lock = asyncio.Lock()
-    fanout = _state.fanouts.get(chat_id)
     last_seq = _parse_last_seq(websocket)
-    replay = ReplayService(event_log, fanout, send_lock)
+    replay = ReplayService(stream_source.event_log, stream_source.fanout, send_lock)
 
     async def outbound() -> None:
         await replay.connect(websocket, last_seq)
@@ -345,7 +208,7 @@ async def _dispatch_rest(chat_id: str, command_type: str, payload: dict[str, Any
         timestamp=utc_now_iso(),
         payload=payload,
     )
-    return await _state.handler.dispatch(command)
+    return await _runtime.dispatch(command)
 
 
 async def _handle_ws_command(raw: dict[str, object], path_chat_id: str) -> dict[str, str]:
@@ -354,7 +217,7 @@ async def _handle_ws_command(raw: dict[str, object], path_chat_id: str) -> dict[
         command = _parse_chat_command(raw, path_chat_id)
     except ValueError as exc:
         return {"ack": command_id, "status": "rejected", "error": str(exc)}
-    result = await _state.handler.dispatch(command)
+    result = await _runtime.dispatch(command)
     payload = {"ack": command.command_id, "status": result.status}
     if result.error is not None:
         payload["error"] = result.error
@@ -386,33 +249,6 @@ def _parse_chat_command(raw: dict[str, object], path_chat_id: str) -> ChatComman
     )
 
 
-def _load_event_log(chat_id: str) -> ChatEventLog | None:
-    path = _state.paths.chat_history_path(chat_id)
-    if not path.exists():
-        return None
-    event_log = ChatEventLog(path)
-    _state.event_logs[chat_id] = event_log
-    return event_log
-
-
-def _load_event_index(chat_id: str) -> ChatEventIndex:
-    event_index = _state.event_indexes.get(chat_id)
-    if event_index is not None:
-        return event_index
-    event_index = ChatEventIndex(_state.paths.chats_dir / chat_id / "index.sqlite3")
-    _state.event_indexes[chat_id] = event_index
-    return event_index
-
-
-async def _checkpoint_turn(service: CheckpointService, event: ChatEvent) -> None:
-    turn_id = event.turn_id
-    if turn_id is None:
-        raw_turn_id = event.payload.get("turn_id")
-        turn_id = raw_turn_id if isinstance(raw_turn_id, str) else None
-    if turn_id:
-        await service.create_checkpoint(turn_id)
-
-
 def _parse_last_seq(websocket: WebSocket) -> int | None:
     raw = websocket.query_params.get("last_seq")
     if raw is None or raw == "":
@@ -423,31 +259,4 @@ def _parse_last_seq(websocket: WebSocket) -> int | None:
         return None
 
 
-def _state_from_events(events: list[ChatEvent]) -> str:
-    state = "idle"
-    for event in events:
-        if event.type == "turn.started":
-            state = "active"
-        elif event.type == "turn.completed":
-            state = "idle"
-        elif event.type == CHAT_EXITED:
-            state = "closed"
-    return state
-
-
-def _last_execution_id(events: list[ChatEvent]) -> str:
-    for event in reversed(events):
-        if event.execution_id:
-            return event.execution_id
-    return ""
-
-
-__all__ = ["app", "configure", "get_chat_pipeline", "recover_chats"]
-
-
-def _start_pipeline_if_running_loop(pipeline: ChatEventPipeline) -> None:
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        return
-    pipeline.start()
+__all__ = ["app", "configure"]

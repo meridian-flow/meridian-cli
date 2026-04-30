@@ -124,12 +124,13 @@ def _build_backend_acquisition(
     manager = SpawnManager(runtime_root=runtime_root, project_root=project_root)
 
     def pipeline_factory(chat_id: str, _execution_id: str) -> ChatEventPipeline:
-        from meridian.lib.chat.server import get_chat_pipeline
+        import meridian.lib.chat.server as chat_server
 
-        pipeline = get_chat_pipeline(chat_id)
-        if pipeline is None:
+        runtime = vars(chat_server)["_runtime"]
+        entry = runtime.live_entries.get(chat_id)
+        if entry is None:
             raise RuntimeError(f"chat pipeline not configured for {chat_id}")
-        return pipeline
+        return entry.pipeline
 
     return ColdSpawnAcquisition(
         spawn_manager=cast("Any", manager),
