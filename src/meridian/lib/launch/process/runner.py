@@ -25,6 +25,7 @@ from meridian.lib.harness.claude_preflight import ensure_claude_session_accessib
 from meridian.lib.harness.connections import get_connection_class
 from meridian.lib.harness.connections.base import HarnessConnection
 from meridian.lib.harness.passthrough import get_passthrough
+from meridian.lib.harness.passthrough.base import PassthroughError
 from meridian.lib.harness.registry import HarnessRegistry
 from meridian.lib.launch.artifact_io import write_projection_artifacts
 from meridian.lib.launch.constants import (
@@ -397,6 +398,8 @@ async def _run_primary_attach(
         )
     except PrimaryAttachError:
         raise
+    except PassthroughError as exc:
+        raise PrimaryAttachError(str(exc)) from exc
     except Exception as exc:
         raise PrimaryAttachError(f"Managed primary attach failed for {harness_id.value}") from exc
 

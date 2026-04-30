@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 from meridian.lib.harness.ids import HarnessId
-from meridian.lib.launch.process.primary_attach import PrimaryAttachError
 
-from .base import TuiPassthrough
+from .base import PassthroughError, TuiPassthrough
 from .claude import ClaudePassthrough
 from .codex import CodexPassthrough
 from .opencode import OpenCodePassthrough
@@ -21,7 +20,7 @@ def get_passthrough(harness_id: HarnessId) -> TuiPassthrough:
     }
     factory = registry.get(harness_id)
     if factory is None:
-        raise PrimaryAttachError(
+        raise PassthroughError(
             f"Managed primary attach is not supported for {harness_id.value}"
         )
     return factory()

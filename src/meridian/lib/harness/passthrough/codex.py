@@ -11,7 +11,8 @@ from meridian.lib.harness.connections.base import ConnectionConfig, HarnessConne
 from meridian.lib.harness.ids import HarnessId
 from meridian.lib.harness.launch_spec import CodexLaunchSpec
 from meridian.lib.launch.launch_types import ResolvedLaunchSpec
-from meridian.lib.launch.process.primary_attach import PrimaryAttachError, TuiCommandBuilder
+
+from .base import PassthroughError, TuiCommandBuilder
 
 
 def _reserve_local_port(host: str = "127.0.0.1") -> int:
@@ -29,11 +30,11 @@ def _require_observer_endpoint_url(
 ) -> str:
     endpoint = connection.observer_endpoint
     if endpoint is None:
-        raise PrimaryAttachError(
+        raise PassthroughError(
             f"Managed backend did not expose an observer endpoint for {connection.harness_id.value}"
         )
     if endpoint.transport != transport:
-        raise PrimaryAttachError(
+        raise PassthroughError(
             "Managed backend exposed unexpected observer transport "
             f"'{endpoint.transport}' (expected '{transport}')"
         )
@@ -61,7 +62,7 @@ class CodexPassthrough:
         env: dict[str, str],
     ) -> ConnectionConfig:
         if not isinstance(spec, CodexLaunchSpec):
-            raise PrimaryAttachError(f"Expected CodexLaunchSpec, got {type(spec).__name__}")
+            raise PassthroughError(f"Expected CodexLaunchSpec, got {type(spec).__name__}")
         ws_bind_host = "127.0.0.1"
         return ConnectionConfig(
             spawn_id=spawn_id,

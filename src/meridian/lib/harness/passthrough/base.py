@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Protocol
 
 from meridian.lib.core.types import SpawnId
 from meridian.lib.harness.connections.base import ConnectionConfig, HarnessConnection
 from meridian.lib.launch.launch_types import ResolvedLaunchSpec
-from meridian.lib.launch.process.primary_attach import TuiCommandBuilder
+
+TuiCommandBuilder = Callable[[str], tuple[str, ...]]
+
+
+class PassthroughError(Exception):
+    """Passthrough configuration failed before primary attach launch."""
 
 
 class TuiPassthrough(Protocol):
