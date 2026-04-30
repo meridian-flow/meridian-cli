@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 from io import StringIO
+from typing import cast
 
 import pytest
 
@@ -111,6 +112,25 @@ def test_chat_command_falls_back_to_globally_parsed_harness(monkeypatch) -> None
     assert captured["harness"] == "codex"
 
 
+def test_chat_command_prefers_explicit_harness_over_global_default(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run_chat_server(**kwargs) -> int:
+        captured.update(kwargs)
+        return 8765
+
+    monkeypatch.setattr(chat_cmd, "run_chat_server", fake_run_chat_server)
+    token = cli_main._GLOBAL_OPTIONS.set(
+        cli_main.GlobalOptions(output=OutputConfig(format="text"), harness="claude")
+    )
+    try:
+        chat_cmd._chat(harness="opencode", port=8765)
+    finally:
+        cli_main._GLOBAL_OPTIONS.reset(token)
+
+    assert captured["harness"] == "opencode"
+
+
 @pytest.mark.parametrize("harness", [HarnessId.CLAUDE, HarnessId.CODEX, HarnessId.OPENCODE])
 def test_backend_acquisition_preserves_requested_harness(tmp_path, harness: HarnessId) -> None:
     acquisition = chat_cmd._build_backend_acquisition(
@@ -125,4 +145,66 @@ def test_backend_acquisition_preserves_requested_harness(tmp_path, harness: Harn
     spec = acquisition._build_launch_spec("hello")
 
     assert config.harness_id == harness
+    assert spec.model == "model-x"
+
+
+@pytest.mark.parametrize(
+    ("harness_name", "expected_harness"),
+    [
+        ("claude", HarnessId.CLAUDE),
+        ("codex", HarnessId.CODEX),
+        ("opencode", HarnessId.OPENCODE),
+    ],
+)
+def test_chat_cli_builds_runtime_with_factory_inputs(
+    monkeypatch, tmp_path, harness_name: str, expected_harness: HarnessId
+) -> None:
+    runtime_root = tmp_path / "runtime"
+    captured: dict[str, object] = {}
+
+    class FakeRuntime:
+        def __init__(self, *, runtime_root, project_root, acquisition_factory) -> None:
+            captured["runtime_root"] = runtime_root
+            captured["project_root"] = project_root
+            captured["acquisition_factory"] = acquisition_factory
+            captured["runtime"] = self
+
+    def fake_configure(*, runtime) -> None:
+        captured["configured_runtime"] = runtime
+
+    monkeypatch.setattr(chat_cmd, "ChatRuntime", FakeRuntime)
+    monkeypatch.setattr("meridian.cli.chat_cmd.get_user_home", lambda: runtime_root)
+    monkeypatch.chdir(tmp_path)
+
+    import meridian.lib.chat.server as chat_server
+
+    monkeypatch.setattr(chat_server, "configure", fake_configure)
+    monkeypatch.setattr(chat_server, "app", object())
+
+    run_chat_server(
+        harness=harness_name,
+        model="model-x",
+        port=8900,
+        uvicorn_run=lambda *_args, **_kwargs: None,
+        stdout=StringIO(),
+    )
+
+    assert captured["runtime_root"] == runtime_root
+    assert captured["project_root"] == tmp_path
+    assert captured["configured_runtime"] is captured["runtime"]
+
+    factory = cast("chat_cmd._ChatBackendAcquisitionFactory", captured["acquisition_factory"])
+    assert factory.harness_id == expected_harness
+    assert factory.model == "model-x"
+
+    acquisition = factory.build(
+        pipeline_lookup=EmptyPipelineLookup(),
+        project_root=tmp_path,
+        runtime_root=runtime_root,
+    )
+    config = acquisition._build_connection_config("c1", "hello")
+    spec = acquisition._build_launch_spec("hello")
+
+    assert config.harness_id == expected_harness
+    assert config.project_root == tmp_path
     assert spec.model == "model-x"
