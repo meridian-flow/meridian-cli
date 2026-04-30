@@ -71,12 +71,34 @@ class ConnectionNotReady(RuntimeError):
 
 @dataclass(frozen=True)
 class HarnessEvent:
-    """One parsed event from a running harness connection."""
+    """One parsed event from a running harness connection.
+
+    Event type values stay in the producing harness namespace. Consumers that
+    need semantic categories should normalize by both ``harness_id`` and
+    ``event_type`` rather than assuming event-type names are globally unique.
+    """
 
     event_type: str
+    """Raw producer event name.
+
+    Claude emits ``result`` plus SDK event types such as
+    ``content_block_delta``, ``message_start``, ``message_stop``,
+    ``content_block_start``, and ``content_block_stop``.
+
+    Codex emits JSON-RPC method names such as ``turn/started``,
+    ``turn/completed``, ``item/tool/completed``,
+    ``item/tool/requestApproval``, and ``item/tool/requestUserInput``.
+
+    OpenCode emits SSE event types such as ``session.idle``,
+    ``session.error``, ``agent_message_chunk``, ``agent_thought_chunk``,
+    ``tool_call``, and ``tool_call_update``.
+    """
     payload: dict[str, object]
+    """Parsed event payload from the harness transport."""
     harness_id: str
+    """Identifier of the harness adapter that produced this event."""
     raw_text: str | None = None
+    """Optional debug-level wire content, when retained by the adapter."""
 
 
 @dataclass(frozen=True)
