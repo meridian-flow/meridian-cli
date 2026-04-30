@@ -3,8 +3,13 @@
 Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [SemVer](https://semver.org/). Versions `0.0.6` through `0.0.25` in git history only — changelog fell stale, resumed at `[Unreleased]`.
 
 ## [Unreleased]
+### Changed
+- Chat backend structural refactors: `server.py` now transport-only; `ChatRuntime` owns lifecycle, dispatch, close postwork, and recovery. `BackendAcquisitionFactory` + `PipelineLookup` break bootstrap cycle. Normalizers moved from `harness/normalizers/` to `chat/normalization/` (D8 superseded). TUI passthrough extracted to `harness/passthrough/` with `TuiPassthrough` protocol.
+- Dead code cleanup: removed `cli/format_helpers.py` shim, dead CLI helpers, unused `ReferenceFile` aliases, `load_reference_files()`, speculative `CreateChatRequest` model/harness fields, stale re-exports, unused function params, unreachable recovery logic.
+
 ### Fixed
 - `meridian work` / `meridian work list` no longer crash when a work item exists in both active and archive directories. Warns instead of failing, dashboard stays usable.
+- Chat recovery no longer emits duplicate `runtime.error` on repeated restarts of the same abandoned chat. SQLite index now consistent with JSONL after recovery.
 
 ### Added
 - `meridian chat` starts the local headless chat backend with host/port/model/harness options.
