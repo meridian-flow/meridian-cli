@@ -34,8 +34,8 @@ class FakeAcquisition:
         self.handles = []
         self.prompts = []
 
-    async def acquire(self, chat_id, initial_prompt):
-        self.prompts.append((chat_id, initial_prompt))
+    async def acquire(self, chat_id, initial_prompt, *, execution_generation=0):
+        self.prompts.append((chat_id, initial_prompt, execution_generation))
         handle = FakeHandle()
         self.handles.append(handle)
         return handle
@@ -49,7 +49,7 @@ async def test_first_prompt_acquires_backend_and_sets_active():
     await session.prompt("hello")
 
     assert session.state == "active"
-    assert acquisition.prompts == [("c1", "hello")]
+    assert acquisition.prompts == [("c1", "hello", 1)]
     assert session.execution_generation == 1
 
 

@@ -12,7 +12,9 @@ class Handle:
     async def stop(self): pass
 
 class Acquisition:
-    async def acquire(self, chat_id, initial_prompt): return Handle()
+    async def acquire(self, chat_id, initial_prompt, *, execution_generation=0):
+        _ = (chat_id, initial_prompt, execution_generation)
+        return Handle()
 
 @pytest.mark.asyncio
 async def test_idle_active_draining_idle_closed_lifecycle():

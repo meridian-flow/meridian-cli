@@ -277,6 +277,11 @@ class SpawnManager:
 
         self._observers.register(spawn_id, observer)
 
+    def unregister_observer(self, spawn_id: SpawnId, observer: EventObserver) -> None:
+        """Remove a previously registered event observer for one spawn."""
+
+        self._observers.unregister(spawn_id, observer)
+
     async def _drain_loop(
         self,
         spawn_id: SpawnId,

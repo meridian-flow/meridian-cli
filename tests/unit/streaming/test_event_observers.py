@@ -112,3 +112,21 @@ async def test_registry_dispatches_to_multiple_observers() -> None:
 
     assert first.events == ["item.completed"]
     assert second.events == ["item.completed"]
+
+
+@pytest.mark.asyncio
+async def test_registry_unregister_removes_only_requested_observer() -> None:
+    spawn_id = SpawnId("s-unregister")
+    removed = RecordingObserver()
+    kept = RecordingObserver()
+    registry = EventObserverRegistry()
+
+    registry.register(spawn_id, removed)
+    registry.register(spawn_id, kept)
+    registry.unregister(spawn_id, removed)
+    registry.dispatch(spawn_id, _event("after-unregister"))
+
+    await registry.shutdown(spawn_id)
+
+    assert removed.events == []
+    assert kept.events == ["after-unregister"]

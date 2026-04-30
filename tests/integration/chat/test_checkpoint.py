@@ -24,7 +24,8 @@ class Handle:
 
 
 class Acquisition:
-    async def acquire(self, chat_id, initial_prompt):
+    async def acquire(self, chat_id, initial_prompt, *, execution_generation=0):
+        _ = (chat_id, initial_prompt, execution_generation)
         return Handle()
 
 

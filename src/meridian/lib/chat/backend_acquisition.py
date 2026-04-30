@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import suppress
 from pathlib import Path
 from typing import Any, Protocol, cast
 from uuid import uuid4
@@ -23,7 +24,13 @@ from meridian.lib.streaming.drain_policy import PersistentDrainPolicy
 class BackendAcquisition(Protocol):
     """Strategy for acquiring a backing execution on first prompt."""
 
-    async def acquire(self, chat_id: str, initial_prompt: str) -> BackendHandle:
+    async def acquire(
+        self,
+        chat_id: str,
+        initial_prompt: str,
+        *,
+        execution_generation: int = 0,
+    ) -> BackendHandle:
         """Acquire a backend and send the initial prompt as part of startup."""
         ...
 
@@ -39,6 +46,8 @@ class _SpawnManagerLike(Protocol):
     ) -> HarnessConnection[Any]: ...
 
     def register_observer(self, spawn_id: SpawnId, observer: object) -> None: ...
+
+    def unregister_observer(self, spawn_id: SpawnId, observer: object) -> None: ...
 
     async def start_heartbeat(self, spawn_id: SpawnId) -> None: ...
 
@@ -68,7 +77,6 @@ class ColdSpawnAcquisition:
         launch_spec_factory: LaunchSpecFactory | None = None,
         project_root: Path | None = None,
         harness_id: HarnessId = HarnessId.CLAUDE,
-        execution_generation: int | None = None,
     ) -> None:
         self._spawn_manager = spawn_manager
         self._normalizer_factory = normalizer_factory
@@ -77,9 +85,14 @@ class ColdSpawnAcquisition:
         self._launch_spec_factory = launch_spec_factory
         self._project_root = project_root if project_root is not None else Path.cwd()
         self._harness_id = harness_id
-        self._execution_generation = execution_generation
 
-    async def acquire(self, chat_id: str, initial_prompt: str) -> BackendHandle:
+    async def acquire(
+        self,
+        chat_id: str,
+        initial_prompt: str,
+        *,
+        execution_generation: int = 0,
+    ) -> BackendHandle:
         """Start a cold backend with the first prompt and return its handle."""
 
         config = self._build_connection_config(chat_id, initial_prompt)
@@ -91,22 +104,27 @@ class ColdSpawnAcquisition:
             normalizer=normalizer,
             pipeline=pipeline,
             execution_id=execution_id,
-            execution_generation=self._execution_generation or 0,
+            execution_generation=execution_generation,
         )
 
         # Critical D15/D19 invariant: observer first, then SpawnManager start.
         self._spawn_manager.register_observer(config.spawn_id, observer)
-        connection = await self._spawn_manager.start_spawn(
-            config,
-            spec,
-            drain_policy=PersistentDrainPolicy(),
-        )
-        await self._spawn_manager.start_heartbeat(config.spawn_id)
+        try:
+            connection = await self._spawn_manager.start_spawn(
+                config,
+                spec,
+                drain_policy=PersistentDrainPolicy(),
+            )
+            await self._spawn_manager.start_heartbeat(config.spawn_id)
+        except Exception:
+            with suppress(Exception):
+                self._spawn_manager.unregister_observer(config.spawn_id, observer)
+            raise
         return BackendHandle(
             spawn_id=config.spawn_id,
             spawn_manager=cast("Any", self._spawn_manager),
             connection=connection,
-            execution_generation=self._execution_generation or 0,
+            execution_generation=execution_generation,
         )
 
     def _build_connection_config(self, chat_id: str, initial_prompt: str) -> ConnectionConfig:

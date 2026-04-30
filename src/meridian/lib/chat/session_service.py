@@ -77,6 +77,7 @@ class ChatSessionService:
                     self._current_execution = await self._acquisition.acquire(
                         self._chat_id,
                         text,
+                        execution_generation=self._execution_generation,
                     )
                 except Exception:
                     self._state = "idle"

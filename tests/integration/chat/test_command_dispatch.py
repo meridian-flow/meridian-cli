@@ -16,7 +16,9 @@ class Handle:
     async def respond_user_input(self, request_id, answers): pass
 
 class Acquisition:
-    async def acquire(self, chat_id, initial_prompt): return Handle()
+    async def acquire(self, chat_id, initial_prompt, *, execution_generation=0):
+        _ = (chat_id, initial_prompt, execution_generation)
+        return Handle()
 
 @pytest.mark.asyncio
 async def test_transport_producers_reuse_same_handler_semantics():

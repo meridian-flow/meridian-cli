@@ -76,6 +76,12 @@ class QueuedObserver:
 
         return self._task
 
+    @property
+    def observer(self) -> EventObserver:
+        """Return the wrapped observer."""
+
+        return self._observer
+
     def enqueue(self, event: HarnessEvent) -> None:
         """Queue one event without blocking; drop and warn if full."""
 
@@ -101,6 +107,12 @@ class QueuedObserver:
             except asyncio.QueueFull:
                 with suppress(asyncio.QueueEmpty):
                     self._queue.get_nowait()
+
+    def cancel(self) -> None:
+        """Cancel delivery without invoking observer completion."""
+
+        if not self._task.done():
+            self._task.cancel()
 
     async def _drain(self) -> None:
         while True:
@@ -129,6 +141,23 @@ class EventObserverRegistry:
 
         queued = QueuedObserver(observer, spawn_id, max_buffer=self._max_buffer)
         self._observers.setdefault(spawn_id, []).append(queued)
+
+    def unregister(self, spawn_id: SpawnId, observer: EventObserver) -> None:
+        """Remove one observer for a spawn."""
+
+        queued_observers = self._observers.get(spawn_id)
+        if not queued_observers:
+            return
+        remaining: list[QueuedObserver] = []
+        for queued in queued_observers:
+            if queued.observer is observer:
+                queued.cancel()
+            else:
+                remaining.append(queued)
+        if remaining:
+            self._observers[spawn_id] = remaining
+        else:
+            self._observers.pop(spawn_id, None)
 
     def dispatch(self, spawn_id: SpawnId, event: HarnessEvent) -> None:
         """Non-blocking enqueue to all observers registered for a spawn."""

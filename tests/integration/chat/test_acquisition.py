@@ -47,12 +47,18 @@ class SpawnManager:
         self.connection = Connection()
         self.drain_policy = None
         self.started_config = None
+        self.fail_start = False
 
     def register_observer(self, spawn_id, observer):
         self.calls.append(("register", spawn_id, observer))
 
+    def unregister_observer(self, spawn_id, observer):
+        self.calls.append(("unregister", spawn_id, observer))
+
     async def start_spawn(self, config, spec, *, drain_policy=None, on_event=None):
         self.calls.append(("start", config.spawn_id, spec))
+        if self.fail_start:
+            raise RuntimeError("boom")
         self.started_config = config
         self.drain_policy = drain_policy
         return self.connection
@@ -101,9 +107,39 @@ async def test_cold_acquisition_registers_observer_before_start_and_uses_persist
         ),
     )
 
-    handle = await acquisition.acquire("c1", "hello")
+    handle = await acquisition.acquire("c1", "hello", execution_generation=7)
 
     assert [call[0] for call in manager.calls] == ["register", "start", "heartbeat"]
     assert manager.started_config.prompt == "hello"
     assert isinstance(manager.drain_policy, PersistentDrainPolicy)
     assert handle.spawn_id == spawn_id
+    assert handle.generation == 7
+
+
+@pytest.mark.asyncio
+async def test_cold_acquisition_unregisters_observer_when_start_fails(tmp_path: Path):
+    manager = SpawnManager()
+    manager.fail_start = True
+    spawn_id = SpawnId("s-chat")
+
+    acquisition = ColdSpawnAcquisition(
+        spawn_manager=manager,
+        normalizer_factory=lambda harness_id: Normalizer(),
+        pipeline_factory=lambda chat_id: Pipeline(),
+        connection_config_factory=lambda chat_id, prompt: ConnectionConfig(
+            spawn_id=spawn_id,
+            harness_id=HarnessId.CLAUDE,
+            prompt=prompt,
+            project_root=tmp_path,
+            env_overrides={},
+        ),
+        launch_spec_factory=lambda prompt: ClaudeLaunchSpec(
+            prompt=prompt,
+            permission_resolver=UnsafeNoOpPermissionResolver(_suppress_warning=True),
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="boom"):
+        await acquisition.acquire("c1", "hello")
+
+    assert [call[0] for call in manager.calls] == ["register", "start", "unregister"]

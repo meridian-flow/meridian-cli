@@ -77,8 +77,14 @@ class ErrorResponse(BaseModel):
 
 
 class _UnavailableAcquisition:
-    async def acquire(self, chat_id: str, initial_prompt: str):  # type: ignore[no-untyped-def]
-        _ = (chat_id, initial_prompt)
+    async def acquire(
+        self,
+        chat_id: str,
+        initial_prompt: str,
+        *,
+        execution_generation: int = 0,
+    ):
+        _ = (chat_id, initial_prompt, execution_generation)
         raise RuntimeError("chat backend acquisition is not configured")
 
 
@@ -151,7 +157,11 @@ def recover_chats() -> None:
         pipeline = ChatEventPipeline(
             chat_id, event_log, session, event_index=event_index, fanout=fanout
         )
-        checkpoint = CheckpointService(_state.project_root, pipeline)
+        checkpoint = CheckpointService(
+            _state.project_root,
+            pipeline,
+            chat_registry=_active_chat_count,
+        )
         pipeline.set_turn_completed_callback(
             lambda event, service=checkpoint: _checkpoint_turn(service, event)
         )
@@ -178,6 +188,10 @@ def get_chat_pipeline(chat_id: str) -> ChatEventPipeline | None:
     return _state.pipelines.get(chat_id)
 
 
+def _active_chat_count() -> int:
+    return sum(1 for session in _state.sessions.values() if session.state != "closed")
+
+
 @app.post("/chat", response_model=CreateChatResponse)
 async def create_chat(body: CreateChatRequest) -> CreateChatResponse:
     _ = body
@@ -189,7 +203,11 @@ async def create_chat(body: CreateChatRequest) -> CreateChatResponse:
     pipeline = ChatEventPipeline(
         chat_id, event_log, session, event_index=event_index, fanout=fanout
     )
-    checkpoint = CheckpointService(_state.project_root, pipeline)
+    checkpoint = CheckpointService(
+        _state.project_root,
+        pipeline,
+        chat_registry=_active_chat_count,
+    )
     pipeline.set_turn_completed_callback(
         lambda event, service=checkpoint: _checkpoint_turn(service, event)
     )

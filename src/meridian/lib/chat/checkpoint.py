@@ -3,20 +3,34 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+from collections.abc import Callable
 from pathlib import Path
 
 from meridian.lib.chat.event_pipeline import ChatEventPipeline
 from meridian.lib.chat.protocol import ChatEvent, utc_now_iso
 
+logger = logging.getLogger(__name__)
+
 
 class CheckpointService:
     """Create and revert durable git commits around chat turn boundaries."""
 
-    def __init__(self, project_root: Path, event_pipeline: ChatEventPipeline) -> None:
+    def __init__(
+        self,
+        project_root: Path,
+        event_pipeline: ChatEventPipeline,
+        *,
+        chat_registry: Callable[[], int] | None = None,
+    ) -> None:
         self._project_root = project_root
         self._pipeline = event_pipeline
+        self._chat_registry = chat_registry
 
     async def create_checkpoint(self, turn_id: str) -> str | None:
+        if self._unsafe_multi_chat():
+            logger.warning("Skipping checkpoint create for multi-chat project root")
+            return None
         if not await _is_git_repo(self._project_root):
             return None
         await _git(self._project_root, "add", "-A")
@@ -36,10 +50,16 @@ class CheckpointService:
     async def revert_to_checkpoint(self, commit_sha: str) -> None:
         if not commit_sha:
             raise ValueError("invalid_command:missing_commit_sha")
+        if self._unsafe_multi_chat():
+            logger.warning("Blocking checkpoint revert for multi-chat project root")
+            raise RuntimeError("checkpoint_revert_unsafe_multi_chat")
         if not await _is_git_repo(self._project_root):
             raise RuntimeError("checkpoint_requires_git_repo")
         await _git(self._project_root, "reset", "--hard", commit_sha)
         await self._emit("checkpoint.reverted", "", commit_sha)
+
+    def _unsafe_multi_chat(self) -> bool:
+        return self._chat_registry is not None and self._chat_registry() > 1
 
     async def _emit(
         self, event_type: str, turn_id: str, commit_sha: str, **payload: object

@@ -4,7 +4,9 @@ from io import StringIO
 
 import pytest
 
+from meridian.cli import chat_cmd
 from meridian.cli.chat_cmd import run_chat_server
+from meridian.lib.harness.ids import HarnessId
 
 
 def test_chat_cli_auto_port_prints_local_backend_url(monkeypatch, tmp_path) -> None:
@@ -79,3 +81,18 @@ def test_chat_cli_rejects_unknown_harness(monkeypatch, tmp_path) -> None:
             stdout=StringIO(),
         )
 
+
+@pytest.mark.parametrize("harness", [HarnessId.CLAUDE, HarnessId.CODEX, HarnessId.OPENCODE])
+def test_backend_acquisition_preserves_requested_harness(tmp_path, harness: HarnessId) -> None:
+    acquisition = chat_cmd._build_backend_acquisition(
+        runtime_root=tmp_path / "runtime",
+        project_root=tmp_path,
+        harness_id=harness,
+        model="model-x",
+    )
+
+    config = acquisition._build_connection_config("c1", "hello")
+    spec = acquisition._build_launch_spec("hello")
+
+    assert config.harness_id == harness
+    assert spec.model == "model-x"

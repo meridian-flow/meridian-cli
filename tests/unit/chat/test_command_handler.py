@@ -22,7 +22,9 @@ class FakeHandle:
 
 class FakeAcquisition:
     def __init__(self): self.handle = FakeHandle()
-    async def acquire(self, chat_id, initial_prompt): return self.handle
+    async def acquire(self, chat_id, initial_prompt, *, execution_generation=0):
+        _ = (chat_id, initial_prompt, execution_generation)
+        return self.handle
 
 
 def command(kind, payload=None):
