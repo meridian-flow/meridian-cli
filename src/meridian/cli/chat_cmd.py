@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import socket
 from collections.abc import Callable
 from pathlib import Path
@@ -89,7 +90,8 @@ def run_chat_server(
         backend_acquisition=acquisition,
     )
 
-    actual_port = port if port != 0 else _find_free_port(host)
+    env_port = int(os.environ.get("PORT", "0") or "0")
+    actual_port = port if port != 0 else (env_port or _find_free_port(host))
     output = stdout if stdout is not None else sys.stdout
     print(f"Chat backend: http://{host}:{actual_port}", file=output, flush=True)
     runner = uvicorn_run or uvicorn.run

@@ -71,51 +71,51 @@ uv run meridian --help
 
 ## App Server + Frontend
 
-The app is a FastAPI backend serving a Vite/React frontend.
+The app is a FastAPI backend serving a Vite/React frontend. Local dev uses
+[portless](https://github.com/vercel-labs/portless) for stable, worktree-aware
+URLs — no port juggling, and multiple worktrees run the full stack simultaneously.
 
-### Backend only
+### Prerequisites
 
 ```bash
-uv run meridian app --port 7676
-# Serves API at http://localhost:7676
-# Also serves frontend/dist/ at / if built
+npm install -g portless        # one-time
+portless trust                 # trust the local CA (one-time)
+cd frontend && pnpm install    # frontend deps (first time)
 ```
 
-### Frontend dev (hot reload)
+### Dev workflow
 
 ```bash
 # Terminal 1: backend
-uv run meridian app --port 7676
+make backend
+# → https://api.meridian.localhost
 
-# Terminal 2: Vite dev server
-cd frontend && pnpm dev
-# http://localhost:5173 — proxies /api and /ws to :7676
+# Terminal 2: frontend
+make frontend
+# → https://app.meridian.localhost (proxies /api and /ws to backend)
 ```
 
-For remote access (working from a remote machine):
+In a git worktree (e.g. `feature/new-ui`), URLs auto-prefix automatically:
+`https://new-ui.app.meridian.localhost`, `https://new-ui.api.meridian.localhost`.
+
+### Share over Tailscale
 
 ```bash
-cd frontend && pnpm dev --host 0.0.0.0
-# http://<remote-ip>:5173
+make backend-share
+make frontend-share
+```
+
+### Backend only (no portless)
+
+```bash
+uv run meridian chat --port 7676
+# → http://localhost:7676
 ```
 
 ### Production build
 
 ```bash
-cd frontend && pnpm build   # builds to frontend/dist/
+make build
 uv run meridian app --port 7676
 # Frontend served at http://localhost:7676
-```
-
-### Storybook (component playground)
-
-```bash
-cd frontend && pnpm storybook
-# http://localhost:6006 (already binds 0.0.0.0 for remote access)
-```
-
-### Frontend setup (first time)
-
-```bash
-cd frontend && pnpm install
 ```

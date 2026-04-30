@@ -106,6 +106,18 @@ uv run meridian           # Smoke test the CLI directly
 uv add <package>          # Add a dependency (never use pip install)
 ```
 
+### Local Dev Services (portless)
+
+Install [portless](https://github.com/vercel-labs/portless) globally (`npm install -g portless`) and run `portless trust` once to trust the local CA. Dev services run through portless via Makefile targets — agents and humans use the same commands:
+
+```bash
+make backend                # https://api.meridian.localhost
+make frontend               # https://app.meridian.localhost
+make backend-share          # share over Tailscale
+```
+
+In a git worktree, URLs auto-prefix with the branch name (e.g. `https://new-ui.api.meridian.localhost`), so multiple worktrees run the full stack simultaneously without port collisions. Never run services with raw port numbers during dev — always use the Makefile targets.
+
 ### Versioning
 
 The package version lives in `src/meridian/__init__.py` as `__version__`. Use the release helper for normal cuts. Short release guide: `docs/releasing.md`.
