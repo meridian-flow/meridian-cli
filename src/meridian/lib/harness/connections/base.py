@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Final, Generic, Literal
+from typing import TYPE_CHECKING, Any, Final, Generic, Literal, Protocol
 
 from meridian.lib.core.types import SpawnId
 from meridian.lib.harness.ids import HarnessId
@@ -48,6 +48,7 @@ class ConnectionCapabilities:
     runtime_model_switch: bool
     structured_reasoning: bool
     supports_primary_observer: bool = False
+    supports_runtime_hitl: bool = False
     supported_startup_phases: frozenset[str] = field(
         default_factory=_empty_startup_phases
     )
@@ -99,6 +100,73 @@ class HarnessEvent:
     """Identifier of the harness adapter that produced this event."""
     raw_text: str | None = None
     """Optional debug-level wire content, when retained by the adapter."""
+
+
+@dataclass(frozen=True)
+class HarnessRequest:
+    """Inbound harness request that needs a policy decision."""
+
+    request_id: str
+    request_type: Literal["approval", "user_input"]
+    method: str
+    payload: dict[str, object]
+
+
+class ServerRequestHandler(Protocol):
+    """Policy boundary for inbound harness server requests."""
+
+    async def handle_request(
+        self,
+        connection: HarnessConnection[Any],
+        request: HarnessRequest,
+    ) -> None:
+        """Handle one inbound request without embedding policy in transport."""
+
+
+class AutoAcceptHandler:
+    """Default request policy: preserve existing non-chat auto-answer behavior."""
+
+    async def handle_request(
+        self,
+        connection: HarnessConnection[Any],
+        request: HarnessRequest,
+    ) -> None:
+        if request.request_type == "approval":
+            await connection.respond_request(request.request_id, "accept")
+            return
+        if request.request_type == "user_input":
+            await connection.respond_user_input(request.request_id, {})
+            return
+        raise ValueError(f"Unsupported harness request type: {request.request_type}")
+
+
+class InteractiveHandler:
+    """Request policy that surfaces decisions and lets external code respond later."""
+
+    def __init__(
+        self,
+        event_sink: Callable[[HarnessEvent], Awaitable[None]],
+    ) -> None:
+        self._event_sink = event_sink
+
+    async def handle_request(
+        self,
+        connection: HarnessConnection[Any],
+        request: HarnessRequest,
+    ) -> None:
+        await self._event_sink(
+            HarnessEvent(
+                event_type="request/opened",
+                payload={
+                    "request_id": request.request_id,
+                    "request_type": request.request_type,
+                    "method": request.method,
+                    "params": request.payload,
+                },
+                harness_id=connection.harness_id.value,
+                raw_text=None,
+            )
+        )
 
 
 @dataclass(frozen=True)
@@ -177,6 +245,31 @@ class HarnessConnection(Generic[SpecT], ABC):
             )
         await self.start(config, spec)
 
+    async def respond_request(
+        self,
+        request_id: str,
+        decision: str,
+        payload: dict[str, object] | None = None,
+    ) -> None:
+        """Send an approval or rejection response through the harness transport."""
+
+        _ = request_id, decision, payload
+        raise NotImplementedError(
+            f"{self.harness_id.value} does not support runtime request responses"
+        )
+
+    async def respond_user_input(
+        self,
+        request_id: str,
+        answers: dict[str, object],
+    ) -> None:
+        """Send user-input answers through the harness transport."""
+
+        _ = request_id, answers
+        raise NotImplementedError(
+            f"{self.harness_id.value} does not support runtime user input"
+        )
+
     @abstractmethod
     async def stop(self) -> None: ...
 
@@ -196,13 +289,17 @@ class HarnessConnection(Generic[SpecT], ABC):
 __all__ = [
     "MAX_HARNESS_MESSAGE_BYTES",
     "MAX_INITIAL_PROMPT_BYTES",
+    "AutoAcceptHandler",
     "ConnectionCapabilities",
     "ConnectionConfig",
     "ConnectionNotReady",
     "ConnectionState",
     "HarnessConnection",
     "HarnessEvent",
+    "HarnessRequest",
+    "InteractiveHandler",
     "ObserverEndpoint",
     "PromptTooLargeError",
+    "ServerRequestHandler",
     "validate_prompt_size",
 ]

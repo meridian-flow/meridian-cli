@@ -30,13 +30,16 @@ from meridian.lib.harness.codex_rollout import (
 )
 from meridian.lib.harness.connections.base import (
     MAX_HARNESS_MESSAGE_BYTES,
+    AutoAcceptHandler,
     ConnectionCapabilities,
     ConnectionConfig,
     ConnectionNotReady,
     ConnectionState,
     HarnessConnection,
     HarnessEvent,
+    HarnessRequest,
     ObserverEndpoint,
+    ServerRequestHandler,
     validate_prompt_size,
 )
 from meridian.lib.harness.connections.errors import PortBindError
@@ -47,6 +50,7 @@ from meridian.lib.harness.projections.project_codex_streaming import (
     project_codex_spec_to_appserver_command,
     project_codex_spec_to_thread_request,
 )
+from meridian.lib.harness.semantics import clears_signal
 from meridian.lib.launch.env import inherit_child_env
 from meridian.lib.observability.trace_helpers import (
     trace_parse_error,
@@ -159,11 +163,12 @@ class CodexConnection(HarnessConnection[CodexLaunchSpec]):
         "stopped": set(),
     }
 
-    def __init__(self) -> None:
+    def __init__(self, request_handler: ServerRequestHandler | None = None) -> None:
         self._state: ConnectionState = "created"
         self._spawn_id: SpawnId = SpawnId("")
         self._config: ConnectionConfig | None = None
         self._launch_spec: CodexLaunchSpec | None = None
+        self._request_handler = request_handler or AutoAcceptHandler()
 
         self._process: Process | None = None
         self._ws: Any | None = None
@@ -176,6 +181,7 @@ class CodexConnection(HarnessConnection[CodexLaunchSpec]):
 
         self._next_request_id = 1
         self._pending_requests: dict[int, asyncio.Future[dict[str, object]]] = {}
+        self._hitl_requests: dict[str, object] = {}
         self._event_queue: asyncio.Queue[HarnessEvent | None] = asyncio.Queue()
 
         self._current_turn_id: str | None = None
@@ -207,6 +213,7 @@ class CodexConnection(HarnessConnection[CodexLaunchSpec]):
             runtime_model_switch=False,
             structured_reasoning=True,
             supports_primary_observer=True,
+            supports_runtime_hitl=True,
             supported_startup_phases=frozenset(
                 phase.value
                 for phase in (
@@ -274,6 +281,7 @@ class CodexConnection(HarnessConnection[CodexLaunchSpec]):
         self._launch_spec = spec
         self._next_request_id = 1
         self._pending_requests = {}
+        self._hitl_requests = {}
         self._event_queue = asyncio.Queue()
         self._current_turn_id = None
         self._thread_id = None
@@ -437,6 +445,30 @@ class CodexConnection(HarnessConnection[CodexLaunchSpec]):
             if event is None:
                 return
             yield event
+
+    async def respond_request(
+        self,
+        request_id: str,
+        decision: str,
+        payload: dict[str, object] | None = None,
+    ) -> None:
+        jsonrpc_id = self._hitl_requests.pop(request_id, None)
+        if jsonrpc_id is None:
+            raise ValueError(f"No pending Codex HITL request: {request_id}")
+        result: dict[str, object] = {"decision": decision}
+        if payload:
+            result.update(payload)
+        await self._send_jsonrpc_result(jsonrpc_id, result)
+
+    async def respond_user_input(
+        self,
+        request_id: str,
+        answers: dict[str, object],
+    ) -> None:
+        jsonrpc_id = self._hitl_requests.pop(request_id, None)
+        if jsonrpc_id is None:
+            raise ValueError(f"No pending Codex HITL request: {request_id}")
+        await self._send_jsonrpc_result(jsonrpc_id, {"answers": answers})
 
     async def _connect_with_retry(self, ws_url: str, timeout_seconds: float) -> Any:
         loop = asyncio.get_running_loop()
@@ -627,6 +659,7 @@ class CodexConnection(HarnessConnection[CodexLaunchSpec]):
             self._process = None
 
         self._fail_pending_requests(RuntimeError("Codex connection stopped"))
+        self._hitl_requests = {}
         self._current_turn_id = None
         self._thread_id = None
         self._cancel_requested = False
@@ -720,37 +753,25 @@ class CodexConnection(HarnessConnection[CodexLaunchSpec]):
             )
 
         if method.endswith("/requestApproval"):
-            launch_spec = self._launch_spec
-            if (
-                launch_spec is not None
-                and launch_spec.permission_resolver.config.approval == "confirm"
-            ):
-                logger.warning(
-                    "Rejecting Codex server approval request in confirm mode: %s",
-                    method,
-                )
-                await self._event_queue.put(
-                    HarnessEvent(
-                        event_type="warning/approvalRejected",
-                        payload={
-                            "reason": "confirm_mode",
-                            "method": method,
-                        },
-                        harness_id=self.harness_id.value,
-                        raw_text=None,
-                    )
-                )
-                await self._send_jsonrpc_error(
-                    request_id,
-                    code=-32000,
-                    message="Codex websocket approval requests are unsupported in confirm mode.",
-                )
-                return
-            await self._send_jsonrpc_result(request_id, {"decision": "accept"})
+            harness_request = HarnessRequest(
+                request_id=str(request_id),
+                request_type="approval",
+                method=method,
+                payload=payload,
+            )
+            self._hitl_requests[harness_request.request_id] = request_id
+            await self._request_handler.handle_request(self, harness_request)
             return
 
         if method == "item/tool/requestUserInput":
-            await self._send_jsonrpc_result(request_id, {"answers": {}})
+            harness_request = HarnessRequest(
+                request_id=str(request_id),
+                request_type="user_input",
+                method=method,
+                payload=payload,
+            )
+            self._hitl_requests[harness_request.request_id] = request_id
+            await self._request_handler.handle_request(self, harness_request)
             return
 
         await self._event_queue.put(
@@ -930,7 +951,12 @@ class CodexConnection(HarnessConnection[CodexLaunchSpec]):
         return project_codex_spec_to_thread_request(spec, cwd=str(config.project_root))
 
     def _update_turn_state(self, *, method: str, payload: dict[str, object]) -> None:
-        if method == "turn/completed":
+        event = HarnessEvent(
+            event_type=method,
+            payload=payload,
+            harness_id=HarnessId.CODEX.value,
+        )
+        if clears_signal(event):
             self._current_turn_id = None
             self._signal_in_flight = False
             return
