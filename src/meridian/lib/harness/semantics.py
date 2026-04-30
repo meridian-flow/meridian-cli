@@ -111,9 +111,22 @@ def activity_transition(event: HarnessEvent) -> ActivityState | None:
     return None
 
 
+def clears_signal(event: HarnessEvent) -> bool:
+    """Return whether an event clears a pending user signal for its harness."""
+
+    if event.harness_id == HarnessId.CLAUDE.value:
+        return event.event_type == "result"
+    if event.harness_id == HarnessId.CODEX.value:
+        return event.event_type == "turn/completed"
+    if event.harness_id == HarnessId.OPENCODE.value:
+        return event.event_type in {"session.idle", "session.error"}
+    return False
+
+
 __all__ = [
     "ActivityState",
     "TerminalEventOutcome",
     "activity_transition",
+    "clears_signal",
     "terminal_outcome",
 ]

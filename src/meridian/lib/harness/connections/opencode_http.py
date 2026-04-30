@@ -39,6 +39,7 @@ from meridian.lib.harness.projections.project_opencode_streaming import (
     project_opencode_spec_to_serve_command,
     project_opencode_spec_to_session_payload,
 )
+from meridian.lib.harness.semantics import clears_signal
 from meridian.lib.harness.workspace_projection import OPENCODE_CONFIG_CONTENT_ENV
 from meridian.lib.launch.env import inherit_child_env
 from meridian.lib.observability.trace_helpers import (
@@ -651,14 +652,15 @@ class OpenCodeConnection(HarnessConnection[OpenCodeLaunchSpec]):
 
         raw_event_type = payload.get("type", event_type_hint or "unknown")
         event_type = raw_event_type if isinstance(raw_event_type, str) else "unknown"
-        if event_type in {"session.idle", "session.error"}:
-            self._signal_in_flight = False
-        return HarnessEvent(
+        event = HarnessEvent(
             event_type=event_type,
             payload=payload,
             harness_id=HarnessId.OPENCODE.value,
             raw_text=raw_text,
         )
+        if clears_signal(event):
+            self._signal_in_flight = False
+        return event
 
     async def _ensure_http_client(self) -> Any:
         if self._client is not None:

@@ -30,6 +30,7 @@ from meridian.lib.harness.errors import HarnessBinaryNotFound
 from meridian.lib.harness.ids import HarnessId
 from meridian.lib.harness.launch_spec import ClaudeLaunchSpec
 from meridian.lib.harness.projections.project_claude import project_claude_spec_to_cli_args
+from meridian.lib.harness.semantics import clears_signal
 from meridian.lib.launch.constants import (
     BASE_COMMAND_CLAUDE_STREAMING,
     BLOCKED_CHILD_ENV_VARS,
@@ -258,7 +259,7 @@ class ClaudeConnection(HarnessConnection[ClaudeLaunchSpec]):
                     self._emit_startup_phase(StartupPhase.HARNESS_READY)
 
                 for event in parsed_events:
-                    if event.event_type == "result":
+                    if clears_signal(event):
                         self._signal_in_flight = False
                     if self._tracer is not None:
                         self._tracer.emit(

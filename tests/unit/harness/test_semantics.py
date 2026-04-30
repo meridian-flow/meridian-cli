@@ -160,3 +160,41 @@ def test_activity_transition_ignores_unrelated_events() -> None:
         )
         is None
     )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("harness_id", "event_type"),
+    (
+        (HarnessId.CLAUDE.value, "result"),
+        (HarnessId.CODEX.value, "turn/completed"),
+        (HarnessId.OPENCODE.value, "session.idle"),
+        (HarnessId.OPENCODE.value, "session.error"),
+    ),
+)
+def test_clears_signal_accepts_harness_terminal_signal_events(
+    harness_id: str,
+    event_type: str,
+) -> None:
+    from meridian.lib.harness.semantics import clears_signal
+
+    assert clears_signal(_event(harness_id=harness_id, event_type=event_type)) is True
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("harness_id", "event_type"),
+    (
+        (HarnessId.CLAUDE.value, "assistant"),
+        (HarnessId.CODEX.value, "turn/started"),
+        (HarnessId.OPENCODE.value, "agent_message_chunk"),
+        ("unknown", "result"),
+    ),
+)
+def test_clears_signal_rejects_non_signal_events(
+    harness_id: str,
+    event_type: str,
+) -> None:
+    from meridian.lib.harness.semantics import clears_signal
+
+    assert clears_signal(_event(harness_id=harness_id, event_type=event_type)) is False
