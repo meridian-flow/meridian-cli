@@ -280,10 +280,6 @@ class SpawnFinalizeEvent(BaseModel):
 
 type SpawnEvent = SpawnStartEvent | SpawnUpdateEvent | SpawnExitedEvent | SpawnFinalizeEvent
 
-# Backward-compatible alias for legacy imports.
-_record_from_events = reduce_events
-
-
 def _coerce_launch_mode(value: object) -> object:
     if not isinstance(value, str):
         return value

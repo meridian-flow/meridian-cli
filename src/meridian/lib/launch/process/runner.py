@@ -89,7 +89,6 @@ RunPrimaryAttach = Callable[
         SpawnId,
         Path,
         Path,
-        Path,
         dict[str, str],
         ResolvedLaunchSpec,
         ProcessLauncher,
@@ -144,7 +143,6 @@ def _execute_via_managed_attach(
     harness_id: HarnessId,
     primary_spawn_id: SpawnId,
     log_dir: Path,
-    project_root: Path,
     child_cwd: Path,
     child_env: dict[str, str],
     launch_spec: ResolvedLaunchSpec,
@@ -159,7 +157,6 @@ def _execute_via_managed_attach(
         harness_id,
         primary_spawn_id,
         log_dir,
-        project_root,
         child_cwd,
         child_env,
         launch_spec,
@@ -200,10 +197,8 @@ def _execute_via_blackbox(
 def _execute_primary_process(
     *,
     harness_id: HarnessId,
-    session_mode: SessionMode,
     primary_spawn_id: SpawnId,
     log_dir: Path,
-    project_root: Path,
     child_cwd: Path,
     child_env: dict[str, str],
     launch_spec: ResolvedLaunchSpec,
@@ -213,7 +208,7 @@ def _execute_primary_process(
     run_primary_process_with_capture_fn: RunPrimaryProcessWithCapture,
     run_primary_attach_fn: RunPrimaryAttach,
     on_running: Callable[[int], None],
-) -> tuple[int, bool, str | None]:
+) -> tuple[int, str | None]:
     """Run managed attach when eligible, otherwise fall back to black-box launch."""
 
     use_managed_backend = harness_id in {HarnessId.CODEX, HarnessId.OPENCODE}
@@ -223,7 +218,6 @@ def _execute_primary_process(
                 harness_id=harness_id,
                 primary_spawn_id=primary_spawn_id,
                 log_dir=log_dir,
-                project_root=project_root,
                 child_cwd=child_cwd,
                 child_env=child_env,
                 launch_spec=launch_spec,
@@ -232,7 +226,7 @@ def _execute_primary_process(
                 run_primary_attach_fn=run_primary_attach_fn,
                 on_running=on_running,
             )
-            return exit_code, True, managed_session_id
+            return exit_code, managed_session_id
         except PrimaryAttachError as exc:
             # Codex primary must use managed backend; fail loudly on startup error.
             # OpenCode can fall back to black-box subprocess for compatibility.
@@ -254,11 +248,10 @@ def _execute_primary_process(
                 run_primary_process_with_capture_fn=run_primary_process_with_capture_fn,
                 on_running=on_running,
             ),
-            False,
             None,
         )
 
-    return 2, use_managed_backend, None
+    return 2, None
 
 
 def _finalize_lifecycle_and_observe_session(
@@ -359,7 +352,6 @@ async def _run_primary_attach(
     harness_id: HarnessId,
     spawn_id: SpawnId,
     spawn_dir: Path,
-    project_root: Path,
     execution_cwd: Path,
     env: dict[str, str],
     spec: ResolvedLaunchSpec,
@@ -368,7 +360,6 @@ async def _run_primary_attach(
 ) -> PrimaryAttachOutcome:
     """Launch managed backend + primary TUI attach flow for supported harnesses."""
 
-    _ = project_root
     try:
         passthrough = get_passthrough(harness_id)
         connection_factory = cast(
@@ -408,7 +399,6 @@ def run_primary_attach(
     harness_id: HarnessId,
     spawn_id: SpawnId,
     spawn_dir: Path,
-    project_root: Path,
     execution_cwd: Path,
     env: dict[str, str],
     spec: ResolvedLaunchSpec,
@@ -425,7 +415,6 @@ def run_primary_attach(
                 harness_id=harness_id,
                 spawn_id=spawn_id,
                 spawn_dir=spawn_dir,
-                project_root=project_root,
                 execution_cwd=execution_cwd,
                 env=env,
                 spec=spec,
@@ -622,14 +611,11 @@ def run_harness_process(
 
                 (
                     exit_code,
-                    _used_managed_backend,
                     managed_session_id,
                 ) = _execute_primary_process(
                     harness_id=harness_id,
-                    session_mode=session_mode,
                     primary_spawn_id=primary_spawn_id,
                     log_dir=log_dir,
-                    project_root=project_root,
                     child_cwd=child_cwd,
                     child_env=child_env,
                     launch_spec=launch_spec,

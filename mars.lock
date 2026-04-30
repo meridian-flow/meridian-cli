@@ -11,8 +11,8 @@ commit = "c2ed24b3e5d412cd0c25197b2bc9af587621fd99"
 
 [dependencies.meridian-base]
 url = "https://github.com/meridian-flow/meridian-base"
-version = "v0.0.35"
-commit = "37c9e8dafd63855bd1ee0e717023c5df2665005c"
+version = "v0.0.36"
+commit = "f86a09f217ef33a82d193d87389b4b525a0d950a"
 
 [dependencies.meridian-dev-workflow]
 url = "https://github.com/meridian-flow/meridian-dev-workflow"
@@ -153,9 +153,9 @@ dest_path = "agents/investigator.md"
 [items."agents/kb-maintainer.md"]
 source = "meridian-base"
 kind = "agent"
-version = "v0.0.35"
-source_checksum = "sha256:8f2098b38655895841abf0626bf40d46f7d35318962f8d6a0bcecd8cb6cb84a7"
-installed_checksum = "sha256:8f2098b38655895841abf0626bf40d46f7d35318962f8d6a0bcecd8cb6cb84a7"
+version = "v0.0.36"
+source_checksum = "sha256:f4ac3c1774267b4155be681a1213a1ed781024a241a3abd71ad216528716ae4d"
+installed_checksum = "sha256:f4ac3c1774267b4155be681a1213a1ed781024a241a3abd71ad216528716ae4d"
 dest_path = "agents/kb-maintainer.md"
 
 [items."agents/kb-writer.md"]
@@ -423,9 +423,9 @@ dest_path = "skills/kb-conventions"
 [items."skills/md-validation"]
 source = "meridian-base"
 kind = "skill"
-version = "v0.0.28"
-source_checksum = "sha256:c4d71687b425ba73f5cad09489649c5b0fea4d45797247b3efc67c97d36b070b"
-installed_checksum = "sha256:c4d71687b425ba73f5cad09489649c5b0fea4d45797247b3efc67c97d36b070b"
+version = "v0.0.36"
+source_checksum = "sha256:0e5fc59223dae7833321bc89a26af9af879a0a69fb74ed71c0d64405fff2894b"
+installed_checksum = "sha256:0e5fc59223dae7833321bc89a26af9af879a0a69fb74ed71c0d64405fff2894b"
 dest_path = "skills/md-validation"
 
 [items."skills/meridian-cli"]
@@ -447,9 +447,9 @@ dest_path = "skills/meridian-privilege-escalation"
 [items."skills/meridian-spawn"]
 source = "meridian-base"
 kind = "skill"
-version = "v0.0.31"
-source_checksum = "sha256:6a87a9451a48a577a40116c3f05baee229904e303b29561a429e1b158f51e0c7"
-installed_checksum = "sha256:6a87a9451a48a577a40116c3f05baee229904e303b29561a429e1b158f51e0c7"
+version = "v0.0.36"
+source_checksum = "sha256:a9a04f37990371878f9a140630d3e0ee2a1fc7255d0395c8ec4a66e347f08399"
+installed_checksum = "sha256:a9a04f37990371878f9a140630d3e0ee2a1fc7255d0395c8ec4a66e347f08399"
 dest_path = "skills/meridian-spawn"
 
 [items."skills/meridian-work-coordination"]

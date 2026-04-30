@@ -114,7 +114,7 @@ class ColdSpawnAcquisition:
         config = self._build_connection_config(chat_id, initial_prompt)
         spec = self._build_launch_spec(initial_prompt)
         execution_id = str(config.spawn_id)
-        normalizer = self._build_normalizer(config.harness_id, chat_id, execution_id)
+        normalizer = self._build_normalizer(chat_id, execution_id)
         pipeline = self._build_pipeline(chat_id)
         observer = ChatEventObserver(
             normalizer=normalizer,
@@ -171,11 +171,9 @@ class ColdSpawnAcquisition:
 
     def _build_normalizer(
         self,
-        harness_id: HarnessId,
         chat_id: str,
         execution_id: str,
     ) -> EventNormalizer:
-        _ = harness_id
         return self._normalizer_factory(chat_id, execution_id)
 
     def _build_pipeline(self, chat_id: str) -> ChatEventPipeline:

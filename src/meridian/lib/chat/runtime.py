@@ -152,21 +152,10 @@ class ChatRuntime(PipelineLookup):
             self._started = False
             self._stopped = False
 
-    async def create_chat(
-        self,
-        *,
-        model: str | None = None,
-        harness: str | None = None,
-    ) -> ChatRuntimeView:
-        """Create a new chat, register it live, start its pipeline, emit chat.started.
-
-        ``model`` and ``harness`` are reserved for a future create-time backend
-        selection surface. They are intentionally ignored today because backend
-        acquisition is deferred until the first prompt.
-        """
+    async def create_chat(self) -> ChatRuntimeView:
+        """Create a new chat, register it live, start its pipeline, emit chat.started."""
 
         self._ensure_running()
-        _ = (model, harness)
         chat_id = f"c-{uuid4().hex}"
         event_log = ChatEventLog(self.paths.chat_history_path(chat_id))
         event_index = ChatEventIndex(self.paths.chats_dir / chat_id / "index.sqlite3")

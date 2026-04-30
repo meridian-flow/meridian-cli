@@ -1214,6 +1214,3 @@ __all__ = [
     "run_streaming_spawn",
     "terminal_event_outcome",
 ]
-
-# Backward-compatible private alias used by existing tests and callers.
-_terminal_event_outcome = terminal_event_outcome

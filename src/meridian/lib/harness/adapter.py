@@ -414,6 +414,3 @@ class BaseHarnessAdapter(Generic[SpecT], ABC):
         _ = project_root, session_id
         return None
 
-
-# Temporary alias while downstream tests migrate to the new base-class name.
-BaseSubprocessHarness = BaseHarnessAdapter

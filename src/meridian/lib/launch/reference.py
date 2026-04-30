@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-import warnings
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Literal
@@ -94,10 +93,6 @@ class ReferenceItem(BaseModel):
     path: Path
     body: str
     warning: str | None = None
-
-
-# Backward compatibility alias
-ReferenceFile = ReferenceItem
 
 
 # -----------------------------------------------------------------------------
@@ -461,27 +456,6 @@ def load_reference_items(
     return tuple(loaded)
 
 
-def load_reference_files(
-    file_paths: Sequence[str | Path],
-    *,
-    base_dir: Path | None = None,
-    include_content: bool = True,
-) -> tuple[ReferenceItem, ...]:
-    """Load referenced files in input order.
-
-    DEPRECATED: Use `load_reference_items()` instead. The `include_content`
-    parameter is now ignored - content is always included for files.
-    """
-    if not include_content:
-        warnings.warn(
-            "include_content=False is deprecated and ignored. "
-            "Use load_reference_items() instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-    return load_reference_items(file_paths, base_dir=base_dir)
-
-
 def validate_reference_paths(
     paths: Sequence[str | Path],
     *,
@@ -557,48 +531,19 @@ def render_reference_blocks(references: Sequence[ReferenceItem]) -> tuple[str, .
     return tuple(blocks)
 
 
-def render_reference_paths_section(references: Sequence[ReferenceItem]) -> tuple[str, ...]:
-    """Render reference paths without inlining file bodies.
-
-    DEPRECATED: Use `render_reference_blocks()` instead. Files are now always
-    inlined and directories are rendered as trees.
-    """
-    warnings.warn(
-        "render_reference_paths_section() is deprecated. "
-        "Use render_reference_blocks() instead.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-
-    if not references:
-        return ()
-    lines = [
-        "# Reference Files",
-        "",
-        "Read these files from disk when gathering context:",
-        "",
-    ]
-    for reference in references:
-        lines.append(f"- {reference.path}")
-    return ("\n".join(lines),)
-
-
 __all__ = [
     "BLOCKED_DIRS",
     "BLOCKED_SUFFIXES",
     "DEFAULT_MAX_TREE_DEPTH",
     "DEFAULT_MAX_TREE_ENTRIES",
     "MAX_FILE_SIZE_BYTES",
-    "ReferenceFile",
     "ReferenceItem",
     "TemplateVariableError",
     "generate_directory_tree",
     "is_binary_file",
-    "load_reference_files",
     "load_reference_items",
     "parse_template_assignments",
     "render_reference_blocks",
-    "render_reference_paths_section",
     "resolve_template_variables",
     "substitute_template_variables",
     "validate_reference_paths",

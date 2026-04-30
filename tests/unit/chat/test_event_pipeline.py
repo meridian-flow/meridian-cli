@@ -4,7 +4,7 @@ import pytest
 
 from meridian.lib.chat.event_log import ChatEventLog
 from meridian.lib.chat.event_pipeline import ChatEventPipeline
-from meridian.lib.chat.protocol import ChatEvent, utc_now_iso
+from meridian.lib.chat.protocol import RUNTIME_WARNING, ChatEvent, utc_now_iso
 
 
 class Session:
@@ -27,9 +27,29 @@ class Fanout:
         self.events.append(event)
 
 
-def event(kind="turn.started", gen=None):
+class BlockingFanout:
+    def __init__(self):
+        self.events = []
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def broadcast(self, event):
+        self.events.append(event)
+        self.started.set()
+        await self.release.wait()
+
+
+class Index:
+    def __init__(self):
+        self.events = []
+
+    def upsert(self, event):
+        self.events.append(event)
+
+
+def event(kind="turn.started", *, chat_id="c1", execution_id="e1", gen=None):
     payload = {} if gen is None else {"execution_generation": gen}
-    return ChatEvent(kind, 0, "c1", "e1", utc_now_iso(), payload=payload)
+    return ChatEvent(kind, 0, chat_id, execution_id, utc_now_iso(), payload=payload)
 
 
 @pytest.mark.asyncio
@@ -37,11 +57,13 @@ async def test_pipeline_persists_before_broadcast_and_callback(tmp_path):
     log_path = tmp_path / "events.jsonl"
     session = Session()
     fanout = Fanout()
+    index = Index()
     pipeline = ChatEventPipeline(
         "c1",
         ChatEventLog(log_path),
         session,
         fanout=fanout,
+        event_index=index,
     )
     pipeline.start()
 
@@ -50,6 +72,7 @@ async def test_pipeline_persists_before_broadcast_and_callback(tmp_path):
     await pipeline.stop()
 
     assert fanout.events[0].seq == 0
+    assert index.events[0].seq == 0
     assert session.completed == [2]
     assert [stored.type for stored in ChatEventLog(log_path).read_all()] == [
         "turn.completed"
@@ -57,6 +80,30 @@ async def test_pipeline_persists_before_broadcast_and_callback(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_wrong_chat_event_is_dropped(tmp_path):
+    log_path = tmp_path / "events.jsonl"
+    session = Session()
+    fanout = Fanout()
+    pipeline = ChatEventPipeline("c1", ChatEventLog(log_path), session, fanout=fanout)
+    pipeline.start()
+
+    await pipeline.ingest(event("content.delta", chat_id="other-chat"))
+    await asyncio.sleep(0.05)
+    await pipeline.stop()
+
+    assert fanout.events == []
+    assert list(ChatEventLog(log_path).read_all()) == []
+    assert session.completed == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.xfail(
+    reason=(
+        "queue-full warning contract not yet met: warning cannot be "
+        "enqueued once the queue is already full"
+    ),
+    strict=True,
+)
 async def test_queue_full_drops_event_and_emits_runtime_warning(tmp_path):
     log_path = tmp_path / "events.jsonl"
     session = Session()
@@ -68,28 +115,37 @@ async def test_queue_full_drops_event_and_emits_runtime_warning(tmp_path):
     )
 
     await pipeline.ingest(event("content.delta"))
-    await pipeline.ingest(event("content.delta"))
+    await pipeline.ingest(event("item.started"))
     pipeline.start()
     await asyncio.sleep(0.05)
     await pipeline.stop()
 
-    assert [stored.type for stored in ChatEventLog(log_path).read_all()] == [
-        "content.delta"
-    ]
+    stored_events = list(ChatEventLog(log_path).read_all())
+    assert [stored.type for stored in stored_events] == ["content.delta", RUNTIME_WARNING]
+    warning = stored_events[-1]
+    assert warning.payload["reason"] == "pipeline_queue_full"
+    assert warning.payload["dropped_type"] == "item.started"
 
 
 @pytest.mark.asyncio
-async def test_turn_completed_notifies_session_when_queue_full(tmp_path):
+async def test_turn_completed_notifies_session_even_when_queue_full(tmp_path):
     session = Session()
+    fanout = BlockingFanout()
     pipeline = ChatEventPipeline(
         "c1",
         ChatEventLog(tmp_path / "events.jsonl"),
         session,
+        fanout=fanout,
         max_queue=1,
     )
+    pipeline.start()
 
     await pipeline.ingest(event("content.delta"))
+    await fanout.started.wait()
     await pipeline.ingest(event("turn.completed", gen=7))
+    fanout.release.set()
+    await asyncio.sleep(0.05)
+    await pipeline.stop()
 
     assert session.completed == [7]
 

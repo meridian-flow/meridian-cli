@@ -140,6 +140,23 @@ Exit codes for `ext run`: `2` = app server unavailable, `7` = invalid `--args`.
 
 See [extensions.md](extensions.md) for HTTP API and MCP tool details.
 
+## Chat Backend
+
+| Command | Description |
+| ------- | ----------- |
+| `meridian chat` | Start the headless chat backend server (Claude, random port) |
+| `meridian chat --harness NAME` | Use a specific harness: `claude`, `codex`, `opencode` |
+| `meridian chat --model NAME` | Override model |
+| `meridian chat --port PORT` | Bind to a fixed port (`0` = auto-assign) |
+| `meridian chat --host HOST` | Bind interface (default `127.0.0.1`) |
+
+The server exposes REST endpoints and a bidirectional WebSocket for creating chats,
+sending prompts, streaming normalized `ChatEvent` frames, handling HITL approvals
+(Codex), and reverting to git checkpoints.
+
+See [chat.md](chat.md) for the full API reference including event types, command types,
+reconnect/replay, persistence, and harness support matrix.
+
 ## Configuration & Diagnostics
 
 | Command | Description |

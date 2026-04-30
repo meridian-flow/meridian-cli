@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, cast
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from meridian.lib.chat.commands import ChatCommand, CommandResult
 from meridian.lib.chat.protocol import utc_now_iso
@@ -35,15 +35,9 @@ app = FastAPI(lifespan=lifespan)
 
 
 class CreateChatRequest(BaseModel):
-    """Create-chat transport shape.
+    """Create-chat transport shape."""
 
-    ``model`` and ``harness`` are reserved transport fields. They are
-    intentionally accepted but currently ignored because chat backend
-    acquisition is deferred until the first prompt.
-    """
-
-    model: str | None = None
-    harness: str | None = None
+    model_config = ConfigDict(extra="forbid")
 
 
 class CreateChatResponse(BaseModel):
@@ -116,10 +110,8 @@ def configure(
 
 @app.post("/chat", response_model=CreateChatResponse)
 async def create_chat(body: CreateChatRequest) -> CreateChatResponse:
-    view = await _runtime.create_chat(
-        model=body.model,
-        harness=body.harness,
-    )
+    _ = body
+    view = await _runtime.create_chat()
     return CreateChatResponse(chat_id=view.chat_id, state=view.state)
 
 

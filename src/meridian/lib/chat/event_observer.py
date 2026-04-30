@@ -55,4 +55,4 @@ def _with_generation(event: ChatEvent, generation: int | None) -> ChatEvent:
     )
 
 
-__all__ = ["ChatEventObserver", "EventNormalizer"]
+__all__ = ["ChatEventObserver"]

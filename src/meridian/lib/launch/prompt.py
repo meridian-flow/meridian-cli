@@ -61,10 +61,6 @@ _ESCAPED_PRIOR_OUTPUT_OPEN = "<\\prior-run-output>"
 _ESCAPED_PRIOR_OUTPUT_CLOSE = "<\\/prior-run-output>"
 
 
-# Backward compatibility re-export
-ReferenceFile = ReferenceItem
-
-
 def dedupe_skill_names(names: Iterable[str]) -> tuple[str, ...]:
     """Normalize and de-duplicate skill names while preserving first-seen order."""
 
@@ -402,7 +398,6 @@ def render_file_template(
 
 
 __all__ = [
-    "ReferenceFile",
     "ReferenceItem",
     "build_context_prompt",
     "build_report_instruction",

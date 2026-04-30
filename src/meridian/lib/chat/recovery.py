@@ -66,7 +66,7 @@ def recover_all(
         )
         live_entries[chat_id] = entry
         last_state = _state_from_events(events)
-        if last_state in {"active", "draining"}:
+        if last_state == "active":
             persisted = event_log.append(
                 ChatEvent(
                     type="runtime.error",
@@ -93,7 +93,7 @@ def _state_from_events(events: list[ChatEvent]) -> str:
             state = "closed"
         elif event.type == "runtime.error":
             reason = event.payload.get("reason")
-            if reason == "backend_lost_after_restart" and state in {"active", "draining"}:
+            if reason == "backend_lost_after_restart" and state == "active":
                 state = "idle"
     return state
 

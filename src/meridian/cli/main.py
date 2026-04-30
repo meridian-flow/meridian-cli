@@ -4,7 +4,6 @@ import subprocess
 import sys
 from collections.abc import Sequence
 from contextvars import ContextVar
-from pathlib import Path
 from typing import Annotated, cast
 
 from cyclopts import Parameter
@@ -44,9 +43,6 @@ from meridian.cli.bootstrap import (
 from meridian.cli.bootstrap import (
     maybe_bootstrap_runtime_state,
     temporary_config_env,
-)
-from meridian.cli.bootstrap import (
-    should_startup_bootstrap as _bootstrap_should_startup_bootstrap,
 )
 from meridian.cli.bootstrap import (
     split_passthrough_args as _bootstrap_split_passthrough_args,
@@ -105,7 +101,6 @@ class GlobalOptions(BaseModel):
 _GLOBAL_OPTIONS: ContextVar[GlobalOptions | None] = ContextVar("_GLOBAL_OPTIONS", default=None)
 
 PrimaryLaunchOutput = primary_launch.PrimaryLaunchOutput
-ResolvedSessionTarget = primary_launch.ResolvedSessionTarget
 
 
 def get_global_options() -> GlobalOptions:
@@ -266,17 +261,6 @@ def _resolve_output_format_for_command(
         agent_mode=agent_mode,
         agent_default_format=agent_default_format,
     )
-
-
-def _is_spawn_background_request(  # pyright: ignore[reportUnusedFunction] - compatibility helper.
-    argv: Sequence[str],
-) -> bool:
-    """Return True when argv targets spawn create/continue in background mode."""
-
-    group, subcommand = _resolve_command_path(argv)
-    if group != "spawn" or subcommand not in {"create", "continue"}:
-        return False
-    return "--background" in argv or "--bg" in argv
 
 
 def _is_doctor_scan_launch_path(argv: Sequence[str]) -> bool:
@@ -542,16 +526,6 @@ def _run_primary_launch(
     )
 
 
-def _resolve_session_target(  # pyright: ignore[reportUnusedFunction] - compatibility helper.
-    *,
-    project_root: Path,
-    continue_ref: str,
-) -> ResolvedSessionTarget:
-    return primary_launch.resolve_session_target(
-        project_root=project_root, continue_ref=continue_ref
-    )
-
-
 _resolve_init_project_root = mars_passthrough.resolve_init_project_root
 _resolve_init_link_mars_command = mars_passthrough.resolve_init_link_mars_command
 
@@ -694,12 +668,6 @@ def _validate_top_level_command(argv: Sequence[str], *, global_harness: str | No
 
 def _is_root_help_request(argv: Sequence[str]) -> bool:
     return _bootstrap_is_root_help_request(argv)
-
-
-def _should_startup_bootstrap(  # pyright: ignore[reportUnusedFunction] - compatibility helper.
-    argv: Sequence[str],
-) -> bool:
-    return _bootstrap_should_startup_bootstrap(argv)
 
 
 def _print_agent_root_help() -> None:
