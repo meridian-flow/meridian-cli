@@ -8,12 +8,14 @@ from meridian.lib.harness.ids import HarnessId
 from meridian.lib.harness.normalizers.base import EventNormalizer
 from meridian.lib.harness.normalizers.claude import ClaudeNormalizer
 from meridian.lib.harness.normalizers.codex import CodexNormalizer
+from meridian.lib.harness.normalizers.opencode import OpenCodeNormalizer
 
 NormalizerFactory = Callable[[str, str], EventNormalizer]
 
 NORMALIZER_REGISTRY: dict[str, NormalizerFactory] = {
     HarnessId.CLAUDE.value: ClaudeNormalizer,
     HarnessId.CODEX.value: CodexNormalizer,
+    HarnessId.OPENCODE.value: OpenCodeNormalizer,
 }
 
 
