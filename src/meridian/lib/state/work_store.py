@@ -413,24 +413,30 @@ def work_scratch_dir(runtime_root: Path, work_id: str) -> Path:
     return _active_dir(paths, work_id)
 
 
-def list_work_items(runtime_root: Path) -> list[WorkItem]:
-    """Return active work items sorted by (created_at, name)."""
+def list_work_items(runtime_root: Path) -> tuple[list[WorkItem], list[str]]:
+    """Return active work items sorted by (created_at, name) and any warnings.
+
+    Items that exist in both active and archive directories are included from
+    the active directory with a warning rather than raising.
+    """
 
     _migrate_legacy_work_items(runtime_root)
     paths = RuntimePaths.from_root_dir(runtime_root)
     active_dirs = _list_work_item_dirs(paths.work_dir)
     if not active_dirs:
-        return []
+        return [], []
     archived_names = {child.name for child in _list_work_item_dirs(paths.work_archive_dir)}
 
     items: list[WorkItem] = []
+    warnings: list[str] = []
     for child in active_dirs:
         if child.name in archived_names:
-            raise ValueError(
-                f"Work item '{child.name}' exists in both active and archive directories."
+            warnings.append(
+                f"Work item '{child.name}' exists in both active and archive directories. "
+                f"Remove one to resolve: active={child}, archive={_archived_dir(paths, child.name)}"
             )
         items.append(_work_item_from_dir(child, archived=False))
-    return sorted(items, key=lambda item: (item.created_at, item.name))
+    return sorted(items, key=lambda item: (item.created_at, item.name)), warnings
 
 
 def list_archived_work_items(
@@ -438,25 +444,32 @@ def list_archived_work_items(
     *,
     limit: int = 10,
     all_archived: bool = False,
-) -> list[WorkItem]:
-    """Return archived work items sorted by archived_at descending."""
+) -> tuple[list[WorkItem], list[str]]:
+    """Return archived work items sorted by archived_at descending and any warnings.
+
+    Items that exist in both active and archive directories are skipped from
+    the archived listing (the active copy takes precedence) with a warning.
+    """
 
     _migrate_legacy_work_items(runtime_root)
     paths = RuntimePaths.from_root_dir(runtime_root)
     archived_dirs = _list_work_item_dirs(paths.work_archive_dir)
     if not archived_dirs:
-        return []
+        return [], []
 
     if limit < 0:
         raise ValueError("limit must be non-negative.")
     active_names = {child.name for child in _list_work_item_dirs(paths.work_dir)}
 
     items: list[WorkItem] = []
+    warnings: list[str] = []
     for child in archived_dirs:
         if child.name in active_names:
-            raise ValueError(
-                f"Work item '{child.name}' exists in both active and archive directories."
+            warnings.append(
+                f"Work item '{child.name}' exists in both active and archive directories. "
+                f"Remove one to resolve: active={_active_dir(paths, child.name)}, archive={child}"
             )
+            continue
         items.append(_work_item_from_dir(child, archived=True))
 
     items.sort(
@@ -468,8 +481,8 @@ def list_archived_work_items(
         reverse=True,
     )
     if all_archived:
-        return items
-    return items[:limit]
+        return items, warnings
+    return items[:limit], warnings
 
 
 def update_work_item(

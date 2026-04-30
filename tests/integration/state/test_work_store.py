@@ -107,7 +107,7 @@ def test_list_archived_work_items_repairs_interrupted_archive_status(
     assert stale_payload["status"] == "blocked"
     assert stale_payload["archived_at"] is None
 
-    repaired = list_archived_work_items(runtime_root, all_archived=True)
+    repaired, _ = list_archived_work_items(runtime_root, all_archived=True)
     assert len(repaired) == 1
     assert repaired[0].status == "done"
     assert repaired[0].archived_at is not None
@@ -165,7 +165,7 @@ def test_list_work_items_detects_manual_work_directory(tmp_path: Path) -> None:
     manual_dir = runtime_root / "work" / "manual-item"
     manual_dir.mkdir(parents=True, exist_ok=True)
 
-    items = list_work_items(runtime_root)
+    items, _ = list_work_items(runtime_root)
 
     assert [item.name for item in items] == ["manual-item"]
     assert items[0].status == "open"
@@ -180,8 +180,8 @@ def test_list_archived_work_items_honors_limit_and_all_archived(tmp_path: Path) 
     for item in created:
         archive_work_item(runtime_root, item.name)
 
-    limited = list_archived_work_items(runtime_root, limit=2)
-    all_items = list_archived_work_items(runtime_root, limit=2, all_archived=True)
+    limited, _ = list_archived_work_items(runtime_root, limit=2)
+    all_items, _ = list_archived_work_items(runtime_root, limit=2, all_archived=True)
 
     assert len(limited) == 2
     assert len(all_items) == 3
@@ -206,6 +206,28 @@ def test_rename_work_item_keeps_archived_item_archived(tmp_path: Path) -> None:
     loaded = get_work_item(runtime_root, "renamed-archived")
     assert loaded is not None
     assert loaded.status == "done"
+
+
+def test_list_work_items_warns_on_duplicate_in_archive(tmp_path: Path) -> None:
+    runtime_root = _state_root(tmp_path)
+    paths = RuntimePaths.from_root_dir(runtime_root)
+
+    create_work_item(runtime_root, "dupe-item")
+    # Manually create the same name in archive to simulate the bad state
+    archive_dir = paths.work_archive_dir / "dupe-item"
+    archive_dir.mkdir(parents=True, exist_ok=True)
+
+    items, warnings = list_work_items(runtime_root)
+    assert any(item.name == "dupe-item" for item in items)
+    assert len(warnings) == 1
+    assert "dupe-item" in warnings[0]
+    assert "both active and archive" in warnings[0]
+
+    # Archived listing skips the duplicate and also warns
+    archived_items, archived_warnings = list_archived_work_items(runtime_root, all_archived=True)
+    assert not any(item.name == "dupe-item" for item in archived_items)
+    assert len(archived_warnings) == 1
+    assert "dupe-item" in archived_warnings[0]
 
 
 def test_update_work_item_rejects_done_status(tmp_path: Path) -> None:

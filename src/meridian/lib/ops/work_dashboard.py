@@ -158,12 +158,17 @@ class WorkDashboardOutput(BaseModel):
 
     items: tuple[WorkDashboardItem, ...] = ()
     ungrouped_spawns: tuple[WorkDashboardSpawn, ...] = ()
+    warnings: tuple[str, ...] = ()
 
     def format_text(self, ctx: FormatContext | None = None) -> str:
         _ = ctx
         lines = ["ACTIVE ACTIVITY"]
         if not self.items and not self.ungrouped_spawns:
             lines.append("  (no active spawns)")
+            if self.warnings:
+                lines.append("")
+                for warning in self.warnings:
+                    lines.append(f"warning: {warning}")
             return "\n".join(lines)
 
         has_spawns = False
@@ -186,6 +191,10 @@ class WorkDashboardOutput(BaseModel):
         if has_spawns:
             lines.append("")
             lines.append("Run `meridian spawn show <id>` for details.")
+        if self.warnings:
+            lines.append("")
+            for warning in self.warnings:
+                lines.append(f"warning: {warning}")
         return "\n".join(lines)
 
 
@@ -211,17 +220,24 @@ class WorkListOutput(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     items: tuple[WorkListItem, ...] = ()
+    warnings: tuple[str, ...] = ()
 
     def format_text(self, ctx: FormatContext | None = None) -> str:
         _ = ctx
+        lines: list[str] = []
         if not self.items:
-            return "(no work items)"
+            lines.append("(no work items)")
+        else:
+            from meridian.lib.core.formatting import tabular
 
-        from meridian.lib.core.formatting import tabular
-
-        rows = [["name", "status", "created"]]
-        rows.extend([[item.name, item.status, item.created_at] for item in self.items])
-        return tabular(rows)
+            rows = [["name", "status", "created"]]
+            rows.extend([[item.name, item.status, item.created_at] for item in self.items])
+            lines.append(tabular(rows))
+        if self.warnings:
+            lines.append("")
+            for warning in self.warnings:
+                lines.append(f"warning: {warning}")
+        return "\n".join(lines)
 
 
 class WorkShowInput(BaseModel):
@@ -390,7 +406,8 @@ def work_dashboard_sync(
     roots = resolve_roots_for_read(payload.project_root)
     project_state_dir = roots.project_state_dir
     runtime_state_root = roots.runtime_root
-    items_by_name = {item.name: item for item in work_store.list_work_items(project_state_dir)}
+    work_items, work_warnings = work_store.list_work_items(project_state_dir)
+    items_by_name = {item.name: item for item in work_items}
     active_session_work_ids = _active_session_work_ids(runtime_state_root)
     grouped: dict[str, list[WorkDashboardSpawn]] = {}
     ungrouped: list[WorkDashboardSpawn] = []
@@ -431,6 +448,7 @@ def work_dashboard_sync(
     return WorkDashboardOutput(
         items=tuple(items),
         ungrouped_spawns=tuple(sorted(ungrouped, key=lambda spawn: _spawn_id_sort_key(spawn.id))),
+        warnings=tuple(work_warnings),
     )
 
 
@@ -441,13 +459,13 @@ def work_list_sync(
     _ = ctx
     project_state_dir = resolve_roots_for_read(payload.project_root).project_state_dir
     if payload.done_only:
-        items = work_store.list_archived_work_items(
+        items, warnings = work_store.list_archived_work_items(
             project_state_dir,
             limit=payload.limit,
             all_archived=payload.all_archived,
         )
     else:
-        items = work_store.list_work_items(project_state_dir)
+        items, warnings = work_store.list_work_items(project_state_dir)
     return WorkListOutput(
         items=tuple(
             WorkListItem(
@@ -457,7 +475,8 @@ def work_list_sync(
                 created_at=item.created_at,
             )
             for item in items
-        )
+        ),
+        warnings=tuple(warnings),
     )
 
 

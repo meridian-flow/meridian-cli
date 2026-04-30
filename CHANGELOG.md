@@ -3,6 +3,9 @@
 Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [SemVer](https://semver.org/). Versions `0.0.6` through `0.0.25` in git history only — changelog fell stale, resumed at `[Unreleased]`.
 
 ## [Unreleased]
+### Fixed
+- `meridian work` / `meridian work list` no longer crash when a work item exists in both active and archive directories. Warns instead of failing, dashboard stays usable.
+
 ### Added
 - `meridian chat` starts the local headless chat backend with host/port/model/harness options.
 - Codex/OpenCode chat normalizers plus cross-harness parity tests for turn/content/file events.
