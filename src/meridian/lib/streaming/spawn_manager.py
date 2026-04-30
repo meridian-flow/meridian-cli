@@ -179,6 +179,11 @@ class SpawnManager:
 
         task.add_done_callback(_drop_heartbeat)
 
+    async def start_heartbeat(self, spawn_id: SpawnId) -> None:
+        """Start heartbeat ownership for one spawn; public observer-safe seam."""
+
+        await self._start_heartbeat(spawn_id)
+
     async def _stop_heartbeat(self, spawn_id: SpawnId) -> None:
         """Stop heartbeat ownership for one spawn; idempotent."""
 
@@ -400,9 +405,7 @@ class SpawnManager:
                         duration_secs=max(0.0, time.monotonic() - session.started_monotonic),
                     )
                 self._resolve_completion_future(session, outcome)
-                cleanup_task = asyncio.create_task(
-                    self._cleanup_completed_session(spawn_id)
-                )
+                cleanup_task = asyncio.create_task(self._cleanup_completed_session(spawn_id))
                 self._cleanup_tasks.add(cleanup_task)
                 cleanup_task.add_done_callback(self._cleanup_tasks.discard)
 

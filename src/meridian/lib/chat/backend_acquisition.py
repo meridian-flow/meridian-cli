@@ -2,9 +2,22 @@
 
 from __future__ import annotations
 
-from typing import Protocol
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any, Protocol, cast
+from uuid import uuid4
 
 from meridian.lib.chat.backend_handle import BackendHandle
+from meridian.lib.chat.event_observer import ChatEventObserver
+from meridian.lib.chat.event_pipeline import ChatEventPipeline
+from meridian.lib.core.types import SpawnId
+from meridian.lib.harness.connections.base import ConnectionConfig, HarnessConnection
+from meridian.lib.harness.ids import HarnessId
+from meridian.lib.harness.launch_spec import ClaudeLaunchSpec
+from meridian.lib.harness.normalizers.base import EventNormalizer
+from meridian.lib.launch.launch_types import ResolvedLaunchSpec
+from meridian.lib.safety.permissions import UnsafeNoOpPermissionResolver
+from meridian.lib.streaming.drain_policy import PersistentDrainPolicy
 
 
 class BackendAcquisition(Protocol):
@@ -14,4 +27,132 @@ class BackendAcquisition(Protocol):
         """Acquire a backend and send the initial prompt as part of startup."""
         ...
 
-__all__ = ["BackendAcquisition"]
+
+class _SpawnManagerLike(Protocol):
+    async def start_spawn(
+        self,
+        config: ConnectionConfig,
+        spec: ResolvedLaunchSpec,
+        *,
+        drain_policy: object | None = None,
+        on_event: object | None = None,
+    ) -> HarnessConnection[Any]: ...
+
+    def register_observer(self, spawn_id: SpawnId, observer: object) -> None: ...
+
+    async def start_heartbeat(self, spawn_id: SpawnId) -> None: ...
+
+
+NormalizerFactory = Callable[[HarnessId], EventNormalizer] | Callable[[str, str], EventNormalizer]
+PipelineFactory = Callable[[str], ChatEventPipeline] | Callable[[str, str], ChatEventPipeline]
+ConnectionConfigFactory = Callable[[str, str], ConnectionConfig]
+LaunchSpecFactory = Callable[[str], ResolvedLaunchSpec]
+
+
+class ColdSpawnAcquisition:
+    """Acquire a chat backend by starting a fresh SpawnManager execution.
+
+    This is intentionally a narrow vertical slice: callers may inject factories
+    for production preparation or tests, while this class owns the invariant that
+    the chat observer is registered before the spawn starts and that chat spawns
+    use ``PersistentDrainPolicy``.
+    """
+
+    def __init__(
+        self,
+        *,
+        spawn_manager: _SpawnManagerLike,
+        normalizer_factory: NormalizerFactory,
+        pipeline_factory: PipelineFactory,
+        connection_config_factory: ConnectionConfigFactory | None = None,
+        launch_spec_factory: LaunchSpecFactory | None = None,
+        project_root: Path | None = None,
+        harness_id: HarnessId = HarnessId.CLAUDE,
+        execution_generation: int | None = None,
+    ) -> None:
+        self._spawn_manager = spawn_manager
+        self._normalizer_factory = normalizer_factory
+        self._pipeline_factory = pipeline_factory
+        self._connection_config_factory = connection_config_factory
+        self._launch_spec_factory = launch_spec_factory
+        self._project_root = project_root if project_root is not None else Path.cwd()
+        self._harness_id = harness_id
+        self._execution_generation = execution_generation
+
+    async def acquire(self, chat_id: str, initial_prompt: str) -> BackendHandle:
+        """Start a cold backend with the first prompt and return its handle."""
+
+        config = self._build_connection_config(chat_id, initial_prompt)
+        spec = self._build_launch_spec(initial_prompt)
+        execution_id = str(config.spawn_id)
+        normalizer = self._build_normalizer(config.harness_id, chat_id, execution_id)
+        pipeline = self._build_pipeline(chat_id, execution_id)
+        observer = ChatEventObserver(
+            normalizer=normalizer,
+            pipeline=pipeline,
+            execution_id=execution_id,
+            execution_generation=self._execution_generation or 0,
+        )
+
+        # Critical D15/D19 invariant: observer first, then SpawnManager start.
+        self._spawn_manager.register_observer(config.spawn_id, observer)
+        connection = await self._spawn_manager.start_spawn(
+            config,
+            spec,
+            drain_policy=PersistentDrainPolicy(),
+        )
+        await self._spawn_manager.start_heartbeat(config.spawn_id)
+        return BackendHandle(
+            spawn_id=config.spawn_id,
+            spawn_manager=cast("Any", self._spawn_manager),
+            connection=connection,
+            execution_generation=self._execution_generation or 0,
+        )
+
+    def _build_connection_config(self, chat_id: str, initial_prompt: str) -> ConnectionConfig:
+        if self._connection_config_factory is not None:
+            return self._connection_config_factory(chat_id, initial_prompt)
+        return ConnectionConfig(
+            spawn_id=_spawn_id(),
+            harness_id=self._harness_id,
+            prompt=initial_prompt,
+            project_root=self._project_root,
+            env_overrides={},
+        )
+
+    def _build_launch_spec(self, initial_prompt: str) -> ResolvedLaunchSpec:
+        if self._launch_spec_factory is not None:
+            return self._launch_spec_factory(initial_prompt)
+        if self._harness_id == HarnessId.CLAUDE:
+            return ClaudeLaunchSpec(
+                prompt=initial_prompt,
+                permission_resolver=UnsafeNoOpPermissionResolver(_suppress_warning=True),
+            )
+        return ResolvedLaunchSpec(
+            prompt=initial_prompt,
+            permission_resolver=UnsafeNoOpPermissionResolver(_suppress_warning=True),
+        )
+
+    def _build_normalizer(
+        self,
+        harness_id: HarnessId,
+        chat_id: str,
+        execution_id: str,
+    ) -> EventNormalizer:
+        try:
+            return self._normalizer_factory(harness_id)  # type: ignore[misc,call-arg]
+        except TypeError:
+            return self._normalizer_factory(chat_id, execution_id)  # type: ignore[misc,call-arg]
+
+    def _build_pipeline(self, chat_id: str, execution_id: str) -> ChatEventPipeline:
+        try:
+            return self._pipeline_factory(chat_id)  # type: ignore[misc,call-arg]
+        except TypeError:
+            return self._pipeline_factory(chat_id, execution_id)  # type: ignore[misc,call-arg]
+
+
+def _spawn_id() -> SpawnId:
+    return SpawnId(f"chat-{uuid4()}")
+
+
+__all__ = ["BackendAcquisition", "ColdSpawnAcquisition"]

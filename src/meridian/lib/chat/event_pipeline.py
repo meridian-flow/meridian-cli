@@ -73,6 +73,10 @@ class ChatEventPipeline:
         with suppress(asyncio.CancelledError):
             await self._task
 
+    async def drain(self) -> None:
+        """Wait until all currently queued events are persisted and broadcast."""
+        await self._queue.join()
+
     async def ingest(self, event: ChatEvent) -> None:
         """Queue a normalized event; apply lifecycle transitions before drops."""
 
@@ -110,6 +114,7 @@ class ChatEventPipeline:
         while True:
             event = await self._queue.get()
             if event is None:
+                self._queue.task_done()
                 break
             persisted = self._log.append(event)
             if self._index is not None:
@@ -120,6 +125,7 @@ class ChatEventPipeline:
             await self._fanout.broadcast(persisted)
             if persisted.type not in LIFECYCLE_EVENT_TYPES:
                 self._notify_session(persisted)
+            self._queue.task_done()
             if persisted.type == CHAT_EXITED:
                 break
 
