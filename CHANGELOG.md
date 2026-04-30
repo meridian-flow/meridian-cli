@@ -9,6 +9,8 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Chat backend test suite expanded from 1289 to 1329 tests. New coverage: recovery edge cases (truncated JSONL, corrupt index, idempotency), concurrency races (parallel create, dispatch fencing, close+prompt), WebSocket fanout (reconnection, multi-client, ack framing), HITL flow (approve, answer_input, stale generation), CLI passthrough registry.
 
 ### Fixed
+- `spawn wait` yield interval now reads parent harness (`MERIDIAN_HARNESS` env) instead of scanning child spawn rows. Keeps the *caller's* prompt cache alive, not the children's.
+- Claude default `wait_yield_seconds` bumped from 270s to 900s — matches Codex, well within Claude Code Max 1-hour cache TTL.
 - Workspace projection now includes meridian context paths (work, kb, archive, extras) in harness sandbox permissions. OpenCode/Claude/Codex spawns can access work item artifacts and knowledge base.
 - `meridian work` / `meridian work list` no longer crash when a work item exists in both active and archive directories. Warns instead of failing, dashboard stays usable.
 - Chat recovery no longer emits duplicate `runtime.error` on repeated restarts of the same abandoned chat. SQLite index now consistent with JSONL after recovery.
