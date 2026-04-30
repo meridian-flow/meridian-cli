@@ -1,14 +1,14 @@
-"""Harness normalizer registry."""
+"""Chat event normalizer registry."""
 
 from __future__ import annotations
 
 from collections.abc import Callable
 
+from meridian.lib.chat.normalization.base import EventNormalizer
+from meridian.lib.chat.normalization.claude import ClaudeNormalizer
+from meridian.lib.chat.normalization.codex import CodexNormalizer
+from meridian.lib.chat.normalization.opencode import OpenCodeNormalizer
 from meridian.lib.harness.ids import HarnessId
-from meridian.lib.harness.normalizers.base import EventNormalizer
-from meridian.lib.harness.normalizers.claude import ClaudeNormalizer
-from meridian.lib.harness.normalizers.codex import CodexNormalizer
-from meridian.lib.harness.normalizers.opencode import OpenCodeNormalizer
 
 NormalizerFactory = Callable[[str, str], EventNormalizer]
 

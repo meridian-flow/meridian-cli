@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import Any, cast
 from uuid import uuid4
 
+from meridian.lib.chat.normalization.common import canonical_item_type
+from meridian.lib.chat.normalization.synthetic import is_turn_boundary_event
 from meridian.lib.chat.protocol import (
     CONTENT_DELTA,
     TURN_COMPLETED,
@@ -42,7 +44,9 @@ class CodexNormalizer:
         match event.event_type:
             case "turn/started":
                 return [self._turn_started(event)]
-            case "turn/completed" | "meridian/turn_completed":
+            case "turn/completed":
+                return [self._turn_completed(event)]
+            case value if is_turn_boundary_event(value):
                 return [self._turn_completed(event)]
             case "item/tool/started":
                 return [self._item_event(ITEM_STARTED, event)]
@@ -105,7 +109,7 @@ class CodexNormalizer:
         )
         name = _str(item.get("name")) or _str(event.payload.get("name"))
         payload = dict(event.payload)
-        payload["item_type"] = _canonical_item_type(raw_type, name)
+        payload["item_type"] = canonical_item_type(raw_type, name)
         if raw_type is not None:
             payload["raw_type"] = raw_type
         if name is not None:
@@ -159,15 +163,6 @@ class CodexNormalizer:
 def _item_payload(payload: dict[str, object]) -> dict[str, object]:
     item = payload.get("item") or payload.get("tool")
     return cast("dict[str, object]", item) if isinstance(item, dict) else payload
-
-
-def _canonical_item_type(raw_type: str | None, name: str | None) -> str:
-    value = f"{raw_type or ''} {name or ''}".lower()
-    if any(token in value for token in ("exec", "shell", "command", "bash")):
-        return "command_execution"
-    if any(token in value for token in ("file", "patch", "edit", "write")):
-        return "file_change"
-    return raw_type or name or "tool_use"
 
 
 def _text_from_payload(payload: dict[str, object]) -> str:

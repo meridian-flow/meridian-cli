@@ -141,7 +141,14 @@ class AutoAcceptHandler:
 
 
 class InteractiveHandler:
-    """Request policy that surfaces decisions and lets external code respond later."""
+    """Future HITL request policy seam for externally resolved decisions.
+
+    This handler surfaces harness requests as events instead of auto-answering
+    them, then expects external code to respond later through the connection.
+    It is intentionally kept as a policy boundary for future chat/HITL
+    integration; the current production codebase has no instantiation path for
+    it.
+    """
 
     def __init__(
         self,

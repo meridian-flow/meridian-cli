@@ -67,6 +67,12 @@ class ChatCommandHandler:
                     commit_sha = _required_str(command.payload, "commit_sha")
                     await checkpoint.revert_to_checkpoint(commit_sha)
                 case "swap_model" | "swap_effort":
+                    # These commands stay schema-recognized so clients can
+                    # share one command vocabulary, but no current harness
+                    # supports runtime model/effort switching through the live
+                    # chat connection. Supporting them requires a harness
+                    # capability plus session/runtime code that safely applies
+                    # the switch to the active execution.
                     return CommandResult(
                         status="rejected",
                         error="not_supported_by_current_harness",

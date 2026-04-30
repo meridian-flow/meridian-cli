@@ -35,6 +35,13 @@ app = FastAPI(lifespan=lifespan)
 
 
 class CreateChatRequest(BaseModel):
+    """Create-chat transport shape.
+
+    ``model`` and ``harness`` are reserved transport fields. They are
+    intentionally accepted but currently ignored because chat backend
+    acquisition is deferred until the first prompt.
+    """
+
     model: str | None = None
     harness: str | None = None
 

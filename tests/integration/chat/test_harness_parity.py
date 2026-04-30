@@ -1,5 +1,5 @@
+from meridian.lib.chat.normalization.registry import get_normalizer_factory
 from meridian.lib.harness.connections.base import HarnessEvent
-from meridian.lib.harness.normalizers.registry import get_normalizer_factory
 
 
 def _event(harness_id: str, event_type: str, payload: dict[str, object]) -> HarnessEvent:

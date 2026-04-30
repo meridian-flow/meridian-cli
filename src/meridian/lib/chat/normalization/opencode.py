@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, cast
 from uuid import uuid4
 
+from meridian.lib.chat.normalization.common import canonical_item_type
 from meridian.lib.chat.protocol import (
     CONTENT_DELTA,
     TURN_COMPLETED,
@@ -108,7 +109,7 @@ class OpenCodeNormalizer:
         raw_type = _str(tool.get("type")) or _str(event.payload.get("type"))
         name = _str(tool.get("name")) or _str(event.payload.get("name"))
         payload = dict(event.payload)
-        payload["item_type"] = _canonical_item_type(raw_type, name)
+        payload["item_type"] = canonical_item_type(raw_type, name)
         if raw_type is not None:
             payload["raw_type"] = raw_type
         if name is not None:
@@ -145,15 +146,6 @@ class OpenCodeNormalizer:
 def _tool_payload(payload: dict[str, object]) -> dict[str, object]:
     value = payload.get("tool") or payload.get("tool_call")
     return cast("dict[str, object]", value) if isinstance(value, dict) else payload
-
-
-def _canonical_item_type(raw_type: str | None, name: str | None) -> str:
-    value = f"{raw_type or ''} {name or ''}".lower()
-    if any(token in value for token in ("exec", "shell", "command", "bash")):
-        return "command_execution"
-    if any(token in value for token in ("file", "patch", "edit", "write")):
-        return "file_change"
-    return raw_type or name or "tool_use"
 
 
 def _text_from_payload(payload: dict[str, object]) -> str:

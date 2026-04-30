@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, cast
 from uuid import uuid4
 
+from meridian.lib.chat.normalization.synthetic import is_turn_boundary_event
 from meridian.lib.chat.protocol import (
     CONTENT_DELTA,
     TURN_COMPLETED,
@@ -14,7 +15,6 @@ from meridian.lib.chat.protocol import (
     utc_now_iso,
 )
 from meridian.lib.harness.connections.base import HarnessEvent
-from meridian.lib.streaming.drain_policy import TURN_BOUNDARY_EVENT_TYPE
 
 HARNESS_ID = "claude"
 ITEM_STARTED = "item.started"
@@ -65,7 +65,7 @@ class ClaudeNormalizer:
                 return self._file_events(event) or [
                     self._event(FILES_PERSISTED, event, payload=dict(event.payload))
                 ]
-            case value if value == TURN_BOUNDARY_EVENT_TYPE:
+            case value if is_turn_boundary_event(value):
                 return self._turn_completed(event)
             case _:
                 return []

@@ -158,7 +158,12 @@ class ChatRuntime(PipelineLookup):
         model: str | None = None,
         harness: str | None = None,
     ) -> ChatRuntimeView:
-        """Create a new chat, register it live, start its pipeline, emit chat.started."""
+        """Create a new chat, register it live, start its pipeline, emit chat.started.
+
+        ``model`` and ``harness`` are reserved for a future create-time backend
+        selection surface. They are intentionally ignored today because backend
+        acquisition is deferred until the first prompt.
+        """
 
         self._ensure_running()
         _ = (model, harness)

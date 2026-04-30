@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from meridian.lib.chat.event_pipeline import ChatEventPipeline
+from meridian.lib.chat.normalization.base import EventNormalizer
 from meridian.lib.chat.protocol import ChatEvent
 from meridian.lib.core.types import SpawnId
 from meridian.lib.harness.connections.base import HarnessEvent
-from meridian.lib.harness.normalizers.base import EventNormalizer
 from meridian.lib.streaming.event_observers import EventObserver
 
 

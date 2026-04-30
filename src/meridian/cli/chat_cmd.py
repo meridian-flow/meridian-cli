@@ -12,6 +12,8 @@ from typing import Annotated, Any, cast
 from cyclopts import App, Parameter
 
 from meridian.lib.chat.backend_acquisition import ColdSpawnAcquisition
+from meridian.lib.chat.normalization.base import EventNormalizer
+from meridian.lib.chat.normalization.registry import get_normalizer_factory
 from meridian.lib.chat.runtime import ChatRuntime, PipelineLookup
 from meridian.lib.harness.ids import HarnessId
 from meridian.lib.harness.launch_spec import (
@@ -19,8 +21,6 @@ from meridian.lib.harness.launch_spec import (
     CodexLaunchSpec,
     OpenCodeLaunchSpec,
 )
-from meridian.lib.harness.normalizers.base import EventNormalizer
-from meridian.lib.harness.normalizers.registry import get_normalizer_factory
 from meridian.lib.launch.launch_types import ResolvedLaunchSpec
 from meridian.lib.safety.permissions import UnsafeNoOpPermissionResolver
 from meridian.lib.state.user_paths import get_user_home

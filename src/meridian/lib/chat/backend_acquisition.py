@@ -11,11 +11,11 @@ from uuid import uuid4
 from meridian.lib.chat.backend_handle import BackendHandle
 from meridian.lib.chat.event_observer import ChatEventObserver
 from meridian.lib.chat.event_pipeline import ChatEventPipeline
+from meridian.lib.chat.normalization.base import EventNormalizer
 from meridian.lib.core.types import SpawnId
 from meridian.lib.harness.connections.base import ConnectionConfig, HarnessConnection
 from meridian.lib.harness.ids import HarnessId
 from meridian.lib.harness.launch_spec import ClaudeLaunchSpec
-from meridian.lib.harness.normalizers.base import EventNormalizer
 from meridian.lib.launch.launch_types import ResolvedLaunchSpec
 from meridian.lib.safety.permissions import UnsafeNoOpPermissionResolver
 from meridian.lib.streaming.drain_policy import PersistentDrainPolicy

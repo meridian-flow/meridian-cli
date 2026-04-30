@@ -1,4 +1,4 @@
-"""Harness event normalizer protocol."""
+"""Chat event normalizer protocol."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from meridian.lib.harness.connections.base import HarnessEvent
 
 
 class EventNormalizer(Protocol):
-    """Stateful translator from one raw harness stream to ChatEvents."""
+    """Stateful chat-side translator from one raw harness stream to ChatEvents."""
 
     def normalize(self, event: HarnessEvent) -> list[ChatEvent]:
         """Translate one raw harness event into zero or more chat events."""
