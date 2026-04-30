@@ -6,7 +6,7 @@ import asyncio
 import json
 import logging
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -29,6 +29,12 @@ from meridian.lib.streaming.drain_policy import (
     DrainPolicy,
     SingleTurnDrainPolicy,
 )
+from meridian.lib.streaming.event_observers import (
+    CallbackObserver,
+    EventObserver,
+    EventObserverRegistry,
+    HarnessEventCallback,
+)
 from meridian.lib.streaming.heartbeat import heartbeat_loop
 from meridian.lib.streaming.inject_lock import drop_lock, get_lock
 from meridian.lib.streaming.types import InjectResult
@@ -43,7 +49,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 InjectResultCallback = Callable[[InjectResult], None]
-HarnessEventCallback = Callable[[HarnessEvent], Awaitable[None] | None]
 
 
 @dataclass(frozen=True)
@@ -129,6 +134,7 @@ class SpawnManager:
         self._cleanup_tasks: set[asyncio.Task[None]] = set()
         self._heartbeat_tasks: dict[SpawnId, asyncio.Task[None]] = {}
         self._history_writers: dict[SpawnId, HarnessHistoryWriter] = {}
+        self._observers = EventObserverRegistry()
 
     @property
     def runtime_root(self) -> Path:
@@ -220,13 +226,14 @@ class SpawnManager:
 
         resolved_policy = drain_policy if drain_policy is not None else SingleTurnDrainPolicy()
         self._history_writers[spawn_id] = HarnessHistoryWriter(self._history_path(spawn_id))
+        if on_event is not None:
+            self.register_observer(spawn_id, CallbackObserver(on_event))
         drain_task = asyncio.create_task(
             self._drain_loop(
                 spawn_id,
                 connection,
                 tracer,
                 drain_policy=resolved_policy,
-                on_event=on_event,
             )
         )
         control_server = ControlSocketServer(
@@ -240,6 +247,7 @@ class SpawnManager:
         except Exception:
             if tracer is not None:
                 tracer.close()
+            await self._observers.shutdown(spawn_id)
             drain_task.cancel()
             with suppress(asyncio.CancelledError):
                 await drain_task
@@ -259,13 +267,17 @@ class SpawnManager:
         self._completion_futures[spawn_id] = completion_future
         return connection
 
+    def register_observer(self, spawn_id: SpawnId, observer: EventObserver) -> None:
+        """Register a non-blocking post-persist event observer for one spawn."""
+
+        self._observers.register(spawn_id, observer)
+
     async def _drain_loop(
         self,
         spawn_id: SpawnId,
         receiver: HarnessConnection[Any],
         tracer: DebugTracer | None = None,
         drain_policy: DrainPolicy | None = None,
-        on_event: HarnessEventCallback | None = None,
     ) -> None:
         """Durably append each harness event and fan out to the active subscriber.
 
@@ -302,6 +314,7 @@ class SpawnManager:
                             "event_persisted",
                             data={"event_type": event.event_type},
                         )
+                    self._observers.dispatch(spawn_id, event)
                 except Exception as persist_exc:
                     consecutive_write_failures += 1
                     if tracer is not None:
@@ -333,13 +346,6 @@ class SpawnManager:
                         self._fan_out_event(spawn_id, event)
                         break
                 terminal_outcome = terminal_event_outcome(event)
-                if on_event is not None:
-                    try:
-                        callback_result = on_event(event)
-                        if callback_result is not None:
-                            await callback_result
-                    except Exception:
-                        logger.exception("on_event callback failed for %s", spawn_id)
                 self._fan_out_event(spawn_id, event)
                 if terminal_outcome is not None:
                     action: DrainAction = policy.classify(terminal_outcome)
@@ -355,6 +361,7 @@ class SpawnManager:
             drain_error = exc
             raise
         finally:
+            self._observers.complete(spawn_id)
             self._fan_out_event(spawn_id, None)
             session = self._sessions.get(spawn_id)
             if session is not None:
@@ -527,6 +534,7 @@ class SpawnManager:
         session = self._sessions.get(spawn_id)
         if session is None:
             await self._stop_heartbeat(spawn_id)
+            await self._observers.shutdown(spawn_id)
             drop_lock(spawn_id)
             return None
 
@@ -571,6 +579,7 @@ class SpawnManager:
         if session.drain_task.done() and not session.drain_task.cancelled():
             with suppress(Exception):
                 session.drain_task.result()
+        await self._observers.shutdown(spawn_id)
 
         with suppress(Exception):
             await session.control_server.stop()
@@ -606,6 +615,7 @@ class SpawnManager:
         if history_writer is not None:
             with suppress(Exception):
                 history_writer.write(terminal_event)
+                self._observers.dispatch(spawn_id, terminal_event)
         self._fan_out_event(spawn_id, terminal_event)
 
     async def _fan_out_turn_boundary(
@@ -629,6 +639,7 @@ class SpawnManager:
         if history_writer is not None:
             try:
                 history_writer.write(synthetic)
+                self._observers.dispatch(spawn_id, synthetic)
             except Exception as persist_exc:
                 logger.warning(
                     "Failed to persist turn boundary event for spawn %s: %s",
@@ -655,6 +666,8 @@ class SpawnManager:
             )
         for spawn_id in list(self._heartbeat_tasks):
             await self._stop_heartbeat(spawn_id)
+        for spawn_id in list(self._completion_futures):
+            await self._observers.shutdown(spawn_id)
         self._completion_futures.clear()
         self._history_writers.clear()
 
@@ -720,6 +733,7 @@ class SpawnManager:
         await self._stop_heartbeat(spawn_id)
         session = self._sessions.pop(spawn_id, None)
         if session is None:
+            await self._observers.shutdown(spawn_id)
             drop_lock(spawn_id)
             return
         if session.debug_tracer is not None:
@@ -734,6 +748,7 @@ class SpawnManager:
             await session.connection.stop()
         with suppress(Exception):
             await session.control_server.stop()
+        await self._observers.shutdown(spawn_id)
         self._history_writers.pop(spawn_id, None)
         drop_lock(spawn_id)
 

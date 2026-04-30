@@ -67,6 +67,7 @@ class QueuedObserver:
         self._spawn_id = spawn_id
         self._queue: asyncio.Queue[HarnessEvent | None] = asyncio.Queue(maxsize=max_buffer)
         self._task = asyncio.create_task(self._drain())
+        self._completion_signaled = False
 
     @property
     def task(self) -> asyncio.Task[None]:
@@ -89,6 +90,9 @@ class QueuedObserver:
     def complete(self) -> None:
         """Signal completion, preserving the sentinel under backpressure."""
 
+        if self._completion_signaled:
+            return
+        self._completion_signaled = True
         while True:
             try:
                 self._queue.put_nowait(None)
