@@ -20,6 +20,7 @@ HARNESS_ID = "claude"
 ITEM_STARTED = "item.started"
 ITEM_UPDATED = "item.updated"
 ITEM_COMPLETED = "item.completed"
+FILES_PERSISTED = "files.persisted"
 
 
 @dataclass
@@ -59,7 +60,11 @@ class ClaudeNormalizer:
             case "message_stop":
                 return []
             case "result":
-                return self._turn_completed(event)
+                return [*self._file_events(event), *self._turn_completed(event)]
+            case "files/persisted" | "files.persisted" | "file/write" | "file/persisted":
+                return self._file_events(event) or [
+                    self._event(FILES_PERSISTED, event, payload=dict(event.payload))
+                ]
             case value if value == TURN_BOUNDARY_EVENT_TYPE:
                 return self._turn_completed(event)
             case _:
@@ -187,6 +192,12 @@ class ClaudeNormalizer:
         self._blocks.clear()
         return [chat_event]
 
+    def _file_events(self, event: HarnessEvent) -> list[ChatEvent]:
+        files = _extract_files(event.payload)
+        if not files:
+            return []
+        return [self._event(FILES_PERSISTED, event, payload={"files": files})]
+
     def _event(
         self,
         event_type: str,
@@ -217,6 +228,26 @@ def _as_dict(value: object) -> dict[str, object] | None:
     if not isinstance(value, dict):
         return None
     return cast("dict[str, object]", value)
+
+
+def _extract_files(payload: dict[str, object]) -> list[dict[str, object]]:
+    value = payload.get("files") or payload.get("paths")
+    if isinstance(value, list):
+        files: list[dict[str, object]] = []
+        for entry in cast("list[object]", value):
+            if isinstance(entry, str):
+                files.append({"path": entry})
+            elif isinstance(entry, dict):
+                files.append(cast("dict[str, object]", entry))
+        return files
+    path = payload.get("path") or payload.get("file")
+    if isinstance(path, str):
+        result: dict[str, object] = {"path": path}
+        for key in ("operation", "status"):
+            if key in payload:
+                result[key] = payload[key]
+        return [result]
+    return []
 
 
 def _str(value: object) -> str | None:

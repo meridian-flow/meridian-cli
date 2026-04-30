@@ -185,7 +185,7 @@ def _extract_files(payload: dict[str, object]) -> list[dict[str, object]]:
     value = payload.get("files") or payload.get("paths")
     if isinstance(value, list):
         files: list[dict[str, object]] = []
-        for entry in value:
+        for entry in cast("list[object]", value):
             if isinstance(entry, str):
                 files.append({"path": entry})
             elif isinstance(entry, dict):
