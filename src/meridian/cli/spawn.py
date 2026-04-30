@@ -663,8 +663,8 @@ def _spawn_wait(
         Parameter(
             name="--yield-after-secs",
             help=(
-                "Cache-preserving yield interval in seconds (default: 240). "
-                "Exits cleanly when reached."
+                "Cache-preserving yield interval in seconds. Overrides harness-aware "
+                "default. Exits cleanly when reached."
             ),
         ),
     ] = None,

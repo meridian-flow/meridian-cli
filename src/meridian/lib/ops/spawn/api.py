@@ -852,6 +852,32 @@ def _emit_wait_progress(message: str, *, sink: OutputSink) -> None:
     sink.status(message)
 
 
+def _resolve_wait_yield_after_seconds(
+    *,
+    payload: SpawnWaitInput,
+    spawn_ids: tuple[str, ...],
+    project_root: Path,
+    config: object,
+) -> float:
+    """Resolve per-invocation or harness-aware wait-yield interval."""
+
+    if payload.yield_after_secs is not None:
+        return payload.yield_after_secs
+
+    resolver = getattr(config, "wait_yield_seconds_for_harness", None)
+    if resolver is None:
+        return float(getattr(config, "wait_yield_after_seconds", 240.0))
+
+    effective: list[float] = []
+    for spawn_id in spawn_ids:
+        row = read_spawn_row(project_root, spawn_id)
+        harness = row.harness if row is not None else None
+        effective.append(float(resolver(harness)))
+    if not effective:
+        return float(resolver(None))
+    return min(effective)
+
+
 def spawn_wait_sync(
     payload: SpawnWaitInput,
     ctx: RuntimeContext | None = None,
@@ -892,9 +918,12 @@ def spawn_wait_sync(
     )
     timeout_seconds = minutes_to_seconds(timeout_minutes) or 0.0
     checkpoint_seconds = (
-        payload.yield_after_secs
-        if payload.yield_after_secs is not None
-        else config.wait_yield_after_seconds
+        _resolve_wait_yield_after_seconds(
+            payload=payload,
+            spawn_ids=spawn_ids,
+            project_root=project_root,
+            config=config,
+        )
     )
     started = time.monotonic()
     use_checkpoint = not payload.timeout_explicit

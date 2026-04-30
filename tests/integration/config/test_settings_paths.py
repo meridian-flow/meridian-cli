@@ -43,6 +43,38 @@ def test_load_config_reads_meridian_toml_at_project_root(tmp_path: Path) -> None
     assert load_config(project_root).default_harness == "claude"
 
 
+def test_load_config_reads_harness_wait_yield_settings(tmp_path: Path) -> None:
+    project_root = tmp_path / "repo"
+    project_root.mkdir()
+    config_path = project_root / "meridian.toml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "[spawn]",
+                "default_wait_yield_seconds = 120",
+                "min_wait_yield_seconds = 45",
+                "",
+                "[harness.claude]",
+                "wait_yield_seconds = 270",
+                "",
+                "[harness.codex]",
+                "model = \"gpt-5.4\"",
+                "wait_yield_seconds = 20",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_config(project_root, resolve_models=False)
+
+    assert config.default_wait_yield_seconds == 120.0
+    assert config.min_wait_yield_seconds == 45.0
+    assert config.wait_yield_seconds_for_harness("claude") == 270.0
+    assert config.wait_yield_seconds_for_harness("codex") == 45.0
+    assert config.wait_yield_seconds_for_harness("unknown") == 120.0
+    assert config.default_model_for_harness("codex") == "gpt-5.4"
+
+
 def test_load_config_ignores_legacy_state_path_when_root_config_missing(
     tmp_path: Path,
 ) -> None:

@@ -22,6 +22,7 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Archived old frontend, FastAPI app server, HCP chat stack, `meridian app` command, app-backed tests, and built UI artifacts. Active codebase clear for fresh `meridian chat` / `meridian app` rebuild.
 
 ### Changed
+- `meridian spawn wait` yield default now harness-aware: unknown 240s, Claude 270s, Codex 900s; mixed waits use shortest. `--yield-after-secs` still overrides.
 - Harness event semantics now live in narrow pure helpers for terminal outcome, activity transitions, and signal clearing.
 - `meridian kg check` now reports broken links, `[!FLAG]` blocks, and git conflict markers. Broken links and flags are warnings (exit 0); conflict markers are errors (exit 1). `--strict` makes warnings exit-affecting. JSON includes all categories/counts. No early exit.
 - `git-autosync` rebase conflicts stay in clone for review by default; `conflict_policy = "abort"` restores old abort behavior. Future runs detect existing rebase state, skip all operations.

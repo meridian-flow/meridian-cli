@@ -125,7 +125,8 @@ def _parse_file_scalar(*, field_name: str, raw_value: object, source: str) -> ob
         "kill_grace_minutes",
         "guardrail_timeout_minutes",
         "wait_timeout_minutes",
-        "wait_yield_after_seconds",
+        "default_wait_yield_seconds",
+        "min_wait_yield_seconds",
     }
 
     if field_name in int_fields:
@@ -366,17 +367,74 @@ def _normalize_harness_table(
         if key not in allowed:
             logger.warning("Ignoring unknown Meridian config key '%s.%s'.", source, key)
             continue
+        if isinstance(value, dict):
+            harness_values: dict[str, object] = {}
+            for harness_key, harness_value in cast("dict[str, object]", value).items():
+                if harness_key == "model":
+                    if not isinstance(harness_value, str):
+                        raise ValueError(
+                            f"Invalid value for '{source}.{key}.model': expected str, got "
+                            f"{type(harness_value).__name__} ({harness_value!r})."
+                        )
+                    normalized_model = harness_value.strip()
+                    if normalized_model:
+                        normalized_model = _normalize_model_identifier(
+                            normalized_model,
+                            project_root=project_root,
+                        )
+                    harness_values["model"] = normalized_model
+                    continue
+                if harness_key == "wait_yield_seconds":
+                    if isinstance(harness_value, bool) or not isinstance(
+                        harness_value,
+                        int | float,
+                    ):
+                        raise ValueError(
+                            f"Invalid value for '{source}.{key}.wait_yield_seconds': "
+                            f"expected float, got "
+                            f"{type(harness_value).__name__} ({harness_value!r})."
+                        )
+                    harness_values["wait_yield_seconds"] = float(harness_value)
+                    continue
+                logger.warning(
+                    "Ignoring unknown Meridian config key '%s.%s.%s'.",
+                    source,
+                    key,
+                    harness_key,
+                )
+            values[key] = harness_values
+            continue
         if not isinstance(value, str):
             raise ValueError(
-                f"Invalid value for '{source}.{key}': expected str, got "
+                f"Invalid value for '{source}.{key}': expected str or table, got "
                 f"{type(value).__name__} ({value!r})."
             )
         normalized = value.strip()
         if not normalized:
-            values[key] = normalized
+            values[key] = {"model": normalized}
             continue
-        values[key] = _normalize_model_identifier(normalized, project_root=project_root)
+        values[key] = {
+            "model": _normalize_model_identifier(normalized, project_root=project_root)
+        }
 
+    return values
+
+
+def _normalize_spawn_table(raw_value: object, *, source: str) -> dict[str, object]:
+    if not isinstance(raw_value, dict):
+        raise ValueError(f"Invalid value for '{source}': expected table.")
+
+    values: dict[str, object] = {}
+    for key, value in cast("dict[str, object]", raw_value).items():
+        if key not in {"default_wait_yield_seconds", "min_wait_yield_seconds"}:
+            logger.warning("Ignoring unknown Meridian config key '%s.%s'.", source, key)
+            continue
+        if isinstance(value, bool) or not isinstance(value, int | float):
+            raise ValueError(
+                f"Invalid value for '{source}.{key}': expected float, got "
+                f"{type(value).__name__} ({value!r})."
+            )
+        values[key] = float(value)
     return values
 
 
@@ -617,7 +675,9 @@ def _normalize_toml_payload(
             "guardrail_timeout_minutes": "guardrail_timeout_minutes",
             "wait_minutes": "wait_timeout_minutes",
             "wait_timeout_minutes": "wait_timeout_minutes",
-            "wait_yield_after_seconds": "wait_yield_after_seconds",
+            "wait_yield_after_seconds": "default_wait_yield_seconds",
+            "default_wait_yield_seconds": "default_wait_yield_seconds",
+            "min_wait_yield_seconds": "min_wait_yield_seconds",
         },
     }
     top_level_aliases: dict[str, str] = {
@@ -627,7 +687,9 @@ def _normalize_toml_payload(
         "kill_grace_minutes": "kill_grace_minutes",
         "guardrail_timeout_minutes": "guardrail_timeout_minutes",
         "wait_timeout_minutes": "wait_timeout_minutes",
-        "wait_yield_after_seconds": "wait_yield_after_seconds",
+        "wait_yield_after_seconds": "default_wait_yield_seconds",
+        "default_wait_yield_seconds": "default_wait_yield_seconds",
+        "min_wait_yield_seconds": "min_wait_yield_seconds",
         "model": "default_model",
         "default_harness": "default_harness",
     }
@@ -656,6 +718,12 @@ def _normalize_toml_payload(
             normalized["harness"] = _merge_nested_dicts(
                 cast("dict[str, object]", normalized.get("harness", {})),
                 _normalize_harness_table(raw_value, source="harness", project_root=project_root),
+            )
+            continue
+        if key == "spawn":
+            normalized = _merge_nested_dicts(
+                normalized,
+                _normalize_spawn_table(raw_value, source="spawn"),
             )
             continue
         if key == "hooks":
@@ -730,12 +798,29 @@ def _env_alias_overrides(project_root: Path) -> dict[str, object]:
             "float",
         ),
         ("MERIDIAN_WAIT_TIMEOUT_MINUTES", ("wait_timeout_minutes",), "float"),
-        ("MERIDIAN_WAIT_YIELD_AFTER_SECONDS", ("wait_yield_after_seconds",), "float"),
+        ("MERIDIAN_WAIT_YIELD_AFTER_SECONDS", ("default_wait_yield_seconds",), "float"),
+        ("MERIDIAN_DEFAULT_WAIT_YIELD_SECONDS", ("default_wait_yield_seconds",), "float"),
+        ("MERIDIAN_MIN_WAIT_YIELD_SECONDS", ("min_wait_yield_seconds",), "float"),
         ("MERIDIAN_DEFAULT_MODEL", ("default_model",), "str"),
         ("MERIDIAN_DEFAULT_HARNESS", ("default_harness",), "str"),
-        ("MERIDIAN_HARNESS_MODEL_CLAUDE", ("harness", "claude"), "str"),
-        ("MERIDIAN_HARNESS_MODEL_CODEX", ("harness", "codex"), "str"),
-        ("MERIDIAN_HARNESS_MODEL_OPENCODE", ("harness", "opencode"), "str"),
+        ("MERIDIAN_HARNESS_MODEL_CLAUDE", ("harness", "claude", "model"), "str"),
+        ("MERIDIAN_HARNESS_MODEL_CODEX", ("harness", "codex", "model"), "str"),
+        ("MERIDIAN_HARNESS_MODEL_OPENCODE", ("harness", "opencode", "model"), "str"),
+        (
+            "MERIDIAN_HARNESS_WAIT_YIELD_SECONDS_CLAUDE",
+            ("harness", "claude", "wait_yield_seconds"),
+            "float",
+        ),
+        (
+            "MERIDIAN_HARNESS_WAIT_YIELD_SECONDS_CODEX",
+            ("harness", "codex", "wait_yield_seconds"),
+            "float",
+        ),
+        (
+            "MERIDIAN_HARNESS_WAIT_YIELD_SECONDS_OPENCODE",
+            ("harness", "opencode", "wait_yield_seconds"),
+            "float",
+        ),
         ("MERIDIAN_STATE_RETENTION_DAYS", ("state", "retention_days"), "int"),
         ("MERIDIAN_AGENT", ("primary", "agent"), "str"),
         ("MERIDIAN_FORMAT", ("output", "format"), "str"),
@@ -756,9 +841,9 @@ def _env_alias_overrides(project_root: Path) -> dict[str, object]:
 
         if field_path in {
             ("default_model",),
-            ("harness", "claude"),
-            ("harness", "codex"),
-            ("harness", "opencode"),
+            ("harness", "claude", "model"),
+            ("harness", "codex", "model"),
+            ("harness", "opencode", "model"),
             ("primary", "model"),
         }:
             parsed = _normalize_model_identifier(cast("str", parsed), project_root=project_root)
@@ -922,22 +1007,54 @@ class PrimaryConfig(BaseModel):
         return value
 
 
-class HarnessConfig(BaseModel):
-    """Default model configuration for each harness adapter."""
+class HarnessProfileConfig(BaseModel):
+    """Per-harness model and wait-yield settings."""
 
     model_config = ConfigDict(frozen=True, extra="ignore")
 
-    claude: str = ""
-    codex: str = ""
-    opencode: str = ""
+    model: str = ""
+    wait_yield_seconds: float | None = None
 
-    @field_validator("claude", "codex", "opencode")
+    @model_validator(mode="before")
     @classmethod
-    def _normalize_models(cls, value: str) -> str:
+    def _string_as_model(cls, values: Any) -> Any:
+        if isinstance(values, str):
+            return {"model": values}
+        return values
+
+    @field_validator("model")
+    @classmethod
+    def _normalize_model(cls, value: str) -> str:
         normalized = value.strip()
         if not normalized:
             return normalized
         return _normalize_model_identifier(normalized, project_root=_current_project_root())
+
+    @field_validator("wait_yield_seconds")
+    @classmethod
+    def _validate_wait_yield_seconds(cls, value: float | None) -> float | None:
+        if value is None:
+            return None
+        if isinstance(value, bool):
+            raise ValueError(
+                "Invalid value for 'harness.wait_yield_seconds': expected float, "
+                f"got {value!r}."
+            )
+        return float(value)
+
+
+class HarnessConfig(BaseModel):
+    """Default model and wait-yield configuration for each harness adapter."""
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    claude: HarnessProfileConfig = Field(
+        default_factory=lambda: HarnessProfileConfig(wait_yield_seconds=270.0)
+    )
+    codex: HarnessProfileConfig = Field(
+        default_factory=lambda: HarnessProfileConfig(wait_yield_seconds=900.0)
+    )
+    opencode: HarnessProfileConfig = Field(default_factory=HarnessProfileConfig)
 
 
 class MeridianConfig(BaseSettings):
@@ -956,7 +1073,8 @@ class MeridianConfig(BaseSettings):
     kill_grace_minutes: float = 2.0 / 60.0
     guardrail_timeout_minutes: float = 0.5
     wait_timeout_minutes: float = 30.0
-    wait_yield_after_seconds: float = 240.0
+    default_wait_yield_seconds: float = 240.0
+    min_wait_yield_seconds: float = 30.0
     default_model: str = ""
     default_harness: str = "codex"
 
@@ -978,16 +1096,50 @@ class MeridianConfig(BaseSettings):
     def _validate_default_harness(cls, value: str) -> str:
         return _normalize_required_string(value, source="defaults")
 
+    @field_validator("default_wait_yield_seconds", "min_wait_yield_seconds")
+    @classmethod
+    def _validate_wait_yield_settings(cls, value: float) -> float:
+        if isinstance(value, bool) or value <= 0:
+            raise ValueError(
+                "Invalid wait-yield setting: expected float > 0, "
+                f"got {value!r}."
+            )
+        return float(value)
+
     def default_model_for_harness(self, harness_id: str) -> str | None:
         """Return configured default model for one harness ID."""
 
         normalized = harness_id.strip().lower()
-        mapping: dict[str, str] = {
+        mapping: dict[str, HarnessProfileConfig] = {
             "claude": self.harness.claude,
             "codex": self.harness.codex,
             "opencode": self.harness.opencode,
         }
-        return mapping.get(normalized)
+        profile = mapping.get(normalized)
+        return None if profile is None else profile.model
+
+    @property
+    def wait_yield_after_seconds(self) -> float:
+        """Compatibility alias for the unknown/default wait-yield interval."""
+
+        return self.default_wait_yield_seconds
+
+    def wait_yield_seconds_for_harness(self, harness_id: str | None) -> float:
+        """Return clamped wait-yield seconds for a harness or the unknown default."""
+
+        normalized = (harness_id or "").strip().lower()
+        mapping: dict[str, HarnessProfileConfig] = {
+            "claude": self.harness.claude,
+            "codex": self.harness.codex,
+            "opencode": self.harness.opencode,
+        }
+        configured = mapping.get(normalized)
+        raw_value = (
+            configured.wait_yield_seconds
+            if configured is not None and configured.wait_yield_seconds is not None
+            else self.default_wait_yield_seconds
+        )
+        return max(float(raw_value), float(self.min_wait_yield_seconds))
 
     @classmethod
     def settings_customise_sources(
