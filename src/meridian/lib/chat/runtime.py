@@ -150,7 +150,6 @@ class ChatRuntime(PipelineLookup):
             self._persisted_only.clear()
         finally:
             self._started = False
-            self._stopped = False
 
     async def create_chat(self) -> ChatRuntimeView:
         """Create a new chat, register it live, start its pipeline, emit chat.started."""

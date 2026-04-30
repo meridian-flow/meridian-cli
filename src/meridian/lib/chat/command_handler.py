@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, cast
 
 from meridian.lib.chat.command_invariants import NoActiveExecutionError, require_active_execution
-from meridian.lib.chat.commands import COMMAND_APPROVE, COMMAND_CLOSE, ChatCommand, CommandResult
+from meridian.lib.chat.commands import COMMAND_APPROVE, ChatCommand, CommandResult
 from meridian.lib.chat.protocol import ChatEvent, utc_now_iso
 from meridian.lib.chat.session_service import (
     ChatClosedError,
@@ -36,7 +36,7 @@ class ChatCommandHandler:
         session = self._sessions.get(command.chat_id)
         if session is None:
             return CommandResult(status="rejected", error="chat_not_found")
-        if session.state == "closed" and command.type != COMMAND_CLOSE:
+        if session.state == "closed":
             return CommandResult(status="rejected", error="chat_closed")
 
         try:
