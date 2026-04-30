@@ -113,3 +113,50 @@ def test_terminal_outcome_unknown_event_returns_none() -> None:
     )
 
     assert outcome is None
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "event_type",
+    (
+        "turn/started",
+        "agent_message_chunk",
+        "agent_thought_chunk",
+        "tool_call",
+        "tool_call_update",
+    ),
+)
+def test_activity_transition_active_events_mark_turn_active(event_type: str) -> None:
+    from meridian.lib.harness.semantics import activity_transition
+
+    assert (
+        activity_transition(
+            _event(harness_id=HarnessId.OPENCODE.value, event_type=event_type)
+        )
+        == "turn_active"
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("event_type", ("turn/completed", "session.idle"))
+def test_activity_transition_idle_events_mark_idle(event_type: str) -> None:
+    from meridian.lib.harness.semantics import activity_transition
+
+    assert (
+        activity_transition(
+            _event(harness_id=HarnessId.CODEX.value, event_type=event_type)
+        )
+        == "idle"
+    )
+
+
+@pytest.mark.unit
+def test_activity_transition_ignores_unrelated_events() -> None:
+    from meridian.lib.harness.semantics import activity_transition
+
+    assert (
+        activity_transition(
+            _event(harness_id=HarnessId.CLAUDE.value, event_type="message/delta")
+        )
+        is None
+    )

@@ -95,8 +95,25 @@ def terminal_outcome(event: HarnessEvent) -> TerminalEventOutcome | None:
     return None
 
 
+def activity_transition(event: HarnessEvent) -> ActivityState | None:
+    """Return primary UI activity transition caused by a harness event."""
+
+    if event.event_type in {
+        "turn/started",  # Codex
+        "agent_message_chunk",  # OpenCode: assistant text streaming
+        "agent_thought_chunk",  # OpenCode: reasoning streaming
+        "tool_call",  # OpenCode: tool invocation
+        "tool_call_update",  # OpenCode: tool result
+    }:
+        return "turn_active"
+    if event.event_type in {"turn/completed", "session.idle"}:
+        return "idle"
+    return None
+
+
 __all__ = [
     "ActivityState",
     "TerminalEventOutcome",
+    "activity_transition",
     "terminal_outcome",
 ]

@@ -20,6 +20,7 @@ from meridian.lib.core.types import SpawnId
 from meridian.lib.harness.connections.base import ConnectionConfig, HarnessConnection, HarnessEvent
 from meridian.lib.harness.connections.errors import PortBindError
 from meridian.lib.harness.launch_spec import CodexLaunchSpec
+from meridian.lib.harness.semantics import activity_transition
 from meridian.lib.launch.launch_types import ResolvedLaunchSpec
 from meridian.lib.state.history import HarnessHistoryWriter
 from meridian.lib.state.primary_meta import ActivityState, PrimaryMetadata, write_primary_metadata
@@ -262,17 +263,9 @@ class PrimaryAttachLauncher:
     def _update_activity_from_event(self, event: HarnessEvent) -> None:
         """Update activity state based on connection events."""
 
-        event_type = event.event_type
-        if event_type in {
-            "turn/started",  # Codex
-            "agent_message_chunk",  # OpenCode: assistant text streaming
-            "agent_thought_chunk",  # OpenCode: reasoning streaming
-            "tool_call",  # OpenCode: tool invocation
-            "tool_call_update",  # OpenCode: tool result
-        }:
-            self._set_activity("turn_active")
-        elif event_type in {"turn/completed", "session.idle"}:
-            self._set_activity("idle")
+        activity = activity_transition(event)
+        if activity is not None:
+            self._set_activity(activity)
 
     def _set_activity(self, activity: ActivityState) -> None:
         should_write = False
