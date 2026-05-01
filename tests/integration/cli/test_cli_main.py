@@ -124,7 +124,7 @@ def test_agent_root_help_restricted_surface_contract() -> None:
         "work     Work item dashboard and coordination",
         "config   Show resolved configuration and sources",
         "doctor   Health check and orphan reconciliation",
-        "models   Model catalog",
+        "mars     Package management and agent materialization",
     ):
         assert visible in AGENT_ROOT_HELP
 
