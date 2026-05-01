@@ -32,7 +32,7 @@
 # Default model for Codex harness (str model id).
 # codex = ""  # empty = harness picks its own default model
 # Default model for OpenCode harness (str model id).
-# opencode = ""  # empty = harness picks its own default model
+opencode = "opencode-go/kimi-k2.6"  # default for OpenCode harness
 
 # -- Primary agent defaults -------------------------------------------------
 [primary]
@@ -43,7 +43,7 @@
 # Harness override for the primary agent (str; unset = use defaults.harness).
 # harness = ""
 # Agent profile name for the primary session (str; unset = no profile).
-agent = "dev-orchestrator"
+agent = "product-manager"
 
 # -- Output streaming -------------------------------------------------------
 [output]
@@ -57,18 +57,18 @@ agent = "dev-orchestrator"
 [context.work]
 source = "git"
 remote = "git@github.com:meridian-flow/docs.git"
-path = "meridian-cli/work"
-archive = "meridian-cli/archive/work"
+path = "work"
+archive = "archive/meridian-cli/work"
 
 [context.kb]
 source = "git"
 remote = "git@github.com:meridian-flow/docs.git"
-path = "meridian-cli/kb"
+path = "kb"
 
 [context.strategy]
 source = "git"
 remote = "git@github.com:meridian-flow/docs.git"
-path = "voluma-bio/strategy"
+path = "strategy"
 
 # -- Hooks -------------------------------------------------------------------
 # Auto-sync work/kb to the docs repo on spawn and work events

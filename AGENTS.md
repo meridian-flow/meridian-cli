@@ -48,11 +48,13 @@ NEVER REVERT CHANGES — always assume it's someone else's work.
 
 ### Editing Agents & Skills
 
-**NEVER edit `.agents/` directly** — it is generated output, overwritten by `meridian mars sync`. Edit the source package repos directly in sibling checkouts outside this repo. Preferred local layout:
+**NEVER edit `.agents/` directly** — it is generated output, overwritten by `meridian mars sync`. Edit the source package repos directly in sibling checkouts. Preferred local layout:
 
-- `~/gitrepos/meridian-cli`
-- `~/gitrepos/prompts/meridian-base`
-- `~/gitrepos/prompts/meridian-dev-workflow`
+- `../meridian-cli` (this repo)
+- `../meridian-web` — general-purpose agent frontend (Apache-2.0). Makefile `frontend` target expects this at `$MERIDIAN_WEB` (default `../meridian-web`).
+- `../prompts/meridian-base`
+- `../prompts/meridian-dev-workflow`
+- `../mars-agents`
 
 Source repos:
 
@@ -63,7 +65,7 @@ When writing or editing agent profiles and skills, follow the prompt and skill d
 
 Canonical workflow:
 
-1. Edit in the standalone source repo (for example `~/gitrepos/prompts/meridian-base/skills/meridian-spawn/SKILL.md`)
+1. Edit in the standalone source repo (for example `../prompts/meridian-base/skills/meridian-spawn/SKILL.md`)
 2. Commit and push the source repo change
 3. Update package refs in this repo if needed with `meridian mars add ...`
 4. Run `meridian mars sync` to regenerate `.agents/`
@@ -132,11 +134,24 @@ scripts/release.sh patch          # 0.0.2 → 0.0.3 (default choice)
 scripts/release.sh 0.2.0 --push   # explicit version, push tag
 ```
 
+### Releasing Prompt Packages
+
+Prompt packages (meridian-base, meridian-dev-workflow, meridian-prompter) use `mars version` to release. It bumps `mars.toml`, promotes CHANGELOG.md `[Unreleased]` → `[X.Y.Z] - YYYY-MM-DD`, commits, and tags in one step.
+
+```bash
+# From the prompt repo root:
+mars version patch              # bump, commit, tag locally
+mars version patch --push       # bump, commit, tag, push to origin
+mars version minor --push       # minor bump when scope warrants it
+```
+
+Update CHANGELOG.md entries under `[Unreleased]` as you work — `mars version` promotes them automatically. If `[Unreleased]` is empty, it warns but proceeds.
+
 ### Changelogs
 
-All three repos maintain a `CHANGELOG.md` at their root: `meridian-channel`, `meridian-base`, and `meridian-dev-workflow`. Format is [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), written in **caveman style** — terse, fragment-friendly, filler-free. Technical terms, agent names, file paths, and code blocks stay exact; only prose fluff gets compressed. See the `caveman` skill for the full ruleset.
+All repos maintain a `CHANGELOG.md` at their root. Format is [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), written in **caveman style** — terse, fragment-friendly, filler-free. Technical terms, agent names, file paths, and code blocks stay exact; only prose fluff gets compressed.
 
-Write entries at commit time in an `[Unreleased]` section, not retroactively — reasoning flattens the longer you wait. Proactive update this CHANGELOG. When cutting a release, rename `[Unreleased]` to `[X.Y.Z] - YYYY-MM-DD` and open a fresh empty `[Unreleased]` above it. Entry style: focus on behavioral changes downstream users will notice. For agent/skill repos the "API" is the prompt shape, so describe what agents now do differently, not which lines moved.
+Write entries at commit time in an `[Unreleased]` section, not retroactively — reasoning flattens the longer you wait. Proactively update this CHANGELOG. Entry style: focus on behavioral changes downstream users will notice. For agent/skill repos the "API" is the prompt shape, so describe what agents now do differently, not which lines moved.
 
 Standard shape at any tagged commit:
 
@@ -186,6 +201,7 @@ Lists open issues on `meridian-flow/meridian-cli`, excludes issues labelled `fut
 
 ## Related Repos
 
+- **meridian-web** (`../meridian-web/`): General-purpose agent frontend. React 19 + Vite + TypeScript + shadcn/ui + Zustand. Apache-2.0. Run with `make dev` (starts both backend and frontend) or `make frontend` (frontend only). Override path with `MERIDIAN_WEB` env var or `.env` file.
 - **mars-agents** (`../mars-agents/`): Standalone agent package manager for `.agents/`. Rust CLI, binary name `mars`. Meridian invokes it via `meridian mars ...` for project package setup and sync. Repo: `meridian-flow/mars-agents`.
 
 ### Cross-Platform Paths

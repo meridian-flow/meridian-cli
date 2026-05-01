@@ -9,6 +9,8 @@ build/
 .ruff_cache/
 .playwright-mcp/
 
+.env
+
 scratch/
 tmp/
 
