@@ -28,9 +28,9 @@ Primary launch/resume:
   meridian --fork p123                  Fork from ref
 
 Quick start:
-  meridian spawn -m MODEL -p "prompt"   Create a subagent run
-  meridian spawn wait                   Wait for results
-  meridian mars models list             See available models
+  meridian spawn -m MODEL -p "prompt" --bg   Launch a subagent (background)
+  meridian spawn wait                        Wait for all pending spawns
+  meridian mars models list                  See available models
 
 Commands:
   spawn    Create and manage subagent runs
@@ -39,7 +39,6 @@ Commands:
   config   Show resolved configuration and sources
   context  Show context paths for work and knowledge
   doctor   Health check and orphan reconciliation
-  models   Model catalog
   mars     Package management and agent materialization
   ext      Extension command discovery and invocation
 

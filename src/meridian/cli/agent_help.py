@@ -18,19 +18,20 @@ _SPAWN_SUPPLEMENT = (
     "  children ID    What a spawn delegated to\n\n"
     "  files ID       List changed paths for staging or review\n\n"
     "  inject ID      Course-correct a running spawn before cancelling\n\n"
-    "For transcripts, use 'meridian session log ID' (not 'spawn log').\n"
+    "  cancel ID      Stop a spawn when correction is no longer useful\n\n"
+    "Transcripts: 'meridian session log ID'.\n"
 )
 
 _SESSION_SUPPLEMENT = (
     "Agent Notes:\n\n"
+    "Omitting REF defaults to the top-level primary session at every depth.\n"
+    "Pass an explicit spawn id to inspect a specific spawn's transcript.\n\n"
     "Which subcommand when:\n\n"
     "  log REF            Read a transcript\n\n"
     "  log REF -c 0       Latest compacted segment; increment -c for older\n\n"
     "  log --file PATH    Read a session file directly\n\n"
     "  search QUERY REF   Case-insensitive search across segments\n\n"
-    "REF forms: chat id (c123), spawn id (p123), or harness session id.\n"
-    "Omitting REF defaults to the top-level primary session at every depth.\n"
-    "Use an explicit spawn id to inspect a specific spawn's transcript.\n\n"
+    "REF forms: chat id (c123), spawn id (p123), or harness session id.\n\n"
     "Decision recovery: 'meridian work sessions WORK_ID --all'\n"
 )
 
