@@ -13,9 +13,22 @@ from cyclopts import App, Parameter
 from meridian.lib.state.user_paths import get_user_home
 from meridian.lib.telemetry.query import query_events
 from meridian.lib.telemetry.reader import tail_events
-from meridian.lib.telemetry.status import ROOTLESS_LIMITATION_NOTE, compute_status
+from meridian.lib.telemetry.status import (
+    ROOTLESS_LIMITATION_NOTE,
+    compute_status,
+    format_status_dict,
+    status_to_dict,
+)
 
 Emitter = Callable[[Any], None]
+
+
+class _TelemetryStatusResult(dict[str, Any]):
+    """Dict payload that keeps human-readable text formatting."""
+
+    def format_text(self, ctx: Any = None) -> str:
+        _ = ctx
+        return format_status_dict(self)
 
 
 def _telemetry_dir():
@@ -117,7 +130,8 @@ def _telemetry_query(
 
 def _telemetry_status(emit: Emitter) -> None:
     """Show telemetry sink health and local reader limitations."""
-    emit(compute_status(get_user_home()))
+    status = compute_status(get_user_home())
+    emit(_TelemetryStatusResult(status_to_dict(status)))
 
 
 def register_telemetry_commands(app: App, emit: Emitter) -> None:

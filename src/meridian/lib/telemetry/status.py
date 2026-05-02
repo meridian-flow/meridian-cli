@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Any, cast
 
 from meridian.lib.core.util import FormatContext
 from meridian.lib.state.liveness import is_process_alive
@@ -38,16 +39,34 @@ class TelemetryStatus:
     def format_text(self, ctx: FormatContext | None = None) -> str:
         """Render a human-readable telemetry health summary."""
         _ = ctx
-        active = ", ".join(str(pid) for pid in self.active_pids) or "none"
-        return "\n".join(
-            [
-                f"Telemetry directory: {self.telemetry_dir}",
-                f"Segment count: {self.segment_count}",
-                f"Total size: {self.total_size_human}",
-                f"Active writer PIDs: {active}",
-                f"Note: {self.rootless_note}",
-            ]
-        )
+        return format_status_dict(status_to_dict(self))
+
+
+def status_to_dict(status: TelemetryStatus) -> dict[str, Any]:
+    """Return a JSON-serializable telemetry status payload."""
+    result = asdict(status)
+    result["telemetry_dir"] = str(result["telemetry_dir"])
+    result["total_size_human"] = status.total_size_human
+    return result
+
+
+def format_status_dict(status: dict[str, Any]) -> str:
+    """Render a telemetry status payload as human-readable text."""
+    active_pids = status.get("active_pids", [])
+    if isinstance(active_pids, list):
+        pid_values = cast("list[object]", active_pids)
+        active = ", ".join(str(pid) for pid in pid_values) or "none"
+    else:
+        active = "none"
+    return "\n".join(
+        [
+            f"Telemetry directory: {status.get('telemetry_dir', '')}",
+            f"Segment count: {status.get('segment_count', 0)}",
+            f"Total size: {status.get('total_size_human', '')}",
+            f"Active writer PIDs: {active}",
+            f"Note: {status.get('rootless_note', ROOTLESS_LIMITATION_NOTE)}",
+        ]
+    )
 
 
 def compute_status(runtime_root: Path) -> TelemetryStatus:

@@ -8,7 +8,7 @@ from pathlib import Path
 
 from meridian.lib.telemetry.query import query_events
 from meridian.lib.telemetry.reader import read_events
-from meridian.lib.telemetry.status import compute_status
+from meridian.lib.telemetry.status import compute_status, status_to_dict
 
 
 def _event(
@@ -112,3 +112,13 @@ def test_status_text_includes_rootless_limitation(tmp_path: Path) -> None:
     assert "Rootless processes" in rendered
     assert "stderr only" in rendered
     assert "outside the scope of local segment readers" in rendered
+
+
+def test_status_dict_is_json_serializable(tmp_path: Path) -> None:
+    status = compute_status(tmp_path)
+
+    result = status_to_dict(status)
+
+    json.dumps(result)
+    assert result["telemetry_dir"] == str(tmp_path / "telemetry")
+    assert result["total_size_human"] == status.total_size_human
