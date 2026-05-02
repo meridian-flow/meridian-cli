@@ -8,7 +8,7 @@ import json
 
 def test_json_flag_produces_json_spawn_dry_run(cli, scratch_dir):
     """--json flag produces valid JSON for spawn dry-run."""
-    agents_dir = scratch_dir / ".agents" / "agents"
+    agents_dir = scratch_dir / ".mars" / "agents"
     agents_dir.mkdir(parents=True, exist_ok=True)
     (agents_dir / "test.md").write_text("# Test\n", encoding="utf-8")
     
@@ -47,7 +47,7 @@ def test_format_text_produces_text(cli):
 
 def test_format_json_explicit(cli, scratch_dir):
     """--format json produces valid JSON."""
-    agents_dir = scratch_dir / ".agents" / "agents"
+    agents_dir = scratch_dir / ".mars" / "agents"
     agents_dir.mkdir(parents=True, exist_ok=True)
     (agents_dir / "test.md").write_text("# Test\n", encoding="utf-8")
     

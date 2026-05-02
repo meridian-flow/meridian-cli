@@ -1,4 +1,4 @@
-"""Agent profile parser for `.agents/agents/*.md`."""
+"""Agent profile parser for `.mars/agents/*.md`."""
 
 import logging
 from collections.abc import Mapping
@@ -224,7 +224,7 @@ def parse_agent_profile(path: Path) -> AgentProfile:
 
 
 def _agent_search_dirs(project_root: Path) -> list[Path]:
-    return [project_root / ".agents" / "agents"]
+    return [project_root / ".mars" / "agents"]
 
 
 def scan_agent_profiles(
@@ -282,7 +282,7 @@ def load_agent_profile(
         if profile.path.stem == normalized or profile.name == normalized:
             return profile
 
-    expected_path = Path(".agents") / "agents" / f"{normalized}.md"
+    expected_path = Path(".mars") / "agents" / f"{normalized}.md"
     raise FileNotFoundError(
         "\n".join(
             (

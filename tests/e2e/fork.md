@@ -11,13 +11,13 @@ git -C "$SMOKE_REPO" init --quiet
 for var in $(env | awk -F= '/^MERIDIAN_/ {print $1}'); do unset "$var"; done
 export MERIDIAN_PROJECT_DIR="$SMOKE_REPO"
 export MERIDIAN_RUNTIME_DIR="$SMOKE_REPO/.meridian"
-mkdir -p "$SMOKE_REPO/.agents/agents"
-cat > "$SMOKE_REPO/.agents/agents/reviewer.md" <<'EOF'
+mkdir -p "$SMOKE_REPO/.mars/agents"
+cat > "$SMOKE_REPO/.mars/agents/reviewer.md" <<'EOF'
 # Reviewer
 
 Fork smoke reviewer. Keep answers short.
 EOF
-cat > "$SMOKE_REPO/.agents/agents/architect.md" <<'EOF'
+cat > "$SMOKE_REPO/.mars/agents/architect.md" <<'EOF'
 # Architect
 
 Fork smoke architect. Keep answers short.

@@ -7,13 +7,13 @@ from meridian.lib.config.project_root import resolve_project_root
 from meridian.lib.config.settings import load_config
 
 
-def test_resolve_project_root_prefers_agents_skills_ancestor(
+def test_resolve_project_root_prefers_mars_skills_ancestor(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     project_root = tmp_path / "repo"
     nested = project_root / "src" / "feature"
-    (project_root / ".agents" / "skills").mkdir(parents=True)
+    (project_root / ".mars" / "skills").mkdir(parents=True)
     nested.mkdir(parents=True)
     monkeypatch.chdir(nested)
 

@@ -145,8 +145,8 @@ def doctor_sync(payload: DoctorInput) -> DoctorOutput:
         if pruned_spawn_artifacts > 0:
             repaired.append("spawn_artifacts")
 
-    agents_dir = project_root / ".agents" / "agents"
-    skills_dir = project_root / ".agents" / "skills"
+    agents_dir = project_root / ".mars" / "agents"
+    skills_dir = project_root / ".mars" / "skills"
     agents_dirs = [agents_dir] if agents_dir.is_dir() else []
     skills_dirs = [skills_dir] if skills_dir.is_dir() else []
 

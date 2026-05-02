@@ -15,20 +15,20 @@ for var in $(env | awk -F= '/^MERIDIAN_/ {print $1}'); do unset "$var"; done
 export MERIDIAN_PROJECT_DIR="$SMOKE_REPO"
 export MERIDIAN_RUNTIME_DIR="$SMOKE_REPO/.meridian"
 mkdir -p \
-  "$SMOKE_REPO/.agents/agents" \
-  "$SMOKE_REPO/.agents/skills/meridian-orchestrate" \
-  "$SMOKE_REPO/.agents/skills/meridian-spawn-agent"
-cat > "$SMOKE_REPO/.agents/agents/reviewer.md" <<'EOF'
+  "$SMOKE_REPO/.mars/agents" \
+  "$SMOKE_REPO/.mars/skills/meridian-orchestrate" \
+  "$SMOKE_REPO/.mars/skills/meridian-spawn-agent"
+cat > "$SMOKE_REPO/.mars/agents/reviewer.md" <<'EOF'
 # Reviewer
 
 Skill smoke reviewer.
 EOF
-cat > "$SMOKE_REPO/.agents/skills/meridian-orchestrate/SKILL.md" <<'EOF'
+cat > "$SMOKE_REPO/.mars/skills/meridian-orchestrate/SKILL.md" <<'EOF'
 # Meridian Orchestrate
 
 Orchestrate the work as a supervisor.
 EOF
-cat > "$SMOKE_REPO/.agents/skills/meridian-spawn-agent/SKILL.md" <<'EOF'
+cat > "$SMOKE_REPO/.mars/skills/meridian-spawn-agent/SKILL.md" <<'EOF'
 # Meridian Spawn Agent
 
 Spawn another agent when useful.

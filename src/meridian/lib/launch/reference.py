@@ -37,6 +37,7 @@ BLOCKED_DIRS: frozenset[str] = frozenset({
     ".pytest_cache",
     ".ruff_cache",
     ".meridian",
+    ".mars",
     ".agents",
     ".next",
     ".nuxt",

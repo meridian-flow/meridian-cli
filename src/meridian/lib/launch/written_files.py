@@ -37,7 +37,7 @@ _KNOWN_DIR_PREFIXES: tuple[str, ...] = (
     "frontend/",
     "backend/",
     "scripts/",
-    ".agents/",
+    ".mars/",
     ".meridian/",
     "config/",
 )

@@ -16,12 +16,12 @@ def write_skill(
     *,
     description: str | None = None,
 ) -> Path:
-    """Write one skill manifest/body under `.agents/skills/<name>/SKILL.md`."""
+    """Write one skill manifest/body under `.mars/skills/<name>/SKILL.md`."""
 
     skill_body = body if body is not None else f"# {name}\n"
     summary = description if description is not None else f"{name} skill"
     return _write(
-        project_root / ".agents" / "skills" / name / "SKILL.md",
+        project_root / ".mars" / "skills" / name / "SKILL.md",
         (f"---\nname: {name}\ndescription: {summary}\n---\n\n{skill_body}\n"),
     )
 
@@ -38,7 +38,7 @@ def write_agent(
     tools: list[str] | tuple[str, ...] | None = None,
     body: str | None = None,
 ) -> Path:
-    """Write one agent profile under `.agents/agents/<name>.md`."""
+    """Write one agent profile under `.mars/agents/<name>.md`."""
 
     lines = [
         "---",
@@ -56,4 +56,4 @@ def write_agent(
         lines.append(f"tools: [{', '.join(tools)}]")
     lines.append("---")
     lines.extend(["", body if body is not None else f"# {name}"])
-    return _write(project_root / ".agents" / "agents" / f"{name}.md", "\n".join(lines) + "\n")
+    return _write(project_root / ".mars" / "agents" / f"{name}.md", "\n".join(lines) + "\n")

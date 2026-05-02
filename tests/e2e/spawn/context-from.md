@@ -13,8 +13,8 @@ export MERIDIAN_PROJECT_DIR="$SMOKE_REPO"
 export MERIDIAN_RUNTIME_DIR="$SMOKE_REPO/.meridian"
 
 # Create a minimal agent for dry-run
-mkdir -p "$SMOKE_REPO/.agents/agents"
-cat > "$SMOKE_REPO/.agents/agents/coder.md" <<'EOF'
+mkdir -p "$SMOKE_REPO/.mars/agents"
+cat > "$SMOKE_REPO/.mars/agents/coder.md" <<'EOF'
 ---
 name: coder
 description: test coder

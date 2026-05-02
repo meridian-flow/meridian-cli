@@ -44,7 +44,7 @@ def test_spawn_dry_run_after_workspace_init(cli_with_git, scratch_dir):
     cli_with_git("workspace", "init")
     
     # Create minimal agent
-    agents_dir = scratch_dir / ".agents" / "agents"
+    agents_dir = scratch_dir / ".mars" / "agents"
     agents_dir.mkdir(parents=True, exist_ok=True)
     (agents_dir / "test.md").write_text("# Test\n", encoding="utf-8")
     

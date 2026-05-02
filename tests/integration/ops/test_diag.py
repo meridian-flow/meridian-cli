@@ -39,9 +39,9 @@ def _create_agent_skill_dirs(
     create_skills_dir: bool = True,
 ) -> None:
     if create_agents_dir:
-        (project_root / ".agents" / "agents").mkdir(parents=True, exist_ok=True)
+        (project_root / ".mars" / "agents").mkdir(parents=True, exist_ok=True)
     if create_skills_dir:
-        (project_root / ".agents" / "skills").mkdir(parents=True, exist_ok=True)
+        (project_root / ".mars" / "skills").mkdir(parents=True, exist_ok=True)
 
 
 def _set_tree_mtime(path: Path, mtime: float) -> None:

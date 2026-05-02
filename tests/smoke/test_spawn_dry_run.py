@@ -7,7 +7,7 @@ Replaces: tests/e2e/spawn/dry-run.md
 def test_basic_dry_run(cli, scratch_dir):
     """Basic dry-run outputs launch spec with composed prompt."""
     # Create minimal agent
-    agents_dir = scratch_dir / ".agents" / "agents"
+    agents_dir = scratch_dir / ".mars" / "agents"
     agents_dir.mkdir(parents=True, exist_ok=True)
     (agents_dir / "reviewer.md").write_text("# Reviewer\n", encoding="utf-8")
 
@@ -24,7 +24,7 @@ def test_basic_dry_run(cli, scratch_dir):
 
 def test_model_override(cli, scratch_dir):
     """Model override is accepted in dry-run."""
-    agents_dir = scratch_dir / ".agents" / "agents"
+    agents_dir = scratch_dir / ".mars" / "agents"
     agents_dir.mkdir(parents=True, exist_ok=True)
     (agents_dir / "reviewer.md").write_text("# Reviewer\n", encoding="utf-8")
     # Seed mars.toml so model resolution works
@@ -43,7 +43,7 @@ def test_model_override(cli, scratch_dir):
 
 def test_template_vars_substitution(cli, scratch_dir):
     """Template vars are substituted in prompt."""
-    agents_dir = scratch_dir / ".agents" / "agents"
+    agents_dir = scratch_dir / ".mars" / "agents"
     agents_dir.mkdir(parents=True, exist_ok=True)
     (agents_dir / "reviewer.md").write_text("# Reviewer\n", encoding="utf-8")
 
@@ -66,7 +66,7 @@ def test_template_vars_substitution(cli, scratch_dir):
 
 def test_reference_files_attached(cli, scratch_dir, tmp_path):
     """Reference files are included in dry-run payload."""
-    agents_dir = scratch_dir / ".agents" / "agents"
+    agents_dir = scratch_dir / ".mars" / "agents"
     agents_dir.mkdir(parents=True, exist_ok=True)
     (agents_dir / "reviewer.md").write_text("# Reviewer\n", encoding="utf-8")
 
@@ -90,7 +90,7 @@ def test_reference_files_attached(cli, scratch_dir, tmp_path):
 
 def test_empty_prompt_handled_gracefully(cli, scratch_dir):
     """Empty prompt fails or succeeds cleanly without traceback."""
-    agents_dir = scratch_dir / ".agents" / "agents"
+    agents_dir = scratch_dir / ".mars" / "agents"
     agents_dir.mkdir(parents=True, exist_ok=True)
     (agents_dir / "reviewer.md").write_text("# Reviewer\n", encoding="utf-8")
 

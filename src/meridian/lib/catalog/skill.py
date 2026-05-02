@@ -70,7 +70,7 @@ def parse_skill_file(path: Path) -> SkillDocument:
 
 
 def discover_skill_files(skills_dir: Path) -> list[Path]:
-    """Discover all SKILL.md files under `.agents/skills/`."""
+    """Discover all SKILL.md files under `.mars/skills/`."""
 
     if not skills_dir.is_dir():
         return []
@@ -78,7 +78,7 @@ def discover_skill_files(skills_dir: Path) -> list[Path]:
 
 
 def _skill_search_dirs(project_root: Path) -> list[Path]:
-    return [project_root / ".agents" / "skills"]
+    return [project_root / ".mars" / "skills"]
 
 
 def files_have_equal_text(first: Path, second: Path) -> bool:

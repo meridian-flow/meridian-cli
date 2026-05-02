@@ -7,13 +7,14 @@ USER_CONFIG_ENV_VAR = "MERIDIAN_CONFIG"
 
 
 def resolve_project_root(explicit: Path | None = None) -> Path:
-    """Resolve project root that owns `.agents/skills/`.
+    """Resolve project root that owns Meridian project configuration.
 
     Precedence:
     1. Explicit function argument.
     2. `MERIDIAN_PROJECT_DIR` environment variable.
-    3. Current directory / ancestors containing `.agents/skills/`.
-    4. Current working directory.
+    3. Current directory / ancestors containing `.mars/`.
+    4. Current directory / ancestors containing legacy `.agents/skills/`.
+    5. Current working directory.
     """
 
     if explicit is not None:
@@ -26,6 +27,9 @@ def resolve_project_root(explicit: Path | None = None) -> Path:
     cwd = Path.cwd().resolve()
     candidate = cwd
     while True:
+        if (candidate / ".mars").is_dir():
+            return candidate
+
         if (candidate / ".agents" / "skills").is_dir():
             return candidate
 

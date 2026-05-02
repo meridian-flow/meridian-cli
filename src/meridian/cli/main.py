@@ -568,7 +568,7 @@ def init_alias(
         str | None,
         Parameter(
             name="--link",
-            help="Link .agents/ into tool directory after config bootstrap (for example .claude).",
+            help="Link .mars/ into tool directory after config bootstrap (for example .claude).",
         ),
     ] = None,
 ) -> None:

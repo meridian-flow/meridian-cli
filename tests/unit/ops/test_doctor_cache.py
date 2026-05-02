@@ -27,8 +27,8 @@ def test_summarize_doctor_output_formats_cached_one_liner() -> None:
         ok=False,
         project_root="/repo",
         runs_checked=0,
-        agents_dir="/repo/.agents/agents",
-        skills_dir="/repo/.agents/skills",
+        agents_dir="/repo/.mars/agents",
+        skills_dir="/repo/.mars/skills",
         orphan_project_dirs=(
             OrphanProjectDir(
                 uuid="u1",
@@ -77,8 +77,8 @@ def test_summarize_doctor_output_does_not_suggest_prune_for_live_only_warning() 
         ok=False,
         project_root="/repo",
         runs_checked=1,
-        agents_dir="/repo/.agents/agents",
-        skills_dir="/repo/.agents/skills",
+        agents_dir="/repo/.mars/agents",
+        skills_dir="/repo/.mars/skills",
         warnings=(
             DoctorWarning(
                 code="live_active_spawns_remain",
@@ -161,8 +161,8 @@ def test_run_background_doctor_scan_once_writes_summary(
         ok=False,
         project_root="/repo",
         runs_checked=0,
-        agents_dir="/repo/.agents/agents",
-        skills_dir="/repo/.agents/skills",
+        agents_dir="/repo/.mars/agents",
+        skills_dir="/repo/.mars/skills",
         warnings=(DoctorWarning(code="missing_skills_directories", message="missing"),),
     )
 

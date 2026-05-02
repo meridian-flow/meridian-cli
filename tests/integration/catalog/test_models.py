@@ -35,7 +35,7 @@ def _init_repo(project_root: Path) -> None:
     project_root.mkdir()
     (project_root / "mars.toml").write_text(
         "[settings]\n"
-        'targets = [".agents"]\n',
+        'targets = [".claude"]\n',
         encoding="utf-8",
     )
 

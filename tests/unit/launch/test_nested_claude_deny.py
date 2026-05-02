@@ -50,7 +50,7 @@ def _write_agent_profile(
         profile_lines.extend(f"  - {tool}" for tool in disallowed_tools)
     profile_lines.extend(("---", "", "# Agent", "", "Test profile body."))
 
-    profile_path = tmp_path / ".agents" / "agents" / f"{name}.md"
+    profile_path = tmp_path / ".mars" / "agents" / f"{name}.md"
     profile_path.parent.mkdir(parents=True, exist_ok=True)
     profile_path.write_text("\n".join(profile_lines), encoding="utf-8")
 

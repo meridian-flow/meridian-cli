@@ -10,7 +10,7 @@ from meridian.lib.ops.spawn.prepare import build_create_payload
 
 
 def _write_minimal_subagent(project_root: Path) -> None:
-    agents_dir = project_root / ".agents" / "agents"
+    agents_dir = project_root / ".mars" / "agents"
     agents_dir.mkdir(parents=True, exist_ok=True)
     (agents_dir / "meridian-subagent.md").write_text(
         "---\n"
@@ -28,7 +28,7 @@ def _prepare_codex_runtime(project_root: Path):
     _write_minimal_subagent(project_root)
     (project_root / "mars.toml").write_text(
         "[settings]\n"
-        'targets = [".agents"]\n',
+        'targets = [".claude"]\n',
         encoding="utf-8",
     )
     harness_registry = get_default_harness_registry()

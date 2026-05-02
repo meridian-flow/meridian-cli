@@ -58,7 +58,7 @@ def test_spawn_create_dry_run_resolves_project_root_from_nested_cwd(
 ) -> None:
     project_root = tmp_path / "repo"
     nested = project_root / "src" / "feature"
-    (project_root / ".agents" / "skills").mkdir(parents=True)
+    (project_root / ".mars" / "skills").mkdir(parents=True)
     nested.mkdir(parents=True)
     reference_file = project_root / "guide.md"
     reference_file.write_text("# Guide\n", encoding="utf-8")

@@ -38,7 +38,7 @@ from meridian.lib.launch.types import SessionMode
 def _write_minimal_mars_config(project_root: Path) -> None:
     (project_root / "mars.toml").write_text(
         "[settings]\n"
-        'targets = [".agents"]\n',
+        'targets = [".claude"]\n',
         encoding="utf-8",
     )
 

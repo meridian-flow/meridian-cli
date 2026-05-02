@@ -6,7 +6,7 @@ Replaces: tests/e2e/spawn/error-paths.md
 
 def test_unknown_model_rejected(cli, scratch_dir):
     """Invalid model name exits non-zero without traceback."""
-    agents_dir = scratch_dir / ".agents" / "agents"
+    agents_dir = scratch_dir / ".mars" / "agents"
     agents_dir.mkdir(parents=True, exist_ok=True)
     (agents_dir / "reviewer.md").write_text("# Reviewer\n", encoding="utf-8")
     # Seed mars.toml so model resolution can actually run
@@ -34,7 +34,7 @@ def test_invalid_spawn_id_rejected(cli):
 
 def test_empty_prompt_no_traceback(cli, scratch_dir):
     """Empty prompt on real spawn fails gracefully."""
-    agents_dir = scratch_dir / ".agents" / "agents"
+    agents_dir = scratch_dir / ".mars" / "agents"
     agents_dir.mkdir(parents=True, exist_ok=True)
     (agents_dir / "reviewer.md").write_text("# Reviewer\n", encoding="utf-8")
 
@@ -47,7 +47,7 @@ def test_empty_prompt_no_traceback(cli, scratch_dir):
 
 def test_batch_error_paths_traceback_free(cli, scratch_dir):
     """Multiple error paths stay traceback-free."""
-    agents_dir = scratch_dir / ".agents" / "agents"
+    agents_dir = scratch_dir / ".mars" / "agents"
     agents_dir.mkdir(parents=True, exist_ok=True)
     (agents_dir / "reviewer.md").write_text("# Reviewer\n", encoding="utf-8")
 

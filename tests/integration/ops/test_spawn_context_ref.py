@@ -31,7 +31,7 @@ def _write_agent(path: Path, *, sandbox: str) -> None:
 def _write_minimal_mars_config(project_root: Path) -> None:
     (project_root / "mars.toml").write_text(
         "[settings]\n"
-        'targets = [".agents"]\n',
+        'targets = [".claude"]\n',
         encoding="utf-8",
     )
 
@@ -186,7 +186,7 @@ def test_spawn_create_dry_run_injects_prior_context_from_session(tmp_path: Path)
     project_root = tmp_path / "repo"
     project_root.mkdir()
     _write_minimal_mars_config(project_root)
-    _write_agent(project_root / ".agents" / "agents" / "coder.md", sandbox="workspace-write")
+    _write_agent(project_root / ".mars" / "agents" / "coder.md", sandbox="workspace-write")
     primary_id = _seed_spawn(
         project_root,
         chat_id="c11",

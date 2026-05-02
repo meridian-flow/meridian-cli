@@ -55,7 +55,7 @@ def _build_launch_runtime(
 def _write_minimal_mars_config(project_root: Path) -> None:
     (project_root / "mars.toml").write_text(
         "[settings]\n"
-        'targets = [".agents"]\n',
+        'targets = [".claude"]\n',
         encoding="utf-8",
     )
 
@@ -198,6 +198,7 @@ def test_build_launch_context_projects_runtime_child_env_paths(
     assert runtime_ctx.env_overrides["MERIDIAN_CONTEXT_WORK_ARCHIVE_DIR"] == (
         tmp_path / ".meridian" / "archive" / "work"
     ).as_posix()
+    # MERIDIAN_HARNESS is informational (yield timing), not a policy override.
     assert runtime_ctx.env_overrides["MERIDIAN_HARNESS"] == "codex"
     assert runtime_ctx.env["MERIDIAN_HARNESS"] == "codex"
     unexpected = {

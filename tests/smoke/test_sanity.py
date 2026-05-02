@@ -61,7 +61,7 @@ def test_doctor_help_exposes_prune_and_global_flags(cli):
 def test_spawn_list_exits_zero(cli, scratch_dir):
     """meridian spawn list exits 0 with empty list."""
     # Create minimal agent for spawn list to work
-    agents_dir = scratch_dir / ".agents" / "agents"
+    agents_dir = scratch_dir / ".mars" / "agents"
     agents_dir.mkdir(parents=True, exist_ok=True)
     (agents_dir / "test.md").write_text("# Test Agent\n", encoding="utf-8")
 
@@ -81,7 +81,7 @@ def test_unknown_command_exits_nonzero(cli):
 def test_spawn_dry_run_exits_zero(cli, scratch_dir):
     """meridian spawn --dry-run exits 0."""
     # Create minimal agent
-    agents_dir = scratch_dir / ".agents" / "agents"
+    agents_dir = scratch_dir / ".mars" / "agents"
     agents_dir.mkdir(parents=True, exist_ok=True)
     (agents_dir / "reviewer.md").write_text("# Reviewer\n", encoding="utf-8")
 
