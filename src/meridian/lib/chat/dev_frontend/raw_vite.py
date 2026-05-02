@@ -40,9 +40,7 @@ class RawViteLauncher:
             cmd.extend(["--host", "0.0.0.0"])
 
         process = subprocess.Popen(cmd, cwd=frontend_root, env=env)
-        display_host = (
-            "localhost" if self.exposure.bind_host in ("0.0.0.0", "::") else self.exposure.bind_host
-        )
+        display_host = _display_host(self.exposure.bind_host)
         return LaunchResult(
             session=RawViteSession(
                 process=process,
@@ -110,3 +108,11 @@ def _find_free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
         return int(sock.getsockname()[1])
+
+
+def _display_host(bind_host: str) -> str:
+    """Return the browser-facing host for the raw Vite server."""
+
+    if bind_host in ("127.0.0.1", "::1", "0.0.0.0", "::", "", "localhost"):
+        return "localhost"
+    return bind_host

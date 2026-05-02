@@ -109,7 +109,7 @@ def test_raw_vite_launcher_scrubs_inherited_env_and_sets_proxy_targets(
     assert "HOST" not in env
     assert "PORT" not in env
     assert result.share_url is None
-    assert result.session.url == "http://127.0.0.1:43123"
+    assert result.session.url == "http://localhost:43123"
 
 
 def test_raw_vite_launcher_wires_allowed_hosts_and_normalizes_wildcard_bind_host(
