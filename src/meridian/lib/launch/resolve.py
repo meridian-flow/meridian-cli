@@ -130,6 +130,42 @@ def resolve_skill_paths(loaded_skills: tuple[SkillContent, ...]) -> tuple[str, .
     return tuple(Path(skill.path).expanduser().resolve().as_posix() for skill in loaded_skills)
 
 
+def validate_harness_compatibility(
+    *,
+    model: str,
+    harness_id: HarnessId,
+    model_entry: AliasEntry | None,
+    harness_registry: HarnessRegistry,
+    is_policy_reroute: bool = False,
+) -> None:
+    """Validate harness/model compatibility with provenance awareness.
+
+    Policy-driven reroutes intentionally override the model-derived harness, so
+    they only need the harness to be supported for primary launch. Same-layer
+    user overrides also validate that the harness matches the model route.
+    """
+
+    supported_primary_harnesses = tuple(
+        harness_id_candidate
+        for harness_id_candidate in harness_registry.ids()
+        if harness_registry.get(harness_id_candidate).capabilities.supports_primary_launch
+    )
+    supported_primary_set = set(supported_primary_harnesses)
+    if harness_id not in supported_primary_set:
+        supported_text = ", ".join(str(harness) for harness in supported_primary_harnesses)
+        raise ValueError(
+            f"Unsupported harness '{harness_id}'. Expected one of: {supported_text}."
+        )
+
+    if is_policy_reroute or model_entry is None:
+        return
+    if harness_id != model_entry.harness:
+        raise ValueError(
+            f"Harness '{harness_id}' is incompatible with model '{model}' "
+            f"(routes to '{model_entry.harness}')."
+        )
+
+
 def resolve_harness(
     *,
     model: ModelId,
@@ -150,8 +186,6 @@ def resolve_harness(
         return model_entry.harness
 
     override_harness = HarnessId(normalized_override)
-    from .policies import validate_harness_compatibility
-
     validate_harness_compatibility(
         model=str(model),
         harness_id=override_harness,
@@ -169,4 +203,5 @@ __all__ = [
     "resolve_profile_path",
     "resolve_skill_paths",
     "resolve_skills_from_profile",
+    "validate_harness_compatibility",
 ]
