@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from dataclasses import asdict
@@ -21,6 +22,7 @@ from meridian.lib.chat.protocol import utc_now_iso
 from meridian.lib.chat.replay import ReplayService
 from meridian.lib.chat.runtime import ChatRuntime
 from meridian.lib.state.user_paths import get_user_home
+from meridian.lib.telemetry import emit_telemetry
 
 if TYPE_CHECKING:
     from meridian.lib.chat.backend_acquisition import BackendAcquisition
@@ -129,7 +131,8 @@ def configure(
 
 @app.get("/chat", response_model=ChatListResponse)
 async def list_chats() -> ChatListResponse:
-    return ChatListResponse(
+    start = time.monotonic()
+    response = ChatListResponse(
         chats=[
             ChatListItemResponse(
                 chat_id=item.chat_id,
@@ -139,23 +142,43 @@ async def list_chats() -> ChatListResponse:
             for item in _runtime.list_chats()
         ]
     )
+    _emit_http_request_completed(
+        method="GET",
+        path="/chat",
+        status_code=200,
+        start=start,
+        data={"result_count": len(response.chats)},
+    )
+    return response
 
 
 @app.post("/chat", response_model=CreateChatResponse)
 async def create_chat(body: CreateChatRequest) -> CreateChatResponse:
+    start = time.monotonic()
     _ = body
     view = await _runtime.create_chat()
+    _emit_http_request_completed(
+        method="POST",
+        path="/chat",
+        chat_id=view.chat_id,
+        status_code=200,
+        start=start,
+    )
     return CreateChatResponse(chat_id=view.chat_id, state=view.state)
 
 
 @app.post("/chat/{chat_id}/msg", response_model=CommandResult)
 async def prompt_chat(chat_id: str, body: PromptRequest) -> CommandResult:
-    return await _dispatch_rest(chat_id, "prompt", {"text": body.text})
+    return await _dispatch_rest(
+        chat_id, "prompt", {"text": body.text}, method="POST", path=f"/chat/{chat_id}/msg"
+    )
 
 
 @app.post("/chat/{chat_id}/cancel", response_model=CommandResult)
 async def cancel_chat(chat_id: str) -> CommandResult:
-    return await _dispatch_rest(chat_id, "cancel", {})
+    return await _dispatch_rest(
+        chat_id, "cancel", {}, method="POST", path=f"/chat/{chat_id}/cancel"
+    )
 
 
 @app.post("/chat/{chat_id}/approve", response_model=CommandResult)
@@ -163,24 +186,36 @@ async def approve_request(chat_id: str, body: ApprovalRequest) -> CommandResult:
     payload: dict[str, Any] = {"request_id": body.request_id, "decision": body.decision}
     if body.payload is not None:
         payload["payload"] = body.payload
-    return await _dispatch_rest(chat_id, "approve", payload)
+    return await _dispatch_rest(
+        chat_id, "approve", payload, method="POST", path=f"/chat/{chat_id}/approve"
+    )
 
 
 @app.post("/chat/{chat_id}/input", response_model=CommandResult)
 async def answer_input(chat_id: str, body: InputRequest) -> CommandResult:
     return await _dispatch_rest(
-        chat_id, "answer_input", {"request_id": body.request_id, "answers": body.answers}
+        chat_id,
+        "answer_input",
+        {"request_id": body.request_id, "answers": body.answers},
+        method="POST",
+        path=f"/chat/{chat_id}/input",
     )
 
 
 @app.post("/chat/{chat_id}/revert", response_model=CommandResult)
 async def revert_checkpoint(chat_id: str, body: RevertRequest) -> CommandResult:
-    return await _dispatch_rest(chat_id, "revert", {"commit_sha": body.commit_sha})
+    return await _dispatch_rest(
+        chat_id,
+        "revert",
+        {"commit_sha": body.commit_sha},
+        method="POST",
+        path=f"/chat/{chat_id}/revert",
+    )
 
 
 @app.post("/chat/{chat_id}/close", response_model=CommandResult)
 async def close_chat(chat_id: str) -> CommandResult:
-    return await _dispatch_rest(chat_id, "close", {})
+    return await _dispatch_rest(chat_id, "close", {}, method="POST", path=f"/chat/{chat_id}/close")
 
 
 @app.get("/chat/{chat_id}/events", response_model=ChatEventsResponse)
@@ -188,17 +223,53 @@ async def get_chat_events(
     chat_id: str,
     last: int | None = Query(default=None, ge=0),
 ) -> ChatEventsResponse:
+    start = time.monotonic()
+    path = f"/chat/{chat_id}/events"
     events = _runtime.list_events(chat_id, last=last)
     if events is None:
+        _emit_http_request_completed(
+            method="GET",
+            path=path,
+            chat_id=chat_id,
+            status_code=404,
+            start=start,
+            data={"error": "chat_not_found", "last": last},
+        )
         raise HTTPException(status_code=404, detail="chat_not_found")
+    _emit_http_request_completed(
+        method="GET",
+        path=path,
+        chat_id=chat_id,
+        status_code=200,
+        start=start,
+        data={"event_count": len(events), "last": last},
+    )
     return ChatEventsResponse(chat_id=chat_id, events=[asdict(event) for event in events])
 
 
 @app.get("/chat/{chat_id}/state", response_model=StateResponse)
 async def get_chat_state(chat_id: str) -> StateResponse:
+    start = time.monotonic()
+    path = f"/chat/{chat_id}/state"
     state = _runtime.get_state(chat_id)
     if state is not None:
+        _emit_http_request_completed(
+            method="GET",
+            path=path,
+            chat_id=chat_id,
+            status_code=200,
+            start=start,
+            data={"state": state},
+        )
         return StateResponse(chat_id=chat_id, state=state)
+    _emit_http_request_completed(
+        method="GET",
+        path=path,
+        chat_id=chat_id,
+        status_code=404,
+        start=start,
+        data={"error": "chat_not_found"},
+    )
     raise HTTPException(status_code=404, detail="chat_not_found")
 
 
@@ -247,7 +318,15 @@ async def ws_chat(websocket: WebSocket, chat_id: str) -> None:
             await task
 
 
-async def _dispatch_rest(chat_id: str, command_type: str, payload: dict[str, Any]) -> CommandResult:
+async def _dispatch_rest(
+    chat_id: str,
+    command_type: str,
+    payload: dict[str, Any],
+    *,
+    method: str,
+    path: str,
+) -> CommandResult:
+    start = time.monotonic()
     command = ChatCommand(
         type=command_type,
         command_id=str(uuid4()),
@@ -255,7 +334,51 @@ async def _dispatch_rest(chat_id: str, command_type: str, payload: dict[str, Any
         timestamp=utc_now_iso(),
         payload=payload,
     )
-    return await _runtime.dispatch(command)
+    result = await _runtime.dispatch(command)
+    _emit_http_request_completed(
+        method=method,
+        path=path,
+        chat_id=chat_id,
+        command_id=command.command_id,
+        status_code=200,
+        start=start,
+        data={
+            "command_type": command_type,
+            "result_status": result.status,
+            **({"error": result.error} if result.error is not None else {}),
+        },
+    )
+    return result
+
+
+def _emit_http_request_completed(
+    *,
+    method: str,
+    path: str,
+    status_code: int,
+    start: float,
+    chat_id: str | None = None,
+    command_id: str | None = None,
+    data: dict[str, object] | None = None,
+) -> None:
+    ids: dict[str, str] = {}
+    if chat_id:
+        ids["chat_id"] = chat_id
+    if command_id:
+        ids["command_id"] = command_id
+    emit_telemetry(
+        "chat",
+        "chat.http.request_completed",
+        scope="chat.server",
+        ids=ids or None,
+        data={
+            "method": method,
+            "path": path,
+            "status_code": status_code,
+            "latency_ms": round((time.monotonic() - start) * 1000, 1),
+            **(data or {}),
+        },
+    )
 
 
 async def _handle_ws_command(raw: dict[str, object], path_chat_id: str) -> dict[str, str]:
