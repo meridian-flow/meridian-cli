@@ -3,7 +3,13 @@ from pathlib import Path
 
 import pytest
 
-from meridian.lib.catalog.agent import FanoutEntry, ModelPolicyRule, parse_agent_profile
+from meridian.lib.catalog.agent import (
+    FanoutEntry,
+    ModelPolicyRule,
+    load_agent_profile,
+    parse_agent_profile,
+    scan_agent_profiles,
+)
 
 
 def _write_profile(tmp_path: Path, filename: str, frontmatter_lines: list[str]) -> Path:
@@ -13,6 +19,34 @@ def _write_profile(tmp_path: Path, filename: str, frontmatter_lines: list[str]) 
         encoding="utf-8",
     )
     return profile_path
+
+
+def test_scan_agent_profiles_reads_real_mars_agents_directory(tmp_path: Path) -> None:
+    project_root = tmp_path / "repo"
+    agents_dir = project_root / ".mars" / "agents"
+    agents_dir.mkdir(parents=True)
+    _write_profile(agents_dir, "coder.md", ["name: Coder"])
+    _write_profile(
+        agents_dir,
+        "reviewer.md",
+        ["name: Reviewer", "mode: primary", "fanout:", "  - alias: gpt55"],
+    )
+
+    profiles = scan_agent_profiles(project_root=project_root)
+
+    assert [profile.name for profile in profiles] == ["Coder", "Reviewer"]
+    assert [profile.path.parent for profile in profiles] == [agents_dir.resolve(), agents_dir.resolve()]
+    assert profiles[1].mode == "primary"
+    assert profiles[1].fanout == (FanoutEntry(entry_type="alias", value="gpt55"),)
+
+
+def test_load_agent_profile_missing_error_points_to_mars_agents_path(tmp_path: Path) -> None:
+    project_root = tmp_path / "repo"
+    (project_root / ".mars" / "agents").mkdir(parents=True)
+    _write_profile(project_root / ".mars" / "agents", "coder.md", ["name: Coder"])
+
+    with pytest.raises(FileNotFoundError, match=r"Expected: \.mars/agents/reviewer\.md"):
+        load_agent_profile("reviewer", project_root=project_root)
 
 
 def test_parse_agent_profile_disallowed_tools(tmp_path: Path) -> None:
