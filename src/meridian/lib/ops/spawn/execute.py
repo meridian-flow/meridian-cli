@@ -51,6 +51,8 @@ from meridian.lib.state.spawn_store import (
     FOREGROUND_LAUNCH_MODE,
     LaunchMode,
 )
+from meridian.lib.telemetry.init import setup_telemetry
+from meridian.lib.telemetry.observer import register_spawn_telemetry_observer
 
 from ..runtime import (
     OperationRuntime,
@@ -1040,6 +1042,8 @@ def _background_worker_main(
     project_paths = resolve_project_config_paths(project_root=project_root)
     spawn_id = SpawnId(parsed.spawn_id)
     runtime_root = resolve_runtime_root(project_paths.project_root)
+    setup_telemetry(runtime_root=runtime_root)
+    register_spawn_telemetry_observer()
     log_dir = resolve_spawn_log_dir(project_paths.project_root, spawn_id)
     try:
         try:

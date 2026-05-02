@@ -27,17 +27,6 @@ class SegmentInfo:
         return not self.live
 
 
-def is_pid_alive(pid: int) -> bool:
-    """Return whether a process ID appears alive using os.kill(pid, 0)."""
-    if pid <= 0:
-        return False
-    try:
-        os.kill(pid, 0)
-        return True
-    except OSError:
-        return False
-
-
 def parse_segment_pid(path: Path) -> int | None:
     """Parse the PID from a <pid>-<seq>.jsonl segment filename."""
     if path.suffix != ".jsonl":
@@ -101,6 +90,9 @@ def run_retention_cleanup(
 
 
 def _list_segments(telemetry_dir: Path) -> list[SegmentInfo]:
+    # Import lazily to avoid telemetry/core lifecycle import cycles at module load time.
+    from meridian.lib.state.liveness import is_process_alive
+
     segments: list[SegmentInfo] = []
     for path in telemetry_dir.glob("*.jsonl"):
         pid = parse_segment_pid(path)
@@ -114,7 +106,7 @@ def _list_segments(telemetry_dir: Path) -> list[SegmentInfo]:
                     pid=pid,
                     size=stat.st_size,
                     mtime=stat.st_mtime,
-                    live=is_pid_alive(pid),
+                    live=is_process_alive(pid),
                 )
             )
     return segments
