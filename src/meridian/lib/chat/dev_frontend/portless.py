@@ -2,24 +2,24 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 import subprocess
-import asyncio
-from contextlib import suppress
+import tempfile
+from contextlib import ExitStack, suppress
 from pathlib import Path
 
 import httpx
 
+from meridian.lib.chat.dev_frontend.discovery import get_portless_url
 from meridian.lib.chat.dev_frontend.launcher import (
     BackendEndpoint,
     FrontendLaunchError,
-    FrontendSession,
+    LaunchResult,
     PortlessRouteOccupiedError,
 )
-from meridian.lib.chat.dev_frontend.discovery import detect_tailscale_dns_name
 from meridian.lib.chat.dev_frontend.policy import PortlessExposure, PortlessRetryPolicy
-
 
 _PORTLESS_VAR = re.compile(r"^PORTLESS", re.IGNORECASE)
 
@@ -37,7 +37,7 @@ class PortlessLauncher:
         self._exposure = exposure
         self._retry_policy = retry_policy
 
-    def launch(self, frontend_root: Path, backend: BackendEndpoint) -> FrontendSession:
+    def launch(self, frontend_root: Path, backend: BackendEndpoint) -> LaunchResult:
         """Launch a portless session rooted at ``frontend_root``."""
 
         env = _sanitized_portless_env(dict(os.environ))
@@ -47,12 +47,6 @@ class PortlessLauncher:
                 "VITE_WS_PROXY_TARGET": backend.ws_origin,
             }
         )
-        # Portless injects __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS for .localhost
-        # but NOT for tailscale hostnames. We need to explicitly allow them.
-        if self._exposure.share_mode in ("tailscale", "funnel"):
-            dns_name = detect_tailscale_dns_name()
-            if dns_name:
-                env["VITE_DEV_ALLOWED_HOSTS"] = dns_name
 
         cmd = ["portless", self._exposure.service_name]
         if self._retry_policy.force_takeover:
@@ -63,18 +57,22 @@ class PortlessLauncher:
             cmd.extend(["--tailscale", "--funnel"])
         cmd.extend(["pnpm", "dev"])
 
-        process = subprocess.Popen(cmd, cwd=frontend_root, env=env)
-        try:
-            exit_code = process.wait(timeout=self._retry_policy.immediate_exit_window_seconds)
-        except subprocess.TimeoutExpired:
-            url = _get_portless_url(self._exposure.service_name) or (
-                f"https://{self._exposure.service_name}.localhost"
-            )
-            extra = self._detect_extra_urls()
-            return PortlessSession(process=process, url=url, extra_urls=extra)
+        with ExitStack() as stack:
+            stderr_tmp = stack.enter_context(tempfile.TemporaryFile())
+            process = subprocess.Popen(cmd, cwd=frontend_root, env=env, stderr=stderr_tmp)
+            try:
+                exit_code = process.wait(timeout=self._retry_policy.immediate_exit_window_seconds)
+            except subprocess.TimeoutExpired:
+                url = get_portless_url(self._exposure.service_name) or (
+                    f"https://{self._exposure.service_name}.localhost"
+                )
+                return self._launch_result(process=process, url=url, resource_owner=stack.pop_all())
+
+            stderr_tmp.seek(0)
+            stderr_output = stderr_tmp.read().decode("utf-8", errors="replace")
 
         if exit_code != 0:
-            if self._exposure.share_mode == "local" and not self._retry_policy.force_takeover:
+            if _is_route_occupied(stderr_output):
                 raise PortlessRouteOccupiedError(
                     f"portless route '{self._exposure.service_name}' appears to be occupied "
                     "by another session.\n\n"
@@ -93,30 +91,54 @@ class PortlessLauncher:
                     "If the route is occupied, try:\n"
                     "  portless prune\n"
                     "  meridian chat --dev --portless-force"
+                    f"{_format_stderr_suffix(stderr_output)}"
                 )
             raise FrontendLaunchError(
-                f"portless failed to start (exit code {exit_code}).\n\n"
-                "If the route is occupied:\n"
-                "  portless prune\n"
-                "  meridian chat --dev --portless-force"
+                _format_portless_start_error(exit_code=exit_code, stderr_output=stderr_output)
             )
 
-        url = _get_portless_url(self._exposure.service_name) or (
+        url = get_portless_url(self._exposure.service_name) or (
             f"https://{self._exposure.service_name}.localhost"
         )
-        extra = self._detect_extra_urls()
-        return PortlessSession(process=process, url=url, extra_urls=extra)
+        return self._launch_result(process=process, url=url)
 
-    def _detect_extra_urls(self) -> dict[str, str]:
-        """Build extra URL dict for tailscale/funnel modes."""
+    def _launch_result(
+        self,
+        *,
+        process: subprocess.Popen[bytes],
+        url: str,
+        resource_owner: ExitStack | None = None,
+    ) -> LaunchResult:
+        """Build launch metadata for the running portless session."""
 
-        if self._exposure.share_mode not in ("tailscale", "funnel"):
-            return {}
-        tailscale_url = _get_portless_tailscale_url(self._exposure.service_name)
-        if not tailscale_url:
-            return {}
-        label = "Funnel (public)" if self._exposure.share_mode == "funnel" else "Tailscale"
-        return {label: tailscale_url}
+        share_mode = self._exposure.share_mode if self._exposure.share_mode != "local" else None
+        return LaunchResult(
+            session=PortlessSession(process=process, url=url, resource_owner=resource_owner),
+            share_mode=share_mode,
+            service_name=self._exposure.service_name,
+        )
+
+
+def _is_route_occupied(stderr_output: str) -> bool:
+    """Return whether stderr describes an occupied portless route."""
+
+    normalized = stderr_output.casefold()
+    return "already registered" in normalized or "route already" in normalized
+
+
+def _format_stderr_suffix(stderr_output: str) -> str:
+    """Format stderr for appending to a contextual launch error."""
+
+    return f"\n\n{stderr_output}" if stderr_output else ""
+
+
+def _format_portless_start_error(*, exit_code: int, stderr_output: str) -> str:
+    """Format a generic portless startup failure with captured stderr."""
+
+    message = f"portless failed to start (exit code {exit_code})."
+    if stderr_output:
+        return f"{message}\n\n{stderr_output}"
+    return message
 
 
 class PortlessSession:
@@ -127,23 +149,17 @@ class PortlessSession:
         *,
         process: subprocess.Popen[bytes],
         url: str,
-        extra_urls: dict[str, str] | None = None,
+        resource_owner: ExitStack | None = None,
     ) -> None:
         self._process = process
         self._url = url
-        self._extra_urls = extra_urls or {}
+        self._resource_owner = resource_owner
 
     @property
     def url(self) -> str:
         """Browser-facing URL for the dev frontend."""
 
         return self._url
-
-    @property
-    def extra_urls(self) -> dict[str, str]:
-        """Additional URLs (e.g. tailscale, funnel)."""
-
-        return self._extra_urls
 
     async def wait_until_ready(self, timeout: float) -> None:
         """Wait until the portless-managed dev server responds or fails startup."""
@@ -177,6 +193,7 @@ class PortlessSession:
         """Terminate portless, escalating to kill after ``grace_period`` seconds."""
 
         if self._process.poll() is not None:
+            self._close_resources()
             return
         self._process.terminate()
         try:
@@ -184,51 +201,12 @@ class PortlessSession:
         except subprocess.TimeoutExpired:
             self._process.kill()
             self._process.wait(timeout=grace_period)
+        finally:
+            self._close_resources()
 
+    def _close_resources(self) -> None:
+        """Release temporary launch resources held for the subprocess lifetime."""
 
-def _get_portless_url(name: str) -> str | None:
-    """Get the stable URL for a portless-managed service."""
-
-    try:
-        result = subprocess.run(
-            ["portless", "get", name],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return None
-    if result.returncode == 0 and result.stdout.strip():
-        return result.stdout.strip()
-    return None
-
-
-def _get_portless_tailscale_url(name: str) -> str | None:
-    """Get the tailscale URL for a portless route by parsing ``portless list``."""
-
-    try:
-        result = subprocess.run(
-            ["portless", "list"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return None
-    if result.returncode != 0:
-        return None
-
-    # Parse output like:
-    #   https://app.meridian.localhost:1355  ->  localhost:4568  (pid 123)
-    #     tailscale: https://pop-os.tail852a76.ts.net:8444
-    found_route = False
-    for line in result.stdout.splitlines():
-        stripped = line.strip()
-        if f"{name}.localhost" in stripped and "->" in stripped:
-            found_route = True
-        elif found_route and stripped.startswith("tailscale:"):
-            return stripped.split("tailscale:", 1)[1].strip()
-        elif found_route and stripped and "->" in stripped:
-            # Next route — stop searching
-            break
-    return None
+        if self._resource_owner is not None:
+            self._resource_owner.close()
+            self._resource_owner = None

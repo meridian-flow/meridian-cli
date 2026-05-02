@@ -26,17 +26,23 @@ class PortlessRouteOccupiedError(FrontendLaunchError):
     """Raised when the requested portless route is already occupied."""
 
 
+@dataclass(frozen=True)
+class LaunchResult:
+    """Result of launching a dev frontend session plus display metadata."""
+
+    session: FrontendSession
+    share_url: str | None = None
+    share_label: str | None = None
+    share_mode: str | None = None
+    service_name: str | None = None
+
+
 class FrontendSession(Protocol):
     """Running dev frontend session managed by the supervisor."""
 
     @property
     def url(self) -> str:
         """Browser-facing URL for the dev frontend."""
-        ...
-
-    @property
-    def extra_urls(self) -> dict[str, str]:
-        """Additional URLs to display (e.g. tailscale, funnel). Label → URL."""
         ...
 
     async def wait_until_ready(self, timeout: float) -> None:
@@ -55,6 +61,6 @@ class FrontendSession(Protocol):
 class FrontendLauncher(Protocol):
     """Factory for launching a dev frontend session."""
 
-    def launch(self, frontend_root: Path, backend: BackendEndpoint) -> FrontendSession:
+    def launch(self, frontend_root: Path, backend: BackendEndpoint) -> LaunchResult:
         """Launch a frontend session rooted at ``frontend_root``."""
         ...

@@ -89,13 +89,15 @@ def test_raw_vite_launcher_scrubs_inherited_env_and_sets_proxy_targets(
 
     monkeypatch.setenv("VITE_DEV_ALLOWED_HOSTS", "*")
     monkeypatch.setenv("__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS", "polluted")
+    monkeypatch.setenv("HOST", "0.0.0.0")
+    monkeypatch.setenv("PORT", "3000")
     monkeypatch.setattr("meridian.lib.chat.dev_frontend.raw_vite._find_free_port", lambda: 43123)
     monkeypatch.setattr(
         "meridian.lib.chat.dev_frontend.raw_vite.subprocess.Popen",
         lambda cmd, cwd, env: popen_calls.append((cmd, cwd, env)) or process,
     )
 
-    session = RawViteLauncher(exposure=RawViteExposure()).launch(frontend_root, backend_endpoint)
+    result = RawViteLauncher(exposure=RawViteExposure()).launch(frontend_root, backend_endpoint)
 
     (cmd, cwd, env), = popen_calls
     assert cmd == ["pnpm", "dev", "--port", "43123"]
@@ -104,7 +106,10 @@ def test_raw_vite_launcher_scrubs_inherited_env_and_sets_proxy_targets(
     assert env["VITE_WS_PROXY_TARGET"] == backend_endpoint.ws_origin
     assert "VITE_DEV_ALLOWED_HOSTS" not in env
     assert "__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS" not in env
-    assert session.url == "http://127.0.0.1:43123"
+    assert "HOST" not in env
+    assert "PORT" not in env
+    assert result.share_url is None
+    assert result.session.url == "http://127.0.0.1:43123"
 
 
 def test_raw_vite_launcher_wires_allowed_hosts_and_normalizes_wildcard_bind_host(
@@ -121,14 +126,37 @@ def test_raw_vite_launcher_wires_allowed_hosts_and_normalizes_wildcard_bind_host
         lambda cmd, cwd, env: popen_calls.append((cmd, cwd, env)) or process,
     )
 
-    session = RawViteLauncher(
+    result = RawViteLauncher(
         exposure=RawViteExposure(bind_host="::", allowed_hosts=("one.example", "two.example"))
     ).launch(frontend_root, backend_endpoint)
 
     (cmd, cwd, env), = popen_calls
     assert cmd == ["pnpm", "dev", "--port", "43124", "--host", "0.0.0.0"]
     assert env["VITE_DEV_ALLOWED_HOSTS"] == "one.example,two.example"
-    assert session.url == "http://localhost:43124"
+    assert result.session.url == "http://localhost:43124"
+
+
+def test_raw_vite_launcher_scrubs_ambient_host_and_port_from_env(
+    monkeypatch, tmp_path, backend_endpoint: BackendEndpoint
+):
+    frontend_root = tmp_path / "frontend"
+    frontend_root.mkdir()
+    process = FakeProcess(returncode=0)
+    popen_calls = []
+
+    monkeypatch.setenv("HOST", "0.0.0.0")
+    monkeypatch.setenv("PORT", "9999")
+    monkeypatch.setattr("meridian.lib.chat.dev_frontend.raw_vite._find_free_port", lambda: 43125)
+    monkeypatch.setattr(
+        "meridian.lib.chat.dev_frontend.raw_vite.subprocess.Popen",
+        lambda cmd, cwd, env: popen_calls.append((cmd, cwd, env)) or process,
+    )
+
+    RawViteLauncher(exposure=RawViteExposure()).launch(frontend_root, backend_endpoint)
+
+    (_cmd, _cwd, env), = popen_calls
+    assert "HOST" not in env
+    assert "PORT" not in env
 
 
 @pytest.mark.asyncio

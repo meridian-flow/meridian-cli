@@ -6,7 +6,7 @@ import pytest
 
 REAL_ASYNCIO_SLEEP = asyncio.sleep
 
-from meridian.lib.chat.dev_frontend.launcher import FrontendLaunchError
+from meridian.lib.chat.dev_frontend.launcher import FrontendLaunchError, LaunchResult
 from meridian.lib.chat.dev_frontend.supervisor import DevSupervisor
 
 
@@ -51,12 +51,12 @@ class FakeLauncher:
         self.launch_exc = launch_exc
         self.launch_calls = []
 
-    def launch(self, frontend_root: Path, backend) -> FakeSession:
+    def launch(self, frontend_root: Path, backend) -> LaunchResult:
         self.launch_calls.append((frontend_root, backend))
         if self.launch_exc is not None:
             raise self.launch_exc
         assert self.session is not None
-        return self.session
+        return LaunchResult(session=self.session)
 
 
 class FakeServer:

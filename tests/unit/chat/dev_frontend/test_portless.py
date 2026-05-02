@@ -1,3 +1,4 @@
+import io
 import subprocess
 from types import SimpleNamespace
 
@@ -145,10 +146,10 @@ def test_portless_launcher_scrubs_inherited_env_and_builds_expected_command(
     monkeypatch.setenv("VITE_API_PROXY_TARGET", "http://wrong")
     monkeypatch.setattr(
         "meridian.lib.chat.dev_frontend.portless.subprocess.Popen",
-        lambda cmd, cwd, env: popen_calls.append((cmd, cwd, env)) or process,
+        lambda cmd, cwd, env, stderr=None: popen_calls.append((cmd, cwd, env, stderr)) or process,
     )
     monkeypatch.setattr(
-        "meridian.lib.chat.dev_frontend.portless._get_portless_url",
+        "meridian.lib.chat.dev_frontend.portless.get_portless_url",
         lambda name: f"https://{name}.example.test",
     )
 
@@ -157,16 +158,22 @@ def test_portless_launcher_scrubs_inherited_env_and_builds_expected_command(
         retry_policy=PortlessRetryPolicy(force_takeover=force_takeover),
     )
 
-    session = launcher.launch(frontend_root, backend_endpoint)
+    result = launcher.launch(frontend_root, backend_endpoint)
 
-    (cmd, cwd, env), = popen_calls
+    (cmd, cwd, env, stderr), = popen_calls
     assert cmd == expected_prefix
     assert cwd == frontend_root
     assert env["VITE_API_PROXY_TARGET"] == backend_endpoint.http_origin
     assert env["VITE_WS_PROXY_TARGET"] == backend_endpoint.ws_origin
     assert "PORTLESS_URL" not in env
     assert "PORTLESS_DEBUG" not in env
-    assert session.url == "https://app.meridian.example.test"
+    assert "VITE_DEV_ALLOWED_HOSTS" not in env
+    assert result.share_url is None
+    expected_share_mode = share_mode if share_mode != "local" else None
+    assert result.share_mode == expected_share_mode
+    assert result.session.url == "https://app.meridian.example.test"
+    assert stderr is not None
+    assert not stderr.closed
 
 
 def test_portless_launcher_uses_default_url_when_lookup_missing(
@@ -178,16 +185,16 @@ def test_portless_launcher_uses_default_url_when_lookup_missing(
 
     monkeypatch.setattr(
         "meridian.lib.chat.dev_frontend.portless.subprocess.Popen",
-        lambda cmd, cwd, env: process,
+        lambda cmd, cwd, env, stderr=None: process,
     )
-    monkeypatch.setattr("meridian.lib.chat.dev_frontend.portless._get_portless_url", lambda name: None)
+    monkeypatch.setattr("meridian.lib.chat.dev_frontend.portless.get_portless_url", lambda name: None)
 
-    session = PortlessLauncher(
+    result = PortlessLauncher(
         exposure=PortlessExposure(service_name="custom"),
         retry_policy=PortlessRetryPolicy(),
     ).launch(frontend_root, backend_endpoint)
 
-    assert session.url == "https://custom.localhost"
+    assert result.session.url == "https://custom.localhost"
 
 
 def test_portless_launcher_raises_route_occupied_for_local_immediate_exit(
@@ -197,12 +204,40 @@ def test_portless_launcher_raises_route_occupied_for_local_immediate_exit(
     frontend_root.mkdir()
     process = FakeProcess(wait_result=1, returncode=1)
     monkeypatch.setattr(
+        "meridian.lib.chat.dev_frontend.portless.tempfile.TemporaryFile",
+        lambda: io.BytesIO(b"error: route already registered"),
+    )
+    monkeypatch.setattr(
         "meridian.lib.chat.dev_frontend.portless.subprocess.Popen",
-        lambda cmd, cwd, env: process,
+        lambda cmd, cwd, env, stderr=None: process,
     )
 
     launcher = PortlessLauncher(
         exposure=PortlessExposure(share_mode="local"),
+        retry_policy=PortlessRetryPolicy(force_takeover=False),
+    )
+
+    with pytest.raises(PortlessRouteOccupiedError, match="portless route 'app\\.meridian' appears"):
+        launcher.launch(frontend_root, backend_endpoint)
+
+
+def test_portless_launcher_raises_route_occupied_for_tailscale_mode(
+    monkeypatch, tmp_path, backend_endpoint: BackendEndpoint
+):
+    frontend_root = tmp_path / "frontend"
+    frontend_root.mkdir()
+    process = FakeProcess(wait_result=1, returncode=1)
+    monkeypatch.setattr(
+        "meridian.lib.chat.dev_frontend.portless.tempfile.TemporaryFile",
+        lambda: io.BytesIO(b"error: route already registered"),
+    )
+    monkeypatch.setattr(
+        "meridian.lib.chat.dev_frontend.portless.subprocess.Popen",
+        lambda cmd, cwd, env, stderr=None: process,
+    )
+
+    launcher = PortlessLauncher(
+        exposure=PortlessExposure(share_mode="tailscale"),
         retry_policy=PortlessRetryPolicy(force_takeover=False),
     )
 
@@ -218,7 +253,7 @@ def test_portless_launcher_raises_funnel_specific_error_on_failure(
     process = FakeProcess(wait_result=7, returncode=7)
     monkeypatch.setattr(
         "meridian.lib.chat.dev_frontend.portless.subprocess.Popen",
-        lambda cmd, cwd, env: process,
+        lambda cmd, cwd, env, stderr=None: process,
     )
 
     launcher = PortlessLauncher(
@@ -238,7 +273,7 @@ def test_portless_launcher_raises_generic_error_when_force_takeover_startup_fail
     process = FakeProcess(wait_result=5, returncode=5)
     monkeypatch.setattr(
         "meridian.lib.chat.dev_frontend.portless.subprocess.Popen",
-        lambda cmd, cwd, env: process,
+        lambda cmd, cwd, env, stderr=None: process,
     )
 
     launcher = PortlessLauncher(
@@ -248,6 +283,34 @@ def test_portless_launcher_raises_generic_error_when_force_takeover_startup_fail
 
     with pytest.raises(FrontendLaunchError, match=r"portless failed to start \(exit code 5\)"):
         launcher.launch(frontend_root, backend_endpoint)
+
+
+def test_portless_launcher_raises_generic_error_for_non_collision_local_failure(
+    monkeypatch, tmp_path, backend_endpoint: BackendEndpoint
+):
+    frontend_root = tmp_path / "frontend"
+    frontend_root.mkdir()
+    process = FakeProcess(wait_result=1, returncode=1)
+    monkeypatch.setattr(
+        "meridian.lib.chat.dev_frontend.portless.tempfile.TemporaryFile",
+        lambda: io.BytesIO(b"pnpm: command not found"),
+    )
+    monkeypatch.setattr(
+        "meridian.lib.chat.dev_frontend.portless.subprocess.Popen",
+        lambda cmd, cwd, env, stderr=None: process,
+    )
+
+    launcher = PortlessLauncher(
+        exposure=PortlessExposure(share_mode="local"),
+        retry_policy=PortlessRetryPolicy(force_takeover=False),
+    )
+
+    with pytest.raises(FrontendLaunchError) as exc_info:
+        launcher.launch(frontend_root, backend_endpoint)
+
+    message = str(exc_info.value)
+    assert "portless failed to start" in message
+    assert "pnpm: command not found" in message
 
 
 @pytest.mark.asyncio

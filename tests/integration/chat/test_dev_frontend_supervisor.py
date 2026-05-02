@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 import meridian.lib.chat.dev_frontend.supervisor as supervisor_module
-from meridian.lib.chat.dev_frontend.launcher import BackendEndpoint, FrontendLaunchError
+from meridian.lib.chat.dev_frontend.launcher import BackendEndpoint, FrontendLaunchError, LaunchResult
 from meridian.lib.chat.dev_frontend.supervisor import DevSupervisor
 
 
@@ -88,12 +88,12 @@ class FakeLauncher:
         self.launch_error = launch_error
         self.calls: list[tuple[Path, BackendEndpoint]] = []
 
-    def launch(self, frontend_root: Path, backend: BackendEndpoint) -> FakeSession:
+    def launch(self, frontend_root: Path, backend: BackendEndpoint) -> LaunchResult:
         self.calls.append((frontend_root, backend))
         if self.launch_error is not None:
             raise self.launch_error
         assert self.session is not None
-        return self.session
+        return LaunchResult(session=self.session)
 
 
 def _patch_uvicorn(monkeypatch):
@@ -139,7 +139,7 @@ def test_dev_supervisor_opens_browser_after_readiness_and_uses_local_client_endp
         launcher = FakeLauncher(session=session)
         original_launch = launcher.launch
 
-        def capture_launch(frontend_root: Path, backend: BackendEndpoint) -> FakeSession:
+        def capture_launch(frontend_root: Path, backend: BackendEndpoint) -> LaunchResult:
             launch_calls.append((frontend_root, backend))
             return original_launch(frontend_root, backend)
 

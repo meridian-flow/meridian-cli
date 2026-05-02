@@ -11,7 +11,7 @@ from pathlib import Path
 
 import httpx
 
-from meridian.lib.chat.dev_frontend.launcher import BackendEndpoint, FrontendSession
+from meridian.lib.chat.dev_frontend.launcher import BackendEndpoint, LaunchResult
 from meridian.lib.chat.dev_frontend.policy import RawViteExposure
 
 
@@ -21,11 +21,13 @@ class RawViteLauncher:
     def __init__(self, *, exposure: RawViteExposure) -> None:
         self.exposure = exposure
 
-    def launch(self, frontend_root: Path, backend: BackendEndpoint) -> FrontendSession:
+    def launch(self, frontend_root: Path, backend: BackendEndpoint) -> LaunchResult:
         """Launch a Vite dev-server session rooted at ``frontend_root``."""
 
         vite_port = _find_free_port()
         env = dict(os.environ)
+        env.pop("HOST", None)
+        env.pop("PORT", None)
         env.pop("VITE_DEV_ALLOWED_HOSTS", None)
         env.pop("__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS", None)
         env["VITE_API_PROXY_TARGET"] = backend.http_origin
@@ -41,10 +43,12 @@ class RawViteLauncher:
         display_host = (
             "localhost" if self.exposure.bind_host in ("0.0.0.0", "::") else self.exposure.bind_host
         )
-        return RawViteSession(
-            process=process,
-            url=f"http://{display_host}:{vite_port}",
-            vite_port=vite_port,
+        return LaunchResult(
+            session=RawViteSession(
+                process=process,
+                url=f"http://{display_host}:{vite_port}",
+                vite_port=vite_port,
+            )
         )
 
 
@@ -61,12 +65,6 @@ class RawViteSession:
         """Browser-facing URL for the dev frontend."""
 
         return self._url
-
-    @property
-    def extra_urls(self) -> dict[str, str]:
-        """No extra URLs for raw Vite."""
-
-        return {}
 
     async def wait_until_ready(self, timeout: float) -> None:
         """Wait until Vite serves requests or fails startup."""

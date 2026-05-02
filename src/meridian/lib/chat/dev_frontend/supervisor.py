@@ -14,8 +14,8 @@ import uvicorn
 
 from meridian.lib.chat.dev_frontend.launcher import (
     BackendEndpoint,
-    FrontendLaunchError,
     FrontendLauncher,
+    FrontendLaunchError,
     FrontendSession,
 )
 
@@ -57,10 +57,11 @@ class DevSupervisor:
                 server_task.result()
 
             try:
-                self._frontend_session = self.launcher.launch(
+                result = self.launcher.launch(
                     self.frontend_root,
                     _backend_endpoint(self.backend_host, self.backend_port),
                 )
+                self._frontend_session = result.session
                 await self._frontend_session.wait_until_ready(timeout=30.0)
             except FrontendLaunchError:
                 raise
@@ -69,8 +70,16 @@ class DevSupervisor:
             url = self._frontend_session.url
 
             print(f"Chat UI (dev): {url}", flush=True)
-            for label, extra_url in self._frontend_session.extra_urls.items():
-                print(f"  {label}: {extra_url}", flush=True)
+            if result.share_url:
+                label = result.share_label or "Share"
+                print(f"  {label}: {result.share_url}", flush=True)
+            elif result.share_mode and result.service_name:
+                from meridian.lib.chat.dev_frontend.discovery import get_portless_tailscale_url
+
+                tailscale_url = get_portless_tailscale_url(result.service_name)
+                if tailscale_url:
+                    label = "Funnel (public)" if result.share_mode == "funnel" else "Tailscale"
+                    print(f"  {label}: {tailscale_url}", flush=True)
             if self.open_browser:
                 webbrowser.open(url)
 
