@@ -12,6 +12,7 @@ from uuid import UUID
 import pytest
 
 import meridian.lib.core.telemetry as telemetry
+import meridian.lib.telemetry.observers as telemetry_observers
 from meridian.lib.core.lifecycle import (
     LifecycleEvent,
     SpawnLifecycleService,
@@ -27,9 +28,9 @@ from tests.support.fakes import FakeSpawnRepository
 
 @pytest.fixture(autouse=True)
 def _reset_telemetry_globals(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(telemetry, "_GLOBAL_OBSERVERS", [])
+    monkeypatch.setattr(telemetry_observers, "_GLOBAL_OBSERVERS", [])
     monkeypatch.setattr(telemetry, "_GLOBAL_EVENT_COUNTER", telemetry.SpawnEventCounter())
-    monkeypatch.setattr(telemetry, "_debug_trace_registered", False)
+    monkeypatch.setattr(telemetry_observers, "_debug_trace_registered", False)
 
 # ---------------------------------------------------------------------------
 # Test doubles

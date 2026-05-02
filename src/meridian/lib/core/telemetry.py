@@ -1,29 +1,19 @@
-"""Lifecycle event model and observer contracts."""
+"""Lifecycle event model and compatibility observer exports."""
 
 from __future__ import annotations
 
-import json
 import logging
-import os
-import sys
 import threading
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from enum import Enum, StrEnum
-from typing import TYPE_CHECKING, Any, Protocol
+from enum import StrEnum
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from meridian.lib.core.types import SpawnId
 
 
 logger = logging.getLogger(__name__)
-
-
-class LifecycleObserverTier(Enum):
-    """Observer tier determines exception handling and ordering."""
-
-    DIAGNOSTIC = "diagnostic"  # best-effort, exceptions logged and swallowed
-    POLICY = "policy"  # control path, exceptions propagate
 
 
 class StartupPhase(StrEnum):
@@ -37,18 +27,6 @@ class StartupPhase(StrEnum):
     SENDING_PROMPT = "sending_prompt"
     WAITING_FOR_RESPONSE = "waiting_for_response"
     HARNESS_FAILED = "harness.failed"
-
-
-class LifecycleObserver(Protocol):
-    """Observer of spawn lifecycle events."""
-
-    def on_event(self, event: LifecycleEvent) -> None:
-        """Handle a lifecycle event.
-
-        Called synchronously. Async observers should wrap their async
-        dispatch in asyncio.create_task() inside this method.
-        """
-        ...
 
 
 @dataclass(frozen=True)
@@ -174,64 +152,7 @@ class SpawnEventCounter:
             self._counters.pop(str(spawn_id), None)
 
 
-class DebugTraceObserver:
-    """Print lifecycle events as JSON to stderr when MERIDIAN_DEBUG=1."""
-
-    def on_event(self, event: LifecycleEvent) -> None:
-        """Emit a JSON line for debug tracing when enabled."""
-        if os.environ.get("MERIDIAN_DEBUG") != "1":
-            return
-        data = asdict(event)
-        data["ts"] = event.ts.isoformat()
-        print(json.dumps(data), file=sys.stderr)
-
-
 _GLOBAL_EVENT_COUNTER = SpawnEventCounter()
-_GLOBAL_OBSERVERS: list[tuple[LifecycleObserver, LifecycleObserverTier]] = []
-_GLOBAL_OBSERVERS_LOCK = threading.Lock()
-_debug_trace_registered = False
-
-
-def register_observer(
-    observer: LifecycleObserver,
-    tier: LifecycleObserverTier = LifecycleObserverTier.DIAGNOSTIC,
-) -> None:
-    """Register a process-wide lifecycle observer."""
-    with _GLOBAL_OBSERVERS_LOCK:
-        _GLOBAL_OBSERVERS.append((observer, tier))
-
-
-def register_debug_trace_observer() -> None:
-    """Register the process-wide debug trace observer once."""
-    global _debug_trace_registered
-    with _GLOBAL_OBSERVERS_LOCK:
-        if _debug_trace_registered:
-            return
-        _GLOBAL_OBSERVERS.append((DebugTraceObserver(), LifecycleObserverTier.DIAGNOSTIC))
-        _debug_trace_registered = True
-
-
-def notify_observers(event: LifecycleEvent) -> None:
-    """Dispatch a lifecycle event to process-wide observers by tier."""
-    with _GLOBAL_OBSERVERS_LOCK:
-        observers = tuple(_GLOBAL_OBSERVERS)
-    policy_observers = [
-        observer for observer, tier in observers if tier == LifecycleObserverTier.POLICY
-    ]
-    diagnostic_observers = [
-        observer
-        for observer, tier in observers
-        if tier == LifecycleObserverTier.DIAGNOSTIC
-    ]
-
-    for observer in policy_observers:
-        observer.on_event(event)
-
-    for observer in diagnostic_observers:
-        try:
-            observer.on_event(event)
-        except Exception:
-            logger.exception("Diagnostic observer failed for event %s", event.event)
 
 
 def allocate_spawn_sequence(spawn_id: SpawnId | str) -> int:
@@ -277,3 +198,36 @@ SIGNAL_EVENTS = frozenset(
         "harness.failed",
     }
 )
+
+
+# Compatibility re-exports — observer registry moved to lib/telemetry/.
+# Keep this block after local domain definitions so observers.py can refer to
+# core telemetry types without a circular import at module initialization.
+from meridian.lib.telemetry.observers import (  # noqa: E402
+    DebugTraceObserver,
+    LifecycleObserver,
+    LifecycleObserverTier,
+    notify_observers,
+    register_debug_trace_observer,
+    register_observer,
+)
+
+__all__ = [
+    "CORE_EVENTS",
+    "SIGNAL_EVENTS",
+    "DebugTraceObserver",
+    "LifecycleEvent",
+    "LifecycleObserver",
+    "LifecycleObserverTier",
+    "SpawnEventCounter",
+    "SpawnFailure",
+    "StartupPhase",
+    "StartupPhaseEmitter",
+    "StartupPhaseSignal",
+    "allocate_spawn_sequence",
+    "next_spawn_sequence",
+    "notify_observers",
+    "register_debug_trace_observer",
+    "register_observer",
+    "release_spawn_sequence",
+]

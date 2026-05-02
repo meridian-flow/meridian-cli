@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import pytest
 
 import meridian.lib.core.telemetry as telemetry
+import meridian.lib.telemetry.observers as telemetry_observers
 from meridian.lib.core.lifecycle import SpawnLifecycleService
 from meridian.lib.core.spawn_service import PreparedSpawn, SpawnApplicationService
 from meridian.lib.core.types import SpawnId
@@ -21,9 +22,9 @@ from meridian.lib.state.spawn.repository import FileSpawnRepository
 
 @pytest.fixture(autouse=True)
 def _reset_telemetry_globals(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(telemetry, "_GLOBAL_OBSERVERS", [])
+    monkeypatch.setattr(telemetry_observers, "_GLOBAL_OBSERVERS", [])
     monkeypatch.setattr(telemetry, "_GLOBAL_EVENT_COUNTER", telemetry.SpawnEventCounter())
-    monkeypatch.setattr(telemetry, "_debug_trace_registered", False)
+    monkeypatch.setattr(telemetry_observers, "_debug_trace_registered", False)
 
 
 @pytest.fixture
