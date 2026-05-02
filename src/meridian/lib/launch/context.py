@@ -52,7 +52,7 @@ from .command import (
     normalize_system_prompt_passthrough_args,
     resolve_launch_spec_stage,
 )
-from .composition import ComposedLaunchContent, ProjectedContent
+from .composition import ComposedLaunchContent, ProjectedContent, project_inline_content
 from .cwd import resolve_child_execution_cwd
 from .env import build_env_plan, inherit_child_env
 from .env import merge_env_overrides as _merge_env_overrides
@@ -631,34 +631,49 @@ def _resolve_surface_request(
                 normalize_system_prompt_passthrough_args(seeded_passthrough_args)
             )
             final_passthrough_args = passthrough_args
-            supplemental_documents = (
-                *compose_skill_prompt_documents(resolved_skills.loaded_skills),
-                *request.supplemental_prompt_documents,
+            passthrough_system_fragments = tuple(
+                frag.strip() for frag in passthrough_prompt_fragments if frag.strip()
             )
-            agent_profile_body = ""
-            # When harness supports native agents, agent body is delivered separately
-            # (e.g. Claude's adhoc_agent_payload). Otherwise include it in composition.
-            if (
-                profile is not None
-                and profile.body.strip()
-                and not harness.capabilities.supports_native_agents
-            ):
-                agent_profile_body = profile.body.strip()
+        else:
+            passthrough_system_fragments = ()
 
-            composed = ComposedLaunchContent(
-                supplemental_documents=supplemental_documents,
-                agent_profile_body=agent_profile_body,
-                report_instruction="",
-                inventory_prompt=inventory_prompt or "",
-                context_prompt=context_prompt_primary or "",
-                passthrough_system_fragments=tuple(
-                    frag.strip() for frag in passthrough_prompt_fragments if frag.strip()
-                ),
-                user_task_prompt=request.prompt,
-                reference_items=(),
-                prior_output="",
-            )
+        supplemental_documents = (
+            *compose_skill_prompt_documents(resolved_skills.loaded_skills),
+            *request.supplemental_prompt_documents,
+        )
+        agent_profile_body = ""
+        # When harness supports native agents, agent body is delivered separately
+        # (e.g. Claude's adhoc_agent_payload). Otherwise include it in composition.
+        if (
+            profile is not None
+            and profile.body.strip()
+            and not harness.capabilities.supports_native_agents
+        ):
+            agent_profile_body = profile.body.strip()
 
+        composed = ComposedLaunchContent(
+            supplemental_documents=supplemental_documents,
+            agent_profile_body=agent_profile_body,
+            report_instruction="",
+            inventory_prompt=inventory_prompt or "",
+            context_prompt=context_prompt_primary or "",
+            passthrough_system_fragments=passthrough_system_fragments,
+            user_task_prompt=request.prompt,
+            reference_items=(),
+            prior_output="",
+        )
+
+        if override:
+            # MERIDIAN_HARNESS_COMMAND bypasses adapter-owned argv construction, so
+            # side-channel prompt fields such as --append-system-prompt may not be
+            # delivered. Inline the composed primary content to keep supplemental
+            # documents (including bootstrap docs) in the prompt.
+            projected = project_inline_content(composed)
+            projected_content = projected
+            if projected.user_turn_content.strip():
+                user_turn_content = projected.user_turn_content
+                final_prompt = projected.user_turn_content
+        else:
             projected = harness.project_content(composed)
             projected_content = projected
 
@@ -668,8 +683,6 @@ def _resolve_surface_request(
             if projected.user_turn_content.strip():
                 user_turn_content = projected.user_turn_content
                 final_prompt = projected.user_turn_content
-        elif inventory_prompt:
-            final_prompt = "\n\n".join((final_prompt, inventory_prompt))
     elif spawn_composed_content is not None:
         projected = harness.project_content(spawn_composed_content)
         projected_content = projected

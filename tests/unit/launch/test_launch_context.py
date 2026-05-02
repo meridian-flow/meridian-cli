@@ -8,6 +8,7 @@ import pytest
 from meridian.lib.core.child_env import ALLOWED_CHILD_ENV_KEYS
 from meridian.lib.core.types import HarnessId
 from meridian.lib.harness.registry import get_default_harness_registry
+from meridian.lib.launch.composition import PromptDocument
 from meridian.lib.launch.context import build_launch_context
 from meridian.lib.launch.request import (
     LaunchArgvIntent,
@@ -29,6 +30,18 @@ def _build_spawn_request(
         harness=HarnessId.CODEX.value,
         prompt=prompt,
         extra_args=extra_args,
+    )
+
+
+def _build_primary_spawn_request(
+    *,
+    supplemental_prompt_documents: tuple[PromptDocument, ...] = (),
+) -> SpawnRequest:
+    return SpawnRequest(
+        model="gpt-5.4",
+        harness=HarnessId.CODEX.value,
+        prompt="# Meridian Session",
+        supplemental_prompt_documents=supplemental_prompt_documents,
     )
 
 
@@ -247,6 +260,41 @@ def test_build_launch_context_primary_preserves_runtime_depth(
     assert runtime_ctx.env_overrides["MERIDIAN_DEPTH"] == expected_depth
     assert runtime_ctx.env_overrides["MERIDIAN_SPAWN_ID"] == "p-primary"
     assert "MERIDIAN_PARENT_SPAWN_ID" not in runtime_ctx.env_overrides
+
+
+def test_build_launch_context_primary_bypass_keeps_supplemental_documents_in_prompt(
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _write_minimal_mars_config(tmp_path)
+    monkeypatch.delenv("MERIDIAN_HARNESS_COMMAND", raising=False)
+    request = _build_primary_spawn_request(
+        supplemental_prompt_documents=(
+            PromptDocument(
+                kind="bootstrap",
+                logical_name="setup",
+                path="/setup/BOOTSTRAP.md",
+                content="# Bootstrap: setup\n\nsetup docs",
+            ),
+        )
+    )
+    runtime = _build_launch_runtime(
+        tmp_path=tmp_path,
+        override="codex exec",
+        composition_surface=LaunchCompositionSurface.PRIMARY,
+    )
+
+    runtime_ctx = build_launch_context(
+        spawn_id="p-primary-bypass",
+        request=request,
+        runtime=runtime,
+        harness_registry=get_default_harness_registry(),
+        dry_run=True,
+    )
+
+    assert runtime_ctx.is_bypass is True
+    assert "# Bootstrap: setup\n\nsetup docs" in runtime_ctx.run_params.prompt
+    assert "# Bootstrap: setup\n\nsetup docs" in runtime_ctx.resolved_request.prompt
 
 
 def test_build_launch_context_primary_exports_configured_context_dirs(

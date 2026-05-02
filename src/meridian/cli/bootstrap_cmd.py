@@ -3,24 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from pathlib import Path
 from typing import Annotated
 
 from cyclopts import App, Parameter
 
 from meridian.cli import primary_launch
-from meridian.lib.catalog.agent import scan_agent_profiles
 from meridian.lib.catalog.bootstrap import BootstrapRegistry
-
-
-def _bootstrap_agent_exists(project_root: Path) -> bool:
-    return any(profile.name == "bootstrap" for profile in scan_agent_profiles(project_root))
-
-
-def _default_bootstrap_agent(project_root: Path, requested_agent: str | None) -> str | None:
-    if requested_agent is not None and requested_agent.strip():
-        return requested_agent
-    return "bootstrap" if _bootstrap_agent_exists(project_root) else None
+from meridian.lib.config.project_root import resolve_project_root
 
 
 def register_bootstrap_command(
@@ -81,7 +70,7 @@ def register_bootstrap_command(
         if yolo and approval is not None:
             raise ValueError("Cannot combine --yolo with --approval.")
 
-        project_root = Path.cwd().resolve()
+        project_root = resolve_project_root()
         explicit_harness = harness.strip() if harness is not None and harness.strip() else None
         global_harness = get_global_harness()
         if global_harness and explicit_harness and global_harness != explicit_harness:
@@ -95,7 +84,7 @@ def register_bootstrap_command(
                 fork_ref=None,
                 model=model,
                 harness=global_harness or explicit_harness,
-                agent=_default_bootstrap_agent(project_root, agent),
+                agent=agent,
                 work=work,
                 yolo=yolo,
                 approval=approval,

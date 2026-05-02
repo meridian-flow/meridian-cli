@@ -272,3 +272,35 @@ def test_bootstrap_command_launches_with_no_docs(
 
     assert exc_info.value.code == 0
     assert captured["supplemental_prompt_documents"] == ()
+    assert captured["agent"] is None
+
+
+def test_bootstrap_command_resolves_project_root_from_subdirectory(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+    resources = tmp_path / ".mars" / "skills" / "setup" / "resources"
+    child = tmp_path / "child"
+    resources.mkdir(parents=True)
+    child.mkdir()
+    (resources / "BOOTSTRAP.md").write_text("setup docs", encoding="utf-8")
+
+    monkeypatch.chdir(child)
+    monkeypatch.setattr(cli_main, "maybe_bootstrap_runtime_state", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(cli_main, "consume_doctor_cache_warning", lambda: None)
+    monkeypatch.setattr(cli_main, "maybe_start_background_doctor_scan", lambda: False)
+
+    def _fake_primary_launch(**kwargs: object) -> object:
+        captured.update(kwargs)
+        return primary_launch.PrimaryLaunchOutput(message="ok", exit_code=0)
+
+    monkeypatch.setattr(primary_launch, "run_primary_launch", _fake_primary_launch)
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli_main.main(["bootstrap", "--dry-run"])
+
+    assert exc_info.value.code == 0
+    docs = captured["supplemental_prompt_documents"]
+    assert len(docs) == 1
+    assert docs[0].content == "# Bootstrap: setup\n\nsetup docs"
