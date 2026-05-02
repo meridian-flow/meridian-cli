@@ -209,6 +209,95 @@ def test_spawn_explicit_text_format_works(
     assert "Spawn dry-run." in output
 
 
+def test_spawn_dry_run_text_includes_model_routing_provenance(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("MERIDIAN_DEPTH", "1")
+
+    def _fake_spawn_create_sync(
+        payload: SpawnCreateInput,
+        *,
+        sink: object | None = None,
+    ) -> SpawnActionOutput:
+        _ = (payload, sink)
+        return SpawnActionOutput(
+            command="spawn.create",
+            status="dry-run",
+            message="Dry run complete.",
+            model="gpt-5.5",
+            harness_id="codex",
+            model_selection_requested_token="gpt55",
+            model_selection_canonical_id="gpt-5.5",
+            model_selection_harness_provenance="pattern-fallback",
+        )
+
+    monkeypatch.setattr(spawn_cli, "spawn_create_sync", _fake_spawn_create_sync)
+    monkeypatch.setattr(spawn_cli.sys, "stdin", _FakeStdin("", is_tty=True))
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli_main.main(["spawn", "-p", "build", "--dry-run"])
+
+    assert exc_info.value.code == 0
+    output = capsys.readouterr().out
+    assert "Dry run complete." in output
+    assert "Model: gpt-5.5 (codex)" in output
+    assert "Routing: pattern-fallback" in output
+
+
+def test_spawn_dry_run_explicit_json_includes_model_selection(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("MERIDIAN_DEPTH", "1")
+
+    def _fake_spawn_create_sync(
+        payload: SpawnCreateInput,
+        *,
+        sink: object | None = None,
+    ) -> SpawnActionOutput:
+        _ = (payload, sink)
+        return SpawnActionOutput(
+            command="spawn.create",
+            status="dry-run",
+            model="gpt-5.5",
+            harness_id="codex",
+            model_selection_requested_token="gpt55",
+            model_selection_canonical_id="gpt-5.5",
+            model_selection_harness_provenance="pattern-fallback",
+        )
+
+    monkeypatch.setattr(spawn_cli, "spawn_create_sync", _fake_spawn_create_sync)
+    monkeypatch.setattr(spawn_cli.sys, "stdin", _FakeStdin("", is_tty=True))
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli_main.main(["--format", "json", "spawn", "-p", "build", "--dry-run"])
+
+    assert exc_info.value.code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["model_selection"] == {
+        "requested_token": "gpt55",
+        "canonical_model_id": "gpt-5.5",
+        "harness_provenance": "pattern-fallback",
+    }
+
+
+def test_spawn_action_output_to_wire_includes_dry_run_model_selection() -> None:
+    payload = SpawnActionOutput(
+        command="spawn.create",
+        status="dry-run",
+        model_selection_requested_token="gpt55",
+        model_selection_canonical_id="gpt-5.5",
+        model_selection_harness_provenance="pattern-fallback",
+    ).to_wire()
+
+    assert payload["model_selection"] == {
+        "requested_token": "gpt55",
+        "canonical_model_id": "gpt-5.5",
+        "harness_provenance": "pattern-fallback",
+    }
+
+
 def test_spawn_explicit_json_error_is_structured(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],

@@ -28,6 +28,7 @@ from meridian.lib.launch.request import (
 )
 from meridian.lib.launch.types import LaunchRequest
 from meridian.lib.ops.runtime import build_runtime_from_root_and_config
+from meridian.lib.ops.spawn.api import spawn_create_sync
 from meridian.lib.ops.spawn.models import SpawnCreateInput
 from meridian.lib.ops.spawn.prepare import build_create_payload, validate_create_input
 from tests.support.fixtures import write_agent
@@ -332,6 +333,54 @@ def test_spawn_validation_preserves_alias_token_for_policy_defaults(
     assert prepared.model_selection_canonical_id == "gpt-5.5"
     assert prepared.model_selection_harness_provenance == "mars-provided"
     assert 'model_reasoning_effort="low"' in prepared.cli_command
+
+
+def test_spawn_create_dry_run_wire_includes_prepared_model_selection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_minimal_mars_config(tmp_path)
+    alias = AliasEntry(
+        alias="gpt55",
+        model_id=ModelId("gpt-5.5"),
+        resolved_harness=HarnessId.CODEX,
+        mars_provided_harness=HarnessId.CODEX,
+    )
+    canonical = AliasEntry(
+        alias="",
+        model_id=ModelId("gpt-5.5"),
+        resolved_harness=HarnessId.CODEX,
+        mars_provided_harness=HarnessId.CODEX,
+    )
+
+    def prepare_resolve_model(name: str, project_root: Path | None = None) -> AliasEntry:
+        _ = project_root
+        return {"gpt55": alias, "gpt-5.5": canonical}[name]
+
+    monkeypatch.setattr(
+        "meridian.lib.ops.spawn.prepare.resolve_model",
+        prepare_resolve_model,
+    )
+    _patch_alias_resolution(
+        monkeypatch,
+        resolved_entries={"gpt55": alias, "gpt-5.5": canonical},
+        catalog_entries=[alias, canonical],
+    )
+
+    result = spawn_create_sync(
+        SpawnCreateInput(
+            prompt="test",
+            model="gpt55",
+            project_root=tmp_path.as_posix(),
+            dry_run=True,
+        )
+    )
+
+    assert result.to_wire()["model_selection"] == {
+        "requested_token": "gpt55",
+        "canonical_model_id": "gpt-5.5",
+        "harness_provenance": "mars-provided",
+    }
 
 
 def test_primary_and_spawn_alias_effort_defaults_match(
@@ -1008,6 +1057,49 @@ def test_resolve_policies_unmatched_models_entry_logs_debug_and_uses_profile_def
     assert policies.resolved_overrides.effort == "high"
     assert policies.warning is None
     assert "generic effort/autocompact defaults but no matching models entry" in caplog.text
+
+
+def test_resolve_policies_unmatched_model_policy_logs_generic_effort_fallback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    _write_minimal_mars_config(tmp_path)
+    _write_agent_profile(
+        tmp_path,
+        name="reviewer",
+        frontmatter=(
+            "name: reviewer\n"
+            "model: gpt\n"
+            "effort: high\n"
+            "model-policies:\n"
+            "  - match: {alias: sonnet}\n"
+            "    override: {effort: medium}\n"
+        ),
+    )
+
+    aliases = {"gpt": _mock_alias(alias="gpt", model_id="gpt-5.5")}
+    _patch_alias_resolution(
+        monkeypatch,
+        resolved_entries=aliases,
+        catalog_entries=[aliases["gpt"]],
+    )
+
+    with caplog.at_level(logging.DEBUG, logger="meridian.lib.launch.policies"):
+        policies = resolve_policies(
+            project_root=tmp_path,
+            layers=(RuntimeOverrides(agent="reviewer"), RuntimeOverrides()),
+            config_overrides=RuntimeOverrides(),
+            config=MeridianConfig(),
+            harness_registry=get_default_harness_registry(),
+            configured_default_harness="codex",
+        )
+
+    assert policies.resolved_overrides.effort == "high"
+    assert (
+        "No model-policies rule matched for 'gpt-5.5'; using generic profile "
+        "effort/autocompact defaults."
+    ) in caplog.text
 
 
 def test_resolve_policies_cli_alias_does_not_double_resolve_final_model(

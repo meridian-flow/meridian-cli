@@ -552,6 +552,21 @@ def resolve_policies(
         effort=profile_overrides.effort,
         autocompact=profile_overrides.autocompact,
     )
+    if (
+        profile is not None
+        and profile.model_policies
+        and matched_policy_rule is None
+        and selected_entry is not None
+        and (
+            profile_effort_overrides.effort is not None
+            or profile_effort_overrides.autocompact is not None
+        )
+    ):
+        _LOGGER.debug(
+            "No model-policies rule matched for '%s'; using generic profile "
+            "effort/autocompact defaults.",
+            selected_entry.model_id,
+        )
     explicit_user_overrides = resolve(*layers)
     model_policy_resolved = _resolve_model_policy_overrides(
         explicit_user_overrides=explicit_user_overrides,

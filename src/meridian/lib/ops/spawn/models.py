@@ -86,6 +86,9 @@ class SpawnActionOutput(BaseModel):
     context_from_resolved: tuple[str, ...] = ()
     report: str | None = None
     composed_prompt: str | None = None
+    model_selection_requested_token: str | None = None
+    model_selection_canonical_id: str | None = None
+    model_selection_harness_provenance: str | None = None
     cli_command: tuple[str, ...] = ()
     exit_code: int | None = None
     duration_secs: float | None = None
@@ -135,6 +138,12 @@ class SpawnActionOutput(BaseModel):
                 wire["template_vars"] = dict(self.template_vars)
             if self.composed_prompt is not None:
                 wire["composed_prompt"] = self.composed_prompt
+            if self.model_selection_requested_token is not None:
+                wire["model_selection"] = {
+                    "requested_token": self.model_selection_requested_token,
+                    "canonical_model_id": self.model_selection_canonical_id,
+                    "harness_provenance": self.model_selection_harness_provenance,
+                }
             if self.cli_command:
                 wire["cli_command"] = list(self.cli_command)
         return wire
@@ -178,6 +187,8 @@ class SpawnActionOutput(BaseModel):
             lines.append(f"Model: {self.model} ({self.harness_id})")
         elif self.model:
             lines.append(f"Model: {self.model}")
+        if self.status == "dry-run" and self.model_selection_harness_provenance:
+            lines.append(f"Routing: {self.model_selection_harness_provenance}")
         if self.error:
             lines.append(f"Error: {self.error}")
         if self.warning:
