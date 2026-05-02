@@ -26,6 +26,10 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 - Mars compiled store migrated from `.agents/` to `.mars/`. `meridian mars sync` passthrough uses managed env. Remaining `.agents` path references cleaned up in resolve.py and test fixtures.
 - Mars model identity now separates harness affinity from model ID.
+- OpenCode harness drops `opencode-` model prefix routing. Use `--harness opencode` to force harness selection; raw `provider/model` IDs pass through unchanged. Default OpenCode visibility narrowed to `gemini*` only.
+- mars.toml targets: removed deprecated `.agents`, added `.opencode` alongside `.claude`.
+- Bumped `mars-agents` 0.2.2 → 0.2.3. Agent artifacts suppressed in managed targets under `MERIDIAN_MANAGED=1`; `AgentSurfacePolicy` enum replaces bare bool.
+- Makefile: portless-based `dev`/`backend`/`frontend` targets replaced with `chat`/`chat-dev`/`build-frontend`.
 - Chat backend structural refactors: `server.py` now transport-only; `ChatRuntime` owns lifecycle, dispatch, close postwork, and recovery. `BackendAcquisitionFactory` + `PipelineLookup` break bootstrap cycle. Normalizers moved from `harness/normalizers/` to `chat/normalization/` (D8 superseded). TUI passthrough extracted to `harness/passthrough/` with `TuiPassthrough` protocol.
 - Dead code cleanup: removed `cli/format_helpers.py` shim, dead CLI helpers, unused `ReferenceFile` aliases, `load_reference_files()`, speculative `CreateChatRequest` model/harness fields, stale re-exports, unused function params, unreachable recovery logic.
 - Chat backend test suite expanded from 1289 to 1329 tests. New coverage: recovery edge cases (truncated JSONL, corrupt index, idempotency), concurrency races (parallel create, dispatch fencing, close+prompt), WebSocket fanout (reconnection, multi-client, ack framing), HITL flow (approve, answer_input, stale generation), CLI passthrough registry.
