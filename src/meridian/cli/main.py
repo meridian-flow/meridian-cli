@@ -705,6 +705,20 @@ def _emit_usage_command_invoked(argv: Sequence[str]) -> None:
     )
 
 
+def _try_setup_cli_telemetry() -> None:
+    """Install the baseline CLI telemetry sink without risking CLI startup."""
+
+    try:
+        from meridian.lib.state.user_paths import get_user_home
+        from meridian.lib.telemetry.init import setup_telemetry
+
+        setup_telemetry(runtime_root=get_user_home())
+    except Exception:
+        # Telemetry must never make CLI dispatch fail. If state root resolution
+        # or sink initialization fails, command behavior continues unchanged.
+        return
+
+
 def _print_agent_root_help() -> None:
     print(_AGENT_ROOT_HELP, end="")
 
@@ -726,6 +740,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             pass
     verbose_count = args.count("--verbose") + args.count("-v")
     configure_logging(json_mode=json_mode, verbosity=verbose_count)
+    _try_setup_cli_telemetry()
 
     cleaned_args, options = _extract_global_options(args)
     if not (cleaned_args and cleaned_args[0] == "mars"):
