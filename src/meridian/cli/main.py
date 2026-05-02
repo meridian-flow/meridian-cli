@@ -24,6 +24,7 @@ from meridian.cli.app_tree import (
     session_app,
     spawn_app,
     streaming_app,
+    telemetry_app,
     test_app,
     work_app,
     workspace_app,
@@ -68,6 +69,7 @@ from meridian.cli.output import (
 from meridian.cli.output import emit as emit_output
 from meridian.cli.report_cmd import register_report_commands
 from meridian.cli.session_cmd import register_session_commands
+from meridian.cli.telemetry_cmd import register_telemetry_commands
 from meridian.cli.workspace_cmd import register_workspace_commands
 from meridian.lib.core.depth import is_nested_meridian_process
 from meridian.lib.core.sink import OutputSink
@@ -630,6 +632,7 @@ def _register_group_commands() -> None:
         emit=emit,
         resolve_global_format=lambda: get_global_options().output.format,
     )
+    register_telemetry_commands(telemetry_app, emit)
     register_config_commands(config_app, emit)
     register_chat_command(app)
     register_workspace_commands(workspace_app, emit)

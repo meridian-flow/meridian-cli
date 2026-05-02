@@ -38,6 +38,7 @@ Commands:
   work     Work item dashboard and coordination
   config   Show resolved configuration and sources
   context  Show context paths for work and knowledge
+  telemetry Tail, query, and inspect local telemetry segments
   doctor   Health check and orphan reconciliation
   mars     Package management and agent materialization
   ext      Extension command discovery and invocation
@@ -169,6 +170,15 @@ mermaid_app = App(
     ),
     help_formatter="plain",
 )
+telemetry_app = App(
+    name="telemetry",
+    help="Telemetry inspection: tail, query, and status over local segments.",
+    help_epilogue=(
+        "Note: Rootless MCP stdio server processes write telemetry to stderr only "
+        "and are not visible in local segment readers."
+    ),
+    help_formatter="plain",
+)
 completion_app = App(name="completion", help="Shell completion helpers", help_formatter="plain")
 
 app.command(spawn_app, name="spawn")
@@ -183,6 +193,7 @@ app.command(config_app, name="config")
 app.command(workspace_app, name="workspace")
 app.command(kg_app, name="kg")
 app.command(mermaid_app, name="mermaid")
+app.command(telemetry_app, name="telemetry")
 app.command(completion_app, name="completion")
 
 __all__ = [
@@ -199,6 +210,7 @@ __all__ = [
     "session_app",
     "spawn_app",
     "streaming_app",
+    "telemetry_app",
     "test_app",
     "work_app",
     "workspace_app",
