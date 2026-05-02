@@ -276,24 +276,36 @@ async def get_chat_state(chat_id: str) -> StateResponse:
 @app.websocket("/ws/chat/{chat_id}")
 async def ws_chat(websocket: WebSocket, chat_id: str) -> None:
     await websocket.accept()
+    last_seq = _parse_last_seq(websocket)
     stream_source = _runtime.get_stream_source(chat_id)
     if stream_source is None:
+        _emit_ws_event(
+            "chat.ws.rejected",
+            chat_id=chat_id,
+            last_seq=last_seq,
+            data={"close_code": 4004, "reason": "chat_not_found"},
+            severity="warning",
+        )
         await websocket.close(code=4004, reason="chat_not_found")
         return
+    _emit_ws_event("chat.ws.connected", chat_id=chat_id, last_seq=last_seq)
     send_lock = asyncio.Lock()
-    last_seq = _parse_last_seq(websocket)
     replay = ReplayService(stream_source.event_log, stream_source.fanout, send_lock)
+    close_code: int | None = None
 
     async def outbound() -> None:
         await replay.connect(websocket, last_seq)
 
     async def inbound() -> None:
+        nonlocal close_code
         while True:
             try:
                 raw_obj = await websocket.receive_json()
-            except WebSocketDisconnect:
+            except WebSocketDisconnect as exc:
+                close_code = exc.code
                 return
             except ValueError:
+                close_code = 1003
                 await websocket.close(code=1003, reason="invalid_json")
                 return
             if not isinstance(raw_obj, dict) or "command_type" not in raw_obj:
@@ -304,18 +316,28 @@ async def ws_chat(websocket: WebSocket, chat_id: str) -> None:
             async with send_lock:
                 await websocket.send_json(ack)
 
-    outbound_task = asyncio.create_task(outbound())
-    inbound_task = asyncio.create_task(inbound())
-    done, pending = await asyncio.wait(
-        {outbound_task, inbound_task}, return_when=asyncio.FIRST_COMPLETED
-    )
-    for task in done:
-        with suppress(WebSocketDisconnect):
-            task.result()
-    for task in pending:
-        task.cancel()
-        with suppress(asyncio.CancelledError):
-            await task
+    try:
+        outbound_task = asyncio.create_task(outbound())
+        inbound_task = asyncio.create_task(inbound())
+        done, pending = await asyncio.wait(
+            {outbound_task, inbound_task}, return_when=asyncio.FIRST_COMPLETED
+        )
+        for task in done:
+            try:
+                task.result()
+            except WebSocketDisconnect as exc:
+                close_code = exc.code
+        for task in pending:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+    finally:
+        _emit_ws_event(
+            "chat.ws.disconnected",
+            chat_id=chat_id,
+            last_seq=last_seq,
+            data={"close_code": close_code},
+        )
 
 
 async def _dispatch_rest(
@@ -378,6 +400,24 @@ def _emit_http_request_completed(
             "latency_ms": round((time.monotonic() - start) * 1000, 1),
             **(data or {}),
         },
+    )
+
+
+def _emit_ws_event(
+    event: str,
+    *,
+    chat_id: str,
+    last_seq: int | None,
+    data: dict[str, object] | None = None,
+    severity: str = "info",
+) -> None:
+    emit_telemetry(
+        "chat",
+        event,
+        scope="chat.server.ws",
+        ids={"chat_id": chat_id},
+        data={"last_seq": last_seq, **(data or {})},
+        severity=severity,
     )
 
 
