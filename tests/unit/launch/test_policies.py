@@ -662,6 +662,12 @@ def test_resolve_policies_cli_alias_does_not_double_resolve_final_model(
 
     assert policies.model == "gpt-5.4"
     assert "gpt-5.4" not in calls
+    assert policies.model_selection is not None
+    assert policies.model_selection.selected_model_token == "gpt"
+    assert policies.model_selection.canonical_model_id == "gpt-5.4"
+    assert policies.model_selection.mars_provided_harness == HarnessId.CODEX
+    assert policies.model_selection.resolved_entry is not None
+    assert policies.model_selection.harness_provenance == "mars-provided"
 
 
 def test_resolve_policies_model_id_entry_wins_over_generic_profile_effort(

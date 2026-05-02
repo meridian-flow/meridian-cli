@@ -12,7 +12,7 @@ from meridian.lib.catalog.models import load_merged_aliases
 from meridian.lib.catalog.models import resolve_model as resolve_model_entry
 from meridian.lib.config.settings import MeridianConfig
 from meridian.lib.core.overrides import RuntimeOverrides, resolve
-from meridian.lib.core.types import HarnessId
+from meridian.lib.core.types import HarnessId, ModelId
 from meridian.lib.harness.adapter import SubprocessHarness
 from meridian.lib.harness.registry import HarnessRegistry
 
@@ -27,6 +27,17 @@ _LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
+class ModelSelectionContext:
+    """Carries model identity and routing context through policy resolution."""
+
+    selected_model_token: str
+    canonical_model_id: str
+    mars_provided_harness: HarnessId | None
+    resolved_entry: AliasEntry | None
+    harness_provenance: str
+
+
+@dataclass(frozen=True)
 class ResolvedPolicies:
     profile: AgentProfile | None
     model: str
@@ -34,6 +45,7 @@ class ResolvedPolicies:
     adapter: SubprocessHarness
     resolved_skills: ResolvedSkills
     resolved_overrides: RuntimeOverrides
+    model_selection: ModelSelectionContext | None = None
     warning: str | None = None
 
 
@@ -216,6 +228,58 @@ def _validate_same_layer_harness_override(
         )
 
 
+def _model_entry_harness_provenance(entry: AliasEntry) -> str:
+    if entry.mars_provided_harness is not None:
+        return "mars-provided"
+    return "pattern-fallback"
+
+
+def resolve_harness_routing(
+    *,
+    resolved: RuntimeOverrides,
+    resolved_entry: AliasEntry | None,
+    model_resolution_error: ValueError | None,
+    model_layer_index: int | None,
+    harness_layer_index: int | None,
+    pre_profile_layer_count: int,
+    configured_default_harness: str,
+) -> tuple[HarnessId, str | None]:
+    """Resolve harness from model identity and override layers.
+
+    Returns (harness_id, provenance_note).
+    """
+
+    if resolved.harness:
+        harness_id = HarnessId(resolved.harness)
+        provenance_note = "explicit-override"
+    elif resolved.model:
+        if model_resolution_error is not None:
+            raise model_resolution_error
+        assert resolved_entry is not None
+        harness_id = resolved_entry.harness
+        provenance_note = _model_entry_harness_provenance(resolved_entry)
+    else:
+        harness_id = HarnessId(configured_default_harness or "claude")
+        provenance_note = "configured-default"
+
+    model_set_in_pre_profile_layers = (
+        model_layer_index is not None and model_layer_index < pre_profile_layer_count
+    )
+    harness_from_profile_or_config = (
+        harness_layer_index is not None and harness_layer_index >= pre_profile_layer_count
+    )
+    if resolved.model and model_set_in_pre_profile_layers and harness_from_profile_or_config:
+        if model_resolution_error is not None:
+            raise model_resolution_error
+        assert resolved_entry is not None
+        model_derived_harness = resolved_entry.harness
+        if harness_id != model_derived_harness:
+            harness_id = model_derived_harness
+            provenance_note = "model-derived-override"
+
+    return harness_id, provenance_note
+
+
 def resolve_policies(
     *,
     project_root: Path,
@@ -251,30 +315,37 @@ def resolve_policies(
     model_layer_index = _first_set_layer_index(full_layers, "model")
     harness_layer_index = _first_set_layer_index(full_layers, "harness")
     pre_profile_layer_count = len(layers)
-    model_set_in_pre_profile_layers = (
-        model_layer_index is not None and model_layer_index < pre_profile_layer_count
-    )
-    harness_from_profile_or_config = (
-        harness_layer_index is not None and harness_layer_index >= pre_profile_layer_count
-    )
 
-    if resolved.harness:
-        harness_id = HarnessId(resolved.harness)
-    elif resolved.model:
-        if model_resolution_error is not None:
-            raise model_resolution_error
-        assert resolved_entry is not None
-        harness_id = resolved_entry.harness
-    else:
-        harness_id = HarnessId(configured_default_harness or "claude")
-
-    if resolved.model and model_set_in_pre_profile_layers and harness_from_profile_or_config:
-        if model_resolution_error is not None:
-            raise model_resolution_error
-        assert resolved_entry is not None
-        model_derived_harness = resolved_entry.harness
-        if harness_id != model_derived_harness:
-            harness_id = model_derived_harness
+    harness_id, harness_provenance = resolve_harness_routing(
+        resolved=resolved,
+        resolved_entry=resolved_entry,
+        model_resolution_error=model_resolution_error,
+        model_layer_index=model_layer_index,
+        harness_layer_index=harness_layer_index,
+        pre_profile_layer_count=pre_profile_layer_count,
+        configured_default_harness=configured_default_harness,
+    )
+    user_explicit_same_precedence = (
+        model_layer_index is not None
+        and harness_layer_index is not None
+        and model_layer_index == harness_layer_index
+        and model_layer_index < pre_profile_layer_count
+    )
+    # If model resolution failed but harness is explicit, bind the raw
+    # model string to the explicit harness instead of failing.
+    if (
+        resolved.harness
+        and not user_explicit_same_precedence
+        and model_resolution_error is not None
+        and resolved_entry is None
+        and resolved.model is not None
+    ):
+        resolved_entry = AliasEntry(
+            alias="",
+            model_id=ModelId(resolved.model),
+            resolved_harness=harness_id,
+        )
+        model_resolution_error = None
 
     try:
         adapter = harness_registry.get_subprocess_harness(harness_id)
@@ -292,12 +363,6 @@ def resolve_policies(
         project_root=project_root,
     )
 
-    user_explicit_same_precedence = (
-        model_layer_index is not None
-        and harness_layer_index is not None
-        and model_layer_index == harness_layer_index
-        and model_layer_index < pre_profile_layer_count
-    )
     if final_model and user_explicit_same_precedence:
         if model_resolution_error is not None:
             raise model_resolution_error
@@ -308,6 +373,19 @@ def resolve_policies(
             harness_registry=harness_registry,
         )
     selected_entry: AliasEntry | None = resolved_model_entry
+    model_selection: ModelSelectionContext | None = None
+    if final_model:
+        model_selection = ModelSelectionContext(
+            selected_model_token=resolved.model or final_model,
+            canonical_model_id=(
+                str(selected_entry.model_id) if selected_entry is not None else final_model
+            ),
+            mars_provided_harness=(
+                selected_entry.mars_provided_harness if selected_entry is not None else None
+            ),
+            resolved_entry=selected_entry,
+            harness_provenance=harness_provenance or "",
+        )
 
     alias_catalog = _to_alias_map(load_merged_aliases(project_root))
     profile_model_overrides, model_warning, model_entry_matched = _resolve_profile_model_overrides(
@@ -357,8 +435,14 @@ def resolve_policies(
         adapter=adapter,
         resolved_skills=resolved_skills,
         resolved_overrides=resolved,
+        model_selection=model_selection,
         warning=_merge_warnings(profile_warning, model_warning),
     )
 
 
-__all__ = ["ResolvedPolicies", "resolve_policies"]
+__all__ = [
+    "ModelSelectionContext",
+    "ResolvedPolicies",
+    "resolve_harness_routing",
+    "resolve_policies",
+]
