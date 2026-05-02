@@ -4,11 +4,15 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 ### Changed
+- Mars compiled store migrated from `.agents/` to `.mars/`. `meridian mars sync` passthrough uses managed env. Remaining `.agents` path references cleaned up in resolve.py and test fixtures.
+- Mars model identity now separates harness affinity from model ID.
 - Chat backend structural refactors: `server.py` now transport-only; `ChatRuntime` owns lifecycle, dispatch, close postwork, and recovery. `BackendAcquisitionFactory` + `PipelineLookup` break bootstrap cycle. Normalizers moved from `harness/normalizers/` to `chat/normalization/` (D8 superseded). TUI passthrough extracted to `harness/passthrough/` with `TuiPassthrough` protocol.
 - Dead code cleanup: removed `cli/format_helpers.py` shim, dead CLI helpers, unused `ReferenceFile` aliases, `load_reference_files()`, speculative `CreateChatRequest` model/harness fields, stale re-exports, unused function params, unreachable recovery logic.
 - Chat backend test suite expanded from 1289 to 1329 tests. New coverage: recovery edge cases (truncated JSONL, corrupt index, idempotency), concurrency races (parallel create, dispatch fencing, close+prompt), WebSocket fanout (reconnection, multi-client, ack framing), HITL flow (approve, answer_input, stale generation), CLI passthrough registry.
 
 ### Fixed
+- `MERIDIAN_HARNESS` env var no longer overrides child spawn profile harness selection. Child spawns respect their own profile's harness preference.
+- Model policy override application and launch policy selection gates fixed for edge cases.
 - `spawn wait` yield interval now reads parent harness (`MERIDIAN_HARNESS` env) instead of scanning child spawn rows. Keeps the *caller's* prompt cache alive, not the children's.
 - Claude default `wait_yield_seconds` bumped from 270s to 900s — matches Codex, well within Claude Code Max 1-hour cache TTL.
 - Workspace projection now includes meridian context paths (work, kb, archive, extras) in harness sandbox permissions. OpenCode/Claude/Codex spawns can access work item artifacts and knowledge base.
@@ -16,6 +20,10 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Chat recovery no longer emits duplicate `runtime.error` on repeated restarts of the same abandoned chat. SQLite index now consistent with JSONL after recovery.
 
 ### Added
+- Model-policy system for agent profiles. Agent profiles now declare `model-policies` with mode parsing, structured fanout display, and per-mode harness preferences. `meridian mars models list` groups by mode. Runtime model-policy matching selects models by harness availability. `ModelSelectionContext` threads through spawn preparation for resolve-once identity. Dry-run surfaces routing provenance. Unrouteable fanout fallback models skipped instead of erroring.
+- Agent-aware CLI help. `meridian spawn --agent <name> --help` shows profile-specific help supplements alongside generic spawn help.
+- Portless dev workflow. `meridian chat --dev` discovers frontend via `MERIDIAN_DEV_FRONTEND_ROOT` and serves it without requiring a separate port. `PORT` env var support for backend.
+- `meridian-web` dev workflow and shared workspace config scaffolding.
 - `meridian chat` management commands: `ls`, `show`, `log`, `close`; server discovery file; REST `GET /chat` and `GET /chat/{id}/events`.
 - `meridian chat --headless/--no-headless`; non-headless says frontend absent, keeps API-only mode.
 - `meridian chat` starts the local headless chat backend with host/port/model/harness options.
@@ -39,6 +47,7 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Frontend chat: multi-column spawn view, chat composer with submit/clear, thread activity tracking, session list sidebar, spawn header with streaming controls, ChatContext LRU eviction, conversation effects refactor.
 
 ### Removed
+- `backlog/` directory deleted — tracking moved to GitHub Issues.
 - Windows CI matrix. Ubuntu-only until Windows support is re-validated.
 - Archived old frontend, FastAPI app server, HCP chat stack, `meridian app` command, app-backed tests, and built UI artifacts. Active codebase clear for fresh `meridian chat` / `meridian app` rebuild.
 
