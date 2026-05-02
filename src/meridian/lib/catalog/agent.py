@@ -21,6 +21,15 @@ logger.addHandler(logging.NullHandler())
 # Re-export under private names for backward compatibility within this module.
 _KNOWN_EFFORT_VALUES = KNOWN_EFFORT_VALUES
 _KNOWN_APPROVAL_VALUES = KNOWN_APPROVAL_VALUES
+_MODEL_POLICY_SCALAR_OVERRIDE_KEYS = frozenset(
+    {"harness", "sandbox", "approval", "effort", "autocompact", "timeout"}
+)
+_MODEL_POLICY_DEFERRED_LIST_OVERRIDE_KEYS = frozenset(
+    {"skills", "tools", "disallowed-tools", "mcp-tools"}
+)
+_MODEL_POLICY_OVERRIDE_KEYS = (
+    _MODEL_POLICY_SCALAR_OVERRIDE_KEYS | _MODEL_POLICY_DEFERRED_LIST_OVERRIDE_KEYS
+)
 
 
 class AgentModelEntry(BaseModel):
@@ -227,6 +236,22 @@ def _parse_model_policies(
             raise ValueError(
                 f"Agent profile '{profile_name}' model-policies[{index}] must set at least "
                 "one override field."
+            )
+        unknown_keys = sorted(set(overrides) - _MODEL_POLICY_OVERRIDE_KEYS)
+        if unknown_keys:
+            allowed = ", ".join(sorted(_MODEL_POLICY_OVERRIDE_KEYS))
+            raise ValueError(
+                f"Agent profile '{profile_name}' model-policies[{index}] has unknown "
+                f"override key '{unknown_keys[0]}': expected one of {allowed}."
+            )
+        deferred_keys = sorted(set(overrides) & _MODEL_POLICY_DEFERRED_LIST_OVERRIDE_KEYS)
+        if deferred_keys:
+            logger.warning(
+                "Agent profile '%s' model-policies[%d] uses not-yet-supported list "
+                "override keys: %s.",
+                profile_name,
+                index,
+                ", ".join(deferred_keys),
             )
         parsed.append(
             ModelPolicyRule(

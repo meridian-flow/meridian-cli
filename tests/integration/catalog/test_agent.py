@@ -181,6 +181,60 @@ def test_parse_agent_profile_rejects_invalid_model_policies(
         parse_agent_profile(profile_path)
 
 
+def test_parse_agent_profile_rejects_unknown_model_policy_override_key(
+    tmp_path: Path,
+) -> None:
+    profile_path = _write_profile(
+        tmp_path,
+        "bad.md",
+        [
+            "name: Bad",
+            "model-policies:",
+            "  - match: {model: gpt-5.5}",
+            "    override:",
+            "      temperature: 0.2",
+        ],
+    )
+
+    with pytest.raises(ValueError, match="unknown override key 'temperature'"):
+        parse_agent_profile(profile_path)
+
+
+def test_parse_agent_profile_accepts_deferred_model_policy_list_override_keys(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    profile_path = _write_profile(
+        tmp_path,
+        "reviewer.md",
+        [
+            "name: Reviewer",
+            "model-policies:",
+            "  - match: {model: gpt-5.5}",
+            "    override:",
+            "      skills:",
+            "        - review",
+            "      tools:",
+            "        - Read",
+            "      disallowed-tools:",
+            "        - Bash",
+            "      mcp-tools:",
+            "        - github",
+        ],
+    )
+    caplog.set_level(logging.WARNING, logger="meridian.lib.catalog.agent")
+
+    profile = parse_agent_profile(profile_path)
+
+    assert profile.model_policies[0].overrides == {
+        "skills": ["review"],
+        "tools": ["Read"],
+        "disallowed-tools": ["Bash"],
+        "mcp-tools": ["github"],
+    }
+    assert "not-yet-supported list override keys" in caplog.text
+
+
 @pytest.mark.parametrize(
     "fanout_lines",
     [

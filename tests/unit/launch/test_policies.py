@@ -530,6 +530,121 @@ def test_resolve_policies_model_policy_overrides_win_over_legacy_models(
     assert policies.resolved_overrides.autocompact == 40
 
 
+def test_resolve_policies_model_policy_harness_participates_in_routing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_minimal_mars_config(tmp_path)
+    _write_agent_profile(
+        tmp_path,
+        name="reviewer",
+        frontmatter=(
+            "name: reviewer\n"
+            "model: gpt\n"
+            "harness: opencode\n"
+            "model-policies:\n"
+            "  - match: {alias: gpt}\n"
+            "    override: {harness: claude}\n"
+        ),
+    )
+    aliases = {"gpt": _mock_alias(alias="gpt", model_id="gpt-5.5", harness=HarnessId.CODEX)}
+    _patch_alias_resolution(
+        monkeypatch,
+        resolved_entries=aliases,
+        catalog_entries=[aliases["gpt"]],
+    )
+
+    policies = resolve_policies(
+        project_root=tmp_path,
+        layers=(RuntimeOverrides(agent="reviewer"), RuntimeOverrides()),
+        config_overrides=RuntimeOverrides(),
+        config=MeridianConfig(),
+        harness_registry=get_default_harness_registry(),
+        configured_default_harness="codex",
+    )
+
+    assert policies.harness == HarnessId.CLAUDE
+    assert policies.model_selection is not None
+    assert policies.model_selection.harness_provenance == "profile-model-policy"
+
+
+def test_resolve_policies_model_policy_scalar_overrides_flow_through(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_minimal_mars_config(tmp_path)
+    _write_agent_profile(
+        tmp_path,
+        name="reviewer",
+        frontmatter=(
+            "name: reviewer\n"
+            "model: gpt\n"
+            "model-policies:\n"
+            "  - match: {alias: gpt}\n"
+            "    override:\n"
+            "      sandbox: workspace-write\n"
+            "      approval: auto\n"
+            "      timeout: 12.5\n"
+        ),
+    )
+    aliases = {"gpt": _mock_alias(alias="gpt", model_id="gpt-5.5")}
+    _patch_alias_resolution(
+        monkeypatch,
+        resolved_entries=aliases,
+        catalog_entries=[aliases["gpt"]],
+    )
+
+    policies = resolve_policies(
+        project_root=tmp_path,
+        layers=(RuntimeOverrides(agent="reviewer"), RuntimeOverrides()),
+        config_overrides=RuntimeOverrides(),
+        config=MeridianConfig(),
+        harness_registry=get_default_harness_registry(),
+        configured_default_harness="codex",
+    )
+
+    assert policies.resolved_overrides.sandbox == "workspace-write"
+    assert policies.resolved_overrides.approval == "auto"
+    assert policies.resolved_overrides.timeout == 12.5
+
+
+def test_resolve_policies_cli_harness_beats_model_policy_harness(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_minimal_mars_config(tmp_path)
+    _write_agent_profile(
+        tmp_path,
+        name="reviewer",
+        frontmatter=(
+            "name: reviewer\n"
+            "model: gpt\n"
+            "model-policies:\n"
+            "  - match: {alias: gpt}\n"
+            "    override: {harness: claude}\n"
+        ),
+    )
+    aliases = {"gpt": _mock_alias(alias="gpt", model_id="gpt-5.5", harness=HarnessId.CODEX)}
+    _patch_alias_resolution(
+        monkeypatch,
+        resolved_entries=aliases,
+        catalog_entries=[aliases["gpt"]],
+    )
+
+    policies = resolve_policies(
+        project_root=tmp_path,
+        layers=(RuntimeOverrides(agent="reviewer", harness="codex"), RuntimeOverrides()),
+        config_overrides=RuntimeOverrides(),
+        config=MeridianConfig(),
+        harness_registry=get_default_harness_registry(),
+        configured_default_harness="claude",
+    )
+
+    assert policies.harness == HarnessId.CODEX
+    assert policies.model_selection is not None
+    assert policies.model_selection.harness_provenance == "explicit-override"
+
+
 def test_resolve_policies_falls_back_to_first_available_fanout_before_model_policy(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

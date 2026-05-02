@@ -315,6 +315,7 @@ def resolve_harness_routing(
     resolved: RuntimeOverrides,
     resolved_entry: AliasEntry | None,
     model_resolution_error: ValueError | None,
+    policy_rule_harness: str | None,
     model_layer_index: int | None,
     harness_layer_index: int | None,
     pre_profile_layer_count: int,
@@ -325,7 +326,19 @@ def resolve_harness_routing(
     Returns (harness_id, provenance_note).
     """
 
-    if resolved.harness:
+    explicit_harness = (
+        resolved.harness
+        if harness_layer_index is not None and harness_layer_index < pre_profile_layer_count
+        else None
+    )
+
+    if explicit_harness:
+        harness_id = HarnessId(explicit_harness)
+        provenance_note = "explicit-override"
+    elif policy_rule_harness:
+        harness_id = HarnessId(policy_rule_harness)
+        provenance_note = "profile-model-policy"
+    elif resolved.harness:
         harness_id = HarnessId(resolved.harness)
         provenance_note = "explicit-override"
     elif resolved.model:
@@ -344,7 +357,12 @@ def resolve_harness_routing(
     harness_from_profile_or_config = (
         harness_layer_index is not None and harness_layer_index >= pre_profile_layer_count
     )
-    if resolved.model and model_set_in_pre_profile_layers and harness_from_profile_or_config:
+    harness_from_model_policy = policy_rule_harness is not None
+    if (
+        resolved.model
+        and model_set_in_pre_profile_layers
+        and (harness_from_model_policy or harness_from_profile_or_config)
+    ):
         if model_resolution_error is not None:
             raise model_resolution_error
         assert resolved_entry is not None
@@ -388,6 +406,21 @@ def resolve_policies(
         except ValueError as exc:
             model_resolution_error = exc
 
+    matched_policy_rule = (
+        match_model_policy(
+            model_policies=profile.model_policies,
+            canonical_model_id=str(resolved_entry.model_id),
+            selected_model_token=resolved.model,
+        )
+        if profile is not None and resolved_entry is not None and resolved.model is not None
+        else None
+    )
+    policy_rule_harness = (
+        str(matched_policy_rule.overrides["harness"]).strip()
+        if matched_policy_rule is not None and matched_policy_rule.overrides.get("harness")
+        else None
+    )
+
     model_layer_index = _first_set_layer_index(full_layers, "model")
     harness_layer_index = _first_set_layer_index(full_layers, "harness")
     pre_profile_layer_count = len(layers)
@@ -396,6 +429,7 @@ def resolve_policies(
         resolved=resolved,
         resolved_entry=resolved_entry,
         model_resolution_error=model_resolution_error,
+        policy_rule_harness=policy_rule_harness,
         model_layer_index=model_layer_index,
         harness_layer_index=harness_layer_index,
         pre_profile_layer_count=pre_profile_layer_count,
@@ -527,8 +561,11 @@ def resolve_policies(
     )
     resolved = resolved.model_copy(
         update={
+            "sandbox": model_policy_resolved.sandbox,
+            "approval": model_policy_resolved.approval,
             "effort": model_policy_resolved.effort,
             "autocompact": model_policy_resolved.autocompact,
+            "timeout": model_policy_resolved.timeout,
         }
     )
 
