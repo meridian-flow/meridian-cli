@@ -70,11 +70,23 @@ def parse_skill_file(path: Path) -> SkillDocument:
 
 
 def discover_skill_files(skills_dir: Path) -> list[Path]:
-    """Discover all SKILL.md files under `.mars/skills/`."""
+    """Discover top-level skill documents under `.mars/skills/`.
+
+    Skill variants live below each skill root and must not be indexed as
+    standalone skills. Discovery therefore treats each immediate child
+    directory as one possible skill root and only returns its root
+    ``SKILL.md``.
+    """
 
     if not skills_dir.is_dir():
         return []
-    return sorted(path for path in skills_dir.rglob("SKILL.md") if path.is_file())
+    return sorted(
+        skill_file
+        for skill_file in (
+            child / "SKILL.md" for child in skills_dir.iterdir() if child.is_dir()
+        )
+        if skill_file.is_file()
+    )
 
 
 def _skill_search_dirs(project_root: Path) -> list[Path]:
