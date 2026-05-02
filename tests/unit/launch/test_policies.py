@@ -275,6 +275,7 @@ def test_spawn_prepare_derives_harness_from_model_before_default_harness(tmp_pat
         runtime=runtime,
     )
 
+    assert prepared.model is not None
     assert prepared.model.startswith("claude-sonnet-4")
     assert prepared.harness == "claude"
 
@@ -295,9 +296,13 @@ def test_spawn_validation_preserves_alias_token_for_policy_defaults(
         default_effort="high",
     )
 
+    def prepare_resolve_model(name: str, project_root: Path | None = None) -> AliasEntry:
+        _ = project_root
+        return {"gpt55": alias, "gpt-5.5": canonical}[name]
+
     monkeypatch.setattr(
         "meridian.lib.ops.spawn.prepare.resolve_model",
-        lambda name, project_root=None: {"gpt55": alias, "gpt-5.5": canonical}[name],
+        prepare_resolve_model,
     )
     _patch_alias_resolution(
         monkeypatch,
@@ -694,6 +699,7 @@ def test_resolve_policies_falls_back_to_first_available_fanout_before_model_poli
     assert policies.model == "gpt-5.5"
     assert policies.harness == HarnessId.CODEX
     assert policies.model_selection is not None
+    assert policies.model_selection.requested_token == "codex-fanout"
     assert policies.model_selection.selected_model_token == "codex-fanout"
     assert policies.model_selection.harness_provenance == "availability-fallback"
 
@@ -1043,6 +1049,7 @@ def test_resolve_policies_cli_alias_does_not_double_resolve_final_model(
     assert policies.model == "gpt-5.4"
     assert "gpt-5.4" not in calls
     assert policies.model_selection is not None
+    assert policies.model_selection.requested_token == "gpt"
     assert policies.model_selection.selected_model_token == "gpt"
     assert policies.model_selection.canonical_model_id == "gpt-5.4"
     assert policies.model_selection.mars_provided_harness == HarnessId.CODEX
@@ -1336,9 +1343,13 @@ def test_resolve_policies_temporary_gate_resolves_layer_model_at_most_once(
         return _mock_alias(alias="", model_id=name)
 
     monkeypatch.setattr("meridian.lib.launch.policies.resolve_model_entry", resolve_once)
+    def list_gpt_alias(project_root: Path | None = None) -> list[AliasEntry]:
+        _ = project_root
+        return [_mock_alias(alias="gpt", model_id="gpt-5.4")]
+
     monkeypatch.setattr(
         "meridian.lib.launch.policies.load_merged_aliases",
-        lambda project_root=None: [_mock_alias(alias="gpt", model_id="gpt-5.4")],
+        list_gpt_alias,
     )
 
     policies = resolve_policies(
@@ -1352,3 +1363,31 @@ def test_resolve_policies_temporary_gate_resolves_layer_model_at_most_once(
 
     assert policies.model == "gpt-5.4"
     assert calls.count("gpt") <= 1
+
+
+def test_resolve_policies_model_selection_preserves_requested_alias_token(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_minimal_mars_config(tmp_path)
+    alias = _mock_alias(alias="fast", model_id="gpt-5.5", harness=HarnessId.CODEX)
+    _patch_alias_resolution(
+        monkeypatch,
+        resolved_entries={"fast": alias},
+        catalog_entries=[alias],
+    )
+
+    policies = resolve_policies(
+        project_root=tmp_path,
+        layers=(RuntimeOverrides(model="fast"), RuntimeOverrides()),
+        config_overrides=RuntimeOverrides(),
+        config=MeridianConfig(),
+        harness_registry=get_default_harness_registry(),
+        configured_default_harness="codex",
+    )
+
+    assert policies.model == "gpt-5.5"
+    assert policies.model_selection is not None
+    assert policies.model_selection.requested_token == "fast"
+    assert policies.model_selection.selected_model_token == "fast"
+    assert policies.model_selection.canonical_model_id == "gpt-5.5"

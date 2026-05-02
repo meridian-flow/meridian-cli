@@ -62,21 +62,9 @@ def _normalize_optional_string(raw: str | None, *, source: str) -> str | None:
 
 
 def _normalize_model_identifier(model: str, *, project_root: Path | None) -> str:
+    _ = project_root
     normalized = model.strip()
-    if not normalized:
-        return normalized
-    context = _SETTINGS_CONTEXT.get()
-    if context is not None and context.resolve_models is False:
-        return normalized
-    if project_root is None:
-        return normalized
-    try:
-        from meridian.lib.catalog.models import resolve_model
-
-        return str(resolve_model(normalized, project_root=project_root).model_id)
-    except ValueError:
-        # Unknown model IDs are allowed here and validated during launch.
-        return normalized
+    return normalized
 
 
 def _normalize_string_tuple(
@@ -741,6 +729,8 @@ def _normalize_toml_payload(
                 _normalize_context_table(raw_value, source="context"),
             )
             continue
+        if key == "workspace":
+            continue
 
         section_map = section_aliases.get(key)
         if section_map is not None:
@@ -1054,7 +1044,9 @@ class HarnessConfig(BaseModel):
     codex: HarnessProfileConfig = Field(
         default_factory=lambda: HarnessProfileConfig(wait_yield_seconds=900.0)
     )
-    opencode: HarnessProfileConfig = Field(default_factory=HarnessProfileConfig)
+    opencode: HarnessProfileConfig = Field(
+        default_factory=lambda: HarnessProfileConfig(model="opencode-go/kimi-k2.6")
+    )
 
 
 class MeridianConfig(BaseSettings):

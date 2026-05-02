@@ -176,14 +176,54 @@ def test_resolve_model_exact_full_model_id_preserves_mars_defaults(
     assert result.default_autocompact == 70
 
 
+def test_resolve_model_exact_id_same_resolution_skips_exact_id_guard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    list_all_calls = 0
+
+    def mock_mars_resolve(
+        name: str, project_root: object = None
+    ) -> dict[str, object] | None:
+        _ = project_root
+        if name == "gpt-5.4":
+            return {
+                "name": "gpt-5.4",
+                "model_id": "gpt-5.4",
+                "harness": "codex",
+            }
+        return None
+
+    def track_list_all(project_root: object = None) -> list[dict[str, object]]:
+        nonlocal list_all_calls
+        _ = project_root
+        list_all_calls += 1
+        return [{"id": "gpt-5.4", "harness": "codex"}]
+
+    monkeypatch.setattr(
+        "meridian.lib.catalog.models.run_mars_models_resolve",
+        mock_mars_resolve,
+    )
+    monkeypatch.setattr(
+        "meridian.lib.catalog.models.run_mars_models_list_all",
+        track_list_all,
+    )
+
+    result = resolve_model("gpt-5.4")
+
+    assert str(result.model_id) == "gpt-5.4"
+    assert list_all_calls == 0
+
+
 def test_resolve_model_exact_full_model_id_without_mars_harness_keeps_raw_none(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    def list_models(project_root: object = None) -> list[dict[str, object]]:
+        _ = project_root
+        return [{"id": "gpt-5.4", "harness": None, "description": "GPT-5.4"}]
+
     monkeypatch.setattr(
         "meridian.lib.catalog.models.run_mars_models_list_all",
-        lambda project_root=None: [
-            {"id": "gpt-5.4", "harness": None, "description": "GPT-5.4"},
-        ],
+        list_models,
     )
 
     def mock_mars_resolve(

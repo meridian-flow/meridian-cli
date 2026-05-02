@@ -32,6 +32,7 @@ _LOGGER = logging.getLogger(__name__)
 class ModelSelectionContext:
     """Carries model identity and routing context through policy resolution."""
 
+    requested_token: str
     selected_model_token: str
     canonical_model_id: str
     mars_provided_harness: HarnessId | None
@@ -501,8 +502,14 @@ def resolve_policies(
     selected_entry: AliasEntry | None = resolved_model_entry
     model_selection: ModelSelectionContext | None = None
     if final_model:
+        selected_model_token = (
+            (selected_entry.alias.strip() or str(selected_entry.model_id))
+            if selected_entry is not None
+            else final_model
+        )
         model_selection = ModelSelectionContext(
-            selected_model_token=resolved.model or final_model,
+            requested_token=resolved.model or final_model,
+            selected_model_token=selected_model_token,
             canonical_model_id=(
                 str(selected_entry.model_id) if selected_entry is not None else final_model
             ),
