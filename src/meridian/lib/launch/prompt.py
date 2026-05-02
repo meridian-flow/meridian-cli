@@ -6,7 +6,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Literal
 
-from meridian.lib.catalog.agent import scan_agent_profiles
+from meridian.lib.catalog.agent import AgentProfile, scan_agent_profiles
 from meridian.lib.catalog.model_aliases import AliasEntry
 from meridian.lib.catalog.models import load_merged_aliases
 from meridian.lib.catalog.skill import SkillRegistry
@@ -176,6 +176,18 @@ def _dedupe_fan_out_aliases(
     return deduped
 
 
+def _get_fan_out_aliases(agent: AgentProfile) -> tuple[str, ...]:
+    """Get fan-out aliases for inventory display.
+
+    Uses explicit fanout field when available, falls back to models keys.
+    """
+    if agent.fanout:
+        return agent.fanout
+    if agent.models:
+        return tuple(agent.models.keys())
+    return ()
+
+
 def build_context_prompt(*, project_root: Path) -> str | None:
     """Render resolved context paths for launch system context.
 
@@ -233,9 +245,10 @@ def build_agent_inventory_prompt(*, project_root: Path) -> str | None:
         suffix_parts: list[str] = []
         if agent.model:
             suffix_parts.append(f"Model: {agent.model}")
-        if agent.models:
+        display_aliases = _get_fan_out_aliases(agent)
+        if display_aliases:
             fan_out_aliases = _dedupe_fan_out_aliases(
-                list(agent.models.keys()),
+                display_aliases,
                 alias_catalog,
             )
             if fan_out_aliases:

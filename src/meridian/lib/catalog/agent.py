@@ -74,6 +74,7 @@ class AgentProfile(BaseModel):
     approval: str | None = None
     autocompact: int | None = None
     models: Mapping[str, AgentModelEntry] = Field(default_factory=dict)
+    fanout: tuple[str, ...] = ()
     body: str
     path: Path
     raw_content: str
@@ -159,6 +160,7 @@ def parse_agent_profile(path: Path) -> AgentProfile:
     approval_value = frontmatter.get("approval")
     autocompact_value = frontmatter.get("autocompact")
     models_value = frontmatter.get("models")
+    fanout_value = frontmatter.get("fanout")
 
     profile_name = str(name_value).strip() if name_value is not None else path.stem
     sandbox = str(sandbox_value).strip() if sandbox_value is not None else None
@@ -217,6 +219,7 @@ def parse_agent_profile(path: Path) -> AgentProfile:
         approval=approval,
         autocompact=autocompact,
         models=models,
+        fanout=_normalize_string_list(fanout_value),
         body=body,
         path=path.resolve(),
         raw_content=markdown,

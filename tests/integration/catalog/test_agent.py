@@ -64,6 +64,29 @@ def test_parse_agent_profile_models_preserves_supported_overrides(
     assert profile.models["unknown-only"].autocompact is None
 
 
+def test_parse_agent_profile_fanout_is_display_only_alias_list(
+    tmp_path: Path,
+) -> None:
+    profile_path = _write_profile(
+        tmp_path,
+        "reviewer.md",
+        [
+            "name: Reviewer",
+            "models:",
+            "  policy-only:",
+            "    effort: low",
+            "fanout:",
+            "  - gpt54",
+            "  - gpt55",
+        ],
+    )
+
+    profile = parse_agent_profile(profile_path)
+
+    assert tuple(profile.models.keys()) == ("policy-only",)
+    assert profile.fanout == ("gpt54", "gpt55")
+
+
 def test_parse_agent_profile_models_discards_invalid_entries_and_warns(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,

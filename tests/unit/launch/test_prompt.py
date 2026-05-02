@@ -4,7 +4,11 @@ from pathlib import Path
 
 from meridian.lib.catalog.agent import AgentModelEntry, AgentProfile
 from meridian.lib.catalog.model_aliases import entry
-from meridian.lib.launch.prompt import _dedupe_fan_out_aliases, build_agent_inventory_prompt
+from meridian.lib.launch.prompt import (
+    _dedupe_fan_out_aliases,
+    _get_fan_out_aliases,
+    build_agent_inventory_prompt,
+)
 
 
 def _profile(
@@ -14,6 +18,7 @@ def _profile(
     description: str,
     model: str | None = None,
     models: dict[str, AgentModelEntry] | None = None,
+    fanout: tuple[str, ...] = (),
 ) -> AgentProfile:
     return AgentProfile(
         name=name,
@@ -29,6 +34,7 @@ def _profile(
         approval=None,
         autocompact=None,
         models=models or {},
+        fanout=fanout,
         body="",
         path=tmp_path / f"{name}.md",
         raw_content="",
@@ -109,6 +115,63 @@ def test_build_agent_inventory_prompt_renders_model_and_fan_out_metadata(
     )
     assert "- beta: Fan-out only | Fan-out: opus46" in lines
     assert "- zeta: No model metadata" in lines
+
+
+def test_build_agent_inventory_prompt_uses_explicit_fanout_for_display(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    profiles = [
+        _profile(
+            tmp_path=tmp_path,
+            name="reviewer",
+            description="Explicit fanout",
+            models={"policy-only": AgentModelEntry()},
+            fanout=("gpt54", "gpt55"),
+        ),
+    ]
+
+    monkeypatch.setattr(
+        "meridian.lib.launch.prompt.scan_agent_profiles",
+        lambda *, project_root: profiles,
+    )
+    monkeypatch.setattr(
+        "meridian.lib.launch.prompt.load_merged_aliases",
+        lambda *, project_root: [
+            entry(alias="gpt54", model_id="gpt-5.4"),
+            entry(alias="gpt55", model_id="gpt-5.5"),
+            entry(alias="policy-only", model_id="gpt-policy"),
+        ],
+    )
+
+    prompt = build_agent_inventory_prompt(project_root=tmp_path)
+
+    assert prompt is not None
+    assert "- reviewer: Explicit fanout | Fan-out: gpt54, gpt55" in prompt.splitlines()
+    assert "policy-only" not in prompt
+
+
+def test_get_fan_out_aliases_falls_back_to_models_keys(tmp_path: Path) -> None:
+    profile = _profile(
+        tmp_path=tmp_path,
+        name="reviewer",
+        description="Fallback",
+        models={"gpt54": AgentModelEntry(), "gpt55": AgentModelEntry()},
+    )
+
+    assert _get_fan_out_aliases(profile) == ("gpt54", "gpt55")
+
+
+def test_get_fan_out_aliases_prefers_explicit_fanout(tmp_path: Path) -> None:
+    profile = _profile(
+        tmp_path=tmp_path,
+        name="reviewer",
+        description="Explicit",
+        models={"policy-only": AgentModelEntry()},
+        fanout=("gpt54", "gpt55"),
+    )
+
+    assert _get_fan_out_aliases(profile) == ("gpt54", "gpt55")
 
 
 # --- _dedupe_fan_out_aliases ---
