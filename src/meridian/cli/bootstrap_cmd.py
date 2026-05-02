@@ -8,8 +8,6 @@ from typing import Annotated
 from cyclopts import App, Parameter
 
 from meridian.cli import primary_launch
-from meridian.lib.catalog.bootstrap import BootstrapRegistry
-from meridian.lib.config.project_root import resolve_project_root
 
 
 def register_bootstrap_command(
@@ -70,7 +68,6 @@ def register_bootstrap_command(
         if yolo and approval is not None:
             raise ValueError("Cannot combine --yolo with --approval.")
 
-        project_root = resolve_project_root()
         explicit_harness = harness.strip() if harness is not None and harness.strip() else None
         global_harness = get_global_harness()
         if global_harness and explicit_harness and global_harness != explicit_harness:
@@ -80,7 +77,6 @@ def register_bootstrap_command(
 
         emit(
             primary_launch.run_primary_launch(
-                project_root=project_root,
                 continue_ref=None,
                 fork_ref=None,
                 model=model,
@@ -95,7 +91,7 @@ def register_bootstrap_command(
                 timeout=timeout,
                 dry_run=dry_run,
                 passthrough=get_passthrough_args(),
-                supplemental_prompt_documents=BootstrapRegistry(project_root).load_all(),
+                include_bootstrap_documents=True,
             )
         )
 

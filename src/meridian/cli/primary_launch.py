@@ -116,6 +116,7 @@ def run_primary_launch(
     dry_run: bool,
     passthrough: tuple[str, ...],
     supplemental_prompt_documents: tuple[PromptDocument, ...] = (),
+    include_bootstrap_documents: bool = False,
     prompt: str | None = None,
 ) -> PrimaryLaunchOutput:
     def _merge_warnings(*warnings: str | None) -> str | None:
@@ -241,6 +242,7 @@ def run_primary_launch(
             session_mode=session_mode,
             pinned_context="",
             supplemental_prompt_documents=supplemental_prompt_documents,
+            include_bootstrap_documents=include_bootstrap_documents,
             dry_run=dry_run,
             approval=resolved_approval,
             effort=effort,

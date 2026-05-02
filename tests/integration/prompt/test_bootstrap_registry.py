@@ -15,7 +15,7 @@ def test_bootstrap_registry_loads_two_tiers_in_deterministic_order(tmp_path: Pat
     (pkg_b / "BOOTSTRAP.md").write_text("pkg z", encoding="utf-8")
     (pkg_a / "BOOTSTRAP.md").write_text("pkg same name", encoding="utf-8")
 
-    docs = BootstrapRegistry(tmp_path).load_all()
+    docs = BootstrapRegistry(tmp_path / ".mars").load_all()
 
     assert [(doc.kind, doc.logical_name) for doc in docs] == [
         ("bootstrap", "a-skill"),

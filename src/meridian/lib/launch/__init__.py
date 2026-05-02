@@ -58,6 +58,18 @@ def launch_primary(
     from .types import LaunchResult
 
     runtime = build_primary_launch_runtime(project_root=project_root)
+    if request.include_bootstrap_documents:
+        from meridian.lib.catalog.bootstrap import BootstrapRegistry
+
+        resolved_project_root = Path(runtime.project_paths_project_root)
+        request = request.model_copy(
+            update={
+                "supplemental_prompt_documents": (
+                    *request.supplemental_prompt_documents,
+                    *BootstrapRegistry(resolved_project_root / ".mars").load_all(),
+                )
+            }
+        )
     resolved_work_id = None
     if not request.dry_run:
         resolved_work_id = _resolve_work_id_for_launch(project_root, request)

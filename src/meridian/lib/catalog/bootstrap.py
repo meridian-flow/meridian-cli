@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
-from meridian.lib.config.project_root import resolve_project_root
 from meridian.lib.launch.composition import PromptDocument
 
 
@@ -38,15 +37,15 @@ class BootstrapRecord:
 class BootstrapRegistry:
     """Discover bootstrap docs from installed .mars content."""
 
-    def __init__(self, project_root: Path | None = None) -> None:
-        self._project_root = resolve_project_root(project_root)
+    def __init__(self, mars_root: Path) -> None:
+        self._mars_root = mars_root
 
     @property
-    def project_root(self) -> Path:
-        return self._project_root
+    def mars_root(self) -> Path:
+        return self._mars_root
 
     def discover_skill_bootstrap_docs(self) -> tuple[BootstrapRecord, ...]:
-        skills_dir = self._project_root / ".mars" / "skills"
+        skills_dir = self._mars_root / "skills"
         if not skills_dir.is_dir():
             return ()
         records = [
@@ -63,7 +62,7 @@ class BootstrapRegistry:
         return tuple(sorted(records, key=lambda record: record.logical_name))
 
     def discover_package_bootstrap_docs(self) -> tuple[BootstrapRecord, ...]:
-        bootstrap_dir = self._project_root / ".mars" / "bootstrap"
+        bootstrap_dir = self._mars_root / "bootstrap"
         if not bootstrap_dir.is_dir():
             return ()
         records = [

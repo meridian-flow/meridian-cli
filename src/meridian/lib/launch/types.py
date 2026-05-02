@@ -55,6 +55,7 @@ class LaunchRequest(BaseModel):
     passthrough_args: tuple[str, ...] = ()
     pinned_context: str = ""
     supplemental_prompt_documents: tuple[PromptDocument, ...] = ()
+    include_bootstrap_documents: bool = False
     dry_run: bool = False
     approval: str = "default"
     effort: str | None = None
