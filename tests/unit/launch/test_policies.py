@@ -7,7 +7,8 @@ from meridian.lib.catalog.model_aliases import AliasEntry
 from meridian.lib.config.settings import MeridianConfig
 from meridian.lib.core.overrides import RuntimeOverrides
 from meridian.lib.core.types import HarnessId, ModelId
-from meridian.lib.harness.registry import get_default_harness_registry
+from meridian.lib.harness.codex import CodexAdapter
+from meridian.lib.harness.registry import HarnessRegistry, get_default_harness_registry
 from meridian.lib.launch.context import build_launch_context
 from meridian.lib.launch.plan import (
     build_primary_launch_runtime,
@@ -15,6 +16,7 @@ from meridian.lib.launch.plan import (
 )
 from meridian.lib.launch.policies import (
     _resolve_model_policy_overrides,
+    match_model_policy,
     resolve_policies,
     validate_harness_compatibility,
 )
@@ -103,6 +105,61 @@ def test_resolve_model_policy_overrides_resolves_full_runtime_policy_fields() ->
     assert resolved.approval == "auto"
     assert resolved.effort == "medium"
     assert resolved.autocompact == 70
+
+
+def test_match_model_policy_ranks_model_over_alias_over_glob(tmp_path: Path) -> None:
+    _write_agent_profile(
+        tmp_path,
+        name="reviewer",
+        frontmatter=(
+            "name: reviewer\n"
+            "model-policies:\n"
+            "  - match: {model-glob: 'gpt-*'}\n"
+            "    override: {effort: low}\n"
+            "  - match: {alias: fast}\n"
+            "    override: {effort: medium}\n"
+            "  - match: {model: gpt-5.5}\n"
+            "    override: {effort: high}\n"
+        ),
+    )
+    from meridian.lib.catalog.agent import load_agent_profile
+
+    profile = load_agent_profile("reviewer", tmp_path)
+
+    winner = match_model_policy(
+        model_policies=profile.model_policies,
+        canonical_model_id="gpt-5.5",
+        selected_model_token="fast",
+    )
+
+    assert winner is not None
+    assert winner.match_type == "model"
+    assert winner.match_value == "gpt-5.5"
+
+
+def test_match_model_policy_raises_on_same_rank_ambiguity(tmp_path: Path) -> None:
+    _write_agent_profile(
+        tmp_path,
+        name="reviewer",
+        frontmatter=(
+            "name: reviewer\n"
+            "model-policies:\n"
+            "  - match: {model-glob: 'gpt-*'}\n"
+            "    override: {effort: low}\n"
+            "  - match: {model-glob: '*5.5'}\n"
+            "    override: {effort: medium}\n"
+        ),
+    )
+    from meridian.lib.catalog.agent import load_agent_profile
+
+    profile = load_agent_profile("reviewer", tmp_path)
+
+    with pytest.raises(ValueError, match="Ambiguous model-policies"):
+        match_model_policy(
+            model_policies=profile.model_policies,
+            canonical_model_id="gpt-5.5",
+            selected_model_token="fast",
+        )
 
 
 def test_validate_harness_compatibility_allows_policy_reroute() -> None:
@@ -430,6 +487,159 @@ def test_resolve_policies_profile_model_overrides_win_over_config_and_alias_defa
 
     assert policies.resolved_overrides.effort == "medium"
     assert policies.resolved_overrides.autocompact == 35
+
+
+def test_resolve_policies_model_policy_overrides_win_over_legacy_models(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_minimal_mars_config(tmp_path)
+    _write_agent_profile(
+        tmp_path,
+        name="reviewer",
+        frontmatter=(
+            "name: reviewer\n"
+            "model: gpt\n"
+            "models:\n"
+            "  gpt:\n"
+            "    effort: low\n"
+            "model-policies:\n"
+            "  - match: {alias: gpt}\n"
+            "    override:\n"
+            "      effort: high\n"
+            "      autocompact: 40\n"
+        ),
+    )
+    aliases = {"gpt": _mock_alias(alias="gpt", model_id="gpt-5.5")}
+    _patch_alias_resolution(
+        monkeypatch,
+        resolved_entries=aliases,
+        catalog_entries=[aliases["gpt"]],
+    )
+
+    policies = resolve_policies(
+        project_root=tmp_path,
+        layers=(RuntimeOverrides(agent="reviewer"), RuntimeOverrides()),
+        config_overrides=RuntimeOverrides(),
+        config=MeridianConfig(),
+        harness_registry=get_default_harness_registry(),
+        configured_default_harness="codex",
+    )
+
+    assert policies.resolved_overrides.effort == "high"
+    assert policies.resolved_overrides.autocompact == 40
+
+
+def test_resolve_policies_falls_back_to_first_available_fanout_before_model_policy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_minimal_mars_config(tmp_path)
+    _write_agent_profile(
+        tmp_path,
+        name="reviewer",
+        frontmatter=(
+            "name: reviewer\n"
+            "model: claude-choice\n"
+            "fanout:\n"
+            "  - alias: unavailable-too\n"
+            "  - alias: codex-fanout\n"
+            "model-policies:\n"
+            "  - match: {model: codex-policy}\n"
+            "    override: {effort: low}\n"
+        ),
+    )
+    aliases = {
+        "claude-choice": _mock_alias(
+            alias="claude-choice", model_id="claude-haiku-4-5", harness=HarnessId.CLAUDE
+        ),
+        "unavailable-too": _mock_alias(
+            alias="unavailable-too", model_id="opencode-model", harness=HarnessId.OPENCODE
+        ),
+        "codex-fanout": _mock_alias(
+            alias="codex-fanout", model_id="gpt-5.5", harness=HarnessId.CODEX
+        ),
+        "codex-policy": _mock_alias(
+            alias="", model_id="gpt-5.4", harness=HarnessId.CODEX
+        ),
+    }
+    _patch_alias_resolution(monkeypatch, resolved_entries=aliases)
+    registry = HarnessRegistry()
+    registry.register(CodexAdapter())
+
+    policies = resolve_policies(
+        project_root=tmp_path,
+        layers=(RuntimeOverrides(agent="reviewer"), RuntimeOverrides()),
+        config_overrides=RuntimeOverrides(),
+        config=MeridianConfig(),
+        harness_registry=registry,
+        configured_default_harness="claude",
+    )
+
+    assert policies.model == "gpt-5.5"
+    assert policies.harness == HarnessId.CODEX
+    assert policies.model_selection is not None
+    assert policies.model_selection.selected_model_token == "codex-fanout"
+    assert policies.model_selection.harness_provenance == "availability-fallback"
+
+
+def test_resolve_policies_explicit_model_skips_harness_availability_fallback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_minimal_mars_config(tmp_path)
+    _write_agent_profile(
+        tmp_path,
+        name="reviewer",
+        frontmatter=(
+            "name: reviewer\n"
+            "fanout:\n"
+            "  - alias: codex-fanout\n"
+        ),
+    )
+    aliases = {
+        "claude-choice": _mock_alias(
+            alias="claude-choice", model_id="claude-haiku-4-5", harness=HarnessId.CLAUDE
+        ),
+        "codex-fanout": _mock_alias(
+            alias="codex-fanout", model_id="gpt-5.5", harness=HarnessId.CODEX
+        ),
+    }
+    _patch_alias_resolution(monkeypatch, resolved_entries=aliases)
+    registry = HarnessRegistry()
+    registry.register(CodexAdapter())
+
+    with pytest.raises(ValueError, match="Unknown or unsupported harness 'claude'"):
+        resolve_policies(
+            project_root=tmp_path,
+            layers=(RuntimeOverrides(agent="reviewer", model="claude-choice"), RuntimeOverrides()),
+            config_overrides=RuntimeOverrides(),
+            config=MeridianConfig(),
+            harness_registry=registry,
+            configured_default_harness="claude",
+        )
+
+
+def test_resolve_policies_primary_harness_does_not_override_model_routing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_minimal_mars_config(tmp_path)
+    aliases = {
+        "gpt": _mock_alias(alias="gpt", model_id="gpt-5.5", harness=HarnessId.CODEX),
+    }
+    _patch_alias_resolution(monkeypatch, resolved_entries=aliases)
+
+    policies = resolve_policies(
+        project_root=tmp_path,
+        layers=(RuntimeOverrides(model="gpt"), RuntimeOverrides()),
+        config_overrides=RuntimeOverrides(harness="claude"),
+        config=MeridianConfig(),
+        harness_registry=get_default_harness_registry(),
+        configured_default_harness="claude",
+    )
+
+    assert policies.harness == HarnessId.CODEX
 
 
 def test_resolve_policies_user_effort_override_wins_over_model_profile_and_alias(
