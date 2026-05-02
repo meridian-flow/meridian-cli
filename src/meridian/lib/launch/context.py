@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import shlex
+import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -778,6 +779,7 @@ def build_launch_context(
         project_paths.project_root, context_config
     )
     runtime_root = Path(runtime.runtime_root).expanduser().resolve()
+    system_temp_root = Path(tempfile.gettempdir()).resolve()
     resolved_request = request
     composition_warnings: tuple[CompositionWarning, ...] = ()
     profile_tools_for_deny_optout: tuple[str, ...] = ()
@@ -851,6 +853,7 @@ def build_launch_context(
                 *git_context_roots,
                 *context_projection_roots,
                 runtime_root,
+                system_temp_root,
             )
         ),
         parent_opencode_config_content=os.getenv(OPENCODE_CONFIG_CONTENT_ENV),
