@@ -31,7 +31,8 @@ class TelemetryRouter:
         batch_size: int = _DEFAULT_BATCH_SIZE,
     ) -> None:
         self._sink: TelemetrySink | None = sink or NoopSink()
-        self._queue: deque[TelemetryEnvelope] = deque(maxlen=max_queue)
+        self._queue: deque[TelemetryEnvelope] = deque()
+        self._max_queue = max_queue
         self._lock = threading.Lock()
         self._wake = threading.Event()
         self._closed = False
@@ -78,8 +79,9 @@ class TelemetryRouter:
         with self._lock:
             if self._closed:
                 return
-            if len(self._queue) == self._queue.maxlen:
+            if len(self._queue) >= self._max_queue:
                 self._dropped += 1
+                return
             self._queue.append(envelope)
         # Error-class events wake the writer immediately. The background thread
         # owns the actual sink flush so producers never block on I/O.
@@ -113,12 +115,11 @@ class TelemetryRouter:
 
     def _drain_batch(self) -> list[TelemetryEnvelope]:
         with self._lock:
+            batch: list[TelemetryEnvelope] = []
             if self._dropped:
                 dropped = self._dropped
                 self._dropped = 0
-                if len(self._queue) == self._queue.maxlen:
-                    self._queue.pop()
-                self._queue.appendleft(
+                batch.append(
                     TelemetryEnvelope(
                         v=1,
                         ts=utc_timestamp(),
@@ -129,7 +130,6 @@ class TelemetryRouter:
                         data={"count": dropped},
                     )
                 )
-            batch: list[TelemetryEnvelope] = []
             while self._queue and len(batch) < self._batch_size:
                 batch.append(self._queue.popleft())
             return batch
