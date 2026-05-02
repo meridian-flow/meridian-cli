@@ -7,6 +7,7 @@ Full command surface. Use `--help` on any command for flags and options.
 | Command | Description |
 | ------- | ----------- |
 | `meridian` | Launch the primary agent session with startup context, including the installed agent catalog |
+| `meridian bootstrap` | Launch a primary session with all installed bootstrap docs injected — guides the agent through first-time environment setup |
 | `meridian spawn -a AGENT -p "task"` | Delegate work to a routed agent/model |
 | `meridian spawn list` | See running and recent spawns |
 | `meridian spawn list --primary` | Show only primary spawns (top-level sessions) |
@@ -38,6 +39,8 @@ Common `spawn` flags:
 `spawn show` includes primary-session metadata when available from `primary_meta.json`:
 `kind`, `activity`, `managed_backend`, `backend_pid`, `tui_pid`, `backend_port`,
 and `harness_session_id`.
+
+`meridian bootstrap` accepts the same launch flags as a primary session (`-m`, `--harness`, `-a`, `--work`, `--approval`, `--effort`, `--timeout`, `--dry-run`). Bootstrap docs are injected automatically — no extra flags needed. The `-a` flag selects the agent profile; if omitted, Meridian uses the default bootstrap agent from the installed catalog.
 
 For managed Codex primary startup behavior, see [codex-tui-passthrough.md](codex-tui-passthrough.md).
 
@@ -162,7 +165,9 @@ reconnect/replay, persistence, and harness support matrix.
 | Command | Description |
 | ------- | ----------- |
 | `meridian init [--link DIR]` | Initialize project config/runtime state; optional convenience link wiring via mars |
-| `meridian workspace init` | Create local workspace topology file |
+| `meridian workspace init` | Create or update local `[workspace]` examples in `meridian.local.toml` |
+| `meridian workspace migrate` | Convert legacy `workspace.local.toml` roots to `[workspace.NAME]` entries in `meridian.local.toml` |
+| `meridian workspace migrate --force` | Replace existing local `[workspace]` entries while migrating legacy roots |
 | `meridian config show` | Show resolved configuration |
 | `meridian config set KEY VALUE` | Set a config value |
 | `meridian config get KEY` | Read a config value |
@@ -178,15 +183,19 @@ reconnect/replay, persistence, and harness support matrix.
 | ------- | ----------- |
 | `meridian mars init [--link DIR]` | Initialize mars project (`mars.toml`) and optionally create the initial link target in the same command |
 | `meridian mars add SOURCE` | Add an agent/skill package source |
-| `meridian mars sync` | Resolve and install packages into `.agents/` |
-| `meridian mars link DIR` | Symlink `.agents/` into a tool directory |
-| `meridian mars list` | Show installed agents and skills |
+| `meridian mars sync` | Compile packages into `.mars/`; emit skills to native harness dirs |
+| `meridian mars link DIR` | Link compiled output into a harness tool directory |
+| `meridian mars list` | Show installed agents (grouped by mode) and skills |
 | `meridian mars upgrade` | Fetch latest versions and sync |
 | `meridian mars doctor` | Check for drift and integrity issues |
 
 `meridian init --link DIR` is the top-level convenience path:
 - without `mars.toml`, it shells through `meridian mars init --link DIR`
 - with `mars.toml`, it shells through `meridian mars link DIR`
+
+`meridian mars sync` automatically sets `MERIDIAN_MANAGED=1` in the mars subprocess environment. Mars uses this signal to suppress native agent emission to harness directories — agents are read by Meridian from `.mars/agents/`, not duplicated into `.claude/agents/` etc.
+
+See [agent-profiles.md](agent-profiles.md) for the agent profile format including `model-policies`, `fanout`, and `mode`.
 
 ## Spawn Statuses
 
