@@ -48,7 +48,6 @@ def _build_primary_spawn_request(
 def _build_launch_runtime(
     *,
     tmp_path: Path,
-    override: str | None = None,
     argv_intent: LaunchArgvIntent = LaunchArgvIntent.REQUIRED,
     composition_surface: LaunchCompositionSurface = LaunchCompositionSurface.DIRECT,
     execution_cwd: Path | None = None,
@@ -57,7 +56,6 @@ def _build_launch_runtime(
     return LaunchRuntime(
         argv_intent=argv_intent,
         composition_surface=composition_surface,
-        harness_command_override=override,
         report_output_path=(tmp_path / "report.md").as_posix(),
         runtime_root=(tmp_path / ".meridian").as_posix(),
         project_paths_project_root=tmp_path.as_posix(),
@@ -76,41 +74,25 @@ def _write_minimal_mars_config(project_root: Path) -> None:
 @pytest.mark.parametrize(
     (
         "extra_args",
-        "override",
         "argv_intent",
         "patch_argv_failure",
         "expected_argv",
-        "expected_bypass",
         "compare_dry_run",
     ),
     [
         pytest.param(
             (),
-            None,
             LaunchArgvIntent.REQUIRED,
             False,
             None,
-            False,
             True,
             id="raw-request-runtime-dry-run-share-argv",
         ),
         pytest.param(
-            ("--json", "--verbose"),
-            "codex exec",
-            LaunchArgvIntent.REQUIRED,
-            False,
-            ("codex", "exec", "--json", "--verbose"),
-            True,
-            True,
-            id="bypass-command-owned-by-factory",
-        ),
-        pytest.param(
             (),
-            None,
             LaunchArgvIntent.SPEC_ONLY,
             True,
             (),
-            False,
             False,
             id="spec-only-tolerates-argv-build-failure",
         ),
@@ -120,18 +102,14 @@ def test_build_launch_context_behaviors(
     monkeypatch: MonkeyPatch,
     tmp_path: Path,
     extra_args: tuple[str, ...],
-    override: str | None,
     argv_intent: LaunchArgvIntent,
     patch_argv_failure: bool,
     expected_argv: tuple[str, ...] | None,
-    expected_bypass: bool,
     compare_dry_run: bool,
 ) -> None:
-    monkeypatch.delenv("MERIDIAN_HARNESS_COMMAND", raising=False)
     request = _build_spawn_request(extra_args=extra_args)
     runtime = _build_launch_runtime(
         tmp_path=tmp_path,
-        override=override,
         argv_intent=argv_intent,
     )
     registry = get_default_harness_registry()
@@ -152,7 +130,6 @@ def test_build_launch_context_behaviors(
         harness_registry=registry,
         dry_run=False,
     )
-    assert runtime_ctx.is_bypass is expected_bypass
 
     if compare_dry_run:
         dry_run_ctx = build_launch_context(
@@ -163,7 +140,6 @@ def test_build_launch_context_behaviors(
             dry_run=True,
         )
         assert runtime_ctx.argv == dry_run_ctx.argv
-        assert dry_run_ctx.is_bypass is expected_bypass
 
     if expected_argv is not None:
         assert runtime_ctx.argv == expected_argv
@@ -176,7 +152,6 @@ def test_build_launch_context_projects_runtime_child_env_paths(
     monkeypatch: MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.delenv("MERIDIAN_HARNESS_COMMAND", raising=False)
     monkeypatch.setenv("MERIDIAN_CHAT_ID", "c-parent")
     monkeypatch.setenv("MERIDIAN_DEPTH", "2")
     monkeypatch.setenv("MERIDIAN_WORK_ID", "work-alpha")
@@ -238,7 +213,6 @@ def test_build_launch_context_primary_preserves_runtime_depth(
     expected_depth: str,
 ) -> None:
     _write_minimal_mars_config(tmp_path)
-    monkeypatch.delenv("MERIDIAN_HARNESS_COMMAND", raising=False)
     monkeypatch.delenv("MERIDIAN_DEPTH", raising=False)
     monkeypatch.delenv("MERIDIAN_SPAWN_ID", raising=False)
     if parent_depth is not None:
@@ -262,12 +236,11 @@ def test_build_launch_context_primary_preserves_runtime_depth(
     assert "MERIDIAN_PARENT_SPAWN_ID" not in runtime_ctx.env_overrides
 
 
-def test_build_launch_context_primary_bypass_keeps_supplemental_documents_in_prompt(
+def test_build_launch_context_primary_projects_supplemental_documents(
     monkeypatch: MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     _write_minimal_mars_config(tmp_path)
-    monkeypatch.delenv("MERIDIAN_HARNESS_COMMAND", raising=False)
     request = _build_primary_spawn_request(
         supplemental_prompt_documents=(
             PromptDocument(
@@ -280,21 +253,18 @@ def test_build_launch_context_primary_bypass_keeps_supplemental_documents_in_pro
     )
     runtime = _build_launch_runtime(
         tmp_path=tmp_path,
-        override="codex exec",
         composition_surface=LaunchCompositionSurface.PRIMARY,
     )
 
     runtime_ctx = build_launch_context(
-        spawn_id="p-primary-bypass",
+        spawn_id="p-primary-docs",
         request=request,
         runtime=runtime,
         harness_registry=get_default_harness_registry(),
         dry_run=True,
     )
 
-    assert runtime_ctx.is_bypass is True
-    assert "# Bootstrap: setup\n\nsetup docs" in runtime_ctx.run_params.prompt
-    assert "# Bootstrap: setup\n\nsetup docs" in runtime_ctx.resolved_request.prompt
+    assert "# Bootstrap: setup\n\nsetup docs" in runtime_ctx.run_params.appended_system_prompt
 
 
 def test_build_launch_context_primary_exports_configured_context_dirs(
@@ -302,7 +272,6 @@ def test_build_launch_context_primary_exports_configured_context_dirs(
     tmp_path: Path,
 ) -> None:
     _write_minimal_mars_config(tmp_path)
-    monkeypatch.delenv("MERIDIAN_HARNESS_COMMAND", raising=False)
     monkeypatch.delenv("MERIDIAN_WORK_ID", raising=False)
     (tmp_path / "meridian.local.toml").write_text(
         "\n".join(
@@ -351,7 +320,6 @@ def test_build_launch_context_env_keeps_project_root_when_execution_cwd_differs(
     monkeypatch: MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.delenv("MERIDIAN_HARNESS_COMMAND", raising=False)
     monkeypatch.setenv("MERIDIAN_DEPTH", "1")
     execution_cwd = tmp_path / ".meridian" / "spawns" / "p-parent"
     execution_cwd.mkdir(parents=True)
@@ -377,7 +345,6 @@ def test_build_launch_context_emits_child_spawn_id(
     monkeypatch: MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.delenv("MERIDIAN_HARNESS_COMMAND", raising=False)
     monkeypatch.setenv("MERIDIAN_SPAWN_ID", "p-parent")
     monkeypatch.setenv("MERIDIAN_DEPTH", "1")
     request = _build_spawn_request()
@@ -401,7 +368,6 @@ def test_build_launch_context_projects_context_paths_to_workspace_roots(
 ) -> None:
     """CONTEXT-PROJ-1: Context paths are included in workspace projection."""
     _write_minimal_mars_config(tmp_path)
-    monkeypatch.delenv("MERIDIAN_HARNESS_COMMAND", raising=False)
     monkeypatch.delenv("MERIDIAN_WORK_ID", raising=False)
     (tmp_path / "meridian.local.toml").write_text(
         "\n".join(
@@ -473,7 +439,6 @@ def test_build_launch_context_opencode_includes_context_paths_in_external_direct
     import json
 
     _write_minimal_mars_config(tmp_path)
-    monkeypatch.delenv("MERIDIAN_HARNESS_COMMAND", raising=False)
     monkeypatch.delenv("MERIDIAN_WORK_ID", raising=False)
     monkeypatch.delenv("OPENCODE_CONFIG_CONTENT", raising=False)
     (tmp_path / "meridian.local.toml").write_text(

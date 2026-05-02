@@ -941,7 +941,6 @@ def execute_spawn_blocking(
         launch_runtime = LaunchRuntime(
             argv_intent=LaunchArgvIntent.SPEC_ONLY,
             debug=payload.debug,
-            harness_command_override=os.getenv("MERIDIAN_HARNESS_COMMAND", "").strip() or None,
             runtime_root=context.runtime_root.as_posix(),
             project_paths_project_root=project_paths.project_root.as_posix(),
             project_paths_execution_cwd=project_paths.execution_cwd.as_posix(),

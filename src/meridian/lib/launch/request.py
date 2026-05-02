@@ -135,7 +135,6 @@ class LaunchRuntime(BaseModel):
     config_snapshot: dict[str, object] = Field(default_factory=_empty_config_snapshot)
     unsafe_no_permissions: bool = False
     debug: bool = False
-    harness_command_override: str | None = None
     report_output_path: str | None = None
     runtime_root: str
     project_paths_project_root: str

@@ -1,6 +1,4 @@
 """Primary-launch input builders."""
-
-import os
 from pathlib import Path
 
 from meridian.lib.config.project_root import resolve_project_root
@@ -78,7 +76,6 @@ def build_primary_launch_runtime(
         argv_intent=LaunchArgvIntent.REQUIRED,
         composition_surface=LaunchCompositionSurface.PRIMARY,
         config_snapshot=resolved_config.model_dump(mode="json", exclude_none=True),
-        harness_command_override=os.getenv("MERIDIAN_HARNESS_COMMAND", "").strip() or None,
         report_output_path=_DRY_RUN_REPORT_PATH,
         runtime_root=runtime_root.as_posix(),
         project_paths_project_root=resolved_root.as_posix(),

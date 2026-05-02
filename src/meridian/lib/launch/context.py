@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import shlex
 import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -52,9 +51,9 @@ from .command import (
     normalize_system_prompt_passthrough_args,
     resolve_launch_spec_stage,
 )
-from .composition import ComposedLaunchContent, ProjectedContent, project_inline_content
+from .composition import ComposedLaunchContent, ProjectedContent
 from .cwd import resolve_child_execution_cwd
-from .env import build_env_plan, inherit_child_env
+from .env import build_env_plan
 from .env import merge_env_overrides as _merge_env_overrides
 from .permissions import (
     CLAUDE_NATIVE_DELEGATION_TOOLS,
@@ -219,7 +218,6 @@ class LaunchContext:
     projected_content: ProjectedContent | None = None
     seed_harness_session_id: str | None = None
     seed_harness_session_args: tuple[str, ...] = ()
-    is_bypass: bool = False
     # I-13: adapter input transformations surface here instead of silently mutating.
     warnings: tuple[CompositionWarning, ...] = ()
     model_selection: ModelSelectionContext | None = None
@@ -375,7 +373,6 @@ def _dedupe_roots_in_order(roots: tuple[Path, ...]) -> tuple[Path, ...]:
 def _resolve_harness_id(
     *,
     request: SpawnRequest,
-    runtime: LaunchRuntime,
 ) -> HarnessId:
     explicit_harness = (request.harness or "").strip()
     if explicit_harness:
@@ -384,21 +381,7 @@ def _resolve_harness_id(
         except ValueError as exc:
             raise ValueError(f"Unknown harness '{explicit_harness}'.") from exc
 
-    override = (runtime.harness_command_override or "").strip()
-    if override:
-        command_tokens = shlex.split(override)
-        if command_tokens:
-            command_name = Path(command_tokens[0]).name.strip().lower()
-            if command_name:
-                try:
-                    return HarnessId(command_name)
-                except ValueError as exc:
-                    raise ValueError(
-                        "LaunchRuntime.harness_command_override must start with a known harness "
-                        f"binary name; got '{command_name}'."
-                    ) from exc
-
-    raise ValueError("SpawnRequest.harness is required when no command override is present.")
+    raise ValueError("SpawnRequest.harness is required.")
 
 
 def _resolve_report_output_path(
@@ -411,22 +394,6 @@ def _resolve_report_output_path(
     if report_path_raw:
         return Path(report_path_raw).expanduser()
     return resolve_spawn_log_dir(project_paths.project_root, spawn_id) / "report.md"
-
-
-def _build_bypass_context(
-    *,
-    override: str,
-    preflight: PreflightResult,
-    env_overrides: Mapping[str, str],
-) -> tuple[tuple[str, ...], dict[str, str]]:
-    command = tuple([*shlex.split(override), *preflight.expanded_passthrough_args])
-    if not command:
-        raise ValueError("MERIDIAN_HARNESS_COMMAND resolved to an empty command.")
-    env = inherit_child_env(
-        base_env=os.environ,
-        env_overrides=env_overrides,
-    )
-    return command, env
 
 
 def _resolve_surface_request(
@@ -617,25 +584,16 @@ def _resolve_surface_request(
         seed_harness_session_id = seed.session_id
         seed_session_args = seed.session_args
         seeded_passthrough_args = (*request.extra_args, *seed.session_args)
-        override = (runtime.harness_command_override or "").strip()
-        if override and resolved_continue_fork:
-            raise ValueError(
-                "Cannot use --fork with MERIDIAN_HARNESS_COMMAND override. "
-                "Fork requires native harness adapter support."
-            )
 
         final_passthrough_args = seeded_passthrough_args
         user_turn_content: str | None = None
-        if not override:
-            passthrough_args, passthrough_prompt_fragments = (
-                normalize_system_prompt_passthrough_args(seeded_passthrough_args)
-            )
-            final_passthrough_args = passthrough_args
-            passthrough_system_fragments = tuple(
-                frag.strip() for frag in passthrough_prompt_fragments if frag.strip()
-            )
-        else:
-            passthrough_system_fragments = ()
+        passthrough_args, passthrough_prompt_fragments = (
+            normalize_system_prompt_passthrough_args(seeded_passthrough_args)
+        )
+        final_passthrough_args = passthrough_args
+        passthrough_system_fragments = tuple(
+            frag.strip() for frag in passthrough_prompt_fragments if frag.strip()
+        )
 
         supplemental_documents = (
             *compose_skill_prompt_documents(resolved_skills.loaded_skills),
@@ -663,26 +621,15 @@ def _resolve_surface_request(
             prior_output="",
         )
 
-        if override:
-            # MERIDIAN_HARNESS_COMMAND bypasses adapter-owned argv construction, so
-            # side-channel prompt fields such as --append-system-prompt may not be
-            # delivered. Inline the composed primary content to keep supplemental
-            # documents (including bootstrap docs) in the prompt.
-            projected = project_inline_content(composed)
-            projected_content = projected
-            if projected.user_turn_content.strip():
-                user_turn_content = projected.user_turn_content
-                final_prompt = projected.user_turn_content
-        else:
-            projected = harness.project_content(composed)
-            projected_content = projected
+        projected = harness.project_content(composed)
+        projected_content = projected
 
-            # Use projected content for channel-separated prompt state.
-            if projected.system_prompt.strip():
-                appended_system_prompt = projected.system_prompt
-            if projected.user_turn_content.strip():
-                user_turn_content = projected.user_turn_content
-                final_prompt = projected.user_turn_content
+        # Use projected content for channel-separated prompt state.
+        if projected.system_prompt.strip():
+            appended_system_prompt = projected.system_prompt
+        if projected.user_turn_content.strip():
+            user_turn_content = projected.user_turn_content
+            final_prompt = projected.user_turn_content
     elif spawn_composed_content is not None:
         projected = harness.project_content(spawn_composed_content)
         projected_content = projected
@@ -835,7 +782,7 @@ def build_launch_context(
         seed_harness_session_args = surface.seed_session_args
         model_selection = surface.model_selection
     else:
-        harness_id = _resolve_harness_id(request=request, runtime=runtime)
+        harness_id = _resolve_harness_id(request=request)
         harness = harness_registry.get_subprocess_harness(harness_id)
         composition_warnings = _build_composition_warnings(
             request_warning=resolved_request.warning,
@@ -966,9 +913,8 @@ def build_launch_context(
         unsafe_no_permissions=runtime.unsafe_no_permissions,
     )
     spec = resolve_launch_spec_stage(adapter=harness, run_inputs=run_params, perms=perms)
-    override = (runtime.harness_command_override or "").strip()
     argv: tuple[str, ...] = ()
-    if not override and runtime.argv_intent != LaunchArgvIntent.SPEC_ONLY:
+    if runtime.argv_intent != LaunchArgvIntent.SPEC_ONLY:
         argv = build_launch_argv(
             adapter=harness,
             run_inputs=run_params,
@@ -995,21 +941,13 @@ def build_launch_context(
         preflight_overrides=preflight.extra_env,
     )
     merged_overrides.update(workspace_projection.env_overrides)
-    is_bypass = bool(override)
-    if is_bypass:
-        argv, env = _build_bypass_context(
-            override=override,
-            preflight=preflight,
-            env_overrides=merged_overrides,
-        )
-    else:
-        env = build_env_plan(
-            base_env=os.environ,
-            adapter=harness,
-            run_inputs=run_params,
-            permission_config=permission_config,
-            runtime_env_overrides=merged_overrides,
-        )
+    env = build_env_plan(
+        base_env=os.environ,
+        adapter=harness,
+        run_inputs=run_params,
+        permission_config=permission_config,
+        runtime_env_overrides=merged_overrides,
+    )
 
     return LaunchContext(
         request=request,
@@ -1031,7 +969,6 @@ def build_launch_context(
         projected_content=projected_content,
         seed_harness_session_id=seed_harness_session_id,
         seed_harness_session_args=seed_harness_session_args,
-        is_bypass=is_bypass,
         warnings=composition_warnings,
         model_selection=model_selection,
     )

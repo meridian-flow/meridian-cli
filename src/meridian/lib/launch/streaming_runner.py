@@ -747,10 +747,6 @@ async def execute_with_streaming(
     spec = launch_context.spec
     child_env = dict(launch_context.env)
     harness = launch_context.harness
-    if launch_context.is_bypass:
-        raise RuntimeError(
-            "MERIDIAN_HARNESS_COMMAND bypass is not supported for streaming spawn execution."
-        )
     harness_bundle = get_harness_bundle(resolved_harness_id)
 
     spawn_store.update_spawn(

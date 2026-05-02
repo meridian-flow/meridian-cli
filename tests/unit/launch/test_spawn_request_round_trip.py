@@ -51,7 +51,6 @@ def test_spawn_request_round_trip_json_with_all_fields() -> None:
         argv_intent=LaunchArgvIntent.SPEC_ONLY,
         unsafe_no_permissions=False,
         debug=True,
-        harness_command_override="codex --foo",
         report_output_path="/tmp/report.md",
         runtime_root="/tmp/state",
         project_paths_project_root="/tmp/repo",

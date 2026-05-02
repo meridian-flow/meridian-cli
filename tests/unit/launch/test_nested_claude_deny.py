@@ -64,7 +64,6 @@ def _build_context(
     agent: str | None = None,
     disallowed_tools: tuple[str, ...] = (),
 ) -> SpawnRequest:
-    monkeypatch.delenv("MERIDIAN_HARNESS_COMMAND", raising=False)
     request = SpawnRequest(
         prompt="test",
         harness=harness.value,
@@ -195,7 +194,6 @@ def test_adhoc_allowed_tools_without_profile_still_denies_agent(
     monkeypatch: MonkeyPatch,
 ) -> None:
     """S-9: Missing profile means no opt-outs."""
-    monkeypatch.delenv("MERIDIAN_HARNESS_COMMAND", raising=False)
     request = SpawnRequest(
         prompt="test",
         harness=HarnessId.CLAUDE.value,
@@ -225,7 +223,6 @@ def test_adhoc_allowed_tools_respects_existing_explicit_deny_precedence(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("MERIDIAN_HARNESS_COMMAND", raising=False)
     request = SpawnRequest(
         prompt="test",
         harness=HarnessId.CLAUDE.value,

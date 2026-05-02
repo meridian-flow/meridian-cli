@@ -57,6 +57,7 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Frontend chat: multi-column spawn view, chat composer with submit/clear, thread activity tracking, session list sidebar, spawn header with streaming controls, ChatContext LRU eviction, conversation effects refactor.
 
 ### Removed
+- `MERIDIAN_HARNESS_COMMAND` launch escape hatch. Adapter command building now only path.
 - `backlog/` directory deleted — tracking moved to GitHub Issues.
 - Windows CI matrix. Ubuntu-only until Windows support is re-validated.
 - Archived old frontend, FastAPI app server, HCP chat stack, `meridian app` command, app-backed tests, and built UI artifacts. Active codebase clear for fresh `meridian chat` / `meridian app` rebuild.

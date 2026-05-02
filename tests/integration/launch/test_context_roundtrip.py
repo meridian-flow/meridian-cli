@@ -17,7 +17,6 @@ def test_launch_context_child_env_roundtrips_through_resolved_context(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.delenv("MERIDIAN_HARNESS_COMMAND", raising=False)
     monkeypatch.setenv("MERIDIAN_CHAT_ID", "chat-parent")
     monkeypatch.setenv("MERIDIAN_DEPTH", "2")
     monkeypatch.setenv("MERIDIAN_WORK_ID", "work-parent")
@@ -61,7 +60,6 @@ def test_launch_context_child_env_roundtrips_spawn_identity(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.delenv("MERIDIAN_HARNESS_COMMAND", raising=False)
     monkeypatch.setenv("MERIDIAN_SPAWN_ID", "p-parent")
     monkeypatch.setenv("MERIDIAN_DEPTH", "4")
 
