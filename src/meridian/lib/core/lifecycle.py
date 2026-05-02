@@ -435,6 +435,12 @@ class SpawnLifecycleService:
     ) -> None:
         if event_name not in CORE_EVENTS and event_name != "spawn.updated":
             return
+        if payload is None and event_name in {
+            "spawn.succeeded",
+            "spawn.failed",
+            "spawn.cancelled",
+        }:
+            payload = _terminal_telemetry_payload(record)
         _emit_lifecycle_event(event_name, record, payload=payload)
 
     def _build_event(self, event_type: EventType, spawn_id: str) -> LifecycleEvent:
@@ -540,6 +546,18 @@ def _emit_lifecycle_event(
         payload=payload or {},
     )
     notify_observers(event)
+
+
+def _terminal_telemetry_payload(spawn: SpawnRecord) -> dict[str, Any]:
+    """Build sparse terminal lifecycle payload for observer projections."""
+    payload: dict[str, Any] = {"status": spawn.status}
+    if spawn.exit_code is not None:
+        payload["exit_code"] = spawn.exit_code
+    if spawn.duration_secs is not None:
+        payload["duration_secs"] = spawn.duration_secs
+    if spawn.error:
+        payload["reason"] = spawn.error
+    return payload
 
 
 def _write_failure_sentinel(

@@ -31,6 +31,7 @@ from meridian.lib.state.primary_meta import (
     read_primary_surface_metadata,
 )
 from meridian.lib.telemetry.init import setup_telemetry
+from meridian.lib.telemetry.observer import register_spawn_telemetry_observer
 from meridian.lib.utils.time import minutes_to_seconds
 
 from .execute import (
@@ -138,9 +139,11 @@ def spawn_create_sync(
         resolved_root = _resolve_project_root_input(payload.project_root)
         config = load_config(resolved_root)
         setup_telemetry(runtime_root=None)
+        register_spawn_telemetry_observer()
     else:
         resolved_root, config = resolve_runtime_root_and_config(payload.project_root)
         setup_telemetry(runtime_root=resolve_runtime_root(resolved_root))
+        register_spawn_telemetry_observer()
     payload = payload.model_copy(update={"project_root": resolved_root.as_posix()})
     payload, preflight_warning = validate_create_input(payload)
     if payload.dry_run and payload.work.strip():
@@ -601,6 +604,7 @@ async def _spawn_cancel_impl(
     spawn_service = SpawnApplicationService(runtime_root, lifecycle_service)
     register_debug_trace_observer()
     setup_telemetry(runtime_root=runtime_root)
+    register_spawn_telemetry_observer()
     try:
         outcome = await spawn_service.cancel(SpawnId(spawn_id))
     except RuntimeError as exc:
