@@ -22,6 +22,7 @@ from meridian.lib.ops.runtime import (
 from meridian.lib.ops.work_attachment import set_session_work_attachment
 from meridian.lib.ops.work_dashboard import work_dir_display
 from meridian.lib.state import session_store, spawn_store, work_store
+from meridian.lib.telemetry import emit_telemetry
 
 _NESTED_WORK_WARNING = (
     "Work coordination is primary-owned; nested agents should usually ask the orchestrator "
@@ -99,6 +100,21 @@ def _dispatch_work_hook_event(
             hook_event=event_name,
             work_id=work_id,
         )
+
+
+def _emit_work_transition(
+    event: str,
+    *,
+    work_id: str,
+    data: dict[str, object] | None = None,
+) -> None:
+    emit_telemetry(
+        "work",
+        event,
+        scope="ops.work_lifecycle",
+        ids={"work_id": work_id},
+        data=data,
+    )
 
 
 class WorkStartInput(BaseModel):
@@ -298,6 +314,11 @@ def work_start_sync(
         project_state_dir=project_state_dir,
         work_id=item.name,
     )
+    _emit_work_transition(
+        "work.started",
+        work_id=item.name,
+        data={"status": item.status, "created": created},
+    )
     return WorkStartOutput(
         name=item.name,
         status=item.status,
@@ -334,6 +355,11 @@ def work_update_sync(
             project_state_dir=project_state_dir,
             work_id=item.name,
         )
+        _emit_work_transition(
+            "work.done",
+            work_id=item.name,
+            data={"status": item.status},
+        )
         return WorkUpdateOutput(
             name=item.name,
             status=item.status,
@@ -349,6 +375,11 @@ def work_update_sync(
         payload.work_id,
         status=payload.status,
         description=payload.description,
+    )
+    _emit_work_transition(
+        "work.updated",
+        work_id=item.name,
+        data={"status": item.status},
     )
     return WorkUpdateOutput(name=item.name, status=item.status, warning=warning)
 
@@ -370,6 +401,11 @@ def work_done_sync(
         project_state_dir=project_state_dir,
         work_id=item.name,
     )
+    _emit_work_transition(
+        "work.done",
+        work_id=item.name,
+        data={"status": item.status},
+    )
     return WorkUpdateOutput(
         name=item.name,
         status=item.status,
@@ -389,6 +425,11 @@ def work_delete_sync(
         payload.work_id,
         force=payload.force,
     )
+    _emit_work_transition(
+        "work.deleted",
+        work_id=item.name,
+        data={"status": item.status, "had_artifacts": had_artifacts},
+    )
     return WorkDeleteOutput(
         name=item.name,
         had_artifacts=had_artifacts,
@@ -404,6 +445,11 @@ def work_reopen_sync(
     warning = _work_warning(ctx)
     project_state_dir = resolve_roots(payload.project_root).project_state_dir
     item = work_store.reopen_work_item(project_state_dir, payload.work_id)
+    _emit_work_transition(
+        "work.reopened",
+        work_id=item.name,
+        data={"status": item.status},
+    )
     return WorkReopenOutput(name=item.name, status=item.status, warning=warning)
 
 
@@ -447,6 +493,11 @@ def work_rename_sync(
     if current_work_id == old_name:
         set_session_work_attachment(runtime_state_root, chat_id=chat_id, work_id=item.name)
 
+    _emit_work_transition(
+        "work.renamed",
+        work_id=item.name,
+        data={"old_name": old_name, "new_name": item.name, "status": item.status},
+    )
     return WorkRenameOutput(
         old_name=old_name,
         new_name=item.name,
