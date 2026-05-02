@@ -145,6 +145,9 @@ def test_launch_skill_variants_use_alias_then_canonical_then_harness(
     assert "Alias token body" in system_prompt
     assert "Canonical body" not in system_prompt
     assert "Harness body" not in system_prompt
+    assert "name: variant-skill" in system_prompt
+    assert "description: Base metadata" in system_prompt
+    assert "name: ignored-token" not in system_prompt
     assert "# Skill: " + token_variant.resolve().as_posix() in system_prompt
     assert preview.resolved_request.skill_paths == (token_variant.resolve().as_posix(),)
 

@@ -28,7 +28,7 @@ def test_skill_registry_ignores_nested_variant_documents_for_listing(tmp_path: P
 
 
 def test_skill_registry_load_selects_model_token_variant_first(tmp_path: Path) -> None:
-    write_skill(tmp_path, "root", body="Base body", description="Base description")
+    base_path = write_skill(tmp_path, "root", body="Base body", description="Base description")
     skill_root = tmp_path / ".mars" / "skills" / "root"
     (skill_root / "variants" / "codex" / "gpt-5.5").mkdir(parents=True)
     token_variant = skill_root / "variants" / "codex" / "gpt-5.5" / "SKILL.md"
@@ -52,14 +52,19 @@ def test_skill_registry_load_selects_model_token_variant_first(tmp_path: Path) -
 
     assert loaded.name == "root"
     assert loaded.description == "Base description"
-    assert loaded.content.strip() == "Token variant body"
+    assert loaded.content == base_path.read_text(encoding="utf-8").replace(
+        "Base body\n", "Token variant body"
+    )
+    assert "name: root" in loaded.content
+    assert "description: Base description" in loaded.content
+    assert "name: ignored" not in loaded.content
     assert loaded.path == token_variant.resolve().as_posix()
 
 
 def test_skill_registry_load_falls_back_through_canonical_harness_and_base(
     tmp_path: Path,
 ) -> None:
-    write_skill(tmp_path, "root", body="Base body")
+    base_path = write_skill(tmp_path, "root", body="Base body")
     skill_root = tmp_path / ".mars" / "skills" / "root"
     canonical_variant = skill_root / "variants" / "codex" / "openai-gpt-5.5" / "SKILL.md"
     canonical_variant.parent.mkdir(parents=True)
@@ -69,37 +74,29 @@ def test_skill_registry_load_falls_back_through_canonical_harness_and_base(
 
     registry = SkillRegistry(project_root=tmp_path)
 
-    assert (
-        registry.load(
-            ["root"],
-            harness_id="codex",
-            selected_model_token="gpt-5.4",
-            canonical_model_id="openai-gpt-5.5",
-        )[0].content.strip()
-        == "Canonical variant body"
-    )
-    assert (
-        registry.load(
-            ["root"],
-            harness_id="codex",
-            selected_model_token="gpt-5.4",
-            canonical_model_id="openai-gpt-5.4",
-        )[0].content.strip()
-        == "Harness variant body"
-    )
-    assert (
-        registry.load(
-            ["root"],
-            harness_id="claude",
-            selected_model_token="gpt-5.4",
-            canonical_model_id="openai-gpt-5.4",
-        )[0].content.strip()
-        == "Base body"
-    )
+    base_content = base_path.read_text(encoding="utf-8")
+    assert registry.load(
+        ["root"],
+        harness_id="codex",
+        selected_model_token="gpt-5.4",
+        canonical_model_id="openai-gpt-5.5",
+    )[0].content == base_content.replace("Base body\n", "Canonical variant body")
+    assert registry.load(
+        ["root"],
+        harness_id="codex",
+        selected_model_token="gpt-5.4",
+        canonical_model_id="openai-gpt-5.4",
+    )[0].content == base_content.replace("Base body\n", "Harness variant body")
+    assert registry.load(
+        ["root"],
+        harness_id="claude",
+        selected_model_token="gpt-5.4",
+        canonical_model_id="openai-gpt-5.4",
+    )[0].content == base_content
 
 
 def test_skill_registry_load_uses_exact_model_matching_only(tmp_path: Path) -> None:
-    write_skill(tmp_path, "root", body="Base body")
+    base_path = write_skill(tmp_path, "root", body="Base body")
     variant = tmp_path / ".mars" / "skills" / "root" / "variants" / "codex" / "gpt" / "SKILL.md"
     variant.parent.mkdir(parents=True)
     variant.write_text("Prefix variant body", encoding="utf-8")
@@ -111,4 +108,4 @@ def test_skill_registry_load_uses_exact_model_matching_only(tmp_path: Path) -> N
         canonical_model_id="openai-gpt-5.5",
     )[0]
 
-    assert loaded.content.strip() == "Base body"
+    assert loaded.content == base_path.read_text(encoding="utf-8")

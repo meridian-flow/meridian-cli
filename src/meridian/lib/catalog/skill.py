@@ -142,6 +142,27 @@ def _skill_search_dirs(project_root: Path) -> list[Path]:
     return [project_root / ".mars" / "skills"]
 
 
+def replace_skill_body(base: SkillDocument, body: str) -> str:
+    """Return base document content with its body replaced, preserving frontmatter bytes."""
+
+    if base.body and base.content.endswith(base.body):
+        return f"{base.content[: -len(base.body)]}{body}"
+    if base.content.startswith("---\n"):
+        frontmatter_end = base.content.find("\n---", 3)
+        if frontmatter_end != -1:
+            body_start = frontmatter_end + len("\n---")
+            while body_start < len(base.content) and base.content[body_start] in "\r\n":
+                body_start += 1
+            return f"{base.content[:body_start]}{body}"
+    if not base.body:
+        return f"{base.content}{body}"
+    logger.warning(
+        "Could not isolate frontmatter prefix for skill '%s'; using variant body without base prefix",
+        base.name,
+    )
+    return body
+
+
 def files_have_equal_text(first: Path, second: Path) -> bool:
     try:
         return first.read_text(encoding="utf-8") == second.read_text(encoding="utf-8")
@@ -300,22 +321,16 @@ class SkillRegistry:
             path = variant_index.get(key)
             if path is not None:
                 variant = parse_skill_file(path)
+                content = replace_skill_body(record.base, variant.body)
                 return SkillDocument(
                     name=record.base.name,
                     description=record.base.description,
                     path=variant.path,
-                    content=variant.body,
+                    content=content,
                     body=variant.body,
                     frontmatter=record.base.frontmatter,
                 )
-        return SkillDocument(
-            name=record.base.name,
-            description=record.base.description,
-            path=record.base.path,
-            content=record.base.body,
-            body=record.base.body,
-            frontmatter=record.base.frontmatter,
-        )
+        return record.base
 
     def load(
         self,
@@ -348,7 +363,7 @@ class SkillRegistry:
                 SkillContent(
                     name=document.name,
                     description=document.description,
-                    content=document.body,
+                    content=document.content,
                     path=str(document.path),
                 )
             )

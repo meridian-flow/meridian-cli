@@ -8,6 +8,7 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Unified dev frontend (`meridian chat --dev`). Portless auto-detection, `--tailscale`/`--funnel` sharing, `--portless-force` route takeover. `LaunchResult` dataclass bundles session + display metadata. Policy layer resolves tailscale DNS names into `PortlessExposure.allowed_hosts`. HOST/PORT scrubbed from raw Vite child env to prevent accidental network exposure.
 
 ### Fixed
+- Skill prompt loading preserves base `SKILL.md` frontmatter. Variant skills now replace only body while keeping base metadata and selected variant path.
 - Vite host validation in portless tailscale/funnel mode. Portless HTTPS does not bypass Vite's Host header check — tailscale hostnames were blocked with 403. Policy layer now resolves the tailscale DNS name and passes it through `VITE_DEV_ALLOWED_HOSTS`.
 - Portless error classification. All immediate non-zero exits were treated as route-occupied collisions. Now captures stderr via tempfile and matches known collision indicators; generic failures surface actual stderr output.
 
