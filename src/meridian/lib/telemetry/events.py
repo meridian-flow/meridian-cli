@@ -67,7 +67,11 @@ EVENT_REGISTRY: dict[str, EventDefinition] = {
         "concerns": ("operational",),
         "ids": ("chat_id", "command_id"),
     },
-    "chat.ws.connected": {"domain": "chat", "concerns": ("operational",), "ids": ("chat_id",)},
+    "chat.ws.connected": {
+        "domain": "chat",
+        "concerns": ("operational", "usage"),
+        "ids": ("chat_id",),
+    },
     "chat.ws.disconnected": {"domain": "chat", "concerns": ("operational",), "ids": ("chat_id",)},
     "chat.ws.rejected": {
         "domain": "chat",
@@ -76,14 +80,14 @@ EVENT_REGISTRY: dict[str, EventDefinition] = {
     },
     "chat.command.dispatched": {
         "domain": "chat",
-        "concerns": ("operational",),
+        "concerns": ("operational", "usage"),
         "ids": ("chat_id", "command_id"),
     },
     "chat.runtime.stopping": {"domain": "chat", "concerns": ("operational",), "ids": ("chat_id",)},
     "chat.runtime.stopped": {"domain": "chat", "concerns": ("operational",), "ids": ("chat_id",)},
     # Server domain.
-    "dev_frontend.launched": {"domain": "server", "concerns": ("operational",), "ids": ()},
-    "dev_frontend.ready": {"domain": "server", "concerns": ("operational",), "ids": ()},
+    "dev_frontend.launched": {"domain": "server", "concerns": ("operational", "usage"), "ids": ()},
+    "dev_frontend.ready": {"domain": "server", "concerns": ("operational", "usage"), "ids": ()},
     "dev_frontend.readiness_timeout": {
         "domain": "server",
         "concerns": ("operational", "error"),
@@ -92,18 +96,22 @@ EVENT_REGISTRY: dict[str, EventDefinition] = {
     "dev_frontend.exited": {"domain": "server", "concerns": ("operational",), "ids": ()},
     "mcp.command.invoked": {
         "domain": "server",
-        "concerns": ("operational",),
+        "concerns": ("operational", "usage"),
         "ids": ("request_id", "work_id", "spawn_id"),
     },
     # Work domain.
-    "work.started": {"domain": "work", "concerns": ("operational",), "ids": ("work_id",)},
+    "work.started": {"domain": "work", "concerns": ("operational", "usage"), "ids": ("work_id",)},
     "work.updated": {"domain": "work", "concerns": ("operational",), "ids": ("work_id",)},
-    "work.done": {"domain": "work", "concerns": ("operational",), "ids": ("work_id",)},
+    "work.done": {"domain": "work", "concerns": ("operational", "usage"), "ids": ("work_id",)},
     "work.deleted": {"domain": "work", "concerns": ("operational",), "ids": ("work_id",)},
-    "work.reopened": {"domain": "work", "concerns": ("operational",), "ids": ("work_id",)},
+    "work.reopened": {"domain": "work", "concerns": ("operational", "usage"), "ids": ("work_id",)},
     "work.renamed": {"domain": "work", "concerns": ("operational",), "ids": ("work_id",)},
     # Runtime domain: self-observability.
-    "runtime.telemetry.dropped": {"domain": "runtime", "concerns": ("operational",), "ids": ()},
+    "runtime.telemetry.dropped": {
+        "domain": "runtime",
+        "concerns": ("operational", "error"),
+        "ids": (),
+    },
     "runtime.telemetry.sink_failed": {
         "domain": "runtime",
         "concerns": ("operational", "error"),
@@ -121,7 +129,7 @@ EVENT_REGISTRY: dict[str, EventDefinition] = {
     },
     "runtime.stream_event_dropped": {
         "domain": "runtime",
-        "concerns": ("operational",),
+        "concerns": ("operational", "error"),
         "ids": ("spawn_id",),
     },
     # Usage domain.
@@ -160,12 +168,15 @@ def make_error_data(
     exc: BaseException | None = None, *, message: str | None = None
 ) -> dict[str, Any]:
     """Build structured error metadata for error-tagged events."""
-    if exc is None:
-        return {"error": {"message": message or ""}}
-    return {
-        "error": {
-            "type": type(exc).__name__,
-            "message": message or str(exc),
-            "stack": "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
-        }
-    }
+    error_info: dict[str, Any] = {}
+    if exc is not None:
+        error_info["type"] = type(exc).__name__
+        error_info["message"] = str(exc)
+        error_info["stack"] = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    else:
+        error_info["type"] = "UnknownError"
+    if message is not None:
+        error_info["message"] = message
+    elif "message" not in error_info:
+        error_info["message"] = "Unknown error"
+    return {"error": error_info}

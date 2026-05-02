@@ -8,6 +8,39 @@ from meridian.lib.telemetry import (
 )
 from meridian.lib.telemetry.events import VALID_CONCERNS, VALID_DOMAINS, validate_event
 
+EXPECTED_CONCERNS = {
+    "spawn.process_exited": ("operational",),
+    "spawn.succeeded": ("operational",),
+    "spawn.failed": ("operational", "error"),
+    "spawn.cancelled": ("operational",),
+    "chat.http.request_completed": ("operational",),
+    "chat.ws.connected": ("operational", "usage"),
+    "chat.ws.disconnected": ("operational",),
+    "chat.ws.rejected": ("operational", "error"),
+    "chat.command.dispatched": ("operational", "usage"),
+    "chat.runtime.stopping": ("operational",),
+    "chat.runtime.stopped": ("operational",),
+    "dev_frontend.launched": ("operational", "usage"),
+    "dev_frontend.ready": ("operational", "usage"),
+    "dev_frontend.readiness_timeout": ("operational", "error"),
+    "dev_frontend.exited": ("operational",),
+    "mcp.command.invoked": ("operational", "usage"),
+    "work.started": ("operational", "usage"),
+    "work.updated": ("operational",),
+    "work.done": ("operational", "usage"),
+    "work.deleted": ("operational",),
+    "work.reopened": ("operational", "usage"),
+    "work.renamed": ("operational",),
+    "runtime.telemetry.dropped": ("operational", "error"),
+    "runtime.telemetry.sink_failed": ("operational", "error"),
+    "runtime.telemetry.consumer_data_lost": ("operational", "error"),
+    "runtime.debug_tracer_disabled": ("operational", "error"),
+    "runtime.stream_event_dropped": ("operational", "error"),
+    "usage.command.invoked": ("usage",),
+    "usage.model.selected": ("usage",),
+    "usage.spawn.launched": ("usage",),
+}
+
 
 def test_registered_events_have_valid_domains_and_concerns() -> None:
     assert EVENT_REGISTRY
@@ -21,6 +54,12 @@ def test_registered_events_have_valid_domains_and_concerns() -> None:
 def test_concern_tag_lookup_for_known_events() -> None:
     assert concerns_for_event("spawn.failed") == ("operational", "error")
     assert concerns_for_event("usage.command.invoked") == ("usage",)
+
+
+def test_registry_concern_tags_match_normative_mapping() -> None:
+    assert set(EVENT_REGISTRY) == set(EXPECTED_CONCERNS)
+    for event, expected_concerns in EXPECTED_CONCERNS.items():
+        assert concerns_for_event(event) == expected_concerns
 
 
 def test_envelope_to_dict_omits_none_optional_fields() -> None:
@@ -56,4 +95,9 @@ def test_make_error_data_shape() -> None:
     assert data["error"]["type"] == "RuntimeError"
     assert data["error"]["message"] == "boom"
     assert "RuntimeError: boom" in data["error"]["stack"]
-    assert make_error_data(message="plain") == {"error": {"message": "plain"}}
+    assert make_error_data(message="plain") == {
+        "error": {"type": "UnknownError", "message": "plain"}
+    }
+    assert make_error_data() == {
+        "error": {"type": "UnknownError", "message": "Unknown error"}
+    }

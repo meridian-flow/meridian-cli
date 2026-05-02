@@ -6,6 +6,7 @@ import logging
 import threading
 from collections import deque
 from collections.abc import Sequence
+from contextlib import suppress
 from typing import Any
 
 from meridian.lib.telemetry.events import TelemetryEnvelope, utc_timestamp, validate_event
@@ -181,11 +182,12 @@ def emit_telemetry(
     severity: str = "info",
 ) -> None:
     """Emit through the process-global router. Never raises."""
-    get_global_router().emit(
-        domain,
-        event,
-        scope=scope,
-        ids=ids,
-        data=data,
-        severity=severity,
-    )
+    with suppress(Exception):
+        get_global_router().emit(
+            domain,
+            event,
+            scope=scope,
+            ids=ids,
+            data=data,
+            severity=severity,
+        )
