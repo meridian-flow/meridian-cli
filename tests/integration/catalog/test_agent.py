@@ -35,7 +35,10 @@ def test_scan_agent_profiles_reads_real_mars_agents_directory(tmp_path: Path) ->
     profiles = scan_agent_profiles(project_root=project_root)
 
     assert [profile.name for profile in profiles] == ["Coder", "Reviewer"]
-    assert [profile.path.parent for profile in profiles] == [agents_dir.resolve(), agents_dir.resolve()]
+    assert [profile.path.parent for profile in profiles] == [
+        agents_dir.resolve(),
+        agents_dir.resolve(),
+    ]
     assert profiles[1].mode == "primary"
     assert profiles[1].fanout == (FanoutEntry(entry_type="alias", value="gpt55"),)
 
@@ -318,6 +321,33 @@ def test_parse_agent_profile_models_discards_invalid_entries_and_warns(
     assert "invalid models entry for 'bad-autocompact'" in warning_text
     assert "invalid models entry for 'bad-autocompact-bool'" in warning_text
     assert "empty models key" in warning_text
+
+
+def test_scan_agent_profiles_quiet_suppresses_parse_warnings(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    project_root = tmp_path / "repo"
+    agents_dir = project_root / ".mars" / "agents"
+    agents_dir.mkdir(parents=True)
+    _write_profile(
+        agents_dir,
+        "planner.md",
+        [
+            "name: Planner",
+            "effort: invalid",
+            "autocompact: 150",
+            "models:",
+            "  bad-effort:",
+            "    effort: auto",
+        ],
+    )
+    caplog.set_level(logging.WARNING, logger="meridian.lib.catalog.agent")
+
+    profiles = scan_agent_profiles(project_root=project_root, quiet=True)
+
+    assert [profile.name for profile in profiles] == ["Planner"]
+    assert caplog.records == []
 
 
 def test_parse_agent_profile_keeps_valid_profile_autocompact(tmp_path: Path) -> None:

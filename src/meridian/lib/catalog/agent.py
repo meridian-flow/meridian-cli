@@ -138,40 +138,45 @@ def _parse_model_overrides(
     raw_models: object,
     *,
     profile_name: str,
+    quiet: bool = False,
 ) -> dict[str, AgentModelEntry]:
     if raw_models is None:
         return {}
     if not isinstance(raw_models, Mapping):
-        logger.warning(
-            "Agent profile '%s' has invalid models field: expected mapping.",
-            profile_name,
-        )
+        if not quiet:
+            logger.warning(
+                "Agent profile '%s' has invalid models field: expected mapping.",
+                profile_name,
+            )
         return {}
 
     parsed: dict[str, AgentModelEntry] = {}
     for raw_key, raw_value in cast("Mapping[object, object]", raw_models).items():
         key = str(raw_key).strip()
         if not key:
-            logger.warning(
-                "Agent profile '%s' has empty models key; entry ignored.",
-                profile_name,
-            )
+            if not quiet:
+                logger.warning(
+                    "Agent profile '%s' has empty models key; entry ignored.",
+                    profile_name,
+                )
             continue
         if not isinstance(raw_value, Mapping):
-            logger.warning(
-                "Agent profile '%s' has invalid models entry for '%s': expected mapping.",
-                profile_name,
-                key,
-            )
+            if not quiet:
+                logger.warning(
+                    "Agent profile '%s' has invalid models entry for '%s': expected mapping.",
+                    profile_name,
+                    key,
+                )
             continue
         try:
             parsed[key] = AgentModelEntry.model_validate(raw_value)
         except ValidationError:
-            logger.warning(
-                "Agent profile '%s' has invalid models entry for '%s'; entry ignored.",
-                profile_name,
-                key,
-            )
+            if not quiet:
+                logger.warning(
+                    "Agent profile '%s' has invalid models entry for '%s'; entry ignored.",
+                    profile_name,
+                    key,
+                )
     return parsed
 
 
@@ -179,6 +184,7 @@ def _parse_model_policies(
     raw_policies: object,
     *,
     profile_name: str,
+    quiet: bool = False,
 ) -> tuple[ModelPolicyRule, ...]:
     if raw_policies is None:
         return ()
@@ -245,7 +251,7 @@ def _parse_model_policies(
                 f"override key '{unknown_keys[0]}': expected one of {allowed}."
             )
         deferred_keys = sorted(set(overrides) & _MODEL_POLICY_DEFERRED_LIST_OVERRIDE_KEYS)
-        if deferred_keys:
+        if deferred_keys and not quiet:
             logger.warning(
                 "Agent profile '%s' model-policies[%d] uses not-yet-supported list "
                 "override keys: %s.",
@@ -314,7 +320,7 @@ def _parse_fanout_entries(
     return tuple(entries)
 
 
-def parse_agent_profile(path: Path) -> AgentProfile:
+def parse_agent_profile(path: Path, *, quiet: bool = False) -> AgentProfile:
     """Parse a single markdown agent profile file."""
 
     markdown = path.read_text(encoding="utf-8")
@@ -336,7 +342,7 @@ def parse_agent_profile(path: Path) -> AgentProfile:
     profile_name = str(name_value).strip() if name_value is not None else path.stem
     sandbox = str(sandbox_value).strip() if sandbox_value is not None else None
     effort = str(effort_value).strip() if effort_value is not None else None
-    if effort is not None and effort and effort not in _KNOWN_EFFORT_VALUES:
+    if effort is not None and effort and effort not in _KNOWN_EFFORT_VALUES and not quiet:
         logger.warning(
             "Agent profile '%s' has unknown effort '%s'.",
             profile_name,
@@ -345,11 +351,12 @@ def parse_agent_profile(path: Path) -> AgentProfile:
 
     approval = str(approval_value).strip() if approval_value is not None else None
     if approval is not None and approval and approval not in _KNOWN_APPROVAL_VALUES:
-        logger.warning(
-            "Agent profile '%s' has unknown approval '%s'.",
-            profile_name,
-            approval,
-        )
+        if not quiet:
+            logger.warning(
+                "Agent profile '%s' has unknown approval '%s'.",
+                profile_name,
+                approval,
+            )
         approval = None
 
     autocompact: int | None = None
@@ -357,27 +364,30 @@ def parse_agent_profile(path: Path) -> AgentProfile:
         try:
             autocompact = int(str(autocompact_value))
         except (TypeError, ValueError):
-            logger.warning(
-                "Agent profile '%s' has invalid autocompact '%s': expected int.",
-                profile_name,
-                autocompact_value,
-            )
+            if not quiet:
+                logger.warning(
+                    "Agent profile '%s' has invalid autocompact '%s': expected int.",
+                    profile_name,
+                    autocompact_value,
+                )
             autocompact = None
         if autocompact is not None:
             try:
                 autocompact = RuntimeOverrides(autocompact=autocompact).autocompact
             except ValueError:
-                logger.warning(
-                    "Agent profile '%s' has autocompact %d outside valid range.",
-                    profile_name,
-                    autocompact,
-                )
+                if not quiet:
+                    logger.warning(
+                        "Agent profile '%s' has autocompact %d outside valid range.",
+                        profile_name,
+                        autocompact,
+                    )
                 autocompact = None
 
-    models = _parse_model_overrides(models_value, profile_name=profile_name)
+    models = _parse_model_overrides(models_value, profile_name=profile_name, quiet=quiet)
     model_policies = _parse_model_policies(
         model_policies_value,
         profile_name=profile_name,
+        quiet=quiet,
     )
     fanout = _parse_fanout_entries(fanout_value, profile_name=profile_name)
 
@@ -388,7 +398,12 @@ def parse_agent_profile(path: Path) -> AgentProfile:
             "expected 'primary' or 'subagent'."
         )
 
-    if models_value is not None and model_policies_value is None and fanout_value is None:
+    if (
+        models_value is not None
+        and model_policies_value is None
+        and fanout_value is None
+        and not quiet
+    ):
         logger.warning(
             "Agent profile '%s' uses legacy models without model-policies or fanout; "
             "models is deprecated for fan-out display and policy overrides.",
@@ -427,6 +442,7 @@ def scan_agent_profiles(
     search_dirs: list[Path] | None = None,
     *,
     search_paths: object | None = None,
+    quiet: bool = False,
 ) -> list[AgentProfile]:
     """Parse all agent profiles from configured search directories."""
 
@@ -440,19 +456,20 @@ def scan_agent_profiles(
         if not directory.is_dir():
             continue
         for path in sorted(directory.glob("*.md")):
-            profile = parse_agent_profile(path)
+            profile = parse_agent_profile(path, quiet=quiet)
             existing = selected_by_name.get(profile.name)
             if existing is not None:
                 if files_have_equal_text(existing.path, profile.path):
                     continue
-                logger.warning(
-                    "Agent profile '%s' found in multiple paths with conflicting content: %s, %s. "
-                    "Using %s; conflicting duplicate ignored.",
-                    profile.name,
-                    existing.path,
-                    profile.path,
-                    existing.path,
-                )
+                if not quiet:
+                    logger.warning(
+                        "Agent profile '%s' found in multiple paths with conflicting content: "
+                        "%s, %s. Using %s; conflicting duplicate ignored.",
+                        profile.name,
+                        existing.path,
+                        profile.path,
+                        existing.path,
+                    )
                 continue
             selected_by_name[profile.name] = profile
             profiles.append(profile)
