@@ -55,7 +55,7 @@ After `mars.toml` exists, additional link targets use:
 meridian mars link .claude
 ```
 
-This symlinks `.agents/` into the target directory so harnesses discover the agents and skills without duplication.
+This links the mars-compiled output into the target harness directory so skills are discoverable. Skills are compiled from `.mars/skills/` into the harness-native directory (e.g. `.claude/skills/`).
 
 ## Verify Setup
 
@@ -67,25 +67,26 @@ meridian doctor        # check harness connectivity
 
 ## Multi-Repo Workspace (optional)
 
-If you work across multiple repos and want agents to see sibling directories, set up a local workspace file:
+If you work across multiple repos and want agents to access sibling directories, add workspace entries. Projects may commit shared conventions in `meridian.toml`; put machine-specific path overrides and local-only roots in `meridian.local.toml`.
 
 ```bash
-meridian workspace init   # creates workspace.local.toml, adds .git/info/exclude coverage
+meridian workspace init   # creates or updates meridian.local.toml with [workspace] examples
 ```
 
-Edit `workspace.local.toml` to declare which repos to include:
+Edit `meridian.local.toml` if your checkout differs from the committed convention or you need an additional local root:
 
 ```toml
-[[context-roots]]
+[workspace.sibling]
 path = "../sibling-repo"
 ```
 
-Each enabled, existing root is projected to harness launches automatically — `--add-dir` for Claude Code, `OPENCODE_CONFIG_CONTENT` for OpenCode. See [configuration.md](configuration.md#workspace) for full schema and per-harness details.
+Existing roots are projected to harness launches automatically — `--add-dir` for Claude Code and Codex, `OPENCODE_CONFIG_CONTENT` for OpenCode. See [configuration.md](configuration.md#workspace) for full schema and migration details.
 
 ## Next Steps
 
 - [commands.md](commands.md) — full CLI reference
 - [configuration.md](configuration.md) — config keys, model routing, environment variables
+- [agent-profiles.md](agent-profiles.md) — agent profile format, `model-policies`, `fanout`, and `mode`
 - [codex-tui-passthrough.md](codex-tui-passthrough.md) — managed Codex startup, bootstrap, and attach behavior
 - [hooks.md](hooks.md) — hook events, builtin hooks, and `git-autosync`
 - [plugin-api.md](plugin-api.md) — stable API for hook and plugin authors

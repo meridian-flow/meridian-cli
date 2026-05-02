@@ -133,31 +133,45 @@ A CLI `-m MODEL` override must also drive harness selection — a profile-level 
 
 ## Workspace issues
 
-`meridian doctor` surfaces workspace findings as distinct codes. Fix them by editing `workspace.local.toml` (run `meridian workspace init` to create it if missing).
+`meridian doctor` surfaces workspace findings as distinct codes. Fix new workspace config by editing `[workspace.NAME]` entries in `meridian.toml` or `meridian.local.toml`; use `meridian workspace init` to scaffold local examples. If you still have legacy `workspace.local.toml`, run `meridian workspace migrate` to convert it to `[workspace]` entries in `meridian.local.toml`.
 
 ### `workspace_invalid`
 
-The workspace file is invalid. Causes: TOML syntax error, wrong type for `path` (must be a non-empty string), wrong type for `enabled` (must be a boolean), `context-roots` is not an array of tables, or the workspace file path itself points to a directory rather than a file.
+The workspace config is invalid. Causes include invalid TOML, a `[workspace.NAME]` entry with a missing/empty/non-string `path`, an invalid entry name, scalar values directly under `[workspace]`, or a workspace config path that is a directory rather than a file.
 
-Fix the TOML error in `workspace.local.toml`, then rerun `meridian doctor`.
+Fix the TOML or schema error in `meridian.toml` / `meridian.local.toml`, then rerun `meridian doctor`.
 
-**An invalid workspace blocks spawns.** Launches fail before contacting any harness until the file is fixed or removed.
+**An invalid workspace blocks spawns.** Launches fail before contacting any harness until the config is fixed or removed.
 
 ### `workspace_unknown_key`
 
-The file contains keys Meridian doesn't recognize. Forward-compatibility warning only — does not block launches. Safe to ignore if the key is intentional (written by a newer Meridian version). Otherwise, remove or rename the key.
+A workspace entry contains keys Meridian doesn't recognize. Forward-compatibility warning only — does not block launches. Safe to ignore if the key is intentional (written by a newer Meridian version). Otherwise, remove or rename the key.
 
-### `workspace_missing_root`
+### `workspace_local_missing_root`
 
-An enabled root (`enabled = true` or omitted) points to a path that doesn't exist on disk. The root is skipped at launch time — missing roots don't block spawns, but they produce no projection.
+A local `[workspace.NAME]` entry in `meridian.local.toml` points to a path that does not exist as a directory. The root is skipped at launch time and produces no projection.
 
-Check the path in `workspace.local.toml`. Paths are resolved relative to the workspace file's location. Use absolute paths when the relative form is ambiguous.
+Check the entry name and path in `meridian.local.toml`. Relative workspace paths resolve against the project root. Use an absolute path if the local checkout is outside the standard repo layout.
+
+Committed workspace entries in `meridian.toml` behave differently: missing committed paths are silently skipped because they usually mean this machine has a partial checkout.
+
+### `workspace_legacy_file_present`
+
+A legacy `workspace.local.toml` file exists. During the migration period Meridian may read it only as a fallback when no `[workspace]` entries exist in `meridian.toml` or `meridian.local.toml`; otherwise it is ignored.
+
+Run:
+
+```bash
+meridian workspace migrate
+```
+
+If `meridian.local.toml` already contains `[workspace]` entries, migration aborts to avoid overwriting local configuration. Use `meridian workspace migrate --force` only when you intend to replace existing local workspace entries with migrated legacy roots. Review the generated names after migration; they are basename-derived and may not match future committed convention names.
 
 ### `workspace_unsupported_harness`
 
-When workspace roots are declared, they cannot be projected to the Codex harness yet — Codex projection requires config generation that is not yet implemented. The spawn proceeds but Codex won't see the declared roots.
+Workspace roots could not be projected to the selected harness. The spawn proceeds, but that harness won't see the declared roots.
 
-If multi-repo context is required, use Claude Code or OpenCode harnesses instead.
+If multi-repo filesystem access is required, use a harness that supports workspace projection for your setup.
 
 ## Spawn artifacts
 
