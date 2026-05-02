@@ -30,6 +30,24 @@ class SkillDocument(BaseModel):
     frontmatter: dict[str, object]
 
 
+class SkillRecord(BaseModel):
+    """Indexed root skill and its lazily discovered variant documents."""
+
+    model_config = ConfigDict(frozen=True)
+
+    base: SkillDocument
+    variant_index: dict[tuple[str, str | None], Path] | None = None
+
+    @property
+    def root_dir(self) -> Path:
+        return self.base.path.parent
+
+    def with_variant_index(self) -> "SkillRecord":
+        if self.variant_index is not None:
+            return self
+        return self.model_copy(update={"variant_index": discover_skill_variants(self.root_dir)})
+
+
 # ---------------------------------------------------------------------------
 # Markdown frontmatter parsing
 # ---------------------------------------------------------------------------
@@ -87,6 +105,37 @@ def discover_skill_files(skills_dir: Path) -> list[Path]:
         )
         if skill_file.is_file()
     )
+
+
+def discover_skill_variants(skill_root: Path) -> dict[tuple[str, str | None], Path]:
+    """Discover variant SKILL.md files for one skill root.
+
+    Keys are ``(harness, model)`` for model variants and ``(harness, None)``
+    for harness variants. Directory names are preserved exactly so runtime
+    matching remains exact-only.
+    """
+
+    variants_dir = skill_root / "variants"
+    if not variants_dir.is_dir():
+        return {}
+
+    variants: dict[tuple[str, str | None], Path] = {}
+    for harness_dir in sorted(
+        (path for path in variants_dir.iterdir() if path.is_dir()),
+        key=lambda path: path.name,
+    ):
+        harness = harness_dir.name
+        harness_skill = harness_dir / "SKILL.md"
+        if harness_skill.is_file():
+            variants[(harness, None)] = harness_skill
+        for model_dir in sorted(
+            (path for path in harness_dir.iterdir() if path.is_dir()),
+            key=lambda path: path.name,
+        ):
+            model_skill = model_dir / "SKILL.md"
+            if model_skill.is_file():
+                variants[(harness, model_dir.name)] = model_skill
+    return variants
 
 
 def _skill_search_dirs(project_root: Path) -> list[Path]:
@@ -150,6 +199,7 @@ class SkillRegistry:
         self._skills_dirs = tuple(_skill_search_dirs(self._project_root))
         self._readonly = readonly
         self._filesystem_documents: tuple[SkillDocument, ...] | None = None
+        self._filesystem_records: tuple[SkillRecord, ...] | None = None
 
     @property
     def project_root(self) -> Path:
@@ -164,11 +214,28 @@ class SkillRegistry:
         return self._readonly
 
     def _scan_documents(self, *, refresh: bool = False) -> tuple[SkillDocument, ...]:
-        if self._filesystem_documents is None or refresh:
-            self._filesystem_documents = tuple(
+        if self._filesystem_records is None or refresh:
+            documents = tuple(
                 scan_skills(self._project_root, skills_dirs=list(self._skills_dirs))
             )
+            self._filesystem_documents = documents
+            self._filesystem_records = tuple(SkillRecord(base=document) for document in documents)
+        elif self._filesystem_documents is None:
+            self._filesystem_documents = tuple(record.base for record in self._filesystem_records)
         return self._filesystem_documents
+
+    def _scan_records(self, *, refresh: bool = False) -> tuple[SkillRecord, ...]:
+        if self._filesystem_records is None or refresh:
+            self._scan_documents(refresh=refresh)
+        assert self._filesystem_records is not None
+        return self._filesystem_records
+
+    def _replace_record(self, updated: SkillRecord) -> None:
+        records = self._scan_records()
+        self._filesystem_records = tuple(
+            updated if record.base.name == updated.base.name else record for record in records
+        )
+        self._filesystem_documents = tuple(record.base for record in self._filesystem_records)
 
     def reindex(self, skills_dir: Path | None = None) -> IndexReport:
         """Refresh in-memory index from configured skill search directories."""
@@ -189,6 +256,7 @@ class SkillRegistry:
 
         documents = tuple(scan_skills(self._project_root, skills_dirs=scan_dirs))
         self._filesystem_documents = documents
+        self._filesystem_records = tuple(SkillRecord(base=document) for document in documents)
         return IndexReport(indexed_count=len(documents))
 
     def list_skills(self) -> list[SkillManifest]:
@@ -206,27 +274,85 @@ class SkillRegistry:
             key=lambda item: item.name,
         )
 
-    def load(self, names: list[str]) -> list[SkillContent]:
+    def _select_document(
+        self,
+        record: SkillRecord,
+        *,
+        harness_id: str | None,
+        selected_model_token: str | None,
+        canonical_model_id: str | None,
+    ) -> SkillDocument:
+        harness = (harness_id or "").strip()
+        if not harness:
+            return record.base
+
+        indexed = record.with_variant_index()
+        if indexed is not record:
+            self._replace_record(indexed)
+        variant_index = indexed.variant_index or {}
+        candidates = [
+            (harness, (selected_model_token or "").strip()),
+            (harness, (canonical_model_id or "").strip()),
+            (harness, None),
+        ]
+        for candidate_harness, candidate_model in candidates:
+            key = (candidate_harness, candidate_model or None)
+            path = variant_index.get(key)
+            if path is not None:
+                variant = parse_skill_file(path)
+                return SkillDocument(
+                    name=record.base.name,
+                    description=record.base.description,
+                    path=variant.path,
+                    content=variant.body,
+                    body=variant.body,
+                    frontmatter=record.base.frontmatter,
+                )
+        return SkillDocument(
+            name=record.base.name,
+            description=record.base.description,
+            path=record.base.path,
+            content=record.base.body,
+            body=record.base.body,
+            frontmatter=record.base.frontmatter,
+        )
+
+    def load(
+        self,
+        names: list[str],
+        *,
+        harness_id: str | None = None,
+        selected_model_token: str | None = None,
+        canonical_model_id: str | None = None,
+    ) -> list[SkillContent]:
         """Load full SKILL.md content for specific skill names in requested order."""
 
         normalized_names = [name.strip() for name in names if name.strip()]
         if not normalized_names:
             return []
 
-        docs_by_name = {document.name: document for document in self._scan_documents()}
-        missing = [name for name in normalized_names if name not in docs_by_name]
+        records_by_name = {record.base.name: record for record in self._scan_records()}
+        missing = [name for name in normalized_names if name not in records_by_name]
         if missing:
             raise KeyError(f"Unknown skills: {', '.join(missing)}")
 
-        return [
-            SkillContent(
-                name=docs_by_name[name].name,
-                description=docs_by_name[name].description,
-                content=docs_by_name[name].content,
-                path=str(docs_by_name[name].path),
+        loaded: list[SkillContent] = []
+        for name in normalized_names:
+            document = self._select_document(
+                records_by_name[name],
+                harness_id=harness_id,
+                selected_model_token=selected_model_token,
+                canonical_model_id=canonical_model_id,
             )
-            for name in normalized_names
-        ]
+            loaded.append(
+                SkillContent(
+                    name=document.name,
+                    description=document.description,
+                    content=document.body,
+                    path=str(document.path),
+                )
+            )
+        return loaded
 
     def show(self, name: str) -> SkillContent:
         """Load one skill content payload by name."""
