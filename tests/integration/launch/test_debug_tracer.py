@@ -153,7 +153,8 @@ class TestDebugTracer:
         assert event.scope == "observability.debug_tracer"
         assert event.severity == "warning"
         assert event.ids == {"spawn_id": "p1"}
-        assert event.data == {"reason": "disk full"}
+        assert event.data["error"]["type"] == "OSError"
+        assert event.data["error"]["message"] == "disk full"
 
     def test_close_is_idempotent(self, tmp_path: Path) -> None:
         debug_path = tmp_path / "debug.jsonl"
