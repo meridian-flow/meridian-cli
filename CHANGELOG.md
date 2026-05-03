@@ -21,6 +21,17 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - CLAUDE.md: release docs clarified — `meridian mars version` for prompt packages, `scripts/release.sh` for mars-agents and meridian-cli.
 - Env vars renamed: `MERIDIAN_WORK_DIR` → `MERIDIAN_ACTIVE_WORK_DIR`, `MERIDIAN_WORK_ID` → `MERIDIAN_ACTIVE_WORK_ID`. Agents confused the context root (`$MERIDIAN_CONTEXT_WORK_DIR`) with the active item dir when both said "WORK_DIR."
 - Context prompt injection no longer shows work root path. Shows `$MERIDIAN_ACTIVE_WORK_DIR` when a work item is active, explicit "(no active work item)" when none. Prevents agents from writing to the container.
+- Chat backend cold spawn acquisition injects child env context (`MERIDIAN_SPAWN_ID`, `MERIDIAN_PROJECT_DIR`, `MERIDIAN_RUNTIME_DIR`, `MERIDIAN_HARNESS`). Web-launched spawns now get the same environment as CLI spawns.
+- CLI telemetry sink uses inherited `MERIDIAN_SPAWN_ID` as logical owner when present. Spawn-invoked CLI commands write to the spawn's segment, not a separate `cli.*` segment.
+- mars.toml targets: added `.codex` alongside `.claude` and `.opencode`.
+- Primary agent profile renamed `product-manager` → `product-lead`.
+- `docs/commands.md`: added telemetry CLI reference (tail, query, status, --global, filtering flags, legacy segments, rootless processes).
+- Workspace help text updated for named-root merge model (`meridian.toml` + `meridian.local.toml`).
+
+### Fixed
+- Telemetry retention orphan detection checks `owner is None` (truly unrecognizable segment) instead of `not live`. Spawn-owned segments for active spawns no longer falsely deleted.
+- Segment owner parsing rejects non-numeric PID/seq components via `isdigit()` guard. Prevents misidentifying filenames with hex or negative values.
+- Project root resolution falls back to legacy `.agents/skills/` when `.mars/` absent. Existing projects that haven't migrated to mars still resolve correctly.
 
 ### Added
 - `meridian bootstrap` primary launch command. Loads typed skill/package bootstrap docs from `.mars`, injects after skill prompts, forwards launch flags, and still runs without docs.
