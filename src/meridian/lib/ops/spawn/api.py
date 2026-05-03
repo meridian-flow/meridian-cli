@@ -149,14 +149,19 @@ def spawn_create_sync(
 ) -> SpawnActionOutput:
     register_debug_trace_observer()
     resolved_context = runtime_context(ctx)
+    spawn_env_id = os.environ.get("MERIDIAN_SPAWN_ID")
+    logical_owner = spawn_env_id if spawn_env_id else "cli"
     if payload.dry_run:
         resolved_root = _resolve_project_root_input(payload.project_root)
         config = load_config(resolved_root)
-        setup_telemetry(runtime_root=None)
+        setup_telemetry(runtime_root=None, logical_owner=logical_owner)
         register_spawn_telemetry_observer()
     else:
         resolved_root, config = resolve_runtime_root_and_config(payload.project_root)
-        setup_telemetry(runtime_root=resolve_runtime_root(resolved_root))
+        setup_telemetry(
+            runtime_root=resolve_runtime_root(resolved_root),
+            logical_owner=logical_owner,
+        )
         register_spawn_telemetry_observer()
     payload = payload.model_copy(update={"project_root": resolved_root.as_posix()})
     payload, preflight_warning = validate_create_input(payload)
@@ -622,7 +627,8 @@ async def _spawn_cancel_impl(
     lifecycle_service = create_lifecycle_service(project_root, runtime_root)
     spawn_service = SpawnApplicationService(runtime_root, lifecycle_service)
     register_debug_trace_observer()
-    setup_telemetry(runtime_root=runtime_root)
+    cancel_owner = os.environ.get("MERIDIAN_SPAWN_ID") or "cli"
+    setup_telemetry(runtime_root=runtime_root, logical_owner=cancel_owner)
     register_spawn_telemetry_observer()
     try:
         outcome = await spawn_service.cancel(SpawnId(spawn_id))
