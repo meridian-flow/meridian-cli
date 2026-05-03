@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from meridian.lib.config.settings import load_config
+from meridian.lib.core.util import FormatContext, to_jsonable
 from meridian.lib.ops.config import (
     ConfigGetInput,
     ConfigInitInput,
@@ -213,15 +214,125 @@ def test_config_show_surfaces_workspace_findings(tmp_path: Path) -> None:
     result = config_show_sync(ConfigShowInput(project_root=project_root.as_posix()))
 
     assert result.workspace.status == "present"
-    assert result.workspace.path == (project_root / "workspace.local.toml").resolve().as_posix()
+    assert result.workspace.sources == (
+        (project_root / "workspace.local.toml").resolve().as_posix(),
+    )
     assert result.workspace.roots.count == 1
-    assert result.workspace.roots.enabled == 1
-    assert result.workspace.roots.missing == 1
+    assert result.workspace.roots.projected == 0
+    assert result.workspace.roots.skipped == 1
     finding_codes = {finding.code for finding in result.workspace_findings}
-    assert finding_codes == {"workspace_unknown_key", "workspace_missing_root"}
+    assert finding_codes == {
+        "workspace_unknown_key",
+        "workspace_missing_root",
+        "workspace_deprecated_legacy",
+        "workspace_legacy_file_present",
+    }
+    payload = to_jsonable(result)
+    assert {finding["code"] for finding in payload["workspace_findings"]} == finding_codes
+    assert all(
+        set(finding) == {"code", "message", "payload"}
+        for finding in payload["workspace_findings"]
+    )
     text = result.format_text()
     assert "warning: workspace_unknown_key:" in text
     assert "warning: workspace_missing_root:" in text
+    assert "warning: workspace_deprecated_legacy:" in text
+    assert "warning: workspace_legacy_file_present:" in text
+
+
+def test_config_show_ignores_user_global_workspace_entries(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_root = _repo(tmp_path)
+    user_workspace_root = tmp_path / "user-workspace-root"
+    user_workspace_root.mkdir()
+    user_config_path = tmp_path / "user-config.toml"
+    user_config_path.write_text(
+        "[defaults]\n"
+        'harness = "opencode"\n'
+        "\n"
+        "[workspace.user_docs]\n"
+        f'path = "{user_workspace_root.as_posix()}"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("MERIDIAN_CONFIG", user_config_path.as_posix())
+
+    result = config_show_sync(ConfigShowInput(project_root=project_root.as_posix()))
+    harness_value = next(item for item in result.values if item.key == "defaults.harness")
+
+    assert result.workspace.status == "none"
+    assert result.workspace.sources == ()
+    assert result.workspace.roots.count == 0
+    assert result.workspace.roots.projected == 0
+    assert result.workspace.roots.skipped == 0
+    assert result.workspace_findings == ()
+    assert harness_value.value == "opencode"
+    assert harness_value.source == "user-config"
+
+
+def test_config_show_verbose_and_json_include_named_workspace_root_details(tmp_path: Path) -> None:
+    project_root = _repo(tmp_path)
+    docs_root = project_root / "docs"
+    committed_shared_root = project_root / "committed-shared"
+    docs_root.mkdir()
+    committed_shared_root.mkdir()
+    (project_root / "meridian.toml").write_text(
+        "[workspace.docs]\n"
+        'path = "./docs"\n'
+        "\n"
+        "[workspace.shared]\n"
+        'path = "./committed-shared"\n',
+        encoding="utf-8",
+    )
+    (project_root / "meridian.local.toml").write_text(
+        "[workspace.shared]\n"
+        'path = "./missing-shared"\n',
+        encoding="utf-8",
+    )
+
+    result = config_show_sync(ConfigShowInput(project_root=project_root.as_posix()))
+
+    assert result.workspace.status == "present"
+    assert result.workspace.roots.count == 2
+    assert result.workspace.roots.projected == 1
+    assert result.workspace.roots.skipped == 1
+    assert result.workspace.applicability == {
+        "claude": "active",
+        "codex": "active",
+        "opencode": "active",
+    }
+    assert [root.name for root in result.workspace.roots_detail] == ["docs", "shared"]
+    assert [root.source for root in result.workspace.roots_detail] == ["committed", "merged"]
+    assert [root.status for root in result.workspace.roots_detail] == ["projected", "skipped"]
+
+    payload = to_jsonable(result)
+    assert payload["workspace"]["roots_detail"] == [
+        {
+            "name": "docs",
+            "source": "committed",
+            "declared_path": "./docs",
+            "resolved_path": docs_root.resolve().as_posix(),
+            "status": "projected",
+        },
+        {
+            "name": "shared",
+            "source": "merged",
+            "declared_path": "./missing-shared",
+            "resolved_path": (project_root / "missing-shared").resolve().as_posix(),
+            "status": "skipped",
+        },
+    ]
+
+    text = result.format_text(FormatContext(verbosity=1))
+    assert "workspace.applicability.claude = active" in text
+    assert "workspace.applicability.codex = active" in text
+    assert "workspace.applicability.opencode = active" in text
+    assert "workspace.roots[0].name = docs" in text
+    assert "workspace.roots[0].status = projected" in text
+    assert "workspace.roots[1].name = shared" in text
+    assert "workspace.roots[1].status = skipped" in text
+    assert "warning: workspace_local_missing_root:" in text
 
 
 def test_config_show_and_loader_share_project_config_precedence(

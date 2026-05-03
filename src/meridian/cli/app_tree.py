@@ -139,9 +139,10 @@ config_app = App(
 workspace_app = App(
     name="workspace",
     help=(
-        "Local workspace topology commands.\n\n"
-        "Workspace topology is stored in workspace.local.toml next to the active .meridian/ "
-        "directory and is intentionally local-only."
+        "Workspace topology commands.\n\n"
+        "Shared conventions live in meridian.toml [workspace.NAME] entries; "
+        "local overrides and additions live in meridian.local.toml. "
+        "Use `meridian workspace migrate` for legacy workspace.local.toml files."
     ),
     help_formatter="plain",
 )
