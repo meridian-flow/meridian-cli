@@ -42,7 +42,7 @@ Two orchestrators split the dev lifecycle: **dev-orchestrator** handles interact
 
 Use `meridian spawn` (not `uv run meridian spawn`) to hand off tasks to subagents. `uv run meridian` runs from local source, so other agents editing meridian's own code in the same repo can leave it in a half-written state — use it only for smoke-testing local dev changes. The installed `meridian` binary is stable and isolated from in-progress source edits.
 
-For model choice, trust agent profile defaults and check `meridian mars models list` for the live catalog — don't hardcode model names here.
+**Model aliases are the interface.** When the user specifies a model name (e.g. `gptmini`, `codex`, `opus`), pass it directly to `-m` as-is — never translate, guess, or expand the alias to an underlying model ID. Meridian resolves aliases at spawn time. If you need to know what an alias maps to, run `meridian mars models list` first. Do not invent model identifiers.
 
 NEVER REVERT CHANGES — always assume it's someone else's work.
 
