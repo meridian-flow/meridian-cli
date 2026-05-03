@@ -15,5 +15,6 @@ url = "https://github.com/meridian-flow/meridian-prompter"
 targets = [
     ".claude",
     ".opencode",
+    ".codex",
 ]
 models_cache_ttl_hours = 24

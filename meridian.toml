@@ -43,7 +43,7 @@ opencode = "opencode-go/kimi-k2.6"  # default for OpenCode harness
 # Harness override for the primary agent (str; unset = use defaults.harness).
 # harness = ""
 # Agent profile name for the primary session (str; unset = no profile).
-agent = "product-manager"
+agent = "product-lead"
 
 # -- Output streaming -------------------------------------------------------
 [output]

@@ -177,6 +177,67 @@ reconnect/replay, persistence, and harness support matrix.
 | `meridian doctor` | Run diagnostics and reconcile orphan state |
 | `meridian serve` | Start the MCP server |
 
+## Telemetry
+
+Meridian writes structured telemetry events to per-process JSONL segment files.
+Segments live under the project's runtime directory:
+
+```
+<project_runtime_root>/telemetry/<owner>.<pid>-<seq>.jsonl
+```
+
+The `<owner>` component is the logical writer (`cli`, `chat`, or a spawn ID).
+`<pid>` is the OS process ID. `<seq>` is a per-process rotation counter. You
+see these filenames in `status` output.
+
+| Command | Description |
+| ------- | ----------- |
+| `meridian telemetry tail` | Live-stream telemetry events from the current project |
+| `meridian telemetry query` | Print historical events from the current project as JSON lines |
+| `meridian telemetry status` | Show segment health, active writers, and storage size |
+
+Common flags available on `tail`, `query`, and `status`:
+
+| Flag | Description |
+| ---- | ----------- |
+| `--global` | Read from all projects instead of just the current one |
+
+Additional `query` flags:
+
+| Flag | Description |
+| ---- | ----------- |
+| `--since DURATION` | Only include events newer than a duration, e.g. `1h`, `30m` |
+| `--limit N` | Cap output at N events |
+
+Filtering flags available on `tail` and `query`:
+
+| Flag | Description |
+| ---- | ----------- |
+| `--domain DOMAIN` | Filter by telemetry domain |
+| `--spawn ID` | Filter by spawn ID |
+| `--chat ID` | Filter by chat ID |
+| `--work ID` | Filter by work item ID |
+
+**Cross-project queries.** Use `--global` to aggregate across every project under
+`~/.meridian/projects/`. This is the only way to reach telemetry from projects
+other than the one you're currently inside.
+
+```bash
+meridian telemetry tail --global                     # stream all projects
+meridian telemetry query --global --since 1h         # last hour across all projects
+meridian telemetry status --global                   # storage summary for all projects
+```
+
+**Legacy segments.** Segments written by versions prior to the per-project
+storage change live at `~/.meridian/telemetry/`. They are read-only (nothing
+writes there anymore), visible via `--global`, and age out automatically through
+the normal retention policy (7 days / 100 MB). `status` reports a legacy count
+when any remain.
+
+**Rootless processes.** The MCP stdio server runs without a project root and
+cannot write to a project telemetry directory. It emits telemetry to stderr
+only. Those events are not visible through `tail`, `query`, or `status`.
+
 ## Package Management (mars)
 
 | Command | Description |
