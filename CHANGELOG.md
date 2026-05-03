@@ -5,6 +5,7 @@ Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 ### Added
 - `meridian session export` command. Emits stitched full-session markdown transcripts; optional child spawn report appendix.
+- Diagnostic guard test for launch warning suppression. Catches catalog/config warnings leaking through spawn prompt assembly.
 - Telemetry v1 contract surface: 8-field envelope, event registry, process router, noop/stderr sinks, and startup sink selection.
 - `meridian work root` command — prints the work items container path. Escape hatch for the root that's no longer shown in agent prompts.
 

@@ -46,6 +46,10 @@ For model choice, trust agent profile defaults and check `meridian mars models l
 
 NEVER REVERT CHANGES — always assume it's someone else's work.
 
+### Logging Convention
+
+Catalog/config modules (`meridian.lib.catalog.*`, `meridian.lib.config.*`) use stdlib `logging.getLogger(__name__)`. Ops/launch/harness modules (`meridian.lib.ops.*`, `meridian.lib.launch.*`, `meridian.lib.harness.*`) use `structlog.get_logger()`. Split matters: launch diagnostic boundary (`capture_library_diagnostics()` in `diagnostics.py`) captures stdlib warnings during spawn/launch; structlog bypasses it, so catalog/config structlog warnings leak to stderr.
+
 ### Editing Agents & Skills
 
 **NEVER edit `.agents/` directly** — it is generated output, overwritten by `meridian mars sync`. Edit the source package repos directly in sibling checkouts. Preferred local layout:
