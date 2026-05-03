@@ -6,7 +6,8 @@ from pathlib import Path
 import structlog
 from pydantic import BaseModel, ConfigDict
 
-from meridian.lib.catalog.models import load_discovered_models, load_merged_aliases, resolve_model
+from meridian.lib.catalog.model_aliases import run_mars_models_list_all
+from meridian.lib.catalog.models import load_merged_aliases, resolve_model
 from meridian.lib.config.project_root import resolve_project_root
 from meridian.lib.config.settings import MeridianConfig, load_config
 from meridian.lib.core.context import RuntimeContext
@@ -34,7 +35,7 @@ from ..runtime import (
 from .models import SpawnCreateInput
 
 logger = structlog.get_logger(__name__)
-_DISCOVERED_MODEL_CONTEXT_LIMIT = 12
+_MODEL_CONTEXT_LIMIT = 12
 _DRY_RUN_REPORT_PATH = "<spawn-report-path>"
 
 
@@ -54,23 +55,27 @@ def _model_validation_context(
     project_root: Path | None,
 ) -> str:
     aliases = load_merged_aliases(project_root=project_root)
-    discovered_models = load_discovered_models()
-    if not aliases and not discovered_models:
+    mars_models = run_mars_models_list_all(project_root=project_root) or []
+    mars_model_ids = sorted({
+        model_id
+        for model in mars_models
+        if isinstance((model_id := model.get("id")), str) and model_id.strip()
+    })
+    if not aliases and not mars_model_ids:
         return ""
 
     available_aliases = ", ".join(
         f"{entry.alias} -> {entry.model_id} [{entry.harness}]" for entry in aliases
     )
 
-    discovered_model_ids = sorted({model.id for model in discovered_models})
-    if len(discovered_model_ids) > _DISCOVERED_MODEL_CONTEXT_LIMIT:
-        preview = ", ".join(discovered_model_ids[:_DISCOVERED_MODEL_CONTEXT_LIMIT])
-        remaining = len(discovered_model_ids) - _DISCOVERED_MODEL_CONTEXT_LIMIT
-        available_discovered_models = f"{preview}, ... (+{remaining} more)"
+    if len(mars_model_ids) > _MODEL_CONTEXT_LIMIT:
+        preview = ", ".join(mars_model_ids[:_MODEL_CONTEXT_LIMIT])
+        remaining = len(mars_model_ids) - _MODEL_CONTEXT_LIMIT
+        available_models = f"{preview}, ... (+{remaining} more)"
     else:
-        available_discovered_models = ", ".join(discovered_model_ids)
+        available_models = ", ".join(mars_model_ids)
 
-    candidates: list[str] = discovered_model_ids.copy()
+    candidates: list[str] = mars_model_ids.copy()
     for entry in aliases:
         candidates.append(entry.alias)
         candidates.append(str(entry.model_id))
@@ -92,8 +97,8 @@ def _model_validation_context(
     context_lines: list[str] = []
     if available_aliases:
         context_lines.append(f"Available aliases: {available_aliases}")
-    if available_discovered_models:
-        context_lines.append(f"Discovered models: {available_discovered_models}")
+    if available_models:
+        context_lines.append(f"Models: {available_models}")
     if suggestion is not None:
         context_lines.append(f"Did you mean: {suggestion}?")
     return "\n".join(context_lines)

@@ -60,7 +60,7 @@ from meridian.cli.doctor_cmd import register_doctor_command
 from meridian.cli.ext_cmd import register_ext_commands
 from meridian.cli.hooks_commands import register_hooks_commands
 from meridian.cli.misc_commands import register_misc_commands
-from meridian.cli.models_cmd import register_models_commands
+from meridian.cli.models_cmd import maybe_handle_models_redirect, register_models_commands
 from meridian.cli.output import (
     OutputConfig,
     OutputFormat,
@@ -806,6 +806,8 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     _validate_top_level_command(cleaned_args, global_harness=options.harness)
     _emit_usage_command_invoked(cleaned_args)
+
+    maybe_handle_models_redirect(cleaned_args)
 
     maybe_bootstrap_runtime_state(cleaned_args, agent_mode=agent_mode_enabled())
     # Upgrade telemetry to project-local sink after project-root resolution.

@@ -5,20 +5,14 @@ from typing import cast
 
 from pydantic import BaseModel, ConfigDict, model_serializer
 
-from meridian.lib.catalog.model_aliases import (
-    load_mars_descriptions,
-    run_mars_models_list_all,
-)
-from meridian.lib.catalog.model_policy import DEFAULT_MODEL_VISIBILITY, ModelVisibilityConfig
-from meridian.lib.catalog.models import (
-    AliasEntry,
-    DiscoveredModel,
+from meridian.lib.catalog.model_aliases import run_mars_models_list_all
+from meridian.lib.catalog.model_policy import (
+    DEFAULT_MODEL_VISIBILITY,
+    ModelVisibilityConfig,
     compute_superseded_ids,
     is_default_visible_model,
-    load_discovered_models,
-    load_merged_aliases,
-    refresh_models_cache,
 )
+from meridian.lib.catalog.models import AliasEntry
 from meridian.lib.config.project_root import resolve_project_root
 from meridian.lib.core.types import HarnessId, ModelId
 from meridian.lib.core.util import FormatContext
@@ -31,12 +25,6 @@ class ModelsListInput(BaseModel):
     project_root: str | None = None
     all: bool = False
     show_superseded: bool = False
-
-
-class ModelsRefreshInput(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
-    project_root: str | None = None
 
 
 class CatalogModel(BaseModel):
@@ -174,15 +162,6 @@ class ModelsListOutput(BaseModel):
                 # Indent description under the model line
                 result_lines.append(f"  {model.description}")
         return "\n".join(result_lines)
-
-
-class ModelsRefreshOutput(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
-    refreshed: int
-
-    def format_text(self, ctx: FormatContext | None = None) -> str:
-        return f"Refreshed models.dev cache ({self.refreshed} models)."
 
 
 def _project_root(project_root: str | None) -> Path | None:
@@ -343,45 +322,6 @@ def _mars_all_entry_to_catalog_model(entry: dict[str, object]) -> CatalogModel |
     )
 
 
-def _build_catalog_model(
-    *,
-    model_id: str,
-    discovered: DiscoveredModel | None,
-    aliases: list[AliasEntry],
-    project_root: Path | None,
-    description: str | None = None,
-    pinned: bool = False,
-) -> CatalogModel:
-    _ = project_root
-    if aliases:
-        harness = aliases[0].harness
-    elif discovered is not None:
-        harness = discovered.harness
-    else:
-        raise ValueError(f"Unknown model '{model_id}'. No catalog or alias metadata available.")
-
-    sorted_aliases = tuple(sorted(aliases, key=lambda entry: entry.alias))
-
-    cost_input = discovered.cost_input if discovered is not None else None
-
-    return CatalogModel(
-        model_id=ModelId(model_id),
-        harness=harness,
-        aliases=sorted_aliases,
-        name=discovered.name if discovered is not None else None,
-        family=discovered.family if discovered is not None else None,
-        provider=discovered.provider if discovered is not None else None,
-        cost_input=cost_input,
-        cost_output=discovered.cost_output if discovered is not None else None,
-        context_limit=discovered.context_limit if discovered is not None else None,
-        output_limit=discovered.output_limit if discovered is not None else None,
-        capabilities=discovered.capabilities if discovered is not None else (),
-        release_date=discovered.release_date if discovered is not None else None,
-        cost_tier=_cost_tier(cost_input),
-        description=description,
-        pinned=pinned,
-    )
-
 def _is_default_visible(
     model: CatalogModel,
     all_model_ids: set[str],
@@ -414,82 +354,44 @@ def _cost_tier(cost_input: float | None) -> str | None:
 
 def models_list_sync(payload: ModelsListInput) -> ModelsListOutput:
     root = _project_root(payload.project_root)
+    mars_models = run_mars_models_list_all(project_root=root)
+    if mars_models is None:
+        return ModelsListOutput(models=())
+
+    catalog_models = [
+        model
+        for entry in mars_models
+        if (model := _mars_all_entry_to_catalog_model(entry)) is not None
+    ]
 
     if payload.all:
-        mars_models = run_mars_models_list_all(project_root=root)
-        if mars_models is not None:
-            catalog_models = [
-                model
-                for entry in mars_models
-                if (model := _mars_all_entry_to_catalog_model(entry)) is not None
-            ]
-            return ModelsListOutput(models=tuple(catalog_models))
+        return ModelsListOutput(models=tuple(catalog_models))
 
-    aliases = load_merged_aliases(project_root=root)
-    visibility = DEFAULT_MODEL_VISIBILITY
-    discovered = load_discovered_models()
-
-    # Load descriptions from mars aliases and alias entries
-    mars_descs = load_mars_descriptions(root)
-    alias_descs: dict[str, str] = {}
-    pinned_ids: set[str] = set()
-    for alias in aliases:
-        if alias.description:
-            alias_descs[str(alias.model_id)] = alias.description
-    descriptions = {**mars_descs, **alias_descs}
-
-    aliases_by_model_id: dict[str, list[AliasEntry]] = {}
-    for alias in aliases:
-        aliases_by_model_id.setdefault(str(alias.model_id), []).append(alias)
-
-    discovered_by_model_id = {model.id: model for model in discovered}
-    model_ids = set(aliases_by_model_id) | set(discovered_by_model_id)
-
-    merged_models = [
-        _build_catalog_model(
-            model_id=model_id,
-            discovered=discovered_by_model_id.get(model_id),
-            aliases=aliases_by_model_id.get(model_id, []),
-            project_root=root,
-            description=descriptions.get(model_id),
-            pinned=model_id in pinned_ids,
+    all_model_ids = {str(model.model_id) for model in catalog_models}
+    effective_visibility = DEFAULT_MODEL_VISIBILITY
+    if payload.show_superseded:
+        effective_visibility = effective_visibility.model_copy(
+            update={"hide_superseded": False}
         )
-        for model_id in sorted(model_ids)
+
+    superseded: frozenset[str] = frozenset()
+    if effective_visibility.hide_superseded:
+        superseded = compute_superseded_ids([
+            (str(model.model_id), model.provider or "", model.release_date)
+            for model in catalog_models
+        ])
+
+    visible_models = [
+        model
+        for model in catalog_models
+        if _is_default_visible(
+            model,
+            all_model_ids,
+            visibility=effective_visibility,
+            superseded_model_ids=superseded,
+        )
     ]
-    if not payload.all:
-        all_model_ids = {str(model.model_id) for model in merged_models}
-
-        effective_visibility = visibility
-        if payload.show_superseded:
-            effective_visibility = visibility.model_copy(
-                update={"hide_superseded": False}
-            )
-
-        superseded: frozenset[str] = frozenset()
-        if effective_visibility.hide_superseded:
-            superseded = compute_superseded_ids([
-                (str(m.model_id), m.provider or "", m.release_date)
-                for m in merged_models
-            ])
-
-        merged_models = [
-            model
-            for model in merged_models
-            if _is_default_visible(
-                model,
-                all_model_ids,
-                visibility=effective_visibility,
-                superseded_model_ids=superseded,
-            )
-        ]
-    return ModelsListOutput(models=tuple(merged_models))
-
-
-def models_refresh_sync(payload: ModelsRefreshInput) -> ModelsRefreshOutput:
-    _ = payload
-    refreshed = refresh_models_cache()
-    return ModelsRefreshOutput(refreshed=len(refreshed))
+    return ModelsListOutput(models=tuple(visible_models))
 
 
 models_list = async_from_sync(models_list_sync)
-models_refresh = async_from_sync(models_refresh_sync)

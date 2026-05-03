@@ -3,7 +3,6 @@ from pathlib import Path
 
 import pytest
 
-from meridian.lib.catalog.models import AliasEntry, DiscoveredModel
 from meridian.lib.core.types import HarnessId
 from meridian.lib.ops.catalog import ModelsListInput, models_list_sync
 
@@ -15,20 +14,24 @@ def _model(
     harness: HarnessId = HarnessId.CODEX,
     cost_input: float | None = 1.0,
     release_date: str | None = None,
-) -> DiscoveredModel:
-    return DiscoveredModel(
-        id=model_id,
-        name=model_id,
-        family=model_id.split("-", 1)[0],
-        provider=provider,
-        harness=harness,
-        cost_input=cost_input,
-        cost_output=cost_input,
-        context_limit=200000,
-        output_limit=8000,
-        capabilities=("tool_call",),
-        release_date=release_date,
-    )
+    matched_aliases: list[str] | None = None,
+    pinned: bool = False,
+) -> dict[str, object]:
+    return {
+        "id": model_id,
+        "name": model_id,
+        "family": model_id.split("-", 1)[0],
+        "provider": provider,
+        "harness": str(harness),
+        "cost_input": cost_input,
+        "cost_output": cost_input,
+        "context_limit": 200000,
+        "output_limit": 8000,
+        "capabilities": ["tool_call"],
+        "release_date": release_date,
+        "matched_aliases": matched_aliases or [],
+        "pinned": pinned,
+    }
 
 
 def _init_repo(project_root: Path) -> None:
@@ -49,10 +52,15 @@ def test_models_list_uses_visibility_rules_and_keeps_aliased_models_visible(
 
     old_date = (date.today() - timedelta(days=365)).isoformat()
     monkeypatch.setattr(
-        "meridian.lib.ops.catalog.load_discovered_models",
-        lambda: [
+        "meridian.lib.ops.catalog.run_mars_models_list_all",
+        lambda project_root=None: [
             _model("gpt-5.4"),
-            _model("gemini-3.1-pro", provider="google", harness=HarnessId.OPENCODE),
+            _model(
+                "gemini-3.1-pro",
+                provider="google",
+                harness=HarnessId.OPENCODE,
+                matched_aliases=["gem"],
+            ),
             _model(
                 "claude-expensive",
                 provider="anthropic",
@@ -65,16 +73,6 @@ def test_models_list_uses_visibility_rules_and_keeps_aliased_models_visible(
                 harness=HarnessId.CLAUDE,
                 release_date=old_date,
             ),
-        ],
-    )
-    monkeypatch.setattr(
-        "meridian.lib.ops.catalog.load_merged_aliases",
-        lambda project_root=None: [
-            AliasEntry(
-                alias="gem",
-                model_id="gemini-3.1-pro",
-                resolved_harness=HarnessId.OPENCODE,
-            )
         ],
     )
 
@@ -102,15 +100,11 @@ def test_models_list_superseded_visibility_toggle(
     today = date.today().isoformat()
     yesterday = (date.today() - timedelta(days=30)).isoformat()
     monkeypatch.setattr(
-        "meridian.lib.ops.catalog.load_discovered_models",
-        lambda: [
+        "meridian.lib.ops.catalog.run_mars_models_list_all",
+        lambda project_root=None: [
             _model("gpt-5.4", release_date=today),
             _model("gpt-5.2", release_date=yesterday),
         ],
-    )
-    monkeypatch.setattr(
-        "meridian.lib.ops.catalog.load_merged_aliases",
-        lambda project_root=None: [],
     )
 
     output = models_list_sync(
@@ -133,20 +127,10 @@ def test_models_list_aliased_model_survives_superseded(
     today = date.today().isoformat()
     yesterday = (date.today() - timedelta(days=30)).isoformat()
     monkeypatch.setattr(
-        "meridian.lib.ops.catalog.load_discovered_models",
-        lambda: [
-            _model("gpt-5.4", release_date=today),
-            _model("gpt-5.2", release_date=yesterday),
-        ],
-    )
-    monkeypatch.setattr(
-        "meridian.lib.ops.catalog.load_merged_aliases",
+        "meridian.lib.ops.catalog.run_mars_models_list_all",
         lambda project_root=None: [
-            AliasEntry(
-                alias="old-gpt",
-                model_id="gpt-5.2",
-                resolved_harness=HarnessId.CODEX,
-            )
+            _model("gpt-5.4", release_date=today),
+            _model("gpt-5.2", release_date=yesterday, matched_aliases=["old-gpt"]),
         ],
     )
 
@@ -182,13 +166,6 @@ def test_models_list_all_delegates_to_mars_without_meridian_filters(
             },
         ],
     )
-
-    def _unexpected(*args: object, **kwargs: object) -> object:
-        raise AssertionError("default-path loaders must not run for --all")
-
-    monkeypatch.setattr("meridian.lib.ops.catalog.load_discovered_models", _unexpected)
-    monkeypatch.setattr("meridian.lib.ops.catalog.load_merged_aliases", _unexpected)
-    monkeypatch.setattr("meridian.lib.ops.catalog.load_mars_descriptions", _unexpected)
 
     output = models_list_sync(
         ModelsListInput(project_root=project_root.as_posix(), all=True)
@@ -229,28 +206,16 @@ def test_models_list_all_preserves_null_harness(
     assert "—" in output.format_text()
 
 
-def test_models_list_default_path_does_not_call_mars_all(
+def test_models_list_default_path_delegates_to_mars(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     project_root = tmp_path / "repo"
     _init_repo(project_root)
 
-    def _unexpected(*args: object, **kwargs: object) -> object:
-        raise AssertionError("mars --all helper must not run for default list")
-
-    monkeypatch.setattr("meridian.lib.ops.catalog.run_mars_models_list_all", _unexpected)
     monkeypatch.setattr(
-        "meridian.lib.ops.catalog.load_discovered_models",
-        lambda: [_model("gpt-5.4")],
-    )
-    monkeypatch.setattr(
-        "meridian.lib.ops.catalog.load_merged_aliases",
-        lambda project_root=None: [],
-    )
-    monkeypatch.setattr(
-        "meridian.lib.ops.catalog.load_mars_descriptions",
-        lambda project_root=None: {},
+        "meridian.lib.ops.catalog.run_mars_models_list_all",
+        lambda project_root=None: [_model("gpt-5.4")],
     )
 
     output = models_list_sync(ModelsListInput(project_root=project_root.as_posix()))

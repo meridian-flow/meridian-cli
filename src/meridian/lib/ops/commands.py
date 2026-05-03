@@ -4,12 +4,8 @@ from meridian.lib.extensions.types import ExtensionCommandSpec, ExtensionSurface
 from meridian.lib.ops.catalog import (
     ModelsListInput,
     ModelsListOutput,
-    ModelsRefreshInput,
-    ModelsRefreshOutput,
     models_list,
     models_list_sync,
-    models_refresh,
-    models_refresh_sync,
 )
 from meridian.lib.ops.config import (
     ConfigGetInput,
@@ -354,18 +350,6 @@ _OP_SPECS: tuple[ExtensionCommandSpec, ...] = (
         output_type=ModelsListOutput,
         cli_group="models",
         cli_name="list",
-        agent_default_format="text",
-    ),
-    ExtensionCommandSpec.from_op(
-        extension_id="meridian.models",
-        command_id="refresh",
-        summary="Force-refresh the models.dev cache.",
-        handler=models_refresh,
-        sync_handler=models_refresh_sync,
-        input_type=ModelsRefreshInput,
-        output_type=ModelsRefreshOutput,
-        cli_group="models",
-        cli_name="refresh",
         agent_default_format="text",
     ),
     ExtensionCommandSpec.from_op(
