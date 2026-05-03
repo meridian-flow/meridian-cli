@@ -6,18 +6,18 @@ commit = "5128e1865d670f5d6c9cef000e6dfc4e951fb5b9"
 
 [dependencies.meridian-base]
 url = "https://github.com/meridian-flow/meridian-base"
-version = "v0.2.1"
-commit = "37626e7a686552625225ab5323d91c48a6fc55a9"
+version = "v0.2.2"
+commit = "40de38de29daa2227750a676b956c36f5797b96a"
 
 [dependencies.meridian-dev-workflow]
 url = "https://github.com/meridian-flow/meridian-dev-workflow"
-version = "v0.3.1"
-commit = "b99241856c88c6549181db51f26fbfae30c29ff2"
+version = "v0.3.4"
+commit = "255713cb575d582bf9789811aef6109aa558913e"
 
 [dependencies.meridian-prompter]
 url = "https://github.com/meridian-flow/meridian-prompter"
-version = "v0.1.4"
-commit = "079a2befc142ff7de37a72db4b1f14bf4b3eaa22"
+version = "v0.1.7"
+commit = "e1f0ea2fc63f8f4e20c17064b3ebff34690e5a2f"
 
 [dependencies.playwright-cli]
 url = "https://github.com/microsoft/playwright-cli"
@@ -246,13 +246,13 @@ installed_checksum = "sha256:b90b653a03f24a48558d2882253365e9aad43a65633dd5abea1
 [items."agent/prompt-dev"]
 source = "meridian-prompter"
 kind = "agent"
-version = "v0.1.4"
-source_checksum = "sha256:195c56e742002284075a2d3b7ceba337213f7941e30032fd50bc416e6c16986e"
+version = "v0.1.5"
+source_checksum = "sha256:b8585f2fe2aaf7355ebfe3489905e4e3352b860605f47f035135d48166548d75"
 
 [[items."agent/prompt-dev".outputs]]
 target_root = ".mars"
 dest_path = "agents/prompt-dev.md"
-installed_checksum = "sha256:195c56e742002284075a2d3b7ceba337213f7941e30032fd50bc416e6c16986e"
+installed_checksum = "sha256:b8585f2fe2aaf7355ebfe3489905e4e3352b860605f47f035135d48166548d75"
 
 [items."agent/prompt-reviewer"]
 source = "meridian-prompter"
