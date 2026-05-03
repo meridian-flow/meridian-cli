@@ -24,6 +24,8 @@ from meridian.lib.launch.types import LaunchRequest
 from meridian.plugin_api.git import resolve_clone_path
 from tests.support.fixtures import write_agent, write_skill
 
+pytestmark = pytest.mark.slow
+
 
 def _write_minimal_mars_config(project_root: Path) -> None:
     (project_root / "mars.toml").write_text(

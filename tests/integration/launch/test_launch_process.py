@@ -6,10 +6,9 @@ import os
 # pyright: reportPrivateUsage=false
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-if TYPE_CHECKING:
-    import pytest
+import pytest
 
 from meridian.lib.config.settings import load_config
 from meridian.lib.core.types import HarnessId
@@ -100,6 +99,7 @@ def test_subprocess_launcher_captures_output_log(tmp_path: Path) -> None:
     assert output_log_path.read_text(encoding="utf-8").splitlines() == ["line-1", "line-2"]
 
 
+@pytest.mark.slow
 def test_run_harness_process_fork_uses_new_chat_and_materialized_session(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -209,6 +209,7 @@ def test_run_harness_process_fork_uses_new_chat_and_materialized_session(
     assert finalize_events[0]["origin"] == "launcher"
 
 
+@pytest.mark.slow
 def test_run_harness_process_writes_prompt_file_before_primary_launch(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -303,6 +304,7 @@ def test_run_harness_process_writes_prompt_file_before_primary_launch(
     assert outcome.exit_code == 0
 
 
+@pytest.mark.slow
 def test_run_harness_process_writes_codex_system_field_primary_projection_manifest(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -391,6 +393,7 @@ def test_run_harness_process_writes_codex_system_field_primary_projection_manife
     assert outcome.exit_code == 0
 
 
+@pytest.mark.slow
 def test_run_harness_process_writes_opencode_system_field_primary_projection_manifest(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -480,6 +483,7 @@ def test_run_harness_process_writes_opencode_system_field_primary_projection_man
     assert outcome.exit_code == 0
 
 
+@pytest.mark.slow
 def test_run_harness_process_black_box_primary_uses_no_tui_log_artifact(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -518,6 +522,7 @@ def test_run_harness_process_black_box_primary_uses_no_tui_log_artifact(
     assert list(launch_context.runtime_root.rglob("tui.log")) == []
 
 
+@pytest.mark.slow
 def test_run_harness_process_codex_primary_routes_to_managed_path(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -572,6 +577,7 @@ def test_run_harness_process_codex_primary_routes_to_managed_path(
     assert outcome.resolved_harness_session_id == "thread-managed"
 
 
+@pytest.mark.slow
 def test_run_harness_process_managed_marks_running_before_attach_returns(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -638,6 +644,7 @@ def test_run_harness_process_managed_marks_running_before_attach_returns(
     assert outcome.resolved_harness_session_id == "thread-managed"
 
 
+@pytest.mark.slow
 def test_run_harness_process_opencode_primary_routes_to_managed_path(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -679,6 +686,7 @@ def test_run_harness_process_opencode_primary_routes_to_managed_path(
     assert outcome.resolved_harness_session_id == "session-managed"
 
 
+@pytest.mark.slow
 def test_run_harness_process_claude_primary_stays_on_black_box_path(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -722,6 +730,7 @@ def test_run_harness_process_claude_primary_stays_on_black_box_path(
     assert outcome.exit_code == 0
 
 
+@pytest.mark.slow
 def test_run_harness_process_opencode_fork_uses_managed_path(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -763,6 +772,7 @@ def test_run_harness_process_opencode_fork_uses_managed_path(
     assert outcome.exit_code == 0
 
 
+@pytest.mark.slow
 def test_run_harness_process_codex_managed_failure_raises_error(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -805,6 +815,7 @@ def test_run_harness_process_codex_managed_failure_raises_error(
         process.run_harness_process(launch_context, harness_registry)
 
 
+@pytest.mark.slow
 def test_run_harness_process_managed_failure_falls_back_to_black_box(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -875,6 +886,7 @@ def test_run_harness_process_managed_failure_falls_back_to_black_box(
     assert outcome.exit_code == 0
 
 
+@pytest.mark.slow
 def test_run_harness_process_reuses_preview_seed_for_runtime_primary_launch(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -932,6 +944,7 @@ def test_run_harness_process_reuses_preview_seed_for_runtime_primary_launch(
     assert start_events[0]["harness_session_id"] == preview_seed
 
 
+@pytest.mark.slow
 def test_run_harness_process_repairs_state_when_observed_session_differs(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -987,6 +1000,7 @@ def test_run_harness_process_repairs_state_when_observed_session_differs(
     assert len(update_events) >= 1
 
 
+@pytest.mark.slow
 def test_run_harness_process_resume_does_not_inject_seed_args(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1010,6 +1024,7 @@ def test_run_harness_process_resume_does_not_inject_seed_args(
     assert launch_context.seed_harness_session_id == "existing-session-id"
 
 
+@pytest.mark.slow
 def test_run_harness_process_fresh_codex_primary_routes_to_managed_path(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

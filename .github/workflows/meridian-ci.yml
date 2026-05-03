@@ -8,15 +8,10 @@ on:
       - master
 
 jobs:
-  meridian:
-    runs-on: ${{ matrix.os }}
+  lint:
+    runs-on: ubuntu-latest
     permissions:
       contents: read
-    strategy:
-      matrix:
-        os: [ubuntu-latest]
-        python-version: ["3.12", "3.14"]
-
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -27,7 +22,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.14"
 
       - name: Install dependencies
         run: uv sync --extra dev
@@ -38,8 +33,71 @@ jobs:
       - name: Typecheck
         run: uv run pyright
 
-      - name: Test
-        run: uv run pytest
+  fast-gate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Run fast gate
+        run: uv run pytest -n auto -m "not slow"
+
+  full-gate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Run full gate
+        run: uv run pytest -n auto -m "not windows_only"
 
       - name: Build distributions
         run: uv build --no-sources
+
+  compat:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Run compatibility gate
+        run: uv run pytest -n auto -m "not windows_only"

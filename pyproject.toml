@@ -125,3 +125,8 @@ testpaths = ["tests"]
 addopts = "-ra"
 asyncio_mode = "auto"
 pythonpath = ["src"]
+
+[dependency-groups]
+dev = [
+    "pytest-xdist>=3.8.0",
+]
