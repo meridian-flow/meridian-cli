@@ -70,7 +70,7 @@ from meridian.cli.report_cmd import register_report_commands
 from meridian.cli.session_cmd import register_session_commands
 from meridian.cli.startup.catalog import COMMAND_CATALOG
 from meridian.cli.startup.classify import classify_invocation
-from meridian.cli.startup.policy import StateRequirement
+from meridian.cli.startup.policy import TelemetryMode as StartupTelemetryMode
 from meridian.cli.telemetry_cmd import register_telemetry_commands
 from meridian.cli.workspace_cmd import register_workspace_commands
 from meridian.lib.core.depth import is_nested_meridian_process
@@ -82,7 +82,6 @@ from meridian.lib.ops.doctor_cache import (
 from meridian.lib.ops.mars import check_upgrade_availability, format_upgrade_availability
 from meridian.lib.ops.spawn.api import SpawnActionOutput, SpawnDetailOutput, SpawnWaitMultiOutput
 from meridian.lib.telemetry import emit_telemetry
-from meridian.lib.telemetry.sinks import BufferingSink
 from meridian.server.main import run_server
 
 
@@ -107,7 +106,6 @@ class GlobalOptions(BaseModel):
 
 
 _GLOBAL_OPTIONS: ContextVar[GlobalOptions | None] = ContextVar("_GLOBAL_OPTIONS", default=None)
-_cli_buffering_sink: BufferingSink | None = None
 _group_commands_registered = False
 
 PrimaryLaunchOutput = primary_launch.PrimaryLaunchOutput
@@ -662,45 +660,52 @@ def _emit_usage_command_invoked(argv: Sequence[str]) -> None:
     )
 
 
-def _try_setup_cli_telemetry() -> None:
-    """Install a BufferingSink for early CLI event capture."""
+def _install_cli_telemetry(
+    *,
+    telemetry_mode: StartupTelemetryMode | None,
+    project_root: Path | None,
+) -> None:
+    """Install CLI telemetry from descriptor policy after bootstrap resolution."""
 
-    global _cli_buffering_sink
-    try:
-        from meridian.lib.telemetry import init_telemetry
-
-        _cli_buffering_sink = BufferingSink()
-        init_telemetry(sink=_cli_buffering_sink)
-    except Exception:
-        return
-
-
-def upgrade_cli_telemetry_to_project(project_root: Path) -> None:
-    """Upgrade the buffering sink to a project-local LocalJSONLSink."""
-
-    global _cli_buffering_sink
-    if _cli_buffering_sink is None:
+    if telemetry_mode in {None, StartupTelemetryMode.NONE}:
         return
     try:
-        from meridian.lib.state.paths import resolve_project_runtime_root_for_write
-        from meridian.lib.telemetry.local_jsonl import LocalJSONLSink
+        from meridian.lib.telemetry.bootstrap import (
+            TelemetryMode,
+            TelemetryPlan,
+            install,
+        )
 
-        runtime_root = resolve_project_runtime_root_for_write(project_root)
-        logical_owner = os.environ.get("MERIDIAN_SPAWN_ID") or "cli"
-        real_sink = LocalJSONLSink(runtime_root, logical_owner=logical_owner)
-        _cli_buffering_sink.upgrade(real_sink)
+        if telemetry_mode == StartupTelemetryMode.STDERR:
+            mode = TelemetryMode.STDERR
+            runtime_root = None
+        elif telemetry_mode == StartupTelemetryMode.SEGMENT:
+            mode = TelemetryMode.SEGMENT
+            if project_root is None:
+                runtime_root = None
+            else:
+                from meridian.lib.state.paths import resolve_project_runtime_root_for_write
+
+                runtime_root = resolve_project_runtime_root_for_write(project_root)
+        else:
+            # SEGMENT_OPTIONAL preserves the old behavior for project-write commands:
+            # do not create user-runtime state solely to record optional telemetry.
+            mode = TelemetryMode.SEGMENT
+            runtime_root = None
+
+        install(
+            TelemetryPlan(
+                mode=mode,
+                logical_owner=os.environ.get("MERIDIAN_SPAWN_ID") or "cli",
+                runtime_root=runtime_root,
+            )
+        )
     except Exception:
-        pass
+        return
 
 
 def _print_agent_root_help() -> None:
     print(_AGENT_ROOT_HELP, end="")
-
-
-def _should_upgrade_cli_telemetry(requirement: StateRequirement | None) -> bool:
-    """Return whether current legacy telemetry upgrade should materialize runtime state."""
-
-    return requirement == StateRequirement.RUNTIME_WRITE
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -720,7 +725,6 @@ def main(argv: Sequence[str] | None = None) -> None:
             pass
     verbose_count = args.count("--verbose") + args.count("-v")
     configure_logging(json_mode=json_mode, verbosity=verbose_count)
-    _try_setup_cli_telemetry()
 
     cleaned_args, options = _extract_global_options(args)
     if not (cleaned_args and cleaned_args[0] == "mars"):
@@ -763,7 +767,6 @@ def main(argv: Sequence[str] | None = None) -> None:
         return
 
     _validate_top_level_command(cleaned_args, global_harness=options.harness)
-    _emit_usage_command_invoked(cleaned_args)
 
     maybe_handle_models_redirect(cleaned_args)
 
@@ -773,9 +776,11 @@ def main(argv: Sequence[str] | None = None) -> None:
         agent_mode=agent_mode_enabled(),
         state_requirement=state_requirement,
     )
-    # Upgrade telemetry to project-local sink after project-root resolution.
-    if project_root is not None and _should_upgrade_cli_telemetry(state_requirement):
-        upgrade_cli_telemetry_to_project(project_root)
+    _install_cli_telemetry(
+        telemetry_mode=descriptor.telemetry_mode if descriptor is not None else None,
+        project_root=project_root,
+    )
+    _emit_usage_command_invoked(cleaned_args)
 
     active_sink = create_sink(options.output)
     options = options.model_copy(update={"sink": active_sink})

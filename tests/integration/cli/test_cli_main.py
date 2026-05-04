@@ -9,9 +9,8 @@ import pytest
 
 from meridian.cli.app_tree import AGENT_ROOT_HELP
 from meridian.lib.state import paths as state_paths
-from meridian.lib.telemetry import emit_telemetry, init_telemetry
+from meridian.lib.telemetry import emit_telemetry
 from meridian.lib.telemetry.router import get_global_router
-from meridian.lib.telemetry.sinks import BufferingSink
 
 bootstrap_cmd = importlib.import_module("meridian.cli.bootstrap_cmd")
 cli_main = importlib.import_module("meridian.cli.main")
@@ -75,14 +74,14 @@ def test_main_harness_shortcut_routes_into_primary_launch(
     assert captured["dry_run"] is True
 
 
-def test_upgrade_cli_telemetry_to_project_replays_buffered_events_into_local_jsonl(
+def test_install_cli_telemetry_writes_usage_events_to_local_jsonl(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     runtime_root = tmp_path / "runtime"
     project_root = tmp_path / "project"
     project_root.mkdir()
-    original_sink = cli_main._cli_buffering_sink
+    monkeypatch.delenv("MERIDIAN_SPAWN_ID", raising=False)
 
     monkeypatch.setattr(
         state_paths,
@@ -91,17 +90,10 @@ def test_upgrade_cli_telemetry_to_project_replays_buffered_events_into_local_jso
     )
 
     try:
-        buffering_sink = BufferingSink()
-        monkeypatch.setattr(cli_main, "_cli_buffering_sink", buffering_sink)
-        init_telemetry(sink=buffering_sink)
-        emit_telemetry(
-            "usage",
-            "usage.command.invoked",
-            scope="cli.dispatch",
-            data={"command": "telemetry.status"},
+        cli_main._install_cli_telemetry(
+            telemetry_mode=cli_main.StartupTelemetryMode.SEGMENT,
+            project_root=project_root,
         )
-
-        cli_main.upgrade_cli_telemetry_to_project(project_root)
         emit_telemetry(
             "usage",
             "usage.spawn.launched",
@@ -111,30 +103,28 @@ def test_upgrade_cli_telemetry_to_project_replays_buffered_events_into_local_jso
 
         segment = runtime_root / "telemetry" / f"cli.{os.getpid()}-0001.jsonl"
         for _ in range(100):
-            if segment.exists() and len(segment.read_text(encoding="utf-8").splitlines()) >= 2:
+            if segment.exists() and len(segment.read_text(encoding="utf-8").splitlines()) >= 1:
                 break
             time.sleep(0.01)
         else:
-            raise AssertionError("buffered telemetry was not replayed to local jsonl")
+            raise AssertionError("telemetry was not written to local jsonl")
 
         events = [
             json.loads(line)["event"]
             for line in segment.read_text(encoding="utf-8").splitlines()
         ]
-        assert events == ["usage.command.invoked", "usage.spawn.launched"]
+        assert events == ["usage.spawn.launched"]
     finally:
         get_global_router().close()
-        cli_main._cli_buffering_sink = original_sink
 
 
-def test_upgrade_cli_telemetry_to_project_uses_inherited_spawn_owner_when_present(
+def test_install_cli_telemetry_uses_inherited_spawn_owner_when_present(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     runtime_root = tmp_path / "runtime"
     project_root = tmp_path / "project"
     project_root.mkdir()
-    original_sink = cli_main._cli_buffering_sink
     monkeypatch.setenv("MERIDIAN_SPAWN_ID", "p123")
     monkeypatch.setattr(
         state_paths,
@@ -143,17 +133,15 @@ def test_upgrade_cli_telemetry_to_project_uses_inherited_spawn_owner_when_presen
     )
 
     try:
-        buffering_sink = BufferingSink()
-        monkeypatch.setattr(cli_main, "_cli_buffering_sink", buffering_sink)
-        init_telemetry(sink=buffering_sink)
-        emit_telemetry("usage", "usage.command.invoked", scope="cli.dispatch")
-
-        cli_main.upgrade_cli_telemetry_to_project(project_root)
+        cli_main._install_cli_telemetry(
+            telemetry_mode=cli_main.StartupTelemetryMode.SEGMENT,
+            project_root=project_root,
+        )
         emit_telemetry("usage", "usage.spawn.launched", scope="cli.dispatch")
 
         segment = runtime_root / "telemetry" / f"p123.{os.getpid()}-0001.jsonl"
         for _ in range(100):
-            if segment.exists() and len(segment.read_text(encoding="utf-8").splitlines()) >= 2:
+            if segment.exists() and len(segment.read_text(encoding="utf-8").splitlines()) >= 1:
                 break
             time.sleep(0.01)
         else:
@@ -163,19 +151,17 @@ def test_upgrade_cli_telemetry_to_project_uses_inherited_spawn_owner_when_presen
             json.loads(line)["event"]
             for line in segment.read_text(encoding="utf-8").splitlines()
         ]
-        assert events == ["usage.command.invoked", "usage.spawn.launched"]
+        assert events == ["usage.spawn.launched"]
     finally:
         get_global_router().close()
-        cli_main._cli_buffering_sink = original_sink
 
 
-def test_main_discards_buffered_telemetry_when_project_root_never_resolves(
+def test_main_does_not_create_segment_telemetry_when_project_root_never_resolves(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     user_home = tmp_path / "user-home"
-    original_sink = cli_main._cli_buffering_sink
     monkeypatch.setenv("MERIDIAN_HOME", user_home.as_posix())
     monkeypatch.delenv("MERIDIAN_DEPTH", raising=False)
     monkeypatch.setattr(cli_main, "maybe_bootstrap_runtime_state", lambda *_args, **_kwargs: None)
@@ -196,7 +182,6 @@ def test_main_discards_buffered_telemetry_when_project_root_never_resolves(
         assert "doctor" in capsys.readouterr().out
     finally:
         get_global_router().close()
-        cli_main._cli_buffering_sink = original_sink
 
 
 def test_config_help_mentions_meridian_toml() -> None:
