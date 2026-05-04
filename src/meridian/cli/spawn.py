@@ -13,15 +13,22 @@ from meridian.cli.ext_registration import register_extension_cli_group
 from meridian.cli.main import agent_mode_enabled, current_output_sink, get_global_options
 from meridian.cli.spawn_inject import inject_message
 from meridian.cli.utils import missing_fork_session_error, parse_csv_list
+from meridian.lib.bootstrap.services import (
+    RuntimeReadContext,
+    RuntimeWriteContext,
+    prepare_for_runtime_read,
+    prepare_for_runtime_write,
+)
 from meridian.lib.config.project_root import resolve_project_root
 from meridian.lib.core.domain import SpawnStatus
 from meridian.lib.core.spawn_lifecycle import ACTIVE_SPAWN_STATUSES
 from meridian.lib.extensions.registry import get_first_party_registry
 from meridian.lib.launch.request import SessionRequest
 from meridian.lib.ops.reference import resolve_session_reference
-from meridian.lib.ops.runtime import resolve_runtime_root_and_config, resolve_runtime_root_for_read
+from meridian.lib.ops.runtime import resolve_runtime_root_for_read
 from meridian.lib.ops.spawn.api import (
     SpawnActionOutput,
+    SpawnCancelAllInput,
     SpawnCancelInput,
     SpawnContinueInput,
     SpawnCreateInput,
@@ -32,6 +39,7 @@ from meridian.lib.ops.spawn.api import (
     SpawnStatsInput,
     SpawnWaitInput,
     SpawnWrittenFilesInput,
+    spawn_cancel_all_sync,
     spawn_cancel_sync,
     spawn_continue_sync,
     spawn_create_sync,
@@ -55,6 +63,14 @@ _SPAWN_STATUS_VALUES: tuple[SpawnStatus, ...] = cast(
 _ACTIVE_VIEW_STATUSES: tuple[SpawnStatus, ...] = tuple(
     status for status in _SPAWN_STATUS_VALUES if status in ACTIVE_SPAWN_STATUSES
 )
+
+
+def _prepare_spawn_runtime_read() -> RuntimeReadContext:
+    return prepare_for_runtime_read(resolve_project_root())
+
+
+def _prepare_spawn_runtime_write() -> RuntimeWriteContext:
+    return prepare_for_runtime_write(resolve_project_root())
 
 
 def _spawn_create_exit_code(result: SpawnActionOutput) -> int:
@@ -332,8 +348,8 @@ def _spawn_create(
         if context_from:
             raise ValueError("Cannot combine --fork with --from (MVP limitation).")
 
-        project_root, _ = resolve_runtime_root_and_config(None)
-        resolved_reference = resolve_session_reference(project_root, resolved_fork_from)
+        prepared = _prepare_spawn_runtime_write()
+        resolved_reference = resolve_session_reference(prepared.project_root, resolved_fork_from)
         if resolved_reference.missing_harness_session_id:
             raise ValueError(missing_fork_session_error(resolved_fork_from))
 
@@ -382,6 +398,7 @@ def _spawn_create(
                 ),
             ),
             sink=current_output_sink(),
+            prepared=prepared,
         )
     elif resolved_continue_from is not None:
         if context_from:
@@ -401,6 +418,7 @@ def _spawn_create(
                 approval=resolved_approval,
             ),
             sink=current_output_sink(),
+            prepared=_prepare_spawn_runtime_write(),
         )
     else:
         result = spawn_create_sync(
@@ -429,6 +447,7 @@ def _spawn_create(
                 debug=debug,
             ),
             sink=current_output_sink(),
+            prepared=_prepare_spawn_runtime_write(),
         )
     emit(result)
     exit_code = _spawn_create_exit_code(result)
@@ -516,6 +535,7 @@ def _spawn_list(
             failed=False,
         ),
         sink=current_output_sink(),
+        prepared=_prepare_spawn_runtime_read(),
     )
     emit(result)
 
@@ -530,9 +550,13 @@ def _spawn_children(
     normalized_ref = spawn_id.strip()
     if not normalized_ref:
         raise ValueError("spawn_id is required")
-    project_root = resolve_project_root()
-    normalized_spawn_id = resolve_spawn_reference(project_root, normalized_ref)
-    runtime_root = resolve_runtime_root_for_read(project_root)
+    prepared = _prepare_spawn_runtime_read()
+    normalized_spawn_id = resolve_spawn_reference(
+        prepared.project_root,
+        normalized_ref,
+        runtime_root=prepared.runtime_root,
+    )
+    runtime_root = prepared.runtime_root or resolve_runtime_root_for_read(prepared.project_root)
     from meridian.lib.state.reaper import reconcile_spawns
 
     children = list(
@@ -586,6 +610,7 @@ def _spawn_show(
                 include_report_body=report,
             ),
             sink=sink,
+            prepared=_prepare_spawn_runtime_read(),
         )
         for spawn_id in spawn_ids
     )
@@ -624,6 +649,7 @@ def _spawn_stats(
                 flat=flat,
             ),
             sink=current_output_sink(),
+            prepared=_prepare_spawn_runtime_read(),
         )
     )
 
@@ -632,13 +658,18 @@ def _spawn_cancel(
     emit: Any,
     spawn_id: str,
 ) -> None:
-    project_root, _ = resolve_runtime_root_and_config(None)
-    resolved_spawn_id = resolve_spawn_reference(project_root, spawn_id)
+    prepared = _prepare_spawn_runtime_write()
+    resolved_spawn_id = resolve_spawn_reference(
+        prepared.project_root,
+        spawn_id,
+        runtime_root=prepared.runtime_root,
+    )
     result = spawn_cancel_sync(
         SpawnCancelInput(
             spawn_id=resolved_spawn_id,
         ),
         sink=current_output_sink(),
+        prepared=prepared,
     )
     emit(result)
     if result.status == "failed":
@@ -695,6 +726,7 @@ def _spawn_wait(
             include_report_body=report,
         ),
         sink=current_output_sink(),
+        prepared=_prepare_spawn_runtime_read(),
     )
     emit(result)
     if result.checkpoint:
@@ -714,6 +746,7 @@ def _spawn_files(
     result = spawn_files_sync(
         SpawnWrittenFilesInput(spawn_id=spawn_id),
         sink=current_output_sink(),
+        prepared=_prepare_spawn_runtime_read(),
     )
     if null and result.written_files:
         import sys
@@ -722,6 +755,23 @@ def _spawn_files(
         sys.stdout.flush()
     else:
         emit(result)
+
+
+def _spawn_cancel_all(
+    emit: Any,
+    work: Annotated[
+        str | None,
+        Parameter(name="--work", help="Only cancel running spawns for this work item."),
+    ] = None,
+) -> None:
+    result = spawn_cancel_all_sync(
+        SpawnCancelAllInput(work=work),
+        sink=current_output_sink(),
+        prepared=_prepare_spawn_runtime_write(),
+    )
+    emit(result)
+    if result.failed_count:
+        raise SystemExit(1)
 
 
 def _spawn_inject(
@@ -764,6 +814,7 @@ def register_spawn_commands(app: App, emit: Emitter) -> tuple[set[str], dict[str
         "meridian.spawn.stats": lambda: partial(_spawn_stats, emit),
         "meridian.spawn.show": lambda: partial(_spawn_show, emit),
         "meridian.spawn.cancel": lambda: partial(_spawn_cancel, emit),
+        "meridian.spawn.cancelAll": lambda: partial(_spawn_cancel_all, emit),
         "meridian.spawn.wait": lambda: partial(_spawn_wait, emit),
     }
     registered, descriptions = register_extension_cli_group(

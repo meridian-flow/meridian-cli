@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import time
 
+from meridian.lib.bootstrap.services import prepare_for_runtime_write
+from meridian.lib.config.project_root import resolve_project_root
 from meridian.lib.core.domain import SpawnStatus
 from meridian.lib.core.lifecycle import create_lifecycle_service
 from meridian.lib.core.spawn_service import SpawnApplicationService
@@ -11,7 +13,6 @@ from meridian.lib.core.types import HarnessId
 from meridian.lib.harness.registry import get_default_harness_registry
 from meridian.lib.launch.request import LaunchArgvIntent, LaunchRuntime, SpawnRequest
 from meridian.lib.launch.streaming_runner import run_streaming_spawn, signal_coordinator
-from meridian.lib.ops.runtime import resolve_runtime_root, resolve_runtime_root_and_config
 from meridian.lib.state.paths import spawn_output_path
 
 
@@ -41,8 +42,11 @@ async def streaming_serve(
         supported = ", ".join(item.value for item in HarnessId)
         raise ValueError(f"unsupported harness '{harness}'. Supported: {supported}") from exc
 
-    project_root, _ = resolve_runtime_root_and_config(None)
-    runtime_root = resolve_runtime_root(project_root)
+    prepared = prepare_for_runtime_write(resolve_project_root())
+    project_root = prepared.project_root
+    if prepared.runtime_root is None:
+        raise ValueError("Prepared runtime write context is missing runtime root.")
+    runtime_root = prepared.runtime_root
     start_monotonic = time.monotonic()
     lifecycle = create_lifecycle_service(project_root, runtime_root)
     spawn_service = SpawnApplicationService(runtime_root, lifecycle)

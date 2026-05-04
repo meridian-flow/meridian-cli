@@ -16,6 +16,7 @@ from urllib.parse import urlparse
 
 from cyclopts import App, Parameter
 
+from meridian.lib.bootstrap.services import prepare_for_runtime_read, prepare_for_runtime_write
 from meridian.lib.chat.backend_acquisition import ColdSpawnAcquisition
 from meridian.lib.chat.frontend import FrontendAssets, resolve_frontend_assets
 from meridian.lib.chat.normalization.base import EventNormalizer
@@ -32,7 +33,6 @@ from meridian.lib.launch.launch_types import ResolvedLaunchSpec
 from meridian.lib.safety.permissions import UnsafeNoOpPermissionResolver
 from meridian.lib.state.user_paths import get_user_home
 from meridian.lib.streaming.spawn_manager import SpawnManager
-from meridian.lib.telemetry.init import setup_telemetry
 
 CHAT_SERVER_FILE = "chat-server.json"
 
@@ -135,6 +135,7 @@ def _chat(
 def _chat_ls(
     url: Annotated[str | None, Parameter(name="--url", help="Chat server base URL.")] = None,
 ) -> None:
+    prepare_for_runtime_read(resolve_project_root())
     response = _request_json("GET", "/chat", url=url)
     rows = response.get("chats", [])
     if not isinstance(rows, list):
@@ -146,6 +147,7 @@ def _chat_show(
     chat_id: Annotated[str, Parameter(help="Chat id to inspect.")],
     url: Annotated[str | None, Parameter(name="--url", help="Chat server base URL.")] = None,
 ) -> None:
+    prepare_for_runtime_read(resolve_project_root())
     state = _request_json("GET", f"/chat/{chat_id}/state", url=url)
     events = _request_json("GET", f"/chat/{chat_id}/events?last=5", url=url)
     print(f"chat_id: {state.get('chat_id', chat_id)}")
@@ -167,6 +169,7 @@ def _chat_log(
         Parameter(name="--follow", help="Follow live events over WebSocket."),
     ] = False,
 ) -> None:
+    prepare_for_runtime_read(resolve_project_root())
     query = f"?last={last}" if last is not None else ""
     response = _request_json("GET", f"/chat/{chat_id}/events{query}", url=url)
     events = _events_from_response(response)
@@ -181,6 +184,7 @@ def _chat_close(
     chat_id: Annotated[str, Parameter(help="Chat id to close.")],
     url: Annotated[str | None, Parameter(name="--url", help="Chat server base URL.")] = None,
 ) -> None:
+    prepare_for_runtime_read(resolve_project_root())
     response = _request_json("POST", f"/chat/{chat_id}/close", url=url)
     status = response.get("status", "unknown")
     if status != "accepted":
@@ -217,11 +221,8 @@ def run_chat_server(
     if port < 0 or port > 65535:
         raise ValueError("port must be between 0 and 65535")
 
-    project_root = resolve_project_root()
-    from meridian.lib.state.paths import resolve_project_runtime_root_for_write
-
-    telemetry_runtime_root = resolve_project_runtime_root_for_write(project_root)
-    setup_telemetry(runtime_root=telemetry_runtime_root, logical_owner="chat")
+    prepared = prepare_for_runtime_write(resolve_project_root())
+    project_root = prepared.project_root
     runtime_root = get_user_home()  # kept for ChatRuntime — not telemetry
     harness_id = _resolve_harness_id(harness)
     runtime = ChatRuntime(

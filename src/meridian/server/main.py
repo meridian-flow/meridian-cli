@@ -21,7 +21,13 @@ from meridian.lib.extensions.types import (
     ExtensionSurface,
 )
 from meridian.lib.telemetry import emit_telemetry
-from meridian.lib.telemetry.init import setup_telemetry
+from meridian.lib.telemetry.bootstrap import (
+    TelemetryMode,
+    TelemetryPlan,
+)
+from meridian.lib.telemetry.bootstrap import (
+    install as install_telemetry,
+)
 
 
 @asynccontextmanager
@@ -29,7 +35,7 @@ async def lifespan(_: FastMCP[Any]):
     """Initialize shared resources for MCP server lifetime."""
 
     configure_logging(json_mode=True)
-    setup_telemetry(rootless=True)
+    install_telemetry(TelemetryPlan(mode=TelemetryMode.STDERR, logical_owner="mcp-server"))
     yield {"ready": True}
 
 

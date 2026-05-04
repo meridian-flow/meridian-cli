@@ -37,8 +37,9 @@ def test_spawn_prompt_file_dash_reads_stdin_through_main(
         payload: SpawnCreateInput,
         *,
         sink: object | None = None,
+        prepared: Any | None = None,
     ) -> SpawnActionOutput:
-        _ = sink
+        _ = (sink, prepared)
         captured["prompt"] = payload.prompt
         return SpawnActionOutput(command="spawn.create", status="dry-run")
 
@@ -78,8 +79,9 @@ def test_spawn_file_only_without_prompt_is_allowed(
         payload: SpawnCreateInput,
         *,
         sink: object | None = None,
+        prepared: Any | None = None,
     ) -> SpawnActionOutput:
-        _ = sink
+        _ = (sink, prepared)
         captured["prompt"] = payload.prompt
         captured["files"] = payload.files
         return SpawnActionOutput(command="spawn.create", status="dry-run")
@@ -103,8 +105,9 @@ def test_spawn_continue_without_prompt_is_allowed(monkeypatch: pytest.MonkeyPatc
         payload: SpawnContinueInput,
         *,
         sink: object | None = None,
+        prepared: Any | None = None,
     ) -> SpawnActionOutput:
-        _ = sink
+        _ = (sink, prepared)
         captured["spawn_id"] = payload.spawn_id
         captured["prompt"] = payload.prompt
         return SpawnActionOutput(command="spawn.continue", status="dry-run")
@@ -131,8 +134,9 @@ def test_spawn_default_create_routes_correctly_when_prompt_matches_subcommand(
         payload: SpawnCreateInput,
         *,
         sink: object | None = None,
+        prepared: Any | None = None,
     ) -> SpawnActionOutput:
-        _ = sink
+        _ = (sink, prepared)
         assert payload.prompt == prompt_value
         return SpawnActionOutput(command="spawn.create", status="dry-run")
 
@@ -166,8 +170,9 @@ def test_spawn_continue_routes_correctly(
         payload: SpawnContinueInput,
         *,
         sink: object | None = None,
+        prepared: Any | None = None,
     ) -> SpawnActionOutput:
-        _ = sink
+        _ = (sink, prepared)
         captured["spawn_id"] = payload.spawn_id
         return SpawnActionOutput(command="spawn.continue", status="dry-run")
 
@@ -193,8 +198,9 @@ def test_spawn_explicit_text_format_works(
         payload: SpawnCreateInput,
         *,
         sink: object | None = None,
+        prepared: Any | None = None,
     ) -> SpawnActionOutput:
-        _ = sink
+        _ = (sink, prepared)
         assert payload.prompt == "build"
         return SpawnActionOutput(command="spawn.create", status="dry-run")
 
@@ -219,6 +225,7 @@ def test_spawn_dry_run_text_includes_model_routing_provenance(
         payload: SpawnCreateInput,
         *,
         sink: object | None = None,
+        prepared: Any | None = None,
     ) -> SpawnActionOutput:
         _ = (payload, sink)
         return SpawnActionOutput(
@@ -255,6 +262,7 @@ def test_spawn_dry_run_explicit_json_includes_model_selection(
         payload: SpawnCreateInput,
         *,
         sink: object | None = None,
+        prepared: Any | None = None,
     ) -> SpawnActionOutput:
         _ = (payload, sink)
         return SpawnActionOutput(
@@ -344,6 +352,7 @@ def test_spawn_background_agent_mode_returns_wire_without_event_noise(
         payload: SpawnCreateInput,
         *,
         sink: Any | None = None,
+        prepared: Any | None = None,
     ) -> SpawnActionOutput:
         assert payload.background is True
         assert sink is not None
@@ -387,6 +396,7 @@ def test_spawn_background_explicit_json_preserves_rich_wire_and_events(
         payload: SpawnCreateInput,
         *,
         sink: Any | None = None,
+        prepared: Any | None = None,
     ) -> SpawnActionOutput:
         assert payload.background is True
         assert sink is not None
@@ -426,8 +436,9 @@ def test_spawn_list_active_view_includes_finalizing(
         payload: SpawnListInput,
         *,
         sink: object | None = None,
+        prepared: Any | None = None,
     ) -> SpawnListOutput:
-        _ = sink
+        _ = (sink, prepared)
         captured["payload"] = payload
         return SpawnListOutput(spawns=())
 
@@ -452,8 +463,9 @@ def test_spawn_list_status_accepts_finalizing(
         payload: SpawnListInput,
         *,
         sink: object | None = None,
+        prepared: Any | None = None,
     ) -> SpawnListOutput:
-        _ = sink
+        _ = (sink, prepared)
         captured["payload"] = payload
         return SpawnListOutput(spawns=())
 
@@ -477,8 +489,9 @@ def test_spawn_list_primary_filter_routes_to_spawn_input(
         payload: SpawnListInput,
         *,
         sink: object | None = None,
+        prepared: Any | None = None,
     ) -> SpawnListOutput:
-        _ = sink
+        _ = (sink, prepared)
         captured["payload"] = payload
         return SpawnListOutput(spawns=())
 
@@ -509,7 +522,7 @@ def test_spawn_children_resolves_parent_reference_before_filtering(
     monkeypatch.setattr(
         spawn_cli,
         "resolve_spawn_reference",
-        lambda _project_root, ref: "p77" if ref == "c213" else ref,
+        lambda _project_root, ref, runtime_root=None: "p77" if ref == "c213" else ref,
     )
     monkeypatch.setattr(
         spawn_cli.spawn_store,
@@ -556,7 +569,9 @@ def test_spawn_children_includes_agent_and_desc_in_output(
 
     monkeypatch.setattr(spawn_cli, "resolve_project_root", lambda: project_root)
     monkeypatch.setattr(spawn_cli, "resolve_runtime_root_for_read", lambda _root: runtime_root)
-    monkeypatch.setattr(spawn_cli, "resolve_spawn_reference", lambda _root, ref: ref)
+    monkeypatch.setattr(
+        spawn_cli, "resolve_spawn_reference", lambda _root, ref, runtime_root=None: ref
+    )
     monkeypatch.setattr(spawn_cli.spawn_store, "list_spawns", lambda _root, filters=None: rows)
     monkeypatch.setattr(
         "meridian.lib.state.reaper.reconcile_spawns",
@@ -601,7 +616,9 @@ def test_spawn_children_json_includes_agent_and_desc(
 
     monkeypatch.setattr(spawn_cli, "resolve_project_root", lambda: project_root)
     monkeypatch.setattr(spawn_cli, "resolve_runtime_root_for_read", lambda _root: runtime_root)
-    monkeypatch.setattr(spawn_cli, "resolve_spawn_reference", lambda _root, ref: ref)
+    monkeypatch.setattr(
+        spawn_cli, "resolve_spawn_reference", lambda _root, ref, runtime_root=None: ref
+    )
     monkeypatch.setattr(spawn_cli.spawn_store, "list_spawns", lambda _root, filters=None: rows)
     monkeypatch.setattr(
         "meridian.lib.state.reaper.reconcile_spawns",
@@ -645,7 +662,9 @@ def test_spawn_children_agent_mode_uses_children_text_view(
 
     monkeypatch.setattr(spawn_cli, "resolve_project_root", lambda: project_root)
     monkeypatch.setattr(spawn_cli, "resolve_runtime_root_for_read", lambda _root: runtime_root)
-    monkeypatch.setattr(spawn_cli, "resolve_spawn_reference", lambda _root, ref: ref)
+    monkeypatch.setattr(
+        spawn_cli, "resolve_spawn_reference", lambda _root, ref, runtime_root=None: ref
+    )
     monkeypatch.setattr(spawn_cli.spawn_store, "list_spawns", lambda _root, filters=None: rows)
     monkeypatch.setattr(
         "meridian.lib.state.reaper.reconcile_spawns",

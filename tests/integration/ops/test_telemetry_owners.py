@@ -154,7 +154,7 @@ def test_background_worker_main_uses_spawn_id_as_logical_owner(
     assert captured == {"runtime_root": runtime_root, "logical_owner": "p77"}
 
 
-def test_run_chat_server_uses_chat_logical_owner(
+def test_run_chat_server_uses_prepared_runtime_write_context(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -163,23 +163,33 @@ def test_run_chat_server_uses_chat_logical_owner(
     project_root.mkdir()
     captured: dict[str, object] = {}
 
-    def _capture_setup_telemetry(*, runtime_root=None, logical_owner=None, **_kwargs):
-        captured["runtime_root"] = runtime_root
-        captured["logical_owner"] = logical_owner
-
-    monkeypatch.setattr(chat_cmd, "setup_telemetry", _capture_setup_telemetry)
     monkeypatch.setattr(chat_cmd, "resolve_project_root", lambda: project_root)
     monkeypatch.setattr(
-        "meridian.lib.state.paths.resolve_project_runtime_root_for_write",
-        lambda _project_root: runtime_root,
+        chat_cmd,
+        "prepare_for_runtime_write",
+        lambda root: SimpleNamespace(project_root=root, runtime_root=runtime_root),
     )
-    monkeypatch.setattr(chat_cmd, "ChatRuntime", lambda **_kwargs: object())
+
+    def _capture_chat_runtime(**kwargs):
+        captured["chat_project_root"] = kwargs["project_root"]
+        captured["chat_runtime_root"] = kwargs["runtime_root"]
+        return object()
+
+    monkeypatch.setattr(chat_cmd, "ChatRuntime", _capture_chat_runtime)
     monkeypatch.setattr(
         "meridian.lib.chat.server.configure",
         lambda **_kwargs: (_ for _ in ()).throw(_StopAfterTelemetrySetup()),
+    )
+    monkeypatch.setattr(
+        chat_cmd,
+        "get_user_home",
+        lambda: runtime_root,
     )
 
     with pytest.raises(_StopAfterTelemetrySetup):
         chat_cmd.run_chat_server(harness="codex", headless=True)
 
-    assert captured == {"runtime_root": runtime_root, "logical_owner": "chat"}
+    assert captured == {
+        "chat_project_root": project_root,
+        "chat_runtime_root": runtime_root,
+    }
