@@ -42,7 +42,7 @@ Repository = "https://github.com/meridian-flow/meridian-cli"
 Issues = "https://github.com/meridian-flow/meridian-cli/issues"
 
 [project.scripts]
-meridian = "meridian.cli.main:main"
+meridian = "meridian.cli.entrypoint:main"
 pytests = "meridian.dev.pytests:main"
 pytest-llm = "meridian.dev.pytests:main"
 
