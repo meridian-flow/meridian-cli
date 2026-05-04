@@ -41,9 +41,6 @@ def _positional_tokens(argv: Sequence[str]) -> list[str]:
         if token in _TOP_LEVEL_VALUE_FLAGS:
             index += 2
             continue
-        if index + 1 < len(args) and not args[index + 1].startswith("-"):
-            index += 2
-            continue
         index += 1
     return tokens
 

@@ -84,9 +84,6 @@ def _first_positional_token_with_index(argv: Sequence[str]) -> tuple[int, str] |
         if token in _TOP_LEVEL_VALUE_FLAGS:
             index += 2
             continue
-        if index + 1 < len(argv) and not argv[index + 1].startswith("-"):
-            index += 2
-            continue
         index += 1
     return None
 

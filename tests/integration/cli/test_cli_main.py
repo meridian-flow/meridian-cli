@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 
 from meridian.cli.app_tree import AGENT_ROOT_HELP
-from meridian.cli.startup.policy import StartupClass
+from meridian.cli.startup.policy import StartupClass, StateRequirement
 from meridian.lib.state import paths as state_paths
 from meridian.lib.telemetry import emit_telemetry
 from meridian.lib.telemetry.router import get_global_router
@@ -26,6 +26,86 @@ def test_main_rejects_unknown_command(capsys: pytest.CaptureFixture[str]) -> Non
 
     assert exc_info.value.code == 1
     assert "Unknown command: exec" in capsys.readouterr().err
+
+
+def test_main_skips_bootstrap_for_subcommand_help(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _fake_bootstrap(
+        argv: list[str],
+        *,
+        agent_mode: bool,
+        state_requirement: StateRequirement | None = None,
+    ) -> None:
+        raise AssertionError(
+            f"bootstrap should be skipped for help, got {argv=} {agent_mode=} "
+            f"{state_requirement=}"
+        )
+
+    monkeypatch.setattr(cli_main, "maybe_bootstrap_runtime_state", _fake_bootstrap)
+    monkeypatch.setattr(
+        cli_main,
+        "consume_doctor_cache_warning",
+        lambda: (_ for _ in ()).throw(
+            AssertionError("doctor cache should be skipped for help")
+        ),
+    )
+    monkeypatch.setattr(
+        cli_main,
+        "maybe_start_background_doctor_scan",
+        lambda: (_ for _ in ()).throw(
+            AssertionError("doctor scan should be skipped for help")
+        ),
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli_main.main(["config", "show", "--help"])
+
+    assert exc_info.value.code == 0
+
+
+def test_doctor_cache_warning_runs_for_primary_launch_only_when_bootstrap_not_skipped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    monkeypatch.setattr(cli_main, "_register_group_commands", lambda: None)
+    monkeypatch.setattr(cli_main, "maybe_bootstrap_runtime_state", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(cli_main, "consume_doctor_cache_warning", lambda: calls.append("doctor"))
+    monkeypatch.setattr(cli_main, "maybe_start_background_doctor_scan", lambda: False)
+    monkeypatch.setattr(
+        cli_main,
+        "app",
+        lambda _args: (_ for _ in ()).throw(SystemExit(0)),
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli_main.main([])
+
+    assert exc_info.value.code == 0
+    assert calls == ["doctor"]
+
+
+def test_doctor_cache_warning_skips_read_only_commands(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    monkeypatch.setattr(cli_main, "_register_group_commands", lambda: None)
+    monkeypatch.setattr(cli_main, "maybe_bootstrap_runtime_state", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(cli_main, "consume_doctor_cache_warning", lambda: calls.append("doctor"))
+    monkeypatch.setattr(cli_main, "maybe_start_background_doctor_scan", lambda: False)
+    monkeypatch.setattr(
+        cli_main,
+        "app",
+        lambda _args: (_ for _ in ()).throw(SystemExit(0)),
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli_main.main(["config", "show"])
+
+    assert exc_info.value.code == 0
+    assert calls == []
 
 
 def test_main_emits_normalized_usage_command(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -287,16 +367,17 @@ def test_agent_root_help_restricted_surface_contract() -> None:
         assert hidden not in normalized_help
 
 
-def test_main_prints_cached_doctor_warning_for_text_command(
+def test_main_skips_cached_doctor_warning_for_help_command(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    calls: list[str] = []
     monkeypatch.delenv("MERIDIAN_DEPTH", raising=False)
     monkeypatch.setattr(cli_main, "maybe_bootstrap_runtime_state", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         cli_main,
         "consume_doctor_cache_warning",
-        lambda: "meridian doctor: 1 other warning.",
+        lambda: calls.append("doctor") or "meridian doctor: 1 other warning.",
     )
     monkeypatch.setattr(cli_main, "maybe_start_background_doctor_scan", lambda: False)
 
@@ -304,7 +385,8 @@ def test_main_prints_cached_doctor_warning_for_text_command(
         cli_main.main(["doctor", "--help"])
 
     assert exc_info.value.code == 0
-    assert "meridian doctor: 1 other warning." in capsys.readouterr().err
+    assert "meridian doctor: 1 other warning." not in capsys.readouterr().err
+    assert calls == []
 
 
 def test_main_suppresses_cached_doctor_warning_for_json_command(

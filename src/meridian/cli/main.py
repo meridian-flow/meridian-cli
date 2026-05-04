@@ -221,7 +221,13 @@ def _resolve_output_format_for_command(
     )
 
 
-def _is_doctor_scan_launch_path(argv: Sequence[str]) -> bool:
+def _is_doctor_scan_launch_path(
+    argv: Sequence[str],
+    *,
+    bootstrap_skipped: bool = False,
+) -> bool:
+    if bootstrap_skipped:
+        return False
     token = _bootstrap_first_positional_token(argv)
     return (
         token is None and not any(arg in {"--help", "-h", "--version"} for arg in argv)
@@ -781,15 +787,23 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     maybe_handle_models_redirect(cleaned_args)
 
-    state_requirement = descriptor.state_requirement if descriptor is not None else None
-    project_root = maybe_bootstrap_runtime_state(
-        cleaned_args,
-        agent_mode=agent_mode_enabled(),
-        state_requirement=state_requirement,
+    startup_class = (
+        descriptor.startup_class
+        if descriptor is not None
+        else StartupClass.PRIMARY_LAUNCH
     )
+    bootstrap_skipped = any(arg in {"--help", "-h"} for arg in cleaned_args)
+    state_requirement = descriptor.state_requirement if descriptor is not None else None
+    project_root = None
+    if not bootstrap_skipped:
+        project_root = maybe_bootstrap_runtime_state(
+            cleaned_args,
+            agent_mode=agent_mode_enabled(),
+            state_requirement=state_requirement,
+        )
     _install_cli_telemetry(
         telemetry_mode=descriptor.telemetry_mode if descriptor is not None else None,
-        startup_class=descriptor.startup_class if descriptor is not None else None,
+        startup_class=startup_class,
         project_root=project_root,
     )
     _emit_usage_command_invoked(cleaned_args)
@@ -808,10 +822,15 @@ def main(argv: Sequence[str] | None = None) -> None:
                 options.output.format == "text"
                 and not effective_agent_mode
                 and not is_nested_meridian_process()
+                and not bootstrap_skipped
+                and startup_class in {StartupClass.PRIMARY_LAUNCH, StartupClass.WRITE_RUNTIME}
                 and (warning := consume_doctor_cache_warning())
             ):
                 print(warning, file=sys.stderr)
-            if _is_doctor_scan_launch_path(cleaned_args) and not is_nested_meridian_process():
+            if _is_doctor_scan_launch_path(
+                cleaned_args,
+                bootstrap_skipped=bootstrap_skipped,
+            ) and not is_nested_meridian_process():
                 maybe_start_background_doctor_scan()
             try:
                 app(cleaned_args)
