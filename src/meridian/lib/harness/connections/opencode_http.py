@@ -39,6 +39,7 @@ from meridian.lib.harness.projections.project_opencode_streaming import (
     project_opencode_spec_to_serve_command,
     project_opencode_spec_to_session_payload,
 )
+from meridian.lib.harness.projections.projection_errors import HarnessCapabilityMismatch
 from meridian.lib.harness.semantics import clears_signal
 from meridian.lib.harness.workspace_projection import OPENCODE_CONFIG_CONTENT_ENV
 from meridian.lib.launch.env import inherit_child_env
@@ -53,6 +54,10 @@ from meridian.lib.state.paths import resolve_spawn_log_dir
 logger = logging.getLogger(__name__)
 _STARTUP_STDERR_MAX_BYTES = 16 * 1024
 _ADDRESS_IN_USE_MARKERS = ("address already in use", "address in use", "eaddrinuse")
+
+
+class SessionNotReadyError(RuntimeError):
+    """Retryable OpenCode session readiness failure."""
 
 
 class OpenCodeConnection(HarnessConnection[OpenCodeLaunchSpec]):
@@ -387,7 +392,7 @@ class OpenCodeConnection(HarnessConnection[OpenCodeLaunchSpec]):
                 session_id = await self._create_session(spec)
                 self._last_health_ok = True
                 return session_id
-            except Exception as exc:
+            except SessionNotReadyError as exc:
                 last_error = exc
             if time.monotonic() >= deadline:
                 raise TimeoutError(
@@ -397,14 +402,72 @@ class OpenCodeConnection(HarnessConnection[OpenCodeLaunchSpec]):
             await asyncio.sleep(0.2)
 
     async def _create_session(self, spec: OpenCodeLaunchSpec) -> str:
+        """Create or resume an OpenCode session.
+
+        For fresh sessions, POST /session to create a new one.
+        For continues, verify the existing session exists via GET and return it
+        directly — POST /session ignores sessionID in the payload and always
+        creates a new empty session.
+        """
         self._emit_startup_phase(StartupPhase.INITIALIZING_SESSION)
+
+        # Validate unsupported modes before any network I/O.
+        if spec.continue_fork:
+            raise HarnessCapabilityMismatch(
+                "OpenCode streaming cannot express continue_fork semantics over "
+                "the current /session API."
+            )
+
+        continue_session_id = (spec.continue_session_id or "").strip()
+        if continue_session_id:
+            # Verify the existing session is already loaded by the server.
+            # OpenCode serve loads sessions from disk on startup, so a GET should
+            # find them. A 404/405 means the server may still be loading; we raise
+            # a retryable error so _create_session_with_retry can poll until timeout.
+            try:
+                status, body, _ = await self._get_json(f"/session/{continue_session_id}")
+            except Exception as exc:
+                if _is_retryable_transport_error(exc):
+                    raise SessionNotReadyError(
+                        f"OpenCode session resume: session {continue_session_id} "
+                        f"not reachable yet: {exc}"
+                    ) from exc
+                raise
+            if status in self._SUCCESS_STATUSES:
+                session_id = _extract_session_id(body)
+                if session_id and session_id.strip() == continue_session_id:
+                    logger.debug(
+                        "OpenCode session resume: verified existing session %s",
+                        continue_session_id,
+                    )
+                    return continue_session_id
+                raise RuntimeError(
+                    f"OpenCode session resume: GET returned mismatched id "
+                    f"(expected={continue_session_id}, got={session_id})"
+                )
+            if status in self._PATH_RETRY_STATUSES:
+                raise SessionNotReadyError(
+                    f"OpenCode session resume: session {continue_session_id} not yet "
+                    f"loaded (status={status})"
+                )
+            raise RuntimeError(
+                f"OpenCode session resume: GET failed with status={status}"
+            )
+
         payload = project_opencode_spec_to_session_payload(spec)
         payload_variants: tuple[dict[str, object], ...] = (payload, {}) if payload else ({},)
 
         last_error: str | None = None
         for path in self._CREATE_SESSION_PATHS:
             for variant in payload_variants:
-                status, body, _ = await self._post_json(path, variant)
+                try:
+                    status, body, _ = await self._post_json(path, variant)
+                except Exception as exc:
+                    if _is_retryable_transport_error(exc):
+                        raise SessionNotReadyError(
+                            f"OpenCode session endpoint not reachable on {path}: {exc}"
+                        ) from exc
+                    raise
                 if status in self._SUCCESS_STATUSES:
                     session_id = _extract_session_id(body)
                     if session_id is None:
@@ -428,13 +491,30 @@ class OpenCodeConnection(HarnessConnection[OpenCodeLaunchSpec]):
                         f"OpenCode session endpoint unavailable on {path}: "
                         f"status={status} body={_summarize_body(body)}"
                     )
-                    break
+                    raise SessionNotReadyError(last_error)
                 raise RuntimeError(
                     f"OpenCode session creation failed on {path}: "
                     f"status={status} body={_summarize_body(body)}"
                 )
 
         raise RuntimeError(last_error or "OpenCode session creation failed")
+
+    async def _get_json(
+        self,
+        path: str,
+    ) -> tuple[int, object | None, str]:
+        """Perform a GET request and return (status, parsed_body, content_type)."""
+        client = await self._ensure_http_client()
+        trace_wire_send(self._tracer, "http_get", "", path=path)
+        async with client.get(self._url(path)) as response:
+            status = int(response.status)
+            content_type = str(response.headers.get("Content-Type", "")).lower()
+            text_body = await response.text()
+        parsed_body = _parse_response_body(text_body)
+        trace_wire_recv(
+            self._tracer, "http_response", text_body, path=path, status=status
+        )
+        return status, parsed_body, content_type
 
     async def _post_session_message(self, text: str, *, system: str | None = None) -> None:
         payload: dict[str, object] = {
@@ -849,6 +929,17 @@ def _summarize_body(body: object | None) -> str:
     except TypeError:
         return repr(body)[:200]
     return serialized[:200]
+
+
+def _is_retryable_transport_error(exc: Exception) -> bool:
+    if isinstance(exc, OSError | TimeoutError):
+        return True
+    try:
+        aiohttp = importlib.import_module("aiohttp")
+    except ImportError:
+        return False
+    client_error = getattr(aiohttp, "ClientError", None)
+    return client_error is not None and isinstance(exc, client_error)
 
 
 def _materialize_system_prompt(

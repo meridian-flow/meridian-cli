@@ -128,8 +128,10 @@ def project_opencode_spec_to_session_payload(spec: OpenCodeLaunchSpec) -> dict[s
     if projected_mcp_tools:
         payload["mcp"] = {"servers": projected_mcp_tools}
 
-    if spec.continue_session_id is not None:
-        payload["sessionID"] = spec.continue_session_id
+    # Note: we intentionally do NOT pass continue_session_id to the server
+    # via payload. POST /session ignores sessionID and always creates a new
+    # empty session. Continuation is handled in opencode_http.py by verifying
+    # the existing session via GET /session/{id} before attempting POST.
 
     return payload
 

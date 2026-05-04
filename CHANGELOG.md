@@ -2,6 +2,10 @@
 
 Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [SemVer](https://semver.org/). Versions `0.0.6` through `0.0.25` in git history only — changelog fell stale, resumed at `[Unreleased]`.
 
+## [Unreleased]
+### Fixed
+- OpenCode session continuation creates empty session instead of resuming. Root cause: `POST /session` ignores `sessionID` payload and always creates a new empty session. Fix: verify existing session via `GET /session/{id}` before POST; if found, return it directly. Attach then connects to the existing session with full history.
+
 ## [0.0.48] - 2026-05-03
 ### Added
 - `meridian session export` command. Emits stitched full-session markdown transcripts; optional child spawn report appendix.
