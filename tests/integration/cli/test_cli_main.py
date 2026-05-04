@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 from meridian.cli.app_tree import AGENT_ROOT_HELP
+from meridian.cli.startup.policy import StartupClass
 from meridian.lib.state import paths as state_paths
 from meridian.lib.telemetry import emit_telemetry
 from meridian.lib.telemetry.router import get_global_router
@@ -92,6 +93,7 @@ def test_install_cli_telemetry_writes_usage_events_to_local_jsonl(
     try:
         cli_main._install_cli_telemetry(
             telemetry_mode=cli_main.StartupTelemetryMode.SEGMENT,
+            startup_class=StartupClass.WRITE_RUNTIME,
             project_root=project_root,
         )
         emit_telemetry(
@@ -135,6 +137,7 @@ def test_install_cli_telemetry_uses_inherited_spawn_owner_when_present(
     try:
         cli_main._install_cli_telemetry(
             telemetry_mode=cli_main.StartupTelemetryMode.SEGMENT,
+            startup_class=StartupClass.WRITE_RUNTIME,
             project_root=project_root,
         )
         emit_telemetry("usage", "usage.spawn.launched", scope="cli.dispatch")
