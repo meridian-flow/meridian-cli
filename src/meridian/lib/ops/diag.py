@@ -164,11 +164,14 @@ def doctor_sync(payload: DoctorInput) -> DoctorOutput:
     active_spawn_ids = {
         spawn.id for spawn in spawns if is_active_spawn_status(spawn.status)
     }
-    orphan_project_dirs = (
-        scan_orphan_project_dirs(get_user_home(), retention_days, now)
-        if payload.global_
-        else []
-    )
+    orphan_project_dirs: list[OrphanProjectDir] = []
+    if payload.global_:
+        if not is_root_side_effect_process():
+            raise RuntimeError(
+                "Global doctor maintenance requires a root Meridian process. "
+                "Run 'meridian doctor --global' from a top-level shell, not from a nested spawn."
+            )
+        orphan_project_dirs = scan_orphan_project_dirs(get_user_home(), retention_days, now)
     stale_spawn_artifacts = scan_stale_spawn_artifacts(
         runtime_root,
         retention_days,

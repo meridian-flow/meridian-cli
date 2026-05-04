@@ -541,6 +541,7 @@ def test_doctor_prune_with_global_also_prunes_global_orphan_dirs(
     project_root, current_spawn, orphan_root, other_spawn = _seed_pruning_layout(
         tmp_path, monkeypatch
     )
+    monkeypatch.setenv("MERIDIAN_DEPTH", "0")
 
     result = doctor_sync(
         DoctorInput(project_root=project_root.as_posix(), prune=True, global_=True)
@@ -554,3 +555,20 @@ def test_doctor_prune_with_global_also_prunes_global_orphan_dirs(
     assert not current_spawn.exists()
     assert other_spawn.exists()
     assert result.ok is True
+
+
+def test_doctor_global_requires_root_side_effect_process(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_root, current_spawn, orphan_root, other_spawn = _seed_pruning_layout(
+        tmp_path, monkeypatch
+    )
+    monkeypatch.setenv("MERIDIAN_DEPTH", "1")
+
+    with pytest.raises(RuntimeError, match="Global doctor maintenance requires a root"):
+        doctor_sync(DoctorInput(project_root=project_root.as_posix(), global_=True))
+
+    assert current_spawn.exists()
+    assert orphan_root.exists()
+    assert other_spawn.exists()
