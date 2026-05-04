@@ -7,6 +7,9 @@ import sys
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
+from pathlib import Path
+
+from meridian.cli.startup.policy import StateRequirement
 
 # Keep these startup parse tables in sync with `@app.default root(...)` in
 # `main.py` plus startup-only flags parsed before cyclopts (`--verbose` / `-v`).
@@ -94,20 +97,6 @@ def _first_positional_token(argv: Sequence[str]) -> str | None:
         return None
     _, token = resolved
     return token
-
-
-def _first_subcommand_token(argv: Sequence[str]) -> str | None:
-    resolved = _first_positional_token_with_index(argv)
-    if resolved is None:
-        return None
-    index, _ = resolved
-    for token in argv[index + 1 :]:
-        if token == "--":
-            return None
-        if token.startswith("-"):
-            continue
-        return token
-    return None
 
 
 def first_positional_token_with_index(argv: Sequence[str]) -> tuple[int, str] | None:
@@ -298,43 +287,74 @@ def is_root_help_request(argv: Sequence[str]) -> bool:
     return _first_positional_token(argv) is None
 
 
+def _state_requirement_for_argv(argv: Sequence[str]) -> StateRequirement | None:
+    """Return catalog startup state policy for argv without importing handlers."""
+
+    from meridian.cli.startup.catalog import COMMAND_CATALOG
+    from meridian.cli.startup.classify import classify_invocation
+
+    descriptor = classify_invocation(argv, COMMAND_CATALOG)
+    if descriptor is None:
+        return None
+    return descriptor.state_requirement
+
+
 def should_startup_bootstrap(argv: Sequence[str]) -> bool:
-    if any(token in {"--help", "-h", "--version"} for token in argv):
-        return False
-    top_level = _first_positional_token(argv)
-    if top_level is None:
-        return True
-    if top_level in {"session", "completion", "doctor"}:
-        return False
-    subcommand = _first_subcommand_token(argv)
-    if top_level == "models" and subcommand in {None, "list", "show"}:
-        return False
-    if top_level == "config" and subcommand in {"show", "get"}:
-        return False
-    if top_level == "work" and subcommand in {None, "list", "show", "sessions", "current"}:
-        return False
-    return not (
-        top_level == "spawn"
-        and subcommand in {"list", "show", "stats", "wait", "files", "log", "report"}
-    )
+    """Return whether legacy startup callers should prepare write runtime state.
+
+    Kept for compatibility with older callers. New startup flow should use the
+    catalog descriptor's ``state_requirement`` directly so read/write bootstrap
+    policy stays in one place.
+    """
+
+    state_requirement = _state_requirement_for_argv(argv)
+    return state_requirement in {
+        StateRequirement.PROJECT_WRITE,
+        StateRequirement.RUNTIME_WRITE,
+    }
 
 
-def maybe_bootstrap_runtime_state(argv: Sequence[str], *, agent_mode: bool) -> None:
+def maybe_bootstrap_runtime_state(
+    argv: Sequence[str],
+    *,
+    agent_mode: bool,
+    state_requirement: StateRequirement | None = None,
+) -> Path | None:
+    """Prepare startup state according to catalog policy and return project root.
+
+    The return value lets the CLI reuse the first project-root resolution for
+    downstream startup work instead of resolving it again.
+    """
+
     if agent_mode:
-        return
+        return None
     try:
+        from meridian.lib.bootstrap.services import (
+            prepare_for_project_read,
+            prepare_for_project_write,
+            prepare_for_runtime_read,
+            prepare_for_runtime_write,
+        )
         from meridian.lib.config.project_root import resolve_project_root
-        from meridian.lib.context import auto_migrate_contexts
-        from meridian.lib.ops.config import ensure_runtime_state_bootstrap_sync
-        from meridian.lib.state.paths import resolve_project_paths
+
+        requirement = state_requirement or _state_requirement_for_argv(argv)
+        if requirement in {None, StateRequirement.NONE}:
+            return None
 
         project_root = resolve_project_root()
-        auto_migrate_contexts(resolve_project_paths(project_root).root_dir)
-        if not should_startup_bootstrap(argv):
-            return
-        ensure_runtime_state_bootstrap_sync(project_root)
+
+        if requirement == StateRequirement.PROJECT_READ:
+            prepare_for_project_read(project_root)
+        elif requirement == StateRequirement.RUNTIME_READ:
+            prepare_for_runtime_read(project_root)
+        elif requirement == StateRequirement.PROJECT_WRITE:
+            prepare_for_project_write(project_root)
+        elif requirement == StateRequirement.RUNTIME_WRITE:
+            prepare_for_runtime_write(project_root)
+
+        return project_root
     except Exception:
-        pass
+        return None
 
 
 @contextmanager

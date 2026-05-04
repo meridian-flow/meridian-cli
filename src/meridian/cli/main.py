@@ -70,6 +70,7 @@ from meridian.cli.report_cmd import register_report_commands
 from meridian.cli.session_cmd import register_session_commands
 from meridian.cli.startup.catalog import COMMAND_CATALOG
 from meridian.cli.startup.classify import classify_invocation
+from meridian.cli.startup.policy import StateRequirement
 from meridian.cli.telemetry_cmd import register_telemetry_commands
 from meridian.cli.workspace_cmd import register_workspace_commands
 from meridian.lib.core.depth import is_nested_meridian_process
@@ -696,6 +697,12 @@ def _print_agent_root_help() -> None:
     print(_AGENT_ROOT_HELP, end="")
 
 
+def _should_upgrade_cli_telemetry(requirement: StateRequirement | None) -> bool:
+    """Return whether current legacy telemetry upgrade should materialize runtime state."""
+
+    return requirement == StateRequirement.RUNTIME_WRITE
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     """CLI entry point used by `meridian` and `python -m meridian`."""
 
@@ -725,6 +732,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         effective_agent_mode = False
     else:
         effective_agent_mode = agent_mode_enabled() and not _interactive_terminal_attached()
+
+    descriptor = classify_invocation(cleaned_args, COMMAND_CATALOG)
 
     # Resolve output format based on command and agent mode
     resolved_format = _resolve_output_format_for_command(
@@ -758,14 +767,15 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     maybe_handle_models_redirect(cleaned_args)
 
-    maybe_bootstrap_runtime_state(cleaned_args, agent_mode=agent_mode_enabled())
+    state_requirement = descriptor.state_requirement if descriptor is not None else None
+    project_root = maybe_bootstrap_runtime_state(
+        cleaned_args,
+        agent_mode=agent_mode_enabled(),
+        state_requirement=state_requirement,
+    )
     # Upgrade telemetry to project-local sink after project-root resolution.
-    try:
-        from meridian.lib.config.project_root import resolve_project_root
-
-        upgrade_cli_telemetry_to_project(resolve_project_root())
-    except Exception:
-        pass
+    if project_root is not None and _should_upgrade_cli_telemetry(state_requirement):
+        upgrade_cli_telemetry_to_project(project_root)
 
     active_sink = create_sink(options.output)
     options = options.model_copy(update={"sink": active_sink})
