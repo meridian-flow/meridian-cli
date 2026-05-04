@@ -38,9 +38,6 @@ from meridian.cli.bootstrap import (
     first_positional_token as _bootstrap_first_positional_token,
 )
 from meridian.cli.bootstrap import (
-    first_positional_token_with_index as _bootstrap_first_positional_token_with_index,
-)
-from meridian.cli.bootstrap import (
     is_root_help_request as _bootstrap_is_root_help_request,
 )
 from meridian.cli.bootstrap import (
@@ -71,6 +68,8 @@ from meridian.cli.output import (
 from meridian.cli.output import emit as emit_output
 from meridian.cli.report_cmd import register_report_commands
 from meridian.cli.session_cmd import register_session_commands
+from meridian.cli.startup.catalog import COMMAND_CATALOG
+from meridian.cli.startup.classify import classify_invocation
 from meridian.cli.telemetry_cmd import register_telemetry_commands
 from meridian.cli.workspace_cmd import register_workspace_commands
 from meridian.lib.core.depth import is_nested_meridian_process
@@ -108,6 +107,7 @@ class GlobalOptions(BaseModel):
 
 _GLOBAL_OPTIONS: ContextVar[GlobalOptions | None] = ContextVar("_GLOBAL_OPTIONS", default=None)
 _cli_buffering_sink: BufferingSink | None = None
+_group_commands_registered = False
 
 PrimaryLaunchOutput = primary_launch.PrimaryLaunchOutput
 
@@ -198,56 +198,6 @@ def agent_mode_enabled() -> bool:
     return is_nested_meridian_process()
 
 
-def _get_op_spec_by_cli(group: str, name: str):
-    from meridian.lib.extensions.registry import get_first_party_registry
-
-    return get_first_party_registry().get_by_cli(group, name)
-
-
-def _resolve_command_path(argv: Sequence[str]) -> tuple[str | None, str | None]:
-    """Resolve CLI command path (group, subcommand) from argv.
-
-    Returns (group, subcommand) where either may be None.
-    Special handling for spawn default routes which are not in the manifest.
-    """
-    # Future cleanup: if command-specific output policy keeps expanding, move
-    # command-path resolution out of main.py into a dedicated routing helper.
-    resolved_group = _bootstrap_first_positional_token_with_index(argv)
-    if resolved_group is None:
-        return None, None
-    group_index, group = resolved_group
-
-    # Spawn has a default handler. Only the immediate token after "spawn" can
-    # select a real subcommand. Later non-flag tokens can be option values.
-    if group == "spawn":
-        spawn_subcommands = {
-            name for name in spawn_app.resolved_commands() if not name.startswith("-")
-        }
-        next_token = argv[group_index + 1] if group_index + 1 < len(argv) else None
-        if (
-            next_token is not None
-            and not next_token.startswith("-")
-            and next_token in spawn_subcommands
-        ):
-            return "spawn", next_token
-        if "--continue" in argv or any(token.startswith("--continue=") for token in argv):
-            return "spawn", "continue"
-        return "spawn", "create"
-
-    # Get non-flag tokens after the group.
-    remaining = [a for a in argv[group_index:] if not a.startswith("-")]
-    subcommand = remaining[1] if len(remaining) > 1 else None
-
-    # Check for single-command groups (cli_name == cli_group)
-    if (
-        (subcommand is None or _get_op_spec_by_cli(group, subcommand) is None)
-        and _get_op_spec_by_cli(group, group) is not None
-    ):
-        return group, group
-
-    return group, subcommand
-
-
 def _resolve_output_format_for_command(
     *,
     argv: Sequence[str],
@@ -258,13 +208,11 @@ def _resolve_output_format_for_command(
     from typing import Literal
 
     from meridian.cli.output import resolve_effective_format
-    group, subcommand = _resolve_command_path(argv)
 
     agent_default_format: Literal["text", "json"] | None = None
-    if group is not None and subcommand is not None:
-        op = _get_op_spec_by_cli(group, subcommand)
-        if op is not None:
-            agent_default_format = op.agent_default_format
+    descriptor = classify_invocation(argv, COMMAND_CATALOG)
+    if descriptor is not None and descriptor.default_output_mode in {"text", "json"}:
+        agent_default_format = cast("Literal['text', 'json']", descriptor.default_output_mode)
 
     return resolve_effective_format(
         explicit_format=explicit_format,
@@ -622,6 +570,10 @@ register_misc_commands(
 
 
 def _register_group_commands() -> None:
+    global _group_commands_registered
+    if _group_commands_registered:
+        return
+
     from meridian.cli.spawn import register_spawn_commands
     from meridian.cli.work_cmd import register_work_commands
 
@@ -653,6 +605,7 @@ def _register_group_commands() -> None:
 
     _ = _kg_cmd
     _ = _mermaid_cmd
+    _group_commands_registered = True
 
 
 def _operation_error_message(exc: Exception) -> str:
@@ -675,7 +628,7 @@ def _emit_error(message: str, *, exit_code: int = 1) -> None:
 
 
 def _top_level_command_names() -> set[str]:
-    return {name for name in app.resolved_commands() if not name.startswith("-")}
+    return COMMAND_CATALOG.top_level_names()
 
 
 def _validate_top_level_command(argv: Sequence[str], *, global_harness: str | None = None) -> None:
@@ -693,14 +646,10 @@ def _is_root_help_request(argv: Sequence[str]) -> bool:
 
 
 def _normalized_usage_command(argv: Sequence[str]) -> str:
-    group, subcommand = _resolve_command_path(argv)
-    if group is None:
+    descriptor = classify_invocation(argv, COMMAND_CATALOG)
+    if descriptor is None:
         return "root"
-    if group == "spawn":
-        return f"spawn.{subcommand or 'create'}"
-    if subcommand is not None and subcommand != group:
-        return f"{group}.{subcommand}"
-    return group
+    return ".".join(descriptor.command_path) if descriptor.command_path else "root"
 
 
 def _emit_usage_command_invoked(argv: Sequence[str]) -> None:
@@ -837,6 +786,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             if _is_doctor_scan_launch_path(cleaned_args) and not is_nested_meridian_process():
                 maybe_start_background_doctor_scan()
             try:
+                _register_group_commands()
                 app(cleaned_args)
             except SystemExit:
                 raise
@@ -851,6 +801,3 @@ def main(argv: Sequence[str] | None = None) -> None:
             from meridian.cli.agent_help import restore_help_supplements
 
             restore_help_supplements()
-
-
-_register_group_commands()

@@ -1,0 +1,85 @@
+"""Bootstrap facade combining project, runtime, and config services."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+
+from meridian.lib.bootstrap import config as bootstrap_config
+from meridian.lib.bootstrap import project_state, runtime_state
+from meridian.lib.bootstrap.project_state import ProjectLayoutSnapshot
+from meridian.lib.config.settings import MeridianConfig
+
+
+@dataclass(frozen=True)
+class ProjectReadContext:
+    project_root: Path
+    layout: ProjectLayoutSnapshot
+    config: MeridianConfig | None
+
+
+@dataclass(frozen=True)
+class RuntimeReadContext(ProjectReadContext):
+    runtime_root: Path | None
+
+
+@dataclass(frozen=True)
+class ProjectWriteContext(ProjectReadContext):
+    migration_ran: bool = True
+    project_dirs_ensured: bool = True
+
+
+@dataclass(frozen=True)
+class RuntimeWriteContext(RuntimeReadContext):
+    migration_ran: bool = True
+    project_dirs_ensured: bool = True
+    runtime_dirs_ensured: bool = True
+
+
+def prepare_for_project_read(project_root: Path) -> ProjectReadContext:
+    """Prepare read-only project context without filesystem mutation."""
+
+    return ProjectReadContext(
+        project_root=project_root,
+        layout=project_state.resolve_layout(project_root),
+        config=bootstrap_config.load_config(project_root),
+    )
+
+
+def prepare_for_runtime_read(project_root: Path) -> RuntimeReadContext:
+    """Prepare read-only runtime context without creating state."""
+
+    project_context = prepare_for_project_read(project_root)
+    return RuntimeReadContext(
+        project_root=project_context.project_root,
+        layout=project_context.layout,
+        config=project_context.config,
+        runtime_root=runtime_state.resolve_runtime_root_for_read(project_root),
+    )
+
+
+def prepare_for_project_write(project_root: Path) -> ProjectWriteContext:
+    """Prepare project write context, running migration and project dir setup."""
+
+    project_state.migrate_legacy_paths(project_root)
+    project_state.ensure_project_dirs(project_root)
+    project_state.ensure_project_gitignore(project_root)
+    return ProjectWriteContext(
+        project_root=project_root,
+        layout=project_state.resolve_layout(project_root),
+        config=bootstrap_config.load_config(project_root),
+    )
+
+
+def prepare_for_runtime_write(project_root: Path) -> RuntimeWriteContext:
+    """Prepare runtime write context, including UUID and runtime dirs."""
+
+    project_write_context = prepare_for_project_write(project_root)
+    runtime_root = runtime_state.ensure_runtime_root(project_root)
+    runtime_state.ensure_runtime_dirs(runtime_root)
+    return RuntimeWriteContext(
+        project_root=project_write_context.project_root,
+        layout=project_write_context.layout,
+        config=project_write_context.config,
+        runtime_root=runtime_root,
+    )
