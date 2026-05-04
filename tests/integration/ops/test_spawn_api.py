@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 import meridian.lib.ops.spawn.api as spawn_api
+from meridian.lib.bootstrap.services import prepare_for_runtime_write
 from meridian.lib.launch.constants import PRIMARY_META_FILENAME
 from meridian.lib.ops.spawn.models import (
     SpawnCreateInput,
@@ -76,6 +77,10 @@ def _write_primary_meta(
     )
 
 
+def _noop_setup_telemetry(**_kwargs: object) -> None:
+    pass
+
+
 def test_spawn_create_dry_run_resolves_project_root_from_nested_cwd(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -117,7 +122,7 @@ def test_spawn_create_dry_run_emits_usage_events(
     (project_root / ".git").mkdir()
     (project_root / "mars.toml").write_text("", encoding="utf-8")
     monkeypatch.chdir(project_root)
-    monkeypatch.setattr(spawn_api, "setup_telemetry", lambda **_kwargs: None)
+    monkeypatch.setattr(spawn_api, "setup_telemetry", _noop_setup_telemetry)
     sink = RecordingTelemetrySink()
     init_telemetry(sink=sink)
 
@@ -144,6 +149,39 @@ def test_spawn_create_dry_run_emits_usage_events(
     }
     assert "gpt-5.3-codex" not in json.dumps(usage_events["usage.model.selected"].to_dict())
     assert usage_events["usage.spawn.launched"].data == {"harness": "codex"}
+
+
+def test_spawn_create_with_prepared_skips_self_bootstrap(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_root = tmp_path / "repo"
+    project_root.mkdir()
+    (project_root / ".git").mkdir()
+    (project_root / "mars.toml").write_text("", encoding="utf-8")
+    prepared = prepare_for_runtime_write(project_root)
+
+    def _forbidden(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("self-bootstrap helper should not be called")
+
+    monkeypatch.setattr(spawn_api, "setup_telemetry", _forbidden)
+    monkeypatch.setattr(spawn_api, "load_config", _forbidden)
+    monkeypatch.setattr(spawn_api, "resolve_runtime_root_and_config", _forbidden)
+    monkeypatch.setattr(spawn_api, "resolve_runtime_root", _forbidden)
+
+    result = spawn_api.spawn_create_sync(
+        SpawnCreateInput(
+            prompt="run",
+            model="gpt-5.3-codex",
+            harness="codex",
+            project_root=project_root.as_posix(),
+            dry_run=True,
+        ),
+        prepared=prepared,
+    )
+
+    assert result.status == "dry-run"
+    assert result.harness_id == "codex"
 
 
 def test_spawn_stats_includes_finalizing_bucket(tmp_path: Path) -> None:

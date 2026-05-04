@@ -201,19 +201,24 @@ def _resolve_harness_session_reference(
     )
 
 
-def resolve_session_reference(project_root: Path, ref: str) -> ResolvedSessionReference:
+def resolve_session_reference(
+    project_root: Path,
+    ref: str,
+    *,
+    runtime_root: Path | None = None,
+) -> ResolvedSessionReference:
     """Resolve a session/spawn reference to harness session ID and source metadata."""
 
     normalized = ref.strip()
     if not normalized:
         raise ValueError("Session reference is required.")
 
-    runtime_root = resolve_runtime_root_for_read(project_root)
+    resolved_runtime_root = runtime_root or resolve_runtime_root_for_read(project_root)
     if _SPAWN_REF_RE.fullmatch(normalized):
-        return _resolve_spawn_reference(runtime_root, normalized, project_root)
+        return _resolve_spawn_reference(resolved_runtime_root, normalized, project_root)
     if _CHAT_REF_RE.fullmatch(normalized):
-        return _resolve_chat_reference(runtime_root, normalized, project_root)
-    return _resolve_harness_session_reference(runtime_root, normalized, project_root)
+        return _resolve_chat_reference(resolved_runtime_root, normalized, project_root)
+    return _resolve_harness_session_reference(resolved_runtime_root, normalized, project_root)
 
 
 __all__ = [

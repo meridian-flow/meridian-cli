@@ -26,11 +26,15 @@ def _select_latest_spawn_id(
     project_root: Path,
     *,
     statuses: tuple[str, ...] | None,
+    runtime_root: Path | None = None,
 ) -> str | None:
     from meridian.lib.state.reaper import reconcile_spawns
 
-    runtime_root = resolve_runtime_root_for_read(project_root)
-    spawns = reconcile_spawns(runtime_root, spawn_store.list_spawns(runtime_root))
+    resolved_runtime_root = runtime_root or resolve_runtime_root_for_read(project_root)
+    spawns = reconcile_spawns(
+        resolved_runtime_root,
+        spawn_store.list_spawns(resolved_runtime_root),
+    )
     if statuses is not None:
         wanted = set(statuses)
         spawns = [item for item in spawns if item.status in wanted]
@@ -39,13 +43,18 @@ def _select_latest_spawn_id(
     return spawns[-1].id
 
 
-def resolve_spawn_reference(project_root: Path, ref: str) -> str:
+def resolve_spawn_reference(
+    project_root: Path,
+    ref: str,
+    *,
+    runtime_root: Path | None = None,
+) -> str:
     normalized = ref.strip()
     if not normalized:
         raise ValueError("spawn_id is required")
     if not normalized.startswith("@"):
-        runtime_root = resolve_runtime_root_for_read(project_root)
-        resolved = resolve_spawn_ref(runtime_root, normalized)
+        resolved_runtime_root = runtime_root or resolve_runtime_root_for_read(project_root)
+        resolved = resolve_spawn_ref(resolved_runtime_root, normalized)
         return str(resolved) if resolved is not None else normalized
 
     status_filter = _SPAWN_REFERENCE_STATUS_FILTERS.get(normalized)
@@ -55,23 +64,42 @@ def resolve_spawn_reference(project_root: Path, ref: str) -> str:
             f"Unknown spawn reference '{normalized}'. Supported references: {supported}"
         )
 
-    resolved = _select_latest_spawn_id(project_root, statuses=status_filter)
+    resolved = _select_latest_spawn_id(
+        project_root,
+        statuses=status_filter,
+        runtime_root=runtime_root,
+    )
     if resolved is None:
         raise ValueError(f"No spawns found for reference '{normalized}'")
     return resolved
 
 
-def resolve_spawn_references(project_root: Path, refs: tuple[str, ...]) -> tuple[str, ...]:
-    return tuple(dict.fromkeys(resolve_spawn_reference(project_root, ref) for ref in refs))
+def resolve_spawn_references(
+    project_root: Path,
+    refs: tuple[str, ...],
+    *,
+    runtime_root: Path | None = None,
+) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            resolve_spawn_reference(project_root, ref, runtime_root=runtime_root)
+            for ref in refs
+        )
+    )
 
 
-def read_spawn_row(project_root: Path, spawn_id: str) -> spawn_store.SpawnRecord | None:
-    runtime_root = resolve_runtime_root_for_read(project_root)
-    record = spawn_store.get_spawn(runtime_root, spawn_id)
+def read_spawn_row(
+    project_root: Path,
+    spawn_id: str,
+    *,
+    runtime_root: Path | None = None,
+) -> spawn_store.SpawnRecord | None:
+    resolved_runtime_root = runtime_root or resolve_runtime_root_for_read(project_root)
+    record = spawn_store.get_spawn(resolved_runtime_root, spawn_id)
     if record is not None and is_active_spawn_status(record.status):
         from meridian.lib.state.reaper import reconcile_active_spawn
 
-        record = reconcile_active_spawn(runtime_root, record)
+        record = reconcile_active_spawn(resolved_runtime_root, record)
     return record
 
 
@@ -80,8 +108,10 @@ def read_report(
     spawn_id: str,
     *,
     include_body: bool,
+    runtime_root: Path | None = None,
 ) -> tuple[str | None, str | None]:
-    report_path = resolve_runtime_root_for_read(project_root) / "spawns" / spawn_id / "report.md"
+    resolved_runtime_root = runtime_root or resolve_runtime_root_for_read(project_root)
+    report_path = resolved_runtime_root / "spawns" / spawn_id / "report.md"
     if not report_path.is_file():
         return None, None
     if not include_body:
@@ -90,8 +120,13 @@ def read_report(
     return report_path.as_posix(), text
 
 
-def read_report_text(project_root: Path, spawn_id: str) -> tuple[str | None, str | None]:
-    return read_report(project_root, spawn_id, include_body=True)
+def read_report_text(
+    project_root: Path,
+    spawn_id: str,
+    *,
+    runtime_root: Path | None = None,
+) -> tuple[str | None, str | None]:
+    return read_report(project_root, spawn_id, include_body=True, runtime_root=runtime_root)
 
 
 def _truncate_log_message(value: str, *, max_chars: int = _RUNNING_LOG_MESSAGE_LIMIT) -> str:
@@ -184,20 +219,32 @@ def extract_last_assistant_message(stderr_text: str) -> str | None:
     return _truncate_log_message(last_message)
 
 
-def _read_running_log_details(project_root: Path, spawn_id: str) -> tuple[str, str | None]:
-    stderr_path = resolve_runtime_root_for_read(project_root) / "spawns" / spawn_id / "stderr.log"
+def _read_running_log_details(
+    project_root: Path,
+    spawn_id: str,
+    *,
+    runtime_root: Path | None = None,
+) -> tuple[str, str | None]:
+    resolved_runtime_root = runtime_root or resolve_runtime_root_for_read(project_root)
+    stderr_path = resolved_runtime_root / "spawns" / spawn_id / "stderr.log"
     if not stderr_path.is_file():
         return stderr_path.as_posix(), None
     stderr_text = stderr_path.read_text(encoding="utf-8", errors="ignore")
     return stderr_path.as_posix(), extract_last_assistant_message(stderr_text)
 
 
-def read_written_files(project_root: Path, spawn_id: str) -> tuple[str, ...]:
+def read_written_files(
+    project_root: Path,
+    spawn_id: str,
+    *,
+    runtime_root: Path | None = None,
+) -> tuple[str, ...]:
     from meridian.lib.core.types import SpawnId
     from meridian.lib.launch.written_files import extract_written_files
     from meridian.lib.state.artifact_store import LocalStore
 
-    artifacts = LocalStore(root_dir=resolve_runtime_root_for_read(project_root) / "artifacts")
+    resolved_runtime_root = runtime_root or resolve_runtime_root_for_read(project_root)
+    artifacts = LocalStore(root_dir=resolved_runtime_root / "artifacts")
     return extract_written_files(artifacts, SpawnId(spawn_id))
 
 
@@ -206,14 +253,24 @@ def detail_from_row(
     project_root: Path,
     row: spawn_store.SpawnRecord,
     include_report_body: bool,
+    runtime_root: Path | None = None,
 ) -> SpawnDetailOutput:
-    report_path, report_body = read_report(project_root, row.id, include_body=include_report_body)
+    report_path, report_body = read_report(
+        project_root,
+        row.id,
+        include_body=include_report_body,
+        runtime_root=runtime_root,
+    )
     report_summary = report_body[:500] if report_body else None
 
     last_message: str | None = None
     log_path: str | None = None
     if is_active_spawn_status(row.status):
-        log_path, last_message = _read_running_log_details(project_root, row.id)
+        log_path, last_message = _read_running_log_details(
+            project_root,
+            row.id,
+            runtime_root=runtime_root,
+        )
 
     return SpawnDetailOutput(
         spawn_id=row.id,

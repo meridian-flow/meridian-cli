@@ -15,6 +15,7 @@ from typing import Any, cast
 import structlog
 from pydantic import BaseModel, ConfigDict
 
+from meridian.lib.bootstrap.services import RuntimeWriteContext, prepare_for_runtime_write
 from meridian.lib.config.project_paths import ProjectConfigPaths, resolve_project_config_paths
 from meridian.lib.core.child_env import build_child_env_overrides
 from meridian.lib.core.context import RuntimeContext
@@ -24,6 +25,7 @@ from meridian.lib.core.lifecycle import SpawnLifecycleService, create_lifecycle_
 from meridian.lib.core.sink import OutputSink
 from meridian.lib.core.spawn_service import SpawnApplicationService
 from meridian.lib.core.types import HarnessId, ModelId, SpawnId
+from meridian.lib.harness.registry import get_default_harness_registry
 from meridian.lib.launch.artifact_io import write_projection_artifacts
 from meridian.lib.launch.context import build_launch_context
 from meridian.lib.launch.cwd import resolve_child_execution_cwd
@@ -65,6 +67,7 @@ from .models import SpawnActionOutput, SpawnCreateInput
 from .query import read_spawn_row
 
 logger = structlog.get_logger(__name__)
+_SETUP_TELEMETRY_COMPAT = setup_telemetry
 _BACKGROUND_SUBMIT_MESSAGE = "Background spawn submitted."
 _BACKGROUND_STDOUT_FILENAME = "background-launcher.stdout.log"
 _BACKGROUND_STDERR_FILENAME = "background-launcher.stderr.log"
@@ -477,10 +480,23 @@ async def _execute_existing_spawn(
     launch_request: BackgroundWorkerLaunchRequest,
     sink: OutputSink | None = None,
     ctx: RuntimeContext | None = None,
+    prepared: RuntimeWriteContext | None = None,
 ) -> int:
     resolved_context = runtime_context(ctx)
-    runtime = build_runtime(str(project_paths.project_root), sink=sink)
-    runtime_root = resolve_runtime_root(project_paths.project_root)
+    if prepared is not None:
+        if prepared.config is None:
+            raise ValueError("Prepared runtime write context is missing config.")
+        if prepared.runtime_root is None:
+            raise ValueError("Prepared runtime write context is missing runtime root.")
+        runtime = OperationRuntime.from_prepared(
+            prepared,
+            harness_registry=get_default_harness_registry(),
+            sink=sink,
+        )
+        runtime_root = prepared.runtime_root
+    else:
+        runtime = build_runtime(str(project_paths.project_root), sink=sink)
+        runtime_root = resolve_runtime_root(project_paths.project_root)
     spawn_record = spawn_store.get_spawn(runtime_root, spawn_id)
     if spawn_record is None:
         logger.error("Spawn not found for background execution.", spawn_id=str(spawn_id))
@@ -1079,10 +1095,21 @@ def _background_worker_main(
     parsed = parser.parse_args(list(argv) if argv is not None else None)
 
     project_root = Path(parsed.project_root).expanduser().resolve()
-    project_paths = resolve_project_config_paths(project_root=project_root)
+    prepared = prepare_for_runtime_write(project_root)
+    project_paths = resolve_project_config_paths(project_root=prepared.project_root)
     spawn_id = SpawnId(parsed.spawn_id)
-    runtime_root = resolve_runtime_root(project_paths.project_root)
-    setup_telemetry(runtime_root=runtime_root, logical_owner=str(spawn_id))
+    if prepared.runtime_root is None:
+        raise ValueError("Prepared runtime write context is missing runtime root.")
+    runtime_root = prepared.runtime_root
+    from meridian.lib.telemetry.bootstrap import TelemetryMode, TelemetryPlan, install
+
+    install(
+        TelemetryPlan(
+            mode=TelemetryMode.SEGMENT,
+            runtime_root=runtime_root,
+            logical_owner=str(spawn_id),
+        )
+    )
     register_spawn_telemetry_observer()
     log_dir = resolve_spawn_log_dir(project_paths.project_root, spawn_id)
     try:
@@ -1114,6 +1141,7 @@ def _background_worker_main(
                 project_paths=project_paths,
                 launch_request=launch_request,
                 ctx=resolved_context,
+                prepared=prepared,
             )
         )
     finally:

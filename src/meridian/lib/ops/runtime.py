@@ -9,6 +9,7 @@ from typing import Any, ParamSpec, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from meridian.lib.bootstrap.services import RuntimeWriteContext
 from meridian.lib.config.project_root import resolve_project_root
 from meridian.lib.config.settings import MeridianConfig, load_config
 from meridian.lib.core.context import RuntimeContext
@@ -45,6 +46,26 @@ class OperationRuntime(BaseModel):
     harness_registry: Any  # HarnessRegistry — typed as Any to avoid circular import
     artifacts: LocalStore
     sink: OutputSink = Field(default_factory=NullSink)
+
+    @classmethod
+    def from_prepared(
+        cls,
+        prepared: RuntimeWriteContext,
+        *,
+        harness_registry: Any,
+        sink: OutputSink | None = None,
+    ) -> "OperationRuntime":
+        if prepared.config is None:
+            raise ValueError("Prepared runtime write context is missing config.")
+        if prepared.runtime_root is None:
+            raise ValueError("Prepared runtime write context is missing runtime root.")
+        return cls(
+            project_root=prepared.project_root,
+            config=prepared.config,
+            harness_registry=harness_registry,
+            artifacts=LocalStore(root_dir=prepared.runtime_root / "artifacts"),
+            sink=sink or NullSink(),
+        )
 
 
 @dataclass(frozen=True)

@@ -8,6 +8,7 @@ import pytest
 import meridian.cli.chat_cmd as chat_cmd
 import meridian.lib.ops.spawn.api as spawn_api
 import meridian.lib.ops.spawn.execute as spawn_execute
+import meridian.lib.telemetry.bootstrap as telemetry_bootstrap
 from meridian.lib.ops.spawn.models import SpawnCreateInput
 
 
@@ -121,11 +122,17 @@ def test_background_worker_main_uses_spawn_id_as_logical_owner(
     project_root.mkdir()
     captured: dict[str, object] = {}
 
-    def _capture_setup_telemetry(*, runtime_root=None, logical_owner=None, **_kwargs):
-        captured["runtime_root"] = runtime_root
-        captured["logical_owner"] = logical_owner
+    def _capture_install(plan):
+        captured["runtime_root"] = plan.runtime_root
+        captured["logical_owner"] = plan.logical_owner
+        return SimpleNamespace(mode=plan.mode)
 
-    monkeypatch.setattr(spawn_execute, "setup_telemetry", _capture_setup_telemetry)
+    monkeypatch.setattr(telemetry_bootstrap, "install", _capture_install)
+    monkeypatch.setattr(
+        spawn_execute,
+        "prepare_for_runtime_write",
+        lambda _root: SimpleNamespace(project_root=project_root, runtime_root=runtime_root),
+    )
     monkeypatch.setattr(spawn_execute, "register_spawn_telemetry_observer", lambda: None)
     monkeypatch.setattr(
         spawn_execute,

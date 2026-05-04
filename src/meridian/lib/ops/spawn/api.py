@@ -5,6 +5,7 @@ import os
 import time
 from pathlib import Path
 
+from meridian.lib.bootstrap.services import RuntimeReadContext, RuntimeWriteContext
 from meridian.lib.config.settings import load_config
 from meridian.lib.core.context import RuntimeContext
 from meridian.lib.core.depth import max_depth_reached
@@ -17,6 +18,7 @@ from meridian.lib.core.types import SpawnId
 from meridian.lib.launch.request import SessionRequest
 from meridian.lib.ops.reference import ResolvedSessionReference, resolve_session_reference
 from meridian.lib.ops.runtime import (
+    OperationRuntime,
     build_runtime_from_root_and_config,
     resolve_runtime_root,
     resolve_runtime_root_and_config,
@@ -119,6 +121,10 @@ def _resolve_project_root_input(project_root: str | None) -> Path:
     return resolved_root
 
 
+def _runtime_root_from_read_prepared(prepared: RuntimeReadContext) -> Path:
+    return prepared.runtime_root or resolve_runtime_root_for_read(prepared.project_root)
+
+
 def _surface_primary_activity(status: str, activity: str | None) -> str | None:
     normalized = (activity or "").strip()
     if not normalized:
@@ -146,12 +152,20 @@ def spawn_create_sync(
     ctx: RuntimeContext | None = None,
     *,
     sink: OutputSink | None = None,
+    prepared: RuntimeWriteContext | None = None,
 ) -> SpawnActionOutput:
+    prepared_context = prepared
     register_debug_trace_observer()
     resolved_context = runtime_context(ctx)
     spawn_env_id = os.environ.get("MERIDIAN_SPAWN_ID")
     logical_owner = spawn_env_id if spawn_env_id else "cli"
-    if payload.dry_run:
+    if prepared_context is not None:
+        resolved_root = prepared_context.project_root
+        if prepared_context.config is None:
+            raise ValueError("Prepared runtime write context is missing config.")
+        config = prepared_context.config
+        register_spawn_telemetry_observer()
+    elif payload.dry_run:
         resolved_root = _resolve_project_root_input(payload.project_root)
         config = load_config(resolved_root)
         setup_telemetry(runtime_root=None, logical_owner=logical_owner)
@@ -175,9 +189,18 @@ def spawn_create_sync(
         current_depth, max_depth = depth_limits(config.max_depth, ctx=resolved_context)
         if max_depth_reached(current_depth, max_depth):
             return depth_exceeded_output(current_depth, max_depth)
+    if prepared_context is not None:
+        from meridian.lib.harness.registry import get_default_harness_registry
+
+        runtime = OperationRuntime.from_prepared(
+            prepared_context,
+            harness_registry=get_default_harness_registry(),
+            sink=sink,
+        )
+    elif not payload.dry_run:
         runtime = build_runtime_from_root_and_config(resolved_root, config, sink=sink)
 
-    prepared = build_create_payload(
+    prepared_request = build_create_payload(
         payload,
         runtime=runtime,
         preflight_warning=preflight_warning,
@@ -185,25 +208,27 @@ def spawn_create_sync(
     )
     forked_from = _forked_from_output(payload)
     if payload.dry_run:
-        _emit_usage_spawn_launched(harness=prepared.harness)
+        _emit_usage_spawn_launched(harness=prepared_request.harness)
         return SpawnActionOutput(
             command="spawn.create",
             status="dry-run",
-            model=prepared.model or "",
-            harness_id=prepared.harness or "",
-            warning=prepared.warning,
-            agent=prepared.agent,
-            agent_path=prepared.agent_metadata.get("session_agent_path") or None,
-            skills=prepared.skills,
-            skill_paths=prepared.skill_paths,
-            reference_files=prepared.reference_files,
-            template_vars=prepared.template_vars,
-            context_from_resolved=tuple(prepared.context_from or ()),
-            composed_prompt=prepared.prompt,
-            model_selection_requested_token=prepared.model_selection_requested_token,
-            model_selection_canonical_id=prepared.model_selection_canonical_id,
-            model_selection_harness_provenance=prepared.model_selection_harness_provenance,
-            cli_command=prepared.cli_command,
+            model=prepared_request.model or "",
+            harness_id=prepared_request.harness or "",
+            warning=prepared_request.warning,
+            agent=prepared_request.agent,
+            agent_path=prepared_request.agent_metadata.get("session_agent_path") or None,
+            skills=prepared_request.skills,
+            skill_paths=prepared_request.skill_paths,
+            reference_files=prepared_request.reference_files,
+            template_vars=prepared_request.template_vars,
+            context_from_resolved=tuple(prepared_request.context_from or ()),
+            composed_prompt=prepared_request.prompt,
+            model_selection_requested_token=prepared_request.model_selection_requested_token,
+            model_selection_canonical_id=prepared_request.model_selection_canonical_id,
+            model_selection_harness_provenance=(
+                prepared_request.model_selection_harness_provenance
+            ),
+            cli_command=prepared_request.cli_command,
             message="Dry run complete.",
             forked_from=forked_from,
         )
@@ -213,19 +238,19 @@ def spawn_create_sync(
     if payload.background:
         result = execute_spawn_background(
             payload=payload,
-            request=prepared,
+            request=prepared_request,
             runtime=runtime,
             ctx=resolved_context,
         )
     else:
         result = execute_spawn_blocking(
             payload=payload,
-            request=prepared,
+            request=prepared_request,
             runtime=runtime,
             ctx=resolved_context,
         )
     _emit_usage_spawn_launched(
-        harness=result.harness_id or prepared.harness,
+        harness=result.harness_id or prepared_request.harness,
         spawn_id=result.spawn_id,
     )
     if forked_from is None:
@@ -238,8 +263,15 @@ async def spawn_create(
     ctx: RuntimeContext | None = None,
     *,
     sink: OutputSink | None = None,
+    prepared: RuntimeWriteContext | None = None,
 ) -> SpawnActionOutput:
-    return await asyncio.to_thread(spawn_create_sync, payload, ctx=ctx, sink=sink)
+    return await asyncio.to_thread(
+        spawn_create_sync,
+        payload,
+        ctx=ctx,
+        sink=sink,
+        prepared=prepared,
+    )
 
 
 def spawn_list_sync(
@@ -247,12 +279,21 @@ def spawn_list_sync(
     ctx: RuntimeContext | None = None,
     *,
     sink: OutputSink | None = None,
+    prepared: RuntimeReadContext | None = None,
 ) -> SpawnListOutput:
     _ = (ctx, sink)
-    project_root = _resolve_project_root_input(payload.project_root)
+    project_root = (
+        prepared.project_root
+        if prepared is not None
+        else _resolve_project_root_input(payload.project_root)
+    )
     from meridian.lib.state.reaper import reconcile_spawns
 
-    runtime_root = resolve_runtime_root_for_read(project_root)
+    runtime_root = (
+        _runtime_root_from_read_prepared(prepared)
+        if prepared is not None
+        else resolve_runtime_root_for_read(project_root)
+    )
     spawns = list(reversed(reconcile_spawns(runtime_root, spawn_store.list_spawns(runtime_root))))
 
     # When statuses is empty tuple, show all statuses but cap intelligently:
@@ -331,8 +372,9 @@ async def spawn_list(
     ctx: RuntimeContext | None = None,
     *,
     sink: OutputSink | None = None,
+    prepared: RuntimeReadContext | None = None,
 ) -> SpawnListOutput:
-    return await asyncio.to_thread(spawn_list_sync, payload, ctx=ctx, sink=sink)
+    return await asyncio.to_thread(spawn_list_sync, payload, ctx=ctx, sink=sink, prepared=prepared)
 
 
 def _collect_descendants(
@@ -365,12 +407,21 @@ def spawn_stats_sync(
     ctx: RuntimeContext | None = None,
     *,
     sink: OutputSink | None = None,
+    prepared: RuntimeReadContext | None = None,
 ) -> SpawnStatsOutput:
     _ = (ctx, sink)
-    project_root = _resolve_project_root_input(payload.project_root)
+    project_root = (
+        prepared.project_root
+        if prepared is not None
+        else _resolve_project_root_input(payload.project_root)
+    )
     from meridian.lib.state.reaper import reconcile_spawns
 
-    runtime_root = resolve_runtime_root_for_read(project_root)
+    runtime_root = (
+        _runtime_root_from_read_prepared(prepared)
+        if prepared is not None
+        else resolve_runtime_root_for_read(project_root)
+    )
     all_spawns = reconcile_spawns(runtime_root, spawn_store.list_spawns(runtime_root))
 
     if payload.session is not None and payload.session.strip():
@@ -471,8 +522,9 @@ async def spawn_stats(
     ctx: RuntimeContext | None = None,
     *,
     sink: OutputSink | None = None,
+    prepared: RuntimeReadContext | None = None,
 ) -> SpawnStatsOutput:
-    return await asyncio.to_thread(spawn_stats_sync, payload, ctx=ctx, sink=sink)
+    return await asyncio.to_thread(spawn_stats_sync, payload, ctx=ctx, sink=sink, prepared=prepared)
 
 
 def spawn_show_sync(
@@ -480,11 +532,28 @@ def spawn_show_sync(
     ctx: RuntimeContext | None = None,
     *,
     sink: OutputSink | None = None,
+    prepared: RuntimeReadContext | None = None,
 ) -> SpawnDetailOutput:
     _ = (ctx, sink)
-    project_root = _resolve_project_root_input(payload.project_root)
-    spawn_id = resolve_spawn_reference(project_root, payload.spawn_id)
-    row = read_spawn_row(project_root, spawn_id)
+    project_root = (
+        prepared.project_root
+        if prepared is not None
+        else _resolve_project_root_input(payload.project_root)
+    )
+    runtime_root = (
+        _runtime_root_from_read_prepared(prepared)
+        if prepared is not None
+        else resolve_runtime_root_for_read(project_root)
+    )
+    if prepared is not None:
+        spawn_id = resolve_spawn_reference(
+            project_root,
+            payload.spawn_id,
+            runtime_root=runtime_root,
+        )
+    else:
+        spawn_id = resolve_spawn_reference(project_root, payload.spawn_id)
+    row = read_spawn_row(project_root, spawn_id, runtime_root=runtime_root)
     if row is None:
         raise ValueError(f"Spawn '{spawn_id}' not found")
     kind = "primary" if (row.kind or "").strip() == "primary" else None
@@ -494,7 +563,6 @@ def spawn_show_sync(
     tui_pid: int | None = None
     backend_port: int | None = None
     harness_session_id: str | None = None
-    runtime_root = resolve_runtime_root_for_read(project_root)
     if kind == "primary":
         metadata = read_primary_surface_metadata(runtime_root, spawn_id)
         managed_backend = metadata.managed_backend
@@ -508,6 +576,7 @@ def spawn_show_sync(
         project_root=project_root,
         row=row,
         include_report_body=payload.include_report_body,
+        runtime_root=runtime_root,
     )
     surfaced_activity = _surface_primary_activity(row.status, activity)
     return detail.model_copy(
@@ -528,8 +597,9 @@ async def spawn_show(
     ctx: RuntimeContext | None = None,
     *,
     sink: OutputSink | None = None,
+    prepared: RuntimeReadContext | None = None,
 ) -> SpawnDetailOutput:
-    return await asyncio.to_thread(spawn_show_sync, payload, ctx=ctx, sink=sink)
+    return await asyncio.to_thread(spawn_show_sync, payload, ctx=ctx, sink=sink, prepared=prepared)
 
 
 def spawn_files_sync(
@@ -537,14 +607,31 @@ def spawn_files_sync(
     ctx: RuntimeContext | None = None,
     *,
     sink: OutputSink | None = None,
+    prepared: RuntimeReadContext | None = None,
 ) -> SpawnWrittenFilesOutput:
     _ = (ctx, sink)
-    project_root = _resolve_project_root_input(payload.project_root)
-    spawn_id = resolve_spawn_reference(project_root, payload.spawn_id)
-    row = read_spawn_row(project_root, spawn_id)
+    project_root = (
+        prepared.project_root
+        if prepared is not None
+        else _resolve_project_root_input(payload.project_root)
+    )
+    runtime_root = (
+        _runtime_root_from_read_prepared(prepared)
+        if prepared is not None
+        else resolve_runtime_root_for_read(project_root)
+    )
+    if prepared is not None:
+        spawn_id = resolve_spawn_reference(
+            project_root,
+            payload.spawn_id,
+            runtime_root=runtime_root,
+        )
+    else:
+        spawn_id = resolve_spawn_reference(project_root, payload.spawn_id)
+    row = read_spawn_row(project_root, spawn_id, runtime_root=runtime_root)
     if row is None:
         raise ValueError(f"Spawn '{spawn_id}' not found")
-    written_files = read_written_files(project_root, spawn_id)
+    written_files = read_written_files(project_root, spawn_id, runtime_root=runtime_root)
     return SpawnWrittenFilesOutput(
         spawn_id=spawn_id,
         written_files=written_files,
@@ -556,8 +643,9 @@ async def spawn_files(
     ctx: RuntimeContext | None = None,
     *,
     sink: OutputSink | None = None,
+    prepared: RuntimeReadContext | None = None,
 ) -> SpawnWrittenFilesOutput:
-    return await asyncio.to_thread(spawn_files_sync, payload, ctx=ctx, sink=sink)
+    return await asyncio.to_thread(spawn_files_sync, payload, ctx=ctx, sink=sink, prepared=prepared)
 
 
 def _spawn_cancel_output_from_outcome(outcome: CancelOutcome) -> SpawnActionOutput:
@@ -619,16 +707,31 @@ async def _spawn_cancel_impl(
     payload: SpawnCancelInput,
     *,
     sink: OutputSink | None = None,
+    prepared: RuntimeWriteContext | None = None,
 ) -> SpawnActionOutput:
     _ = sink
-    project_root, _ = resolve_runtime_root_and_config(payload.project_root)
-    spawn_id = resolve_spawn_reference(project_root, payload.spawn_id)
-    runtime_root = resolve_runtime_root(project_root)
+    if prepared is not None:
+        project_root = prepared.project_root
+        if prepared.runtime_root is None:
+            raise ValueError("Prepared runtime write context is missing runtime root.")
+        runtime_root = prepared.runtime_root
+    else:
+        project_root, _ = resolve_runtime_root_and_config(payload.project_root)
+        runtime_root = resolve_runtime_root(project_root)
+    if prepared is not None:
+        spawn_id = resolve_spawn_reference(
+            project_root,
+            payload.spawn_id,
+            runtime_root=runtime_root,
+        )
+    else:
+        spawn_id = resolve_spawn_reference(project_root, payload.spawn_id)
     lifecycle_service = create_lifecycle_service(project_root, runtime_root)
     spawn_service = SpawnApplicationService(runtime_root, lifecycle_service)
     register_debug_trace_observer()
     cancel_owner = os.environ.get("MERIDIAN_SPAWN_ID") or "cli"
-    setup_telemetry(runtime_root=runtime_root, logical_owner=cancel_owner)
+    if prepared is None:
+        setup_telemetry(runtime_root=runtime_root, logical_owner=cancel_owner)
     register_spawn_telemetry_observer()
     try:
         outcome = await spawn_service.cancel(SpawnId(spawn_id))
@@ -649,10 +752,17 @@ def spawn_cancel_all_sync(
     ctx: RuntimeContext | None = None,
     *,
     sink: OutputSink | None = None,
+    prepared: RuntimeWriteContext | None = None,
 ) -> SpawnCancelAllOutput:
     _ = ctx
-    project_root, _ = resolve_runtime_root_and_config(payload.project_root)
-    runtime_root = resolve_runtime_root(project_root)
+    if prepared is not None:
+        project_root = prepared.project_root
+        if prepared.runtime_root is None:
+            raise ValueError("Prepared runtime write context is missing runtime root.")
+        runtime_root = prepared.runtime_root
+    else:
+        project_root, _ = resolve_runtime_root_and_config(payload.project_root)
+        runtime_root = resolve_runtime_root(project_root)
     work_id = _normalize_work_filter(payload.work)
 
     from meridian.lib.state.reaper import reconcile_spawns
@@ -691,6 +801,7 @@ def spawn_cancel_all_sync(
                     project_root=project_root.as_posix(),
                 ),
                 sink=sink,
+                prepared=prepared,
             )
         except ValueError as exc:
             result = SpawnActionOutput(
@@ -721,9 +832,16 @@ async def spawn_cancel_all(
     ctx: RuntimeContext | None = None,
     *,
     sink: OutputSink | None = None,
+    prepared: RuntimeWriteContext | None = None,
 ) -> SpawnCancelAllOutput:
     _ = ctx
-    return await asyncio.to_thread(spawn_cancel_all_sync, payload, ctx=ctx, sink=sink)
+    return await asyncio.to_thread(
+        spawn_cancel_all_sync,
+        payload,
+        ctx=ctx,
+        sink=sink,
+        prepared=prepared,
+    )
 
 
 def spawn_cancel_sync(
@@ -731,9 +849,10 @@ def spawn_cancel_sync(
     ctx: RuntimeContext | None = None,
     *,
     sink: OutputSink | None = None,
+    prepared: RuntimeWriteContext | None = None,
 ) -> SpawnActionOutput:
     _ = ctx
-    return asyncio.run(_spawn_cancel_impl(payload, sink=sink))
+    return asyncio.run(_spawn_cancel_impl(payload, sink=sink, prepared=prepared))
 
 
 async def spawn_cancel(
@@ -741,9 +860,10 @@ async def spawn_cancel(
     ctx: RuntimeContext | None = None,
     *,
     sink: OutputSink | None = None,
+    prepared: RuntimeWriteContext | None = None,
 ) -> SpawnActionOutput:
     _ = ctx
-    return await _spawn_cancel_impl(payload, sink=sink)
+    return await _spawn_cancel_impl(payload, sink=sink, prepared=prepared)
 
 
 def _spawn_is_terminal(status: str) -> bool:
@@ -806,12 +926,13 @@ def _emit_wait_set(
     project_root: Path,
     *,
     chat_id: str | None = None,
+    runtime_root: Path | None = None,
     sink: OutputSink,
 ) -> None:
     """Print the wait set table before blocking."""
     rows: list[tuple[str, str, str]] = []
     for spawn_id in spawn_ids:
-        row = read_spawn_row(project_root, spawn_id)
+        row = read_spawn_row(project_root, spawn_id, runtime_root=runtime_root)
         desc = (row.desc or "").strip() if row else ""
         status = row.status if row else "unknown"
         rows.append((spawn_id, status, desc))
@@ -915,11 +1036,19 @@ def spawn_wait_sync(
     ctx: RuntimeContext | None = None,
     *,
     sink: OutputSink | None = None,
+    prepared: RuntimeReadContext | None = None,
 ) -> SpawnWaitMultiOutput:
     active_sink = sink or NullSink()
     resolved_context = runtime_context(ctx)
-    project_root, config = resolve_runtime_root_and_config_for_read(payload.project_root)
-    runtime_root = resolve_runtime_root_for_read(project_root)
+    if prepared is not None:
+        project_root = prepared.project_root
+        if prepared.config is None:
+            raise ValueError("Prepared runtime read context is missing config.")
+        config = prepared.config
+        runtime_root = _runtime_root_from_read_prepared(prepared)
+    else:
+        project_root, config = resolve_runtime_root_and_config_for_read(payload.project_root)
+        runtime_root = resolve_runtime_root_for_read(project_root)
     has_explicit_ids = bool(payload.spawn_ids) or bool(
         payload.spawn_id is not None and payload.spawn_id.strip()
     )
@@ -941,9 +1070,15 @@ def spawn_wait_sync(
         )
 
     if has_explicit_ids:
-        spawn_ids = resolve_spawn_references(project_root, spawn_ids)
+        spawn_ids = resolve_spawn_references(project_root, spawn_ids, runtime_root=runtime_root)
 
-    _emit_wait_set(spawn_ids, project_root, chat_id=wait_chat_id, sink=active_sink)
+    _emit_wait_set(
+        spawn_ids,
+        project_root,
+        chat_id=wait_chat_id,
+        runtime_root=runtime_root,
+        sink=active_sink,
+    )
 
     timeout_minutes = (
         payload.timeout if payload.timeout is not None else config.wait_timeout_minutes
@@ -985,7 +1120,7 @@ def spawn_wait_sync(
 
     while True:
         for spawn_id in tuple(pending):
-            row = read_spawn_row(project_root, spawn_id)
+            row = read_spawn_row(project_root, spawn_id, runtime_root=runtime_root)
             if row is None:
                 if has_explicit_ids:
                     raise ValueError(f"Spawn '{spawn_id}' not found")
@@ -1004,6 +1139,7 @@ def spawn_wait_sync(
                     project_root=project_root,
                     row=completed_rows[spawn_id],
                     include_report_body=payload.include_report_body,
+                    runtime_root=runtime_root,
                 )
                 for spawn_id in spawn_ids
                 if spawn_id in completed_rows
@@ -1018,7 +1154,7 @@ def spawn_wait_sync(
                 if spawn_id in completed_rows:
                     checkpoint_rows.append(completed_rows[spawn_id])
                     continue
-                row = read_spawn_row(project_root, spawn_id)
+                row = read_spawn_row(project_root, spawn_id, runtime_root=runtime_root)
                 if row is not None:
                     checkpoint_rows.append(row)
             checkpoint_details = tuple(
@@ -1026,6 +1162,7 @@ def spawn_wait_sync(
                     project_root=project_root,
                     row=row,
                     include_report_body=payload.include_report_body,
+                    runtime_root=runtime_root,
                 )
                 for row in checkpoint_rows
             )
@@ -1068,19 +1205,30 @@ async def spawn_wait(
     ctx: RuntimeContext | None = None,
     *,
     sink: OutputSink | None = None,
+    prepared: RuntimeReadContext | None = None,
 ) -> SpawnWaitMultiOutput:
-    return await asyncio.to_thread(spawn_wait_sync, payload, ctx=ctx, sink=sink)
+    return await asyncio.to_thread(spawn_wait_sync, payload, ctx=ctx, sink=sink, prepared=prepared)
 
 
 def _source_spawn_for_follow_up(
     payload_spawn_id: str,
     project_root: Path,
+    *,
+    runtime_root: Path | None = None,
 ) -> tuple[str, spawn_store.SpawnRecord, ResolvedSessionReference]:
-    resolved_spawn_id = resolve_spawn_reference(project_root, payload_spawn_id)
-    row = read_spawn_row(project_root, resolved_spawn_id)
+    resolved_spawn_id = resolve_spawn_reference(
+        project_root,
+        payload_spawn_id,
+        runtime_root=runtime_root,
+    )
+    row = read_spawn_row(project_root, resolved_spawn_id, runtime_root=runtime_root)
     if row is None:
         raise ValueError(f"Spawn '{resolved_spawn_id}' not found")
-    resolved_reference = resolve_session_reference(project_root, resolved_spawn_id)
+    resolved_reference = resolve_session_reference(
+        project_root,
+        resolved_spawn_id,
+        runtime_root=runtime_root,
+    )
     return resolved_spawn_id, row, resolved_reference
 
 
@@ -1111,10 +1259,20 @@ def spawn_continue_sync(
     ctx: RuntimeContext | None = None,
     *,
     sink: OutputSink | None = None,
+    prepared: RuntimeWriteContext | None = None,
 ) -> SpawnActionOutput:
-    project_root, _ = resolve_runtime_root_and_config(payload.project_root)
+    if prepared is not None:
+        project_root = prepared.project_root
+        if prepared.runtime_root is None:
+            raise ValueError("Prepared runtime write context is missing runtime root.")
+        runtime_root = prepared.runtime_root
+    else:
+        project_root, _ = resolve_runtime_root_and_config(payload.project_root)
+        runtime_root = None
     resolved_spawn_id, source_spawn, resolved_reference = _source_spawn_for_follow_up(
-        payload.spawn_id, project_root
+        payload.spawn_id,
+        project_root,
+        runtime_root=runtime_root,
     )
     if resolved_reference.missing_harness_session_id:
         raise ValueError(
@@ -1157,7 +1315,11 @@ def spawn_continue_sync(
         passthrough_args=payload.passthrough_args,
         approval=payload.approval,
     )
-    return _with_command(spawn_create_sync(create_input, ctx=ctx, sink=sink), "spawn.continue")
+    if prepared is not None:
+        result = spawn_create_sync(create_input, ctx=ctx, sink=sink, prepared=prepared)
+    else:
+        result = spawn_create_sync(create_input, ctx=ctx, sink=sink)
+    return _with_command(result, "spawn.continue")
 
 
 async def spawn_continue(
@@ -1165,5 +1327,12 @@ async def spawn_continue(
     ctx: RuntimeContext | None = None,
     *,
     sink: OutputSink | None = None,
+    prepared: RuntimeWriteContext | None = None,
 ) -> SpawnActionOutput:
-    return await asyncio.to_thread(spawn_continue_sync, payload, ctx=ctx, sink=sink)
+    return await asyncio.to_thread(
+        spawn_continue_sync,
+        payload,
+        ctx=ctx,
+        sink=sink,
+        prepared=prepared,
+    )
