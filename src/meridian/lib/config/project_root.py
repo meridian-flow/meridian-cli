@@ -58,8 +58,20 @@ def resolve_user_config_path(user_config: Path | None) -> Path | None:
 
     if resolved is None:
         default_user_config = get_user_home() / "config.toml"
-        if default_user_config.is_file():
-            return default_user_config
+        try:
+            if default_user_config.is_file():
+                return default_user_config
+        except OSError:
+            import logging
+
+            from meridian.lib.core.depth import is_nested_meridian_process
+
+            if is_nested_meridian_process():
+                logging.getLogger(__name__).warning(
+                    "Implicit user config path inaccessible in nested execution: %s",
+                    default_user_config,
+                )
+            return None
         return None
 
     if not resolved.is_file():

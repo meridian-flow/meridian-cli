@@ -75,7 +75,7 @@ from meridian.cli.startup.policy import StartupClass
 from meridian.cli.startup.policy import TelemetryMode as StartupTelemetryMode
 from meridian.cli.telemetry_cmd import register_telemetry_commands
 from meridian.cli.workspace_cmd import register_workspace_commands
-from meridian.lib.core.depth import is_nested_meridian_process
+from meridian.lib.core.depth import is_nested_meridian_process, is_root_side_effect_process
 from meridian.lib.core.sink import OutputSink
 from meridian.lib.ops.mars import check_upgrade_availability, format_upgrade_availability
 from meridian.lib.telemetry import emit_telemetry
@@ -706,6 +706,45 @@ def _install_cli_telemetry(
         return
 
 
+def _maybe_schedule_background_repairs(
+    *,
+    startup_class: StartupClass,
+    project_root: Path | None,
+    bootstrap_skipped: bool,
+) -> None:
+    """Schedule cheap per-project repairs on PRIMARY_LAUNCH in a daemon thread."""
+
+    if bootstrap_skipped:
+        return
+    if startup_class != StartupClass.PRIMARY_LAUNCH:
+        return
+    if project_root is None:
+        return
+    if not is_root_side_effect_process():
+        return
+
+    import threading
+
+    def _run_repairs() -> None:
+        from contextlib import suppress
+
+        with suppress(Exception):
+            from meridian.lib.ops.diag import (
+                _repair_orphan_runs,  # pyright: ignore[reportPrivateUsage]
+                _repair_stale_session_locks,  # pyright: ignore[reportPrivateUsage]
+            )
+
+            _repair_stale_session_locks(project_root)
+            _repair_orphan_runs(project_root)
+
+    thread = threading.Thread(
+        target=_run_repairs,
+        name="meridian-background-repairs",
+        daemon=True,
+    )
+    thread.start()
+
+
 def _print_agent_root_help() -> None:
     print(_AGENT_ROOT_HELP, end="")
 
@@ -790,6 +829,11 @@ def main(argv: Sequence[str] | None = None) -> None:
         telemetry_mode=descriptor.telemetry_mode if descriptor is not None else None,
         startup_class=startup_class,
         project_root=project_root,
+    )
+    _maybe_schedule_background_repairs(
+        startup_class=startup_class,
+        project_root=project_root,
+        bootstrap_skipped=bootstrap_skipped,
     )
     _emit_usage_command_invoked(cleaned_args)
 

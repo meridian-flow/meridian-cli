@@ -147,6 +147,25 @@ class GitAutosync:
                 ),
                 start=start,
             )
+        except (PermissionError, OSError) as exc:
+            logger.warning(
+                "git_autosync_lock_permission_error",
+                repo=remote_url,
+                clone_path=str(clone_path),
+                error=str(exc),
+            )
+            return self._result(
+                config,
+                context,
+                _SyncOutcome(
+                    outcome="skipped",
+                    success=True,
+                    skipped=True,
+                    skip_reason="lock_permission_error",
+                    error=str(exc),
+                ),
+                start=start,
+            )
 
     def _execute_with_lock(
         self,

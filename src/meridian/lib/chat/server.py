@@ -31,11 +31,12 @@ if TYPE_CHECKING:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    await _runtime.start()
+    runtime = _configured_runtime()
+    await runtime.start()
     try:
         yield
     finally:
-        await _runtime.stop()
+        await runtime.stop()
 
 
 app = FastAPI(lifespan=lifespan)
@@ -103,11 +104,21 @@ class _UnavailableAcquisition:
         raise RuntimeError("chat backend acquisition is not configured")
 
 
-_runtime = ChatRuntime(
-    runtime_root=get_user_home(),
-    project_root=Path.cwd(),
-    backend_acquisition=_UnavailableAcquisition(),
-)
+class _UnconfiguredRuntime:
+    """Sentinel that fails loudly if the chat server is used before configure()."""
+
+    def __getattr__(self, name: str) -> object:
+        raise RuntimeError(
+            f"Chat server runtime is not configured. "
+            f"Call configure() before accessing '{name}'."
+        )
+
+
+_runtime: ChatRuntime | _UnconfiguredRuntime = _UnconfiguredRuntime()
+
+
+def _configured_runtime() -> ChatRuntime:
+    return cast("ChatRuntime", _runtime)
 
 
 def configure(
@@ -140,7 +151,7 @@ async def list_chats() -> ChatListResponse:
                 state=item.state,
                 created_at=item.created_at,
             )
-            for item in _runtime.list_chats()
+            for item in _configured_runtime().list_chats()
         ]
     )
     _emit_http_request_completed(
@@ -157,7 +168,7 @@ async def list_chats() -> ChatListResponse:
 async def create_chat(body: CreateChatRequest) -> CreateChatResponse:
     start = time.monotonic()
     _ = body
-    view = await _runtime.create_chat()
+    view = await _configured_runtime().create_chat()
     _emit_http_request_completed(
         method="POST",
         path="/chat",
@@ -226,7 +237,7 @@ async def get_chat_events(
 ) -> ChatEventsResponse:
     start = time.monotonic()
     path = f"/chat/{chat_id}/events"
-    events = _runtime.list_events(chat_id, last=last)
+    events = _configured_runtime().list_events(chat_id, last=last)
     if events is None:
         _emit_http_request_completed(
             method="GET",
@@ -252,7 +263,7 @@ async def get_chat_events(
 async def get_chat_state(chat_id: str) -> StateResponse:
     start = time.monotonic()
     path = f"/chat/{chat_id}/state"
-    state = _runtime.get_state(chat_id)
+    state = _configured_runtime().get_state(chat_id)
     if state is not None:
         _emit_http_request_completed(
             method="GET",
@@ -278,7 +289,7 @@ async def get_chat_state(chat_id: str) -> StateResponse:
 async def ws_chat(websocket: WebSocket, chat_id: str) -> None:
     await websocket.accept()
     last_seq = _parse_last_seq(websocket)
-    stream_source = _runtime.get_stream_source(chat_id)
+    stream_source = _configured_runtime().get_stream_source(chat_id)
     if stream_source is None:
         error_data = make_error_data(message="chat_not_found")
         error_data["error"]["type"] = "WebSocketRejected"
@@ -359,7 +370,7 @@ async def _dispatch_rest(
         timestamp=utc_now_iso(),
         payload=payload,
     )
-    result = await _runtime.dispatch(command)
+    result = await _configured_runtime().dispatch(command)
     _emit_http_request_completed(
         method=method,
         path=path,
@@ -430,7 +441,7 @@ async def _handle_ws_command(raw: dict[str, object], path_chat_id: str) -> dict[
         command = _parse_chat_command(raw, path_chat_id)
     except ValueError as exc:
         return {"ack": command_id, "status": "rejected", "error": str(exc)}
-    result = await _runtime.dispatch(command)
+    result = await _configured_runtime().dispatch(command)
     payload = {"ack": command.command_id, "status": result.status}
     if result.error is not None:
         payload["error"] = result.error
