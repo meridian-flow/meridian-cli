@@ -671,13 +671,18 @@ def get_spawn(
     *,
     repository: SpawnRepository | None = None,
 ) -> SpawnRecord | None:
-    """Return one spawn by ID."""
+    """Return one spawn by ID.
 
-    wanted = str(spawn_id)
-    for spawn in list_spawns(runtime_root, repository=repository):
-        if spawn.id == wanted:
-            return spawn
-    return None
+    Reads the full event log and reduces it to find the requested spawn.
+    Uses ``reduce_events`` directly instead of ``list_spawns`` to avoid
+    sorting overhead; the result dict is keyed by spawn ID so the lookup
+    is O(1) after the single event-log parse.
+    """
+
+    paths = RuntimePaths.from_root_dir(runtime_root)
+    resolved_repository = _resolve_repository(paths, repository=repository)
+    records = reduce_events(resolved_repository.read_events())
+    return records.get(str(spawn_id))
 
 
 def spawn_stats(

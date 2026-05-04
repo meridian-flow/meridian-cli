@@ -137,10 +137,57 @@ def _list_segments(
     *,
     runtime_root: Path | None = None,
 ) -> list[SegmentInfo]:
-    # Import lazily to avoid telemetry/core lifecycle import cycles at module load time.
-    from meridian.lib.state.liveness import is_process_alive, is_spawn_genuinely_active
+    # Lazy imports — telemetry initializes early; these modules depend on
+    # state/core layers that aren't always available at import time.
+    from meridian.lib.state.liveness import is_process_alive
+    from meridian.lib.state.spawn_store import SpawnRecord
 
     current_pid = os.getpid()
+
+    # Pre-load spawn records once so liveness checks are O(1) per segment
+    # instead of O(all_spawns) per segment.
+    spawn_records: dict[str, SpawnRecord] | None = None
+    if runtime_root is not None:
+        try:
+            from meridian.lib.state.paths import RuntimePaths
+            from meridian.lib.state.spawn.events import reduce_events
+            from meridian.lib.state.spawn.repository import FileSpawnRepository
+
+            paths = RuntimePaths.from_root_dir(runtime_root)
+            repo = FileSpawnRepository(paths)
+            spawn_records = reduce_events(repo.read_events())
+        except Exception:
+            spawn_records = None
+
+    def _is_spawn_live(spawn_id: str) -> bool:
+        """Check spawn liveness against pre-loaded records."""
+        if spawn_records is None:
+            return False
+        record = spawn_records.get(spawn_id)
+        if record is None:
+            return False
+
+        from meridian.lib.core.spawn_lifecycle import is_active_spawn_status
+
+        if not is_active_spawn_status(record.status):
+            return False
+        if (
+            record.runner_pid is not None
+            and record.runner_pid > 0
+            and is_process_alive(record.runner_pid)
+        ):
+            return True
+        # Check heartbeat freshness.
+        assert runtime_root is not None
+        heartbeat_path = runtime_root / "spawns" / spawn_id / "heartbeat"
+        try:
+            mtime = heartbeat_path.stat().st_mtime
+            if time.time() - mtime < 120:
+                return True
+        except OSError:
+            pass
+        return False
+
     segments: list[SegmentInfo] = []
     for path in telemetry_dir.glob("*.jsonl"):
         owner = parse_segment_owner(path)
@@ -153,7 +200,7 @@ def _list_segments(
                 elif owner.is_cli_or_chat:
                     live = is_process_alive(owner.pid)
                 elif runtime_root is not None:
-                    live = is_spawn_genuinely_active(runtime_root, owner.logical_owner)
+                    live = _is_spawn_live(owner.logical_owner)
                 else:
                     live = is_process_alive(owner.pid)
             segments.append(
