@@ -781,6 +781,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     options = options.model_copy(update={"sink": active_sink})
     token = _GLOBAL_OPTIONS.set(options)
     try:
+        _register_group_commands()
         if effective_agent_mode:
             from meridian.cli.agent_help import apply_agent_help_supplements
 
@@ -796,7 +797,6 @@ def main(argv: Sequence[str] | None = None) -> None:
             if _is_doctor_scan_launch_path(cleaned_args) and not is_nested_meridian_process():
                 maybe_start_background_doctor_scan()
             try:
-                _register_group_commands()
                 app(cleaned_args)
             except SystemExit:
                 raise
