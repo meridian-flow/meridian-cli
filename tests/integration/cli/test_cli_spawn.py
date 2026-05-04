@@ -140,7 +140,7 @@ def test_spawn_default_create_routes_correctly_when_prompt_matches_subcommand(
     monkeypatch.setattr(spawn_cli.sys, "stdin", _FakeStdin("", is_tty=True))
 
     with pytest.raises(SystemExit) as exc_info:
-        cli_main.main(["spawn", "-p", prompt_value, "--dry-run"])
+        cli_main.main(["--format", "text", "spawn", "-p", prompt_value, "--dry-run"])
 
     assert exc_info.value.code == 0
     output = capsys.readouterr().out
@@ -150,8 +150,8 @@ def test_spawn_default_create_routes_correctly_when_prompt_matches_subcommand(
 @pytest.mark.parametrize(
     "argv",
     [
-        ["spawn", "--continue", "p1", "--dry-run"],
-        ["spawn", "--continue=p1", "--dry-run"],
+        ["--format", "text", "spawn", "--continue", "p1", "--dry-run"],
+        ["--format", "text", "spawn", "--continue=p1", "--dry-run"],
     ],
 )
 def test_spawn_continue_routes_correctly(
@@ -236,7 +236,7 @@ def test_spawn_dry_run_text_includes_model_routing_provenance(
     monkeypatch.setattr(spawn_cli.sys, "stdin", _FakeStdin("", is_tty=True))
 
     with pytest.raises(SystemExit) as exc_info:
-        cli_main.main(["spawn", "-p", "build", "--dry-run"])
+        cli_main.main(["--format", "text", "spawn", "-p", "build", "--dry-run"])
 
     assert exc_info.value.code == 0
     output = capsys.readouterr().out
@@ -325,7 +325,7 @@ def test_spawn_implicit_text_error_is_plain(
     monkeypatch.setattr(spawn_cli.sys, "stdin", _FakeStdin("", is_tty=True))
 
     with pytest.raises(SystemExit) as exc_info:
-        cli_main.main(["spawn", "-p", "literal", "--prompt-file", "-"])
+        cli_main.main(["--format", "text", "spawn", "-p", "literal", "--prompt-file", "-"])
 
     assert exc_info.value.code == 1
     captured = capsys.readouterr()
@@ -333,7 +333,7 @@ def test_spawn_implicit_text_error_is_plain(
     assert captured.err == "error: cannot specify both -p and --prompt-file\n"
 
 
-def test_spawn_background_implicit_text_returns_text_without_event_noise(
+def test_spawn_background_agent_mode_returns_wire_without_event_noise(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -369,12 +369,11 @@ def test_spawn_background_implicit_text_returns_text_without_event_noise(
     captured = capsys.readouterr()
     # Events suppressed in agent mode - stderr should be empty
     assert captured.err == ""
-    # Text output
-    output = captured.out
-    assert "Spawn running." in output
-    assert "p123" in output
-    assert "After spawning all subagents, you MUST run:" in output
-    assert "  meridian spawn wait" in output
+    payload = json.loads(captured.out)
+    assert payload["status"] == "running"
+    assert payload["spawn_id"] == "p123"
+    assert "After spawning all subagents, you MUST run:" in payload["note"]
+    assert "  meridian spawn wait" in payload["note"]
 
 
 def test_spawn_background_explicit_json_preserves_rich_wire_and_events(
