@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 from meridian.lib.core.spawn_lifecycle import (
     TERMINAL_SPAWN_STATUSES as _TERMINAL_SPAWN_STATUSES,
@@ -66,7 +66,8 @@ def reduce_events(events: list[SpawnEvent]) -> dict[str, SpawnRecord]:
     records: dict[str, SpawnRecord] = {}
 
     for event in events:
-        spawn_id = event.id
+        event = cast("Any", event)
+        spawn_id = getattr(event, "id", None)
         if not spawn_id:
             continue
         current = records.get(
@@ -75,51 +76,54 @@ def reduce_events(events: list[SpawnEvent]) -> dict[str, SpawnRecord]:
         )
 
         if isinstance(event, spawn_store.SpawnStartEvent):
+            chat_id = getattr(event, "chat_id", None)
+            parent_id = getattr(event, "parent_id", None)
+            model = getattr(event, "model", None)
+            agent = getattr(event, "agent", None)
+            agent_path = getattr(event, "agent_path", None)
+            skills = getattr(event, "skills", None)
+            skill_paths = getattr(event, "skill_paths", None)
+            harness = getattr(event, "harness", None)
+            kind = getattr(event, "kind", None)
+            desc = getattr(event, "desc", None)
+            work_id = getattr(event, "work_id", None)
+            harness_session_id = getattr(event, "harness_session_id", None)
+            execution_cwd = getattr(event, "execution_cwd", None)
+            launch_mode = getattr(event, "launch_mode", None)
+            worker_pid = getattr(event, "worker_pid", None)
+            runner_pid = getattr(event, "runner_pid", None)
+            status = getattr(event, "status", current.status)
+            prompt = getattr(event, "prompt", None)
+            started_at = getattr(event, "started_at", None)
             records[spawn_id] = current.model_copy(
                 update={
-                    "chat_id": event.chat_id if event.chat_id is not None else current.chat_id,
-                    "parent_id": (
-                        event.parent_id if event.parent_id is not None else current.parent_id
-                    ),
-                    "model": event.model if event.model is not None else current.model,
-                    "agent": event.agent if event.agent is not None else current.agent,
-                    "agent_path": (
-                        event.agent_path if event.agent_path is not None else current.agent_path
-                    ),
-                    "skills": event.skills if event.skills else current.skills,
-                    "skill_paths": event.skill_paths if event.skill_paths else current.skill_paths,
-                    "harness": event.harness if event.harness is not None else current.harness,
-                    "kind": event.kind if event.kind is not None else current.kind,
-                    "desc": event.desc if event.desc is not None else current.desc,
+                    "chat_id": chat_id if chat_id is not None else current.chat_id,
+                    "parent_id": parent_id if parent_id is not None else current.parent_id,
+                    "model": model if model is not None else current.model,
+                    "agent": agent if agent is not None else current.agent,
+                    "agent_path": agent_path if agent_path is not None else current.agent_path,
+                    "skills": skills if skills else current.skills,
+                    "skill_paths": skill_paths if skill_paths else current.skill_paths,
+                    "harness": harness if harness is not None else current.harness,
+                    "kind": kind if kind is not None else current.kind,
+                    "desc": desc if desc is not None else current.desc,
                     "work_id": (
-                        _normalized_work_id(event.work_id)
-                        if event.work_id is not None
-                        else current.work_id
+                        _normalized_work_id(work_id) if work_id is not None else current.work_id
                     ),
                     "harness_session_id": (
-                        event.harness_session_id
-                        if event.harness_session_id is not None
+                        harness_session_id
+                        if harness_session_id is not None
                         else current.harness_session_id
                     ),
                     "execution_cwd": (
-                        event.execution_cwd
-                        if event.execution_cwd is not None
-                        else current.execution_cwd
+                        execution_cwd if execution_cwd is not None else current.execution_cwd
                     ),
-                    "launch_mode": (
-                        event.launch_mode if event.launch_mode is not None else current.launch_mode
-                    ),
-                    "worker_pid": (
-                        event.worker_pid if event.worker_pid is not None else current.worker_pid
-                    ),
-                    "runner_pid": (
-                        event.runner_pid if event.runner_pid is not None else current.runner_pid
-                    ),
-                    "status": event.status,
-                    "prompt": event.prompt if event.prompt is not None else current.prompt,
-                    "started_at": event.started_at
-                    if event.started_at is not None
-                    else current.started_at,
+                    "launch_mode": launch_mode if launch_mode is not None else current.launch_mode,
+                    "worker_pid": worker_pid if worker_pid is not None else current.worker_pid,
+                    "runner_pid": runner_pid if runner_pid is not None else current.runner_pid,
+                    "status": status,
+                    "prompt": prompt if prompt is not None else current.prompt,
+                    "started_at": started_at if started_at is not None else current.started_at,
                 }
             )
             continue
@@ -170,6 +174,9 @@ def reduce_events(events: list[SpawnEvent]) -> dict[str, SpawnRecord]:
                     "process_exit_code": event.exit_code,
                 }
             )
+            continue
+
+        if not isinstance(event, spawn_store.SpawnFinalizeEvent):
             continue
 
         finalize_event = event
