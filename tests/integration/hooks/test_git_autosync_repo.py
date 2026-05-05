@@ -176,6 +176,26 @@ def test_git_autosync_first_time_clone_does_not_fail_when_lock_created(
     assert origin == str(remote)
 
 
+def test_git_autosync_skips_when_user_state_lock_cannot_be_created(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    remote, work = _seed_remote(tmp_path)
+    _configure_clone_override(tmp_path, monkeypatch, repo_url=str(remote), clone_path=work)
+
+    def _raise_permission(*_args: object, **_kwargs: object) -> None:
+        raise PermissionError("sandbox denied")
+
+    monkeypatch.setattr("meridian.lib.hooks.builtin.git_autosync.file_lock", _raise_permission)
+
+    result = GitAutosync().execute(_context(work), _hook(remote=str(remote)))
+
+    assert result.outcome == "skipped"
+    assert result.success is True
+    assert result.skipped is True
+    assert result.skip_reason == "lock_permission_error"
+
+
 def test_git_autosync_excludes_configured_paths(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

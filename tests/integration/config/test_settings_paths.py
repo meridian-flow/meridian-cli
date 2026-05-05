@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 import pytest
@@ -5,6 +6,7 @@ import pytest
 from meridian.lib.config.project_config_state import resolve_project_config_state
 from meridian.lib.config.project_root import resolve_project_root
 from meridian.lib.config.settings import load_config
+from meridian.lib.ops.config import ConfigShowInput, config_show_sync
 
 
 def test_resolve_project_root_prefers_mars_skills_ancestor(
@@ -98,6 +100,35 @@ def test_load_config_ignores_legacy_state_path_when_root_config_missing(
     legacy_path.write_text("[defaults]\nharness = \"claude\"\n", encoding="utf-8")
 
     assert load_config(project_root).default_harness == "codex"
+
+
+def test_config_show_ignores_inaccessible_implicit_user_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    project_root = tmp_path / "repo"
+    config_path = tmp_path / "user-home" / "config.toml"
+    project_root.mkdir()
+    monkeypatch.setenv("MERIDIAN_HOME", config_path.parent.as_posix())
+    monkeypatch.setenv("MERIDIAN_DEPTH", "1")
+    monkeypatch.delenv("MERIDIAN_CONFIG", raising=False)
+
+    original_is_file = Path.is_file
+
+    def _raise_on_target(self: Path) -> bool:
+        if self == config_path:
+            raise PermissionError("sandbox denied")
+        return original_is_file(self)
+
+    monkeypatch.setattr(Path, "is_file", _raise_on_target)
+
+    with caplog.at_level(logging.WARNING, logger="meridian.lib.config.project_root"):
+        result = config_show_sync(ConfigShowInput(project_root=project_root.as_posix()))
+
+    default_harness = next(item for item in result.values if item.key == "defaults.harness")
+    assert default_harness.value == "codex"
+    assert any(str(config_path) in record.message for record in caplog.records)
 
 
 def test_resolve_project_config_state_reports_absent_and_write_target(tmp_path: Path) -> None:

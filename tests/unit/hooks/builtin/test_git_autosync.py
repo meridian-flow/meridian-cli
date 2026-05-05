@@ -4,15 +4,13 @@ import hashlib
 import subprocess
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING
 from unittest.mock import ANY
 from uuid import uuid4
 
+import pytest
+
 from meridian.lib.hooks.builtin.git_autosync import GIT_AUTOSYNC
 from meridian.plugin_api import Hook, HookContext, HookResult
-
-if TYPE_CHECKING:
-    import pytest
 
 
 def _hook(
@@ -118,6 +116,35 @@ def test_execute_skips_when_lock_times_out(
     assert result.skip_reason == "lock_timeout"
 
 
+@pytest.mark.parametrize("error", [PermissionError("sandbox denied"), OSError("lock denied")])
+def test_execute_skips_when_lock_cannot_be_opened(
+    monkeypatch: pytest.MonkeyPatch,
+    error: OSError,
+) -> None:
+    def _resolve_clone_path(_repo: str) -> Path:
+        return Path("/tmp/clone")
+
+    monkeypatch.setattr(
+        "meridian.lib.hooks.builtin.git_autosync.resolve_clone_path",
+        _resolve_clone_path,
+    )
+
+    def _raise_lock_error(*_args: object, **_kwargs: object) -> None:
+        raise error
+
+    monkeypatch.setattr(
+        "meridian.lib.hooks.builtin.git_autosync.file_lock",
+        _raise_lock_error,
+    )
+
+    result = GIT_AUTOSYNC.execute(_context(), _hook())
+
+    assert result.outcome == "skipped"
+    assert result.success is True
+    assert result.skipped is True
+    assert result.skip_reason == "lock_permission_error"
+
+
 def test_execute_delegates_to_execute_with_lock(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -218,6 +245,43 @@ def test_execute_locks_under_user_state_outside_clone(
     assert result is expected
     assert lock_paths == [user_state_root / "locks" / f"clone-{expected_hash}.lock"]
     assert clone_path not in lock_paths[0].parents
+
+
+def test_execute_skips_when_clone_creation_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clone_path = Path("/tmp/clone-target")
+
+    monkeypatch.setattr(
+        "meridian.lib.hooks.builtin.git_autosync.resolve_clone_path",
+        lambda _repo: clone_path,
+    )
+    monkeypatch.setattr(
+        "meridian.lib.hooks.builtin.git_autosync.get_user_home",
+        lambda: Path("/tmp/user-home"),
+    )
+
+    @contextmanager
+    def _fake_lock(*_args: object, **_kwargs: object):
+        yield
+
+    monkeypatch.setattr("meridian.lib.hooks.builtin.git_autosync.file_lock", _fake_lock)
+
+    def _run(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+        _ = kwargs
+        argv = list(args[0])
+        if argv[:2] == ["git", "clone"]:
+            return _cp(args=argv, returncode=1, stderr="Permission denied")
+        return _cp(args=argv)
+
+    monkeypatch.setattr("meridian.lib.hooks.builtin.git_autosync.subprocess.run", _run)
+
+    result = GIT_AUTOSYNC.execute(_context(), _hook())
+
+    assert result.outcome == "skipped"
+    assert result.success is True
+    assert result.skipped is True
+    assert result.skip_reason == "clone_failed"
 
 
 def test_sync_runs_commit_first_then_pull_and_push(

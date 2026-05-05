@@ -1,6 +1,7 @@
 import importlib
 import json
 import os
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -95,6 +96,52 @@ def test_main_harness_shortcut_routes_into_primary_launch(
     assert exc_info.value.code == 0
     assert captured["harness"] == "codex"
     assert captured["dry_run"] is True
+
+
+def test_primary_launch_background_repairs_stay_within_current_project(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    user_home = tmp_path / "user-home"
+    repair_calls: list[tuple[str, Path]] = []
+    started_threads: list[threading.Thread] = []
+
+    monkeypatch.setenv("MERIDIAN_HOME", user_home.as_posix())
+    monkeypatch.setattr(cli_main, "is_root_side_effect_process", lambda: True)
+    monkeypatch.setattr(
+        "meridian.lib.ops.diag._repair_stale_session_locks",
+        lambda root: repair_calls.append(("stale_session_locks", root)) or 0,
+    )
+    monkeypatch.setattr(
+        "meridian.lib.ops.diag._repair_orphan_runs",
+        lambda root: repair_calls.append(("orphan_runs", root)) or 0,
+    )
+    monkeypatch.setattr(
+        "meridian.lib.ops.diag.scan_orphan_project_dirs",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("PRIMARY_LAUNCH repairs should stay within the current project")
+        ),
+    )
+
+    monkeypatch.setattr(threading.Thread, "start", lambda self: started_threads.append(self))
+
+    cli_main._maybe_schedule_background_repairs(
+        startup_class=StartupClass.PRIMARY_LAUNCH,
+        project_root=project_root,
+        bootstrap_skipped=False,
+    )
+
+    assert len(started_threads) == 1
+    assert started_threads[0].daemon is True
+    assert "repair" in started_threads[0].name.lower()
+    started_threads[0].run()
+    assert repair_calls == [
+        ("stale_session_locks", project_root),
+        ("orphan_runs", project_root),
+    ]
+    assert not (user_home / "doctor-cache.json").exists()
 
 
 def test_install_cli_telemetry_writes_usage_events_to_local_jsonl(
@@ -207,6 +254,57 @@ def test_main_does_not_create_segment_telemetry_when_project_root_never_resolves
         get_global_router().close()
 
 
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["chat"],
+        ["chat", "ls"],
+        ["chat", "show", "c1"],
+        ["chat", "log", "c1"],
+        ["chat", "close", "c1"],
+    ],
+)
+def test_main_rejects_nested_chat_commands_before_chat_runtime_preparation(
+    argv: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    calls: list[str] = []
+
+    monkeypatch.setenv("MERIDIAN_DEPTH", "1")
+    monkeypatch.setattr(
+        "meridian.cli.chat_cmd.prepare_for_runtime_read",
+        lambda *_args, **_kwargs: calls.append("read"),
+    )
+    monkeypatch.setattr(
+        "meridian.cli.chat_cmd.prepare_for_runtime_write",
+        lambda *_args, **_kwargs: calls.append("write"),
+    )
+    monkeypatch.setattr(
+        "meridian.cli.chat_cmd.get_user_home",
+        lambda: (_ for _ in ()).throw(AssertionError("nested chat should fail before user-home")),
+    )
+    monkeypatch.setattr(
+        "meridian.lib.bootstrap.services.prepare_for_runtime_read",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("nested chat should not bootstrap runtime state")
+        ),
+    )
+    monkeypatch.setattr(
+        "meridian.lib.bootstrap.services.prepare_for_runtime_write",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("nested chat should not bootstrap runtime state")
+        ),
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli_main.main(argv)
+
+    assert exc_info.value.code == 1
+    assert calls == []
+    assert "root Meridian process" in capsys.readouterr().err
+
+
 def test_config_help_mentions_meridian_toml() -> None:
     assert "meridian.toml" in cli_main.config_app.help
     assert ".meridian/config.toml" not in cli_main.config_app.help
@@ -305,6 +403,7 @@ def test_agent_root_help_restricted_surface_contract() -> None:
         "opencode",
     ):
         assert hidden not in normalized_help
+
 
 def test_bootstrap_command_enables_bootstrap_documents(
     monkeypatch: pytest.MonkeyPatch,

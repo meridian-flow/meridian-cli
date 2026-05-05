@@ -39,6 +39,13 @@ Startup writes `~/.meridian/chat-server.json` with the current base URL so manag
 commands can find the running server. Pass `--url` to any management command to
 override discovery.
 
+### Usage context
+
+`meridian chat` and all its subcommands (`ls`, `show`, `log`, `close`) are for
+**root-process use only**. Running them inside a spawn (where `MERIDIAN_DEPTH > 0`)
+exits immediately with a clear error. Start the chat server from your terminal or
+a top-level process, not from within an agent.
+
 ---
 
 

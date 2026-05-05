@@ -190,12 +190,13 @@ If a spawn directory is missing entirely, the harness crashed before artifacts s
 
 ## Stale state accumulating in `~/.meridian/`
 
-Over time, orphan project directories and old spawn artifacts accumulate under `~/.meridian/projects/`. Meridian runs a background health scan on app launch (every 24h) and warns on the next text-mode command if stale state is found.
+Over time, orphan project directories and old spawn artifacts accumulate under `~/.meridian/projects/`. Per-project orphan repairs (stale locks, orphaned runs) happen silently in the background on each launch. Use `meridian doctor` to inspect and clean up manually.
 
 To inspect what's stale:
 
 ```bash
-meridian doctor --global          # scan current project + all projects
+meridian doctor           # per-project scan (cheap, run from anywhere)
+meridian doctor --global  # cross-project scan — must run from the root process, not inside a spawn
 ```
 
 To clean up:

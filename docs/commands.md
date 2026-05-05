@@ -174,7 +174,8 @@ reconnect/replay, persistence, and harness support matrix.
 | `meridian config reset KEY` | Reset a config value to default |
 | `meridian mars models list` | Inspect the model catalog |
 | `meridian models refresh` | Force-refresh the models.dev cache |
-| `meridian doctor` | Run diagnostics and reconcile orphan state |
+| `meridian doctor` | Per-project diagnostics and orphan reconciliation (cheap, safe to run anywhere) |
+| `meridian doctor --global` | Cross-project scan — checks all projects under `~/.meridian/`; must run from the root process (not inside a spawn) |
 | `meridian serve` | Start the MCP server |
 
 ## Telemetry
