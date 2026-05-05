@@ -3,8 +3,33 @@
 Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [SemVer](https://semver.org/). Versions `0.0.6` through `0.0.25` in git history only — changelog fell stale, resumed at `[Unreleased]`.
 
 ## [Unreleased]
+### Added
+- Descriptor-driven startup pipeline. CommandDescriptor catalog classifies all CLI commands at parse time — startup class, state requirements, telemetry mode, output format. Thin entrypoint handles `--help`/`--version` in ~16ms without importing the full CLI tree (11.6× faster).
+- Bootstrap service split. `resolve_*` functions are pure reads; `ensure_*` functions may mutate. Explicit `prepare_for_{project,runtime}_{read,write}` facade.
+- Unified telemetry bootstrap API. `TelemetryPlan`/`TelemetryHandle`/`install()` replaces BufferingSink→upgrade pattern.
+- Background telemetry retention maintenance with marker-file cooldown and non-blocking flock.
+- Prepared context threading. Spawn ops receive `RuntimeReadContext`/`WriteContext` instead of self-bootstrapping.
+- CLI output protocol. `to_cli_output()` dispatch replaces isinstance cascade in main.py.
+- Declarative help profiles selected at app-build time from catalog metadata.
+
+### Changed
+- `meridian doctor` (no flags) is now cheap and per-project only — no automatic background global scans. Background per-project repairs (stale locks, orphan runs) still run silently on primary launches.
+- `meridian doctor --global` is the explicit, opt-in path for expensive cross-project maintenance. Requires root process (rejects in nested execution).
+- `meridian chat` (all subcommands) rejects with clear error in nested execution (`MERIDIAN_DEPTH > 0`). Chat is root-only.
+- Git autosync hook lock permission errors now gracefully skip the sync cycle instead of crashing. Returns `skip_reason=lock_permission_error`.
+- Implicit user config read (`~/.meridian/config.toml`) degrades gracefully when inaccessible — treated as absent with structured warning in nested mode.
+
+### Removed
+- Proactive doctor-cache subsystem. No more `doctor-cache.json`, background global scans, or startup nag warnings. Run `meridian doctor` explicitly.
+- `BufferingSink` and CLI telemetry upgrade pattern — replaced by unified install API.
+- `_resolve_command_path()` and manual command routing in main.py — replaced by catalog classification.
+
 ### Fixed
 - OpenCode session continuation creates empty session instead of resuming. Root cause: `POST /session` ignores `sessionID` payload and always creates a new empty session. Fix: verify existing session via `GET /session/{id}` before POST; if found, return it directly. Attach then connects to the existing session with full history.
+- Sandbox permission gaps: 5 code paths that wrote to unprojected `~/.meridian/` root in sandboxed agents now gate/wrap correctly. No new sandbox projection needed.
+- O(N²) spawn scanning in telemetry retention cleanup.
+- Startup token scanner: unknown flags no longer greedily consume next positional token.
+- Spawn event reducer hardened against missing fields in malformed JSONL.
 
 ## [0.0.48] - 2026-05-03
 ### Added
