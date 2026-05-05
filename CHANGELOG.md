@@ -2,7 +2,7 @@
 
 Caveman style. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [SemVer](https://semver.org/). Versions `0.0.6` through `0.0.25` in git history only — changelog fell stale, resumed at `[Unreleased]`.
 
-## [Unreleased]
+## [0.0.49] - 2026-05-04
 ### Added
 - Descriptor-driven startup pipeline. CommandDescriptor catalog classifies all CLI commands at parse time — startup class, state requirements, telemetry mode, output format. Thin entrypoint handles `--help`/`--version` in ~16ms without importing the full CLI tree (11.6× faster).
 - Bootstrap service split. `resolve_*` functions are pure reads; `ensure_*` functions may mutate. Explicit `prepare_for_{project,runtime}_{read,write}` facade.
